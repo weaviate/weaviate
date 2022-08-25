@@ -32,16 +32,19 @@ ObjectsReferencesDeleteNoContent Successfully deleted.
 
 swagger:response objectsReferencesDeleteNoContent
 */
-type ObjectsReferencesDeleteNoContent struct{}
+type ObjectsReferencesDeleteNoContent struct {
+}
 
 // NewObjectsReferencesDeleteNoContent creates ObjectsReferencesDeleteNoContent with default headers values
 func NewObjectsReferencesDeleteNoContent() *ObjectsReferencesDeleteNoContent {
+
 	return &ObjectsReferencesDeleteNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsReferencesDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -54,16 +57,19 @@ ObjectsReferencesDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsReferencesDeleteUnauthorized
 */
-type ObjectsReferencesDeleteUnauthorized struct{}
+type ObjectsReferencesDeleteUnauthorized struct {
+}
 
 // NewObjectsReferencesDeleteUnauthorized creates ObjectsReferencesDeleteUnauthorized with default headers values
 func NewObjectsReferencesDeleteUnauthorized() *ObjectsReferencesDeleteUnauthorized {
+
 	return &ObjectsReferencesDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsReferencesDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,6 +83,7 @@ ObjectsReferencesDeleteForbidden Forbidden
 swagger:response objectsReferencesDeleteForbidden
 */
 type ObjectsReferencesDeleteForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -85,6 +92,7 @@ type ObjectsReferencesDeleteForbidden struct {
 
 // NewObjectsReferencesDeleteForbidden creates ObjectsReferencesDeleteForbidden with default headers values
 func NewObjectsReferencesDeleteForbidden() *ObjectsReferencesDeleteForbidden {
+
 	return &ObjectsReferencesDeleteForbidden{}
 }
 
@@ -101,6 +109,7 @@ func (o *ObjectsReferencesDeleteForbidden) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ObjectsReferencesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,6 +128,7 @@ ObjectsReferencesDeleteNotFound Successful query result but no resource was foun
 swagger:response objectsReferencesDeleteNotFound
 */
 type ObjectsReferencesDeleteNotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type ObjectsReferencesDeleteNotFound struct {
 
 // NewObjectsReferencesDeleteNotFound creates ObjectsReferencesDeleteNotFound with default headers values
 func NewObjectsReferencesDeleteNotFound() *ObjectsReferencesDeleteNotFound {
+
 	return &ObjectsReferencesDeleteNotFound{}
 }
 
@@ -143,6 +154,7 @@ func (o *ObjectsReferencesDeleteNotFound) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ObjectsReferencesDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ ObjectsReferencesDeleteInternalServerError An error has occurred while trying to
 swagger:response objectsReferencesDeleteInternalServerError
 */
 type ObjectsReferencesDeleteInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type ObjectsReferencesDeleteInternalServerError struct {
 
 // NewObjectsReferencesDeleteInternalServerError creates ObjectsReferencesDeleteInternalServerError with default headers values
 func NewObjectsReferencesDeleteInternalServerError() *ObjectsReferencesDeleteInternalServerError {
+
 	return &ObjectsReferencesDeleteInternalServerError{}
 }
 
@@ -185,6 +199,7 @@ func (o *ObjectsReferencesDeleteInternalServerError) SetPayload(payload *models.
 
 // WriteResponse to the client
 func (o *ObjectsReferencesDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

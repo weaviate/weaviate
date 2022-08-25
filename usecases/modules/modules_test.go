@@ -18,12 +18,12 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/adapters/repos/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -323,7 +323,7 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
-		provider, ok := interface{}(modulesProvider).(backups.BackupStorageProvider)
+		provider, ok := interface{}(modulesProvider).(backup.BackupStorageProvider)
 		assert.True(t, ok)
 
 		fmt.Printf("provider: %v\n", provider)

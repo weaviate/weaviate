@@ -30,7 +30,9 @@ import (
 // NewMetaGetParams creates a new MetaGetParams object
 // with the default values initialized.
 func NewMetaGetParams() *MetaGetParams {
+
 	return &MetaGetParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -38,7 +40,9 @@ func NewMetaGetParams() *MetaGetParams {
 // NewMetaGetParamsWithTimeout creates a new MetaGetParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewMetaGetParamsWithTimeout(timeout time.Duration) *MetaGetParams {
+
 	return &MetaGetParams{
+
 		timeout: timeout,
 	}
 }
@@ -46,7 +50,9 @@ func NewMetaGetParamsWithTimeout(timeout time.Duration) *MetaGetParams {
 // NewMetaGetParamsWithContext creates a new MetaGetParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewMetaGetParamsWithContext(ctx context.Context) *MetaGetParams {
+
 	return &MetaGetParams{
+
 		Context: ctx,
 	}
 }
@@ -54,6 +60,7 @@ func NewMetaGetParamsWithContext(ctx context.Context) *MetaGetParams {
 // NewMetaGetParamsWithHTTPClient creates a new MetaGetParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewMetaGetParamsWithHTTPClient(client *http.Client) *MetaGetParams {
+
 	return &MetaGetParams{
 		HTTPClient: client,
 	}
@@ -104,6 +111,7 @@ func (o *MetaGetParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *MetaGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

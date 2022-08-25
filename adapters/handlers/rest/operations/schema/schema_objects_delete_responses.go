@@ -32,16 +32,19 @@ SchemaObjectsDeleteOK Removed the Object class from the schema.
 
 swagger:response schemaObjectsDeleteOK
 */
-type SchemaObjectsDeleteOK struct{}
+type SchemaObjectsDeleteOK struct {
+}
 
 // NewSchemaObjectsDeleteOK creates SchemaObjectsDeleteOK with default headers values
 func NewSchemaObjectsDeleteOK() *SchemaObjectsDeleteOK {
+
 	return &SchemaObjectsDeleteOK{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -55,6 +58,7 @@ SchemaObjectsDeleteBadRequest Could not delete the Object class.
 swagger:response schemaObjectsDeleteBadRequest
 */
 type SchemaObjectsDeleteBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -63,6 +67,7 @@ type SchemaObjectsDeleteBadRequest struct {
 
 // NewSchemaObjectsDeleteBadRequest creates SchemaObjectsDeleteBadRequest with default headers values
 func NewSchemaObjectsDeleteBadRequest() *SchemaObjectsDeleteBadRequest {
+
 	return &SchemaObjectsDeleteBadRequest{}
 }
 
@@ -79,6 +84,7 @@ func (o *SchemaObjectsDeleteBadRequest) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *SchemaObjectsDeleteBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -96,16 +102,19 @@ SchemaObjectsDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsDeleteUnauthorized
 */
-type SchemaObjectsDeleteUnauthorized struct{}
+type SchemaObjectsDeleteUnauthorized struct {
+}
 
 // NewSchemaObjectsDeleteUnauthorized creates SchemaObjectsDeleteUnauthorized with default headers values
 func NewSchemaObjectsDeleteUnauthorized() *SchemaObjectsDeleteUnauthorized {
+
 	return &SchemaObjectsDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -119,6 +128,7 @@ SchemaObjectsDeleteForbidden Forbidden
 swagger:response schemaObjectsDeleteForbidden
 */
 type SchemaObjectsDeleteForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type SchemaObjectsDeleteForbidden struct {
 
 // NewSchemaObjectsDeleteForbidden creates SchemaObjectsDeleteForbidden with default headers values
 func NewSchemaObjectsDeleteForbidden() *SchemaObjectsDeleteForbidden {
+
 	return &SchemaObjectsDeleteForbidden{}
 }
 
@@ -143,6 +154,7 @@ func (o *SchemaObjectsDeleteForbidden) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *SchemaObjectsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ SchemaObjectsDeleteInternalServerError An error has occurred while trying to ful
 swagger:response schemaObjectsDeleteInternalServerError
 */
 type SchemaObjectsDeleteInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type SchemaObjectsDeleteInternalServerError struct {
 
 // NewSchemaObjectsDeleteInternalServerError creates SchemaObjectsDeleteInternalServerError with default headers values
 func NewSchemaObjectsDeleteInternalServerError() *SchemaObjectsDeleteInternalServerError {
+
 	return &SchemaObjectsDeleteInternalServerError{}
 }
 
@@ -185,6 +199,7 @@ func (o *SchemaObjectsDeleteInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *SchemaObjectsDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

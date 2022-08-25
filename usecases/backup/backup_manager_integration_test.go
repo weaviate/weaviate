@@ -1,7 +1,18 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 //go:build integrationTest
 // +build integrationTest
 
-package backups
+package backup
 
 import (
 	"fmt"
@@ -17,9 +28,9 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/modules"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/modules/storage-aws-s3"
-	"github.com/semi-technologies/weaviate/modules/storage-filesystem"
-	"github.com/semi-technologies/weaviate/modules/storage-gcs"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
+	modstgfs "github.com/semi-technologies/weaviate/modules/storage-filesystem"
+	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -29,7 +40,7 @@ import (
 	"google.golang.org/api/option"
 )
 
-func TestBackupManager_CreateBackup(t *testing.T) {
+func TestBackupManagerInt_CreateBackup(t *testing.T) {
 	t.Run("storage-fs, single shard", func(t *testing.T) {
 		ctx, cancel := testCtx()
 		defer cancel()
@@ -46,14 +57,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		require.Nil(t, os.Setenv("STORAGE_FS_SNAPSHOTS_PATH", path.Join(harness.dbRootDir, "snapshots")))
 
 		moduleProvider := testModuleProvider(ctx, t, harness, modstgfs.New())
-
+		snapshotterProvider := NewSnapshotterProvider(harness.db)
 		shardingStateFunc := func(className string) *sharding.State {
 			return harness.shardingState
 		}
 
 		snapshotID := "storage-fs-test-snapshot"
 
-		manager := NewBackupManager(harness.db, harness.logger, moduleProvider, shardingStateFunc)
+		manager := NewBackupManager(harness.logger, snapshotterProvider, moduleProvider, shardingStateFunc)
 
 		t.Run("create backup", func(t *testing.T) {
 			snapshot, err := manager.CreateBackup(ctx, painters.Class, modstgfs.Name, snapshotID)
@@ -120,14 +131,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		}()
 
 		moduleProvider := testModuleProvider(ctx, t, harness, modstggcs.New())
-
+		snapshotterProvider := NewSnapshotterProvider(harness.db)
 		shardingStateFunc := func(className string) *sharding.State {
 			return harness.shardingState
 		}
 
 		snapshotID := "storage-gcs-test-snapshot"
 
-		manager := NewBackupManager(harness.db, harness.logger, moduleProvider, shardingStateFunc)
+		manager := NewBackupManager(harness.logger, snapshotterProvider, moduleProvider, shardingStateFunc)
 
 		t.Run("create backup", func(t *testing.T) {
 			snapshot, err := manager.CreateBackup(ctx, painters.Class, modstggcs.Name, snapshotID)
@@ -198,14 +209,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		}()
 
 		moduleProvider := testModuleProvider(ctx, t, harness, modstgs3.New())
-
+		snapshotterProvider := NewSnapshotterProvider(harness.db)
 		shardingStateFunc := func(className string) *sharding.State {
 			return harness.shardingState
 		}
 
 		snapshotID := "storage-aws-s3-test-snapshot"
 
-		manager := NewBackupManager(harness.db, harness.logger, moduleProvider, shardingStateFunc)
+		manager := NewBackupManager(harness.logger, snapshotterProvider, moduleProvider, shardingStateFunc)
 
 		t.Run("create backup", func(t *testing.T) {
 			snapshot, err := manager.CreateBackup(ctx, painters.Class, modstgs3.Name, snapshotID)

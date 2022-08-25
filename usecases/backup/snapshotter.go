@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package backups
+package backup
 
 import (
 	"context"
@@ -32,4 +32,8 @@ type Snapshotter interface { // implemented by the index
 	// copied (or the operation aborted), and that it is safe for the index to
 	// change the files, such as start compactions.
 	ReleaseSnapshot(ctx context.Context, id string) error
+}
+
+type SnapshotterProvider interface {
+	Snapshotter(className string) Snapshotter
 }

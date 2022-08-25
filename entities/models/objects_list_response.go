@@ -28,6 +28,7 @@ import (
 //
 // swagger:model ObjectsListResponse
 type ObjectsListResponse struct {
+
 	// deprecations
 	Deprecations []*Deprecation `json:"deprecations"`
 
@@ -57,6 +58,7 @@ func (m *ObjectsListResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ObjectsListResponse) validateDeprecations(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -81,6 +83,7 @@ func (m *ObjectsListResponse) validateDeprecations(formats strfmt.Registry) erro
 }
 
 func (m *ObjectsListResponse) validateObjects(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Objects) { // not required
 		return nil
 	}
