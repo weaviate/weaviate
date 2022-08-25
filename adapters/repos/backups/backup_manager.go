@@ -18,9 +18,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -30,22 +28,26 @@ import (
 type shardingStateFunc func(className string) *sharding.State
 
 type backupManager struct {
-	db                *db.DB
 	logger            logrus.FieldLogger
+	snapshotters      SnapshotterProvider
 	storages          BackupStorageProvider
 	shardingStateFunc shardingStateFunc
+
 	createInProgress  map[string]bool
 	createLock        sync.Mutex
 	restoreInProgress map[string]bool
 	restoreLock       sync.Mutex
 }
 
-func NewBackupManager(db *db.DB, logger logrus.FieldLogger, storages BackupStorageProvider, shardingStateFunc shardingStateFunc) backups.BackupManager {
+func NewBackupManager(logger logrus.FieldLogger, snapshotters SnapshotterProvider, storages BackupStorageProvider,
+	shardingStateFunc shardingStateFunc,
+) backups.BackupManager {
 	return &backupManager{
-		db:                db,
 		logger:            logger,
+		snapshotters:      snapshotters,
 		storages:          storages,
 		shardingStateFunc: shardingStateFunc,
+
 		createInProgress:  make(map[string]bool),
 		restoreInProgress: make(map[string]bool),
 	}
@@ -55,9 +57,9 @@ func NewBackupManager(db *db.DB, logger logrus.FieldLogger, storages BackupStora
 func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	storageName, snapshotID string,
 ) (*snapshots.CreateMeta, error) {
-	// index for requested class exists
-	idx := bm.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
+	// snapshotter (index) exists
+	snapshotter := bm.snapshotters.Snapshotter(className)
+	if snapshotter == nil {
 		return nil, snapshots.NewErrUnprocessable(fmt.Errorf("can not create snapshot of non-existing index for %s", className))
 	}
 
@@ -77,7 +79,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	if err == nil {
 		return nil, snapshots.NewErrUnprocessable(fmt.Errorf("snapshot %s of index for %s already exists on storage %s", snapshotID, className, storageName))
 	}
-	if _, ok := err.(snapshots.ErrNotFound); err != nil && !ok {
+	if _, ok := err.(snapshots.ErrNotFound); !ok {
 		return nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
 	}
 
@@ -86,7 +88,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 		return nil, snapshots.NewErrUnprocessable(fmt.Errorf("snapshot of index for %s already in progress", className))
 	}
 
-	provider := newSnapshotProvider(idx, storage, className, snapshotID)
+	provider := newSnapshotProvider(snapshotter, storage, className, snapshotID)
 	snapshot, err := provider.start(ctx)
 	if err != nil {
 		bm.setCreateInProgress(className, false)
@@ -102,7 +104,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	}(ctx, provider)
 
 	return &snapshots.CreateMeta{
-		Path:   provider.storage.DestinationPath(className, snapshotID),
+		Path:   storage.DestinationPath(className, snapshotID),
 		Status: snapshots.CreateStarted,
 	}, nil
 }
@@ -110,8 +112,8 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	className, storageName, snapshotID string,
 ) (*models.SnapshotMeta, error) {
-	idx := bm.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
+	// snapshotter (index) exists
+	if snapshotter := bm.snapshotters.Snapshotter(className); snapshotter == nil {
 		return nil, snapshots.NewErrNotFound(
 			fmt.Errorf("can't fetch snapshot creation status of "+
 				"non-existing index for %s", className))
@@ -123,7 +125,7 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	}
 
 	meta, err := storage.GetMeta(ctx, className, snapshotID)
-	if err != nil && errors.Is(err, snapshots.ErrNotFound{}) {
+	if err != nil && errors.As(err, &snapshots.ErrNotFound{}) {
 		return nil, snapshots.NewErrNotFound(
 			fmt.Errorf("can't fetch snapshot creation status of "+
 				"non-existing snapshot id %s", snapshotID))
@@ -155,9 +157,8 @@ func (bm *backupManager) DestinationPath(storageName, className, snapshotID stri
 func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 	storageName, snapshotID string,
 ) (*snapshots.RestoreMeta, *snapshots.Snapshot, error) {
-	// index for requested class does not exist
-	idx := bm.db.GetIndex(schema.ClassName(className))
-	if idx != nil {
+	// snapshotter (index) does not exist
+	if snapshotter := bm.snapshotters.Snapshotter(className); snapshotter != nil {
 		return nil, nil, snapshots.NewErrUnprocessable(fmt.Errorf("can not restore snapshot of existing index for %s", className))
 	}
 
@@ -169,8 +170,7 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 
 	// snapshot with given id exists and is valid
 	if meta, err := storage.GetMeta(ctx, className, snapshotID); err != nil {
-		// TODO improve check, according to implementation of GetMetaStatus
-		if err.Error() != "file does not exist" {
+		if _, ok := err.(snapshots.ErrNotFound); !ok {
 			return nil, nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "checking snapshot %s of index for %s exists on storage %s", snapshotID, className, storageName))
 		}
 		return nil, nil, snapshots.NewErrNotFound(errors.Wrapf(err, "snapshot %s of index for %s does not exist on storage %s", snapshotID, className, storageName))

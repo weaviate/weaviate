@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBackupManager_CreateBackup(t *testing.T) {
+func TestBackupManagerInt_CreateBackup(t *testing.T) {
 	t.Run("storage-fs, single shard", func(t *testing.T) {
 		ctx, cancel := testCtx()
 		defer cancel()
@@ -47,14 +47,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		require.Nil(t, os.Setenv("STORAGE_FS_SNAPSHOTS_PATH", path.Join(harness.dbRootDir, "snapshots")))
 
 		moduleProvider := testModuleProvider(ctx, t, harness, modstgfs.New())
-
+		snapshotterProvider := NewSnapshotterProvider(harness.db)
 		shardingStateFunc := func(className string) *sharding.State {
 			return harness.shardingState
 		}
 
 		snapshotID := "storage-fs-test-snapshot"
 
-		manager := NewBackupManager(harness.db, harness.logger, moduleProvider, shardingStateFunc)
+		manager := NewBackupManager(harness.logger, snapshotterProvider, moduleProvider, shardingStateFunc)
 
 		t.Run("create backup", func(t *testing.T) {
 			snapshot, err := manager.CreateBackup(ctx, painters.Class, modstgfs.Name, snapshotID)
@@ -108,14 +108,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		}()
 
 		moduleProvider := testModuleProvider(ctx, t, harness, modstggcs.New())
-
+		snapshotterProvider := NewSnapshotterProvider(harness.db)
 		shardingStateFunc := func(className string) *sharding.State {
 			return harness.shardingState
 		}
 
 		snapshotID := "storage-gcs-test-snapshot"
 
-		manager := NewBackupManager(harness.db, harness.logger, moduleProvider, shardingStateFunc)
+		manager := NewBackupManager(harness.logger, snapshotterProvider, moduleProvider, shardingStateFunc)
 
 		t.Run("create backup", func(t *testing.T) {
 			snapshot, err := manager.CreateBackup(ctx, painters.Class, modstggcs.Name, snapshotID)
@@ -169,14 +169,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		}()
 
 		moduleProvider := testModuleProvider(ctx, t, harness, modstgs3.New())
-
+		snapshotterProvider := NewSnapshotterProvider(harness.db)
 		shardingStateFunc := func(className string) *sharding.State {
 			return harness.shardingState
 		}
-
+		
 		snapshotID := "storage-aws-s3-test-snapshot"
 
-		manager := NewBackupManager(harness.db, harness.logger, moduleProvider, shardingStateFunc)
+		manager := NewBackupManager(harness.logger, snapshotterProvider, moduleProvider, shardingStateFunc)
 
 		t.Run("create backup", func(t *testing.T) {
 			snapshot, err := manager.CreateBackup(ctx, painters.Class, modstgs3.Name, snapshotID)
