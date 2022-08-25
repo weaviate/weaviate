@@ -9,13 +9,11 @@
 //  CONTACT: hello@semi.technology
 //
 
-package backups
+package backup
 
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
@@ -38,16 +36,4 @@ type Snapshotter interface { // implemented by the index
 
 type SnapshotterProvider interface {
 	Snapshotter(className string) Snapshotter
-}
-
-func NewSnapshotterProvider(db *db.DB) SnapshotterProvider {
-	return &snapshotterProvider{db}
-}
-
-type snapshotterProvider struct {
-	db *db.DB
-}
-
-func (sp *snapshotterProvider) Snapshotter(className string) Snapshotter {
-	return sp.db.GetIndex(schema.ClassName(className))
 }

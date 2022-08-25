@@ -12,7 +12,7 @@
 //go:build integrationTest
 // +build integrationTest
 
-package backups
+package backup
 
 import (
 	"os"
