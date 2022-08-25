@@ -170,6 +170,21 @@ func Test_lsmPropertyExtractor_getProperty(t *testing.T) {
 			want:     nil,
 		},
 		{
+			name:     "emptyBoolProp",
+			property: "emptyBoolProp",
+			want:     nil,
+		},
+		{
+			name:     "emptyNumberProp",
+			property: "emptyNumberProp",
+			want:     nil,
+		},
+		{
+			name:     "emptyIntProp",
+			property: "emptyIntProp",
+			want:     nil,
+		},
+		{
 			name:     "crefProp",
 			property: "crefProp",
 			want:     nil,
