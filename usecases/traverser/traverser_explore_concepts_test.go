@@ -31,7 +31,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -47,7 +47,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -67,7 +67,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -123,7 +123,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -177,7 +177,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -237,7 +237,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -297,7 +297,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -337,7 +337,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -374,7 +374,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -402,7 +402,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -439,7 +439,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -506,7 +506,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), nil)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)

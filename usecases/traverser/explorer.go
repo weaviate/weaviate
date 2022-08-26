@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/floatcomp"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	uc "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
@@ -38,6 +39,7 @@ type Explorer struct {
 	modulesProvider  ModulesProvider
 	schemaGetter     uc.SchemaGetter
 	nearParamsVector *nearParamsVector
+	metrics          *Metrics
 }
 
 type ModulesProvider interface {
@@ -68,12 +70,13 @@ type vectorClassSearch interface {
 
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, promMetrics *monitoring.PrometheusMetrics,
 ) *Explorer {
 	return &Explorer{
 		search:           search,
 		logger:           logger,
 		modulesProvider:  modulesProvider,
+		metrics:          NewMetrics(promMetrics),
 		schemaGetter:     nil, // schemaGetter is set later
 		nearParamsVector: newNearParamsVector(modulesProvider, search),
 	}
@@ -107,7 +110,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
-		return e.getClassExploration(ctx, params)
+		return e.getClassVectorSearch(ctx, params)
 	}
 
 	return e.getClassList(ctx, params)
@@ -168,7 +171,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, nil, params)
 }
 
-func (e *Explorer) getClassExploration(ctx context.Context,
+func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
@@ -206,6 +209,8 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 			return nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
+
+	e.trackUsage("get_graphql", res, params)
 
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
@@ -616,4 +621,30 @@ func extractDistanceFromModuleParams(moduleParams map[string]interface{}) (dista
 	}
 
 	return
+}
+
+func (e *Explorer) trackUsage(queryType string, res search.Results, params GetParams) {
+	if len(res) == 0 {
+		return
+	}
+
+	op := e.usageOperationFromParams(params)
+	e.metrics.AddUsageDimensions(params.ClassName, queryType, op, res[0].Dims)
+}
+
+func (e *Explorer) usageOperationFromParams(params GetParams) string {
+	if params.NearObject != nil {
+		return "nearObject"
+	}
+
+	if params.NearVector != nil {
+		return "nearVector"
+	}
+
+	// there is at most one module param, so we can return the first we find
+	for param := range params.ModuleParams {
+		return param
+	}
+
+	return "n/a"
 }

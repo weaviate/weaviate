@@ -164,6 +164,6 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 		QueryDimensions: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
-		}, []string{"api", "operation", "class_name"}),
+		}, []string{"query_type", "operation", "class_name"}),
 	}
 }

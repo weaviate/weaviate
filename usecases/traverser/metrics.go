@@ -76,18 +76,14 @@ func (m *Metrics) QueriesGetDec(className string) {
 	}).Dec()
 }
 
-func (m *Metrics) AddGetDimensions(className, operation string, dims int) {
-	m.dimensions.With(prometheus.Labels{
-		"class_name": className,
-		"operation":  operation,
-		"query_type": "get_graphql",
-	}).Add(float64(dims))
-}
+func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dims int) {
+	if m == nil {
+		return
+	}
 
-func (m *Metrics) AddExploreDimensions(className, operation string, dims int) {
 	m.dimensions.With(prometheus.Labels{
 		"class_name": className,
 		"operation":  operation,
-		"query_type": "explore_graphql",
+		"query_type": queryType,
 	}).Add(float64(dims))
 }
