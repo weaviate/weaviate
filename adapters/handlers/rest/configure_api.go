@@ -87,7 +87,7 @@ type vectorRepo interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
+	CrossClassVectorSearch(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 	SetSchemaGetter(schemaUC.SchemaGetter)
 }
 
@@ -164,7 +164,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules)
+	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics))
 	schemaRepo, err = schemarepo.NewRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
@@ -230,7 +230,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules,
-		appState.Metrics)
+		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)

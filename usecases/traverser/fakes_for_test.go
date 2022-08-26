@@ -184,7 +184,7 @@ func (f *fakeExplorer) GetClass(ctx context.Context, p GetParams) ([]interface{}
 	return nil, nil
 }
 
-func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]search.Result, error) {
+func (f *fakeExplorer) CrossClassVectorSearch(ctx context.Context, p ExploreParams) ([]search.Result, error) {
 	return nil, nil
 }
 
@@ -823,4 +823,12 @@ func (s *fakeSearcher) vectorForNearTextParam(ctx context.Context, params interf
 		vector = afterMoveAway
 	}
 	return vector, nil
+}
+
+type fakeMetrics struct {
+	mock.Mock
+}
+
+func (m *fakeMetrics) AddUsageDimensions(class, query, op string, dims int) {
+	m.Called(class, query, op, dims)
 }

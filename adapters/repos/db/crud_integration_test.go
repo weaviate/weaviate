@@ -1254,6 +1254,7 @@ func TestCRUD(t *testing.T) {
 					},
 					Score:                1,
 					AdditionalProperties: models.AdditionalProperties{},
+					Dims:                 4,
 				},
 			}
 
