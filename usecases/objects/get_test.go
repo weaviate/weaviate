@@ -62,8 +62,9 @@ func Test_GetAction(t *testing.T) {
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
+		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), nil)
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -608,8 +609,9 @@ func Test_GetThing(t *testing.T) {
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
+		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), nil)
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -978,6 +980,7 @@ type fakeGetManager struct {
 	vectorizer *fakeVectorizer
 	authorizer *fakeAuthorizer
 	locks      *fakeLocks
+	metrics    *fakeMetrics
 }
 
 func newFakeGetManager(schema schema.Schema) fakeGetManager {
@@ -988,6 +991,7 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 		vectorizer: new(fakeVectorizer),
 		authorizer: new(fakeAuthorizer),
 		locks:      new(fakeLocks),
+		metrics:    new(fakeMetrics),
 	}
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema,
@@ -998,6 +1002,6 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	logger, _ := test.NewNullLogger()
 	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider, nil)
+	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider, r.metrics)
 	return r
 }
