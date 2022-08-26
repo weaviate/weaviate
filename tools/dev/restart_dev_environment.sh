@@ -43,6 +43,9 @@ fi
 if [[ "$*" == *--s3* ]]; then
   ADDITIONAL_SERVICES+=('storage-aws-s3')
 fi
+if [[ "$*" == *--gcs* ]]; then
+  ADDITIONAL_SERVICES+=('storage-gcs')
+fi
 
 docker compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
