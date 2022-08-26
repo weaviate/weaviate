@@ -674,7 +674,11 @@ func getFakeModulesProviderWithCustomExtenders(
 	return &fakeModulesProvider{customExtender, customProjector}
 }
 
-type fakeMetrics struct{}
+type fakeMetrics struct {
+	// Note: only those metric functions that relate to usage-related metrics are
+	// covered by this mock, others are empty shells
+	mock.Mock
+}
 
 func (f *fakeMetrics) BatchInc() {
 }
@@ -746,4 +750,8 @@ func (f *fakeMetrics) DeleteReferenceInc() {
 }
 
 func (f *fakeMetrics) DeleteReferenceDec() {
+}
+
+func (f *fakeMetrics) AddUsageDimensions(className, queryType, op string, dims int) {
+	f.Mock.MethodCalled("AddUsageDimensions", className, queryType, op, dims)
 }

@@ -71,6 +71,7 @@ type objectsMetrics interface {
 	UpdateReferenceDec()
 	DeleteReferenceInc()
 	DeleteReferenceDec()
+	AddUsageDimensions(className, queryType, operation string, dims int)
 }
 
 type timeSource interface {

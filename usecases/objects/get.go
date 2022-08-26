@@ -52,6 +52,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 		return nil, err
 	}
 
+	if additional.Vector {
+		m.trackUsageSingle(res, class)
+	}
+
 	return res.ObjectWithVector(additional.Vector), nil
 }
 
@@ -212,4 +216,11 @@ func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, 
 	}
 
 	return offset, limit, nil
+}
+
+func (m *Manager) trackUsageSingle(res *search.Result, className string) {
+	if res == nil {
+		return
+	}
+	m.metrics.AddUsageDimensions(res.ClassName, "get_rest", "single_include_vector", res.Dims)
 }
