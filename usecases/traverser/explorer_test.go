@@ -49,24 +49,28 @@ func Test_Explorer_GetClass(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
+				Dims: 128,
 			},
 			{
 				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
+				Dims: 128,
 			},
 		}
 
 		search := &fakeVectorSearcher{}
+		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 		search.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
 
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 		res, err := explorer.GetClass(context.Background(), params)
 
 		t.Run("vector search must be called with right params", func(t *testing.T) {
@@ -85,6 +89,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"age": 200,
 				}, res[1])
 		})
+
+		t.Run("usage must be tracked", func(t *testing.T) {
+			metrics.AssertExpectations(t)
+		})
 	})
 
 	t.Run("when an explore param is set for nearObject without id and beacon", func(t *testing.T) {
@@ -102,7 +110,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+			metrics := &fakeMetrics{}
+			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -127,7 +136,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+			metrics := &fakeMetrics{}
+			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -167,18 +177,21 @@ func Test_Explorer_GetClass(t *testing.T) {
 						Schema: map[string]interface{}{
 							"name": "Foo",
 						},
+						Dims: 128,
 					},
 					{
 						ID: "id2",
 						Schema: map[string]interface{}{
 							"age": 200,
 						},
+						Dims: 128,
 					},
 				}
 
 				search := &fakeVectorSearcher{}
 				log, _ := test.NewNullLogger()
-				explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+				metrics := &fakeMetrics{}
+				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 				expectedParamsToSearch := params
 				search.
 					On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -186,6 +199,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 				search.
 					On("VectorClassSearch", expectedParamsToSearch).
 					Return(searchResults, nil)
+				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 				res, err := explorer.GetClass(context.Background(), params)
 
@@ -234,18 +248,21 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
+					Dims: 128,
 				},
 				{
 					ID: "id2",
 					Schema: map[string]interface{}{
 						"age": 200,
 					},
+					Dims: 128,
 				},
 			}
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+			metrics := &fakeMetrics{}
+			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 			expectedParamsToSearch := params
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -253,6 +270,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
+			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -302,18 +320,21 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
+					Dims: 128,
 				},
 				{
 					ID: "id2",
 					Schema: map[string]interface{}{
 						"age": 200,
 					},
+					Dims: 128,
 				},
 			}
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+			metrics := &fakeMetrics{}
+			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 			expectedParamsToSearch := params
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -321,6 +342,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
+			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -368,18 +390,21 @@ func Test_Explorer_GetClass(t *testing.T) {
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
+					Dims: 128,
 				},
 				{
 					ID: "id2",
 					Schema: map[string]interface{}{
 						"age": 200,
 					},
+					Dims: 128,
 				},
 			}
 
 			search := &fakeVectorSearcher{}
+			metrics := &fakeMetrics{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 			expectedParamsToSearch := params
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
@@ -387,6 +412,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
+			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -427,21 +453,25 @@ func Test_Explorer_GetClass(t *testing.T) {
 					{
 						ID:   "id1",
 						Dist: 2 * 0.69,
+						Dims: 128,
 					},
 					{
 						ID:   "id2",
 						Dist: 2 * 0.69,
+						Dims: 128,
 					},
 				}
 
 				search := &fakeVectorSearcher{}
 				log, _ := test.NewNullLogger()
-				explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+				metrics := &fakeMetrics{}
+				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 				expectedParamsToSearch := params
 				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 				search.
 					On("VectorClassSearch", expectedParamsToSearch).
 					Return(searchResults, nil)
+				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
 				res, err := explorer.GetClass(context.Background(), params)
 
@@ -470,21 +500,25 @@ func Test_Explorer_GetClass(t *testing.T) {
 					{
 						ID:   "id1",
 						Dist: 2 * 0.69,
+						Dims: 128,
 					},
 					{
 						ID:   "id2",
 						Dist: 2 * 0.69,
+						Dims: 128,
 					},
 				}
 
 				search := &fakeVectorSearcher{}
 				log, _ := test.NewNullLogger()
-				explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+				metrics := &fakeMetrics{}
+				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 				expectedParamsToSearch := params
 				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 				search.
 					On("VectorClassSearch", expectedParamsToSearch).
 					Return(searchResults, nil)
+				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
 				res, err := explorer.GetClass(context.Background(), params)
 
@@ -514,7 +548,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -544,7 +579,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -600,7 +636,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -651,7 +688,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -726,7 +764,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -786,7 +825,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -836,7 +876,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -886,7 +927,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -1177,7 +1219,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		fakeSearch := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
@@ -1321,7 +1364,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		fakeSearch := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
@@ -1516,7 +1560,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		fakeSearch := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(fakeSearch, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
@@ -1825,23 +1870,27 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Foo",
 				},
+				Dims: 128,
 			},
 			{
 				ID: "id2",
 				Schema: map[string]interface{}{
 					"age": 200,
 				},
+				Dims: 128,
 			},
 		}
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -1881,21 +1930,25 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				{
 					ID:   "id1",
 					Dist: 2 * 0.69,
+					Dims: 128,
 				},
 				{
 					ID:   "id2",
 					Dist: 2 * 0.69,
+					Dims: 128,
 				},
 			}
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+			metrics := &fakeMetrics{}
+			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 			expectedParamsToSearch := params
 			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
+			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -1927,21 +1980,25 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				{
 					ID:   "id1",
 					Dist: 2 * 0.69,
+					Dims: 128,
 				},
 				{
 					ID:   "id2",
 					Dist: 2 * 0.69,
+					Dims: 128,
 				},
 			}
 
 			search := &fakeVectorSearcher{}
 			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+			metrics := &fakeMetrics{}
+			explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 			expectedParamsToSearch := params
 			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 			search.
 				On("VectorClassSearch", expectedParamsToSearch).
 				Return(searchResults, nil)
+			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 			res, err := explorer.GetClass(context.Background(), params)
 
@@ -1972,7 +2029,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -1995,7 +2053,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -2021,7 +2080,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parameters which are conflicting")
@@ -2044,7 +2104,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
@@ -2067,7 +2128,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		_, err := explorer.GetClass(context.Background(), params)
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "needs to have defined either 'concepts' or 'objects' fields")
@@ -2099,18 +2161,21 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				},
 				Vector: []float32{0.5, 1.5, 0.0},
 				Dist:   2 * 0.69,
+				Dims:   128,
 			},
 		}
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
 		// expectedParamsToSearch.SearchVector = nil
 		search.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -2158,12 +2223,14 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				},
 				Vector: []float32{0.5, 1.5, 0.0},
 				Dist:   2 * 0.69,
+				Dims:   128,
 			},
 		}
 
 		search := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 		schemaGetter := newFakeSchemaGetter("BestClass")
 		schemaGetter.SetVectorIndexConfig(hnsw.UserConfig{Distance: "cosine"})
 		explorer.schemaGetter = schemaGetter
@@ -2173,6 +2240,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		search.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
@@ -2232,7 +2300,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		pathBuilder := &fakePathBuilder{
 			returnArgs: []search.Result{
 				{
-					ID: "id1",
+					ID:   "id1",
+					Dims: 128,
 					Schema: map[string]interface{}{
 						"name": "Foo",
 					},
@@ -2258,7 +2327,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 					},
 				},
 				{
-					ID: "id2",
+					ID:   "id2",
+					Dims: 128,
 					Schema: map[string]interface{}{
 						"name": "Bar",
 					},
@@ -2285,13 +2355,15 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				},
 			},
 		}
-		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(nil, nil, pathBuilder), nil)
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(searcher, log, getFakeModulesProviderWithCustomExtenders(nil, nil, pathBuilder), metrics)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		expectedParamsToSearch.AdditionalProperties.Vector = true // any custom additional params will trigger vector
 		searcher.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
