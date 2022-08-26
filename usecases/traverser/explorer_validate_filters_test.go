@@ -367,7 +367,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 				sg := &fakeSchemaGetter{
 					schema: schemaForFiltersValidation(),
 				}
-				explorer := NewExplorer(search, log, getFakeModulesProvider())
+				explorer := NewExplorer(search, log, getFakeModulesProvider(), nil)
 				explorer.SetSchemaGetter(sg)
 
 				if test.expectedError == nil {
