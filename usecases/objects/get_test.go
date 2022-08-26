@@ -157,6 +157,39 @@ func Test_GetAction(t *testing.T) {
 		assert.Equal(t, expected, res)
 	})
 
+	t.Run("list all existing objects with vectors", func(t *testing.T) {
+		reset()
+		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+
+		results := []search.Result{
+			{
+				ID:        id,
+				ClassName: "ActionClass",
+				Schema:    map[string]interface{}{"foo": "bar"},
+				Vector:    []float32{1, 2, 3},
+				Dims:      3,
+			},
+		}
+		vectorRepo.On("ObjectSearch", 0, 20, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything).Return(results, nil).Once()
+
+		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "list_include_vector", 3)
+
+		expected := []*models.Object{
+			{
+				ID:            id,
+				Class:         "ActionClass",
+				Properties:    map[string]interface{}{"foo": "bar"},
+				VectorWeights: (map[string]string)(nil),
+				Vector:        []float32{1, 2, 3},
+			},
+		}
+
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{Vector: true})
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
 	t.Run("list all existing actions with all explicit offset and limit", func(t *testing.T) {
 		reset()
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")

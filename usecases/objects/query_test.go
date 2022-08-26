@@ -16,8 +16,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestQuery(t *testing.T) {
@@ -36,54 +39,125 @@ func TestQuery(t *testing.T) {
 		Limit: 10,
 	}
 	tests := []struct {
-		class     string
-		param     QueryParams
-		mockedErr *Error
-		authErr   error
-		lockErr   error
-		wantCode  int
+		class             string
+		name              string
+		param             QueryParams
+		mockedErr         *Error
+		authErr           error
+		lockErr           error
+		wantCode          int
+		mockedDBResponse  []search.Result
+		wantResponse      []*models.Object
+		wantQueryInput    QueryInput
+		wantUsageTracking bool
 	}{
 		{
-			class:     cls,
-			param:     params,
-			mockedErr: &Error{Code: StatusNotFound},
-			wantCode:  StatusNotFound,
+			name:           "not found",
+			class:          cls,
+			param:          params,
+			mockedErr:      &Error{Code: StatusNotFound},
+			wantCode:       StatusNotFound,
+			wantQueryInput: inputs,
 		},
 		{
-			class:    cls,
-			param:    params,
-			authErr:  errAny,
-			wantCode: StatusForbidden,
+			name:           "forbidden",
+			class:          cls,
+			param:          params,
+			authErr:        errAny,
+			wantCode:       StatusForbidden,
+			wantQueryInput: inputs,
 		},
 		{
-			class:    cls,
-			param:    params,
-			lockErr:  errAny,
-			wantCode: StatusInternalServerError,
+			name:           "internal error",
+			class:          cls,
+			param:          params,
+			lockErr:        errAny,
+			wantCode:       StatusInternalServerError,
+			wantQueryInput: inputs,
 		},
 		{
+			name:  "happy path",
 			class: cls,
 			param: params,
+			mockedDBResponse: []search.Result{
+				{
+					ClassName: cls,
+					Schema: map[string]interface{}{
+						"foo": "bar",
+					},
+					Dims: 3,
+					Dist: 0,
+				},
+			},
+			wantResponse: []*models.Object{{
+				Class:         cls,
+				VectorWeights: map[string]string(nil),
+				Properties: map[string]interface{}{
+					"foo": "bar",
+				},
+			}},
+			wantQueryInput: inputs,
 		},
 		{
-			class:    cls,
-			param:    QueryParams{Class: cls, Offset: ptInt64(1), Limit: &m.config.Config.QueryMaximumResults},
-			wantCode: StatusBadRequest,
+			name:  "happy path with explicit vector requested",
+			class: cls,
+			param: QueryParams{
+				Class:      cls,
+				Limit:      ptInt64(10),
+				Additional: additional.Properties{Vector: true},
+			},
+			mockedDBResponse: []search.Result{
+				{
+					ClassName: cls,
+					Schema: map[string]interface{}{
+						"foo": "bar",
+					},
+					Dims: 3,
+				},
+			},
+			wantResponse: []*models.Object{{
+				Class:         cls,
+				VectorWeights: map[string]string(nil),
+				Properties: map[string]interface{}{
+					"foo": "bar",
+				},
+			}},
+			wantQueryInput: QueryInput{
+				Class:      cls,
+				Limit:      10,
+				Additional: additional.Properties{Vector: true},
+			},
+			wantUsageTracking: true,
+		},
+		{
+			name:           "bad request",
+			class:          cls,
+			param:          QueryParams{Class: cls, Offset: ptInt64(1), Limit: &m.config.Config.QueryMaximumResults},
+			wantCode:       StatusBadRequest,
+			wantQueryInput: inputs,
 		},
 	}
 	for i, tc := range tests {
-		m.authorizer.Err = tc.authErr
-		m.locks.Err = tc.lockErr
-		if tc.authErr == nil && tc.lockErr == nil {
-			m.repo.On("Query", &inputs).Return([]search.Result{}, tc.mockedErr).Once()
-		}
-		_, err := m.Manager.Query(context.Background(), nil, &tc.param)
-		code := 0
-		if err != nil {
-			code = err.Code
-		}
-		if tc.wantCode != code {
-			t.Errorf("case %d expected:%v got:%v", i+1, tc.wantCode, code)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			m.authorizer.Err = tc.authErr
+			m.locks.Err = tc.lockErr
+			if tc.authErr == nil && tc.lockErr == nil {
+				m.repo.On("Query", &tc.wantQueryInput).Return(tc.mockedDBResponse, tc.mockedErr).Once()
+			}
+			if tc.wantUsageTracking {
+				m.metrics.On("AddUsageDimensions", cls, "get_rest", "list_include_vector",
+					tc.mockedDBResponse[0].Dims)
+			}
+			res, err := m.Manager.Query(context.Background(), nil, &tc.param)
+			code := 0
+			if err != nil {
+				code = err.Code
+			}
+			if tc.wantCode != code {
+				t.Errorf("case %d expected:%v got:%v", i+1, tc.wantCode, code)
+			}
+
+			assert.Equal(t, tc.wantResponse, res)
+		})
 	}
 }

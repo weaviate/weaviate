@@ -180,7 +180,8 @@ func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, fi
 
 func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
 	args := f.Called(q)
-	return args.Get(0).([]search.Result), args.Error(1).(*Error)
+	res, err := args.Get(0).([]search.Result), args.Error(1).(*Error)
+	return res, err
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context,
