@@ -33,6 +33,7 @@ type Object struct {
 	MarshallerVersion uint8
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
+	VectorLen         int           `json:"-"`
 	docID             uint64
 }
 
@@ -48,6 +49,7 @@ func FromObject(object *models.Object, vector []float32) *Object {
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
+		VectorLen:         len(vector),
 	}
 }
 
@@ -98,6 +100,7 @@ func FromBinaryOptional(data []byte,
 	ec.AddWrap(binary.Read(r, le, &createTime), "create time")
 	ec.AddWrap(binary.Read(r, le, &updateTime), "update time")
 	ec.AddWrap(binary.Read(r, le, &vectorLength), "vector length")
+	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
 		ko.Vector = make([]float32, vectorLength)
 		ec.AddWrap(binary.Read(r, le, &ko.Vector), "read vector")
@@ -258,6 +261,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
+		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
@@ -464,6 +468,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	updateTime := int64(byteOps.ReadUint64())
 
 	vectorLength := byteOps.ReadUint16()
+	ko.VectorLen = int(vectorLength)
 	ko.Vector = make([]float32, vectorLength)
 	for j := 0; j < int(vectorLength); j++ {
 		ko.Vector[j] = math.Float32frombits(byteOps.ReadUint32())

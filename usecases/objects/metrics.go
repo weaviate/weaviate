@@ -21,6 +21,7 @@ import (
 type Metrics struct {
 	queriesCount *prometheus.GaugeVec
 	batchTime    *prometheus.HistogramVec
+	dimensions   *prometheus.CounterVec
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -31,6 +32,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	return &Metrics{
 		queriesCount: prom.QueriesCount,
 		batchTime:    prom.BatchTime,
+		dimensions:   prom.QueryDimensions,
 	}
 }
 
@@ -164,4 +166,16 @@ func (m *Metrics) BatchOp(op string, startNs int64) {
 		"class_name": "n/a",
 		"shard_name": "n/a",
 	}).Observe(float64(took))
+}
+
+func (m *Metrics) AddUsageDimensions(className, queryType, operation string, dims int) {
+	if m == nil {
+		return
+	}
+
+	m.dimensions.With(prometheus.Labels{
+		"class_name": className,
+		"operation":  operation,
+		"query_type": queryType,
+	}).Add(float64(dims))
 }
