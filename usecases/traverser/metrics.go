@@ -18,6 +18,7 @@ import (
 
 type Metrics struct {
 	queriesCount *prometheus.GaugeVec
+	dimensions   *prometheus.CounterVec
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -27,6 +28,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 
 	return &Metrics{
 		queriesCount: prom.QueriesCount,
+		dimensions:   prom.QueryDimensions,
 	}
 }
 
@@ -72,4 +74,20 @@ func (m *Metrics) QueriesGetDec(className string) {
 		"class_name": className,
 		"query_type": "get_graphql",
 	}).Dec()
+}
+
+func (m *Metrics) AddGetDimensions(className, operation string, dims int) {
+	m.dimensions.With(prometheus.Labels{
+		"class_name": className,
+		"operation":  operation,
+		"query_type": "get_graphql",
+	}).Add(float64(dims))
+}
+
+func (m *Metrics) AddExploreDimensions(className, operation string, dims int) {
+	m.dimensions.With(prometheus.Labels{
+		"class_name": className,
+		"operation":  operation,
+		"query_type": "explore_graphql",
+	}).Add(float64(dims))
 }
