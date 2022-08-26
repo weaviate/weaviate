@@ -26,5 +26,8 @@ type snapshotterProvider struct {
 }
 
 func (sp *snapshotterProvider) Snapshotter(className string) backup.Snapshotter {
-	return sp.db.GetIndex(schema.ClassName(className))
+	if idx := sp.db.GetIndex(schema.ClassName(className)); idx != nil {
+		return idx
+	}
+	return nil
 }
