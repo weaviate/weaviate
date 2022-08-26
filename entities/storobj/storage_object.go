@@ -33,7 +33,7 @@ type Object struct {
 	MarshallerVersion uint8
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
-	VectorLen         int
+	VectorLen         int           `json:"-"`
 	docID             uint64
 }
 

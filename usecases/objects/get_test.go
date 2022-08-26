@@ -101,7 +101,7 @@ func Test_GetAction(t *testing.T) {
 		assert.Equal(t, expected, res)
 	})
 
-	t.Run("get existing object with vector", func(t *testing.T) {
+	t.Run("get existing object by id with vector without classname (deprecated)", func(t *testing.T) {
 		reset()
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
 
@@ -125,6 +125,36 @@ func Test_GetAction(t *testing.T) {
 		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "single_include_vector", 3)
 
 		res, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{Vector: true})
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("get existing object by id with vector with classname", func(t *testing.T) {
+		reset()
+		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+
+		result := &search.Result{
+			ID:        id,
+			ClassName: "ActionClass",
+			Schema:    map[string]interface{}{"foo": "bar"},
+			Vector:    []float32{1, 2, 3},
+			Dims:      3,
+		}
+		vectorRepo.On("Object", "ActionClass", id, mock.Anything, mock.Anything).
+			Return(result, nil).Once()
+
+		expected := &models.Object{
+			ID:            id,
+			Class:         "ActionClass",
+			Properties:    map[string]interface{}{"foo": "bar"},
+			VectorWeights: (map[string]string)(nil),
+			Vector:        []float32{1, 2, 3},
+		}
+
+		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "single_include_vector", 3)
+
+		res, err := manager.GetObject(context.Background(), &models.Principal{},
+			"ActionClass", id, additional.Properties{Vector: true})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
