@@ -221,6 +221,12 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
+	// we will modiry the params because of the workaround outlined below,
+	// however, we only want to track what the user actually set for the usage
+	// metrics, not our own workaround, so hwere's a copy of the original user
+	// input
+	userSetAdditionalVector := params.AdditionalProperties.Vector
+
 	// if both grouping and whereFilter/sort are present, the below
 	// class search will eventually call storobj.FromBinaryOptional
 	// to unmarshal the record. in this case, we must manually set
@@ -253,6 +259,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 		if err != nil {
 			return nil, errors.Errorf("explorer: list class: extend: %v", err)
 		}
+	}
+
+	if userSetAdditionalVector {
+		e.trackUsageGetExplicitVector(res, params)
 	}
 
 	return e.searchResultsToGetResponse(ctx, res, nil, params)
@@ -635,6 +645,15 @@ func (e *Explorer) trackUsageGet(res search.Results, params GetParams) {
 
 	op := e.usageOperationFromGetParams(params)
 	e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", op, res[0].Dims)
+}
+
+func (e *Explorer) trackUsageGetExplicitVector(res search.Results, params GetParams) {
+	if len(res) == 0 {
+		return
+	}
+
+	e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", "_additional.vector",
+		res[0].Dims)
 }
 
 func (e *Explorer) usageOperationFromGetParams(params GetParams) string {
