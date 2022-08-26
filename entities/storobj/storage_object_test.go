@@ -120,9 +120,14 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			// modify before to match expectations of after
 			before.Object.Additional = nil
 			before.Vector = nil
+			before.VectorLen = 3
 			assert.Equal(t, before, after)
 
 			assert.Equal(t, before.docID, after.docID)
+
+			// The vector length should always be returned (for usage metrics
+			// purposes) even if the vector itself is skipped
+			assert.Equal(t, after.VectorLen, 3)
 		})
 	})
 }
