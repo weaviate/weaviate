@@ -74,6 +74,8 @@ func makeFilePath(parts ...string) string {
 }
 
 func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("s3", snapshot.ClassName))
+	defer timer.ObserveDuration()
 	bucketName, err := s.findBucket(ctx)
 	if err != nil {
 		return snapshots.NewErrInternal(errors.Wrap(err, "store snapshot"))
@@ -145,6 +147,13 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 		if err != nil {
 			return nil, errors.Wrapf(err, "Unable to restore file %s, system might be in a corrupted state", filePath)
 		}
+		// Get size of file
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return nil, errors.Errorf("Unable to get size of file %v", filePath)
+		}
+		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("s3", className).Add(float64(fileInfo.Size()))
+
 	}
 	return snapshot, nil
 }
@@ -200,6 +209,7 @@ func (s *s3) findBucket(ctx context.Context) (string, error) {
 }
 
 func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	
 	if _, err := s.findBucket(ctx); err != nil {
 		return nil, errors.Wrap(err, "init snapshot")
 	}

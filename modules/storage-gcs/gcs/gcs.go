@@ -143,11 +143,20 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string)
 		if err := g.saveFile(ctx, bucket, snapshotID, objectName, filePath); err != nil {
 			return nil, errors.Wrap(err, "put file")
 		}
+
+		// Get size of file
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return nil, errors.Errorf("Unable to get size of file %v", filePath)
+		}
+		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("gcs", className).Add(float64(fileInfo.Size()))
 	}
 	return &snapshot, nil
 }
 
 func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("gcs", snapshot.ClassName))
+	defer timer.ObserveDuration()
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return err
@@ -172,6 +181,8 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 		if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
 			return errors.Wrap(err, "put file")
 		}
+
+		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("gcs", snapshot.ClassName).Add(float64(len(content)))
 	}
 
 	return nil

@@ -42,9 +42,12 @@ type PrometheusMetrics struct {
 	QueryDimensions                     *prometheus.CounterVec
 	GoroutinesCount                     *prometheus.GaugeVec
 	SnapshotRestoreDurations            *prometheus.HistogramVec
+	SnapshotStoreDurations              *prometheus.HistogramVec
 	SnapshotRestoreClassDurations       *prometheus.HistogramVec
 	SnapshotRestoreBackupInitDurations  *prometheus.HistogramVec
 	SnapshotRestoreFromStorageDurations *prometheus.HistogramVec
+	SnapshotRestoreDataTransferred      *prometheus.CounterVec
+	SnapshotStoreDataTransferred        *prometheus.CounterVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.HistogramVec
@@ -63,7 +66,7 @@ func GetMetrics() *PrometheusMetrics {
 	return metrics
 }
 
-func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
+func NewPrometheusMetrics() *PrometheusMetrics {
 	metrics = &PrometheusMetrics{
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
@@ -201,6 +204,19 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name:    "snapshot_restore_from_storage_ms",
 			Help:    "file transfer stage of a snapshot restore",
 			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"storage_name", "class_name"}),
+		SnapshotStoreDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "snapshot_store_to_storage_ms",
+			Help:    "file transfer stage of a snapshot restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"storage_name", "class_name"}),
+		SnapshotRestoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "snapshot_restore_data_transferred",
+			Help: "Total number of bytes transferred during a snapshot restore",
+		}, []string{"storage_name", "class_name"}),
+		SnapshotStoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "snapshot_store_data_transferred",
+			Help: "Total number of bytes transferred during a snapshot store",
 		}, []string{"storage_name", "class_name"}),
 	}
 
