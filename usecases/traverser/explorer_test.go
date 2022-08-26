@@ -820,6 +820,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 					"name": "Foo",
 				},
 				Vector: []float32{0.1, -0.3},
+				Dims:   128,
 			},
 		}
 
@@ -832,6 +833,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		search.
 			On("ClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "_additional.vector", 128)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
