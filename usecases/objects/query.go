@@ -82,5 +82,9 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		}
 	}
 
+	if q.Additional.Vector {
+		m.trackUsageList(res)
+	}
+
 	return res.ObjectsWithVector(q.Additional.Vector), nil
 }

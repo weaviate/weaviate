@@ -32,6 +32,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	return &Metrics{
 		queriesCount: prom.QueriesCount,
 		batchTime:    prom.BatchTime,
+		dimensions:   prom.QueryDimensions,
 	}
 }
 
