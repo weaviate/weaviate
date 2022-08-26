@@ -41,7 +41,7 @@ func (t *Traverser) Explore(ctx context.Context,
 		return nil, err
 	}
 
-	return t.explorer.Concepts(ctx, params)
+	return t.explorer.CrossClassVectorSearch(ctx, params)
 }
 
 // ExploreParams are the parameters used by the GraphQL `Explore { }` API

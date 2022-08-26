@@ -24,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/floatcomp"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	uc "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
@@ -39,7 +38,11 @@ type Explorer struct {
 	modulesProvider  ModulesProvider
 	schemaGetter     uc.SchemaGetter
 	nearParamsVector *nearParamsVector
-	metrics          *Metrics
+	metrics          explorerMetrics
+}
+
+type explorerMetrics interface {
+	AddUsageDimensions(className, queryType, operation string, dims int)
 }
 
 type ModulesProvider interface {
@@ -70,13 +73,13 @@ type vectorClassSearch interface {
 
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider, promMetrics *monitoring.PrometheusMetrics,
+	modulesProvider ModulesProvider, metrics explorerMetrics,
 ) *Explorer {
 	return &Explorer{
 		search:           search,
 		logger:           logger,
 		modulesProvider:  modulesProvider,
-		metrics:          NewMetrics(promMetrics),
+		metrics:          metrics,
 		schemaGetter:     nil, // schemaGetter is set later
 		nearParamsVector: newNearParamsVector(modulesProvider, search),
 	}
@@ -210,7 +213,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		}
 	}
 
-	e.trackUsage("get_graphql", res, params)
+	e.trackUsageGet(res, params)
 
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
@@ -383,7 +386,7 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 	}
 }
 
-func (e *Explorer) Concepts(ctx context.Context,
+func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 	params ExploreParams,
 ) ([]search.Result, error) {
 	if err := e.validateExploreParams(params); err != nil {
@@ -399,6 +402,8 @@ func (e *Explorer) Concepts(ctx context.Context,
 	if err != nil {
 		return nil, errors.Errorf("vector search: %v", err)
 	}
+
+	e.trackUsageExplore(res, params)
 
 	results := []search.Result{}
 	for _, item := range res {
@@ -623,16 +628,42 @@ func extractDistanceFromModuleParams(moduleParams map[string]interface{}) (dista
 	return
 }
 
-func (e *Explorer) trackUsage(queryType string, res search.Results, params GetParams) {
+func (e *Explorer) trackUsageGet(res search.Results, params GetParams) {
 	if len(res) == 0 {
 		return
 	}
 
-	op := e.usageOperationFromParams(params)
-	e.metrics.AddUsageDimensions(params.ClassName, queryType, op, res[0].Dims)
+	op := e.usageOperationFromGetParams(params)
+	e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", op, res[0].Dims)
 }
 
-func (e *Explorer) usageOperationFromParams(params GetParams) string {
+func (e *Explorer) usageOperationFromGetParams(params GetParams) string {
+	if params.NearObject != nil {
+		return "nearObject"
+	}
+
+	if params.NearVector != nil {
+		return "nearVector"
+	}
+
+	// there is at most one module param, so we can return the first we find
+	for param := range params.ModuleParams {
+		return param
+	}
+
+	return "n/a"
+}
+
+func (e *Explorer) trackUsageExplore(res search.Results, params ExploreParams) {
+	if len(res) == 0 {
+		return
+	}
+
+	op := e.usageOperationFromExploreParams(params)
+	e.metrics.AddUsageDimensions("n/a", "explore_graphql", op, res[0].Dims)
+}
+
+func (e *Explorer) usageOperationFromExploreParams(params ExploreParams) string {
 	if params.NearObject != nil {
 		return "nearObject"
 	}
