@@ -673,3 +673,77 @@ func getFakeModulesProviderWithCustomExtenders(
 ) *fakeModulesProvider {
 	return &fakeModulesProvider{customExtender, customProjector}
 }
+
+type fakeMetrics struct{}
+
+func (f *fakeMetrics) BatchInc() {
+}
+
+func (f *fakeMetrics) BatchDec() {
+}
+
+func (f *fakeMetrics) BatchRefInc() {
+}
+
+func (f *fakeMetrics) BatchRefDec() {
+}
+
+func (f *fakeMetrics) BatchDeleteInc() {
+}
+
+func (f *fakeMetrics) BatchDeleteDec() {
+}
+
+func (f *fakeMetrics) AddObjectInc() {
+}
+
+func (f *fakeMetrics) AddObjectDec() {
+}
+
+func (f *fakeMetrics) UpdateObjectInc() {
+}
+
+func (f *fakeMetrics) UpdateObjectDec() {
+}
+
+func (f *fakeMetrics) MergeObjectInc() {
+}
+
+func (f *fakeMetrics) MergeObjectDec() {
+}
+
+func (f *fakeMetrics) DeleteObjectInc() {
+}
+
+func (f *fakeMetrics) DeleteObjectDec() {
+}
+
+func (f *fakeMetrics) GetObjectInc() {
+}
+
+func (f *fakeMetrics) GetObjectDec() {
+}
+
+func (f *fakeMetrics) HeadObjectInc() {
+}
+
+func (f *fakeMetrics) HeadObjectDec() {
+}
+
+func (f *fakeMetrics) AddReferenceInc() {
+}
+
+func (f *fakeMetrics) AddReferenceDec() {
+}
+
+func (f *fakeMetrics) UpdateReferenceInc() {
+}
+
+func (f *fakeMetrics) UpdateReferenceDec() {
+}
+
+func (f *fakeMetrics) DeleteReferenceInc() {
+}
+
+func (f *fakeMetrics) DeleteReferenceDec() {
+}
