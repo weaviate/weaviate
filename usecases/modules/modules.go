@@ -215,7 +215,8 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 			m.hasMultipleVectorizers = true
 		}
 		for _, moduleName := range modules {
-			if m.moduleProvidesMultipleVectorizers(moduleName) {
+			moduleType := m.GetByName(moduleName).Type()
+			if m.moduleProvidesMultipleVectorizers(moduleType) {
 				m.hasMultipleVectorizers = true
 			}
 		}
@@ -225,15 +226,18 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 
 func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
-	case modulecapabilities.Text2Vec, modulecapabilities.Img2Vec, modulecapabilities.Multi2Vec:
+	case modulecapabilities.Text2Vec,
+		modulecapabilities.Img2Vec,
+		modulecapabilities.Multi2Vec,
+		modulecapabilities.Text2MultiVec:
 		return true
 	default:
 		return false
 	}
 }
 
-func (m *Provider) moduleProvidesMultipleVectorizers(module string) bool {
-	return module == "text2vec-openai"
+func (m *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
+	return moduleType == modulecapabilities.Text2MultiVec
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string,
