@@ -17,16 +17,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/snapshots"
-	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/test/helper"
-	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
-	"github.com/stretchr/testify/assert"
+	"github.com/semi-technologies/weaviate/test/helper/journey"
 	"github.com/stretchr/testify/require"
 )
 
 const (
+	envGCSEndpoint            = "GCS_ENDPOINT"
+	envGCSStorageEmulatorHost = "STORAGE_EMULATOR_HOST"
+	envGCSCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
+	envGCSProjectID           = "GOOGLE_CLOUD_PROJECT"
+	envGCSBucket              = "STORAGE_GCS_BUCKET"
+
 	gcsBackupJourneyClassName  = "GcsBackup"
 	gcsBackupJourneySnapshotID = "gcs-snapshot"
 	gcsBackupJourneyProjectID  = "gcs-backup-journey"
@@ -38,18 +41,22 @@ func Test_BackupJourney(t *testing.T) {
 	defer cancel()
 
 	t.Run("pre-instance env setup", func(t *testing.T) {
-		require.Nil(t, os.Setenv("TEST_WEAVIATE_IMAGE", "weaviate:module-tests"))
 		require.Nil(t, os.Setenv(envGCSCredentials, ""))
 		require.Nil(t, os.Setenv(envGCSProjectID, gcsBackupJourneyProjectID))
 		require.Nil(t, os.Setenv(envGCSBucket, gcsBackupJourneyBucketName))
 	})
 
 	compose, err := docker.New().
-		WithGCS().
+		WithStorageGCS(gcsBackupJourneyBucketName).
 		WithText2VecContextionary().
 		WithWeaviate().
 		Start(ctx)
 	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminte test containers: %s", err.Error())
+		}
+	}()
 
 	t.Run("post-instance env setup", func(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
@@ -59,75 +66,9 @@ func Test_BackupJourney(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())
 	})
 
-	// add test data
-	addTestClass(t, gcsBackupJourneyClassName)
-	addTestObjects(t, gcsBackupJourneyClassName)
-
 	// journey tests
-	t.Run("single shard backup with GCS", singleShardBackupJourneyWithGCS)
-
-	t.Run("cleanup", func(t *testing.T) {
-		// class cleanup -- might not need this
-		// since containers are ephemeral here
-		helper.DeleteClass(t, gcsBackupJourneyClassName)
-
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminte test containers: %s", err.Error())
-		}
+	t.Run("storage-gcs", func(t *testing.T) {
+		journey.BackupJourneyTests(t, compose.GetWeaviate().URI(),
+			"gcs", gcsBackupJourneyClassName, gcsBackupJourneySnapshotID)
 	})
-}
-
-func singleShardBackupJourneyWithGCS(t *testing.T) {
-	// create
-	helper.CreateBackup(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
-
-	// wait for create success
-	{
-		createTime := time.Now()
-		for {
-			if time.Now().After(createTime.Add(10 * time.Second)) {
-				break
-			}
-
-			status := helper.CreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
-			require.NotNil(t, status)
-			if *status.Status == string(snapshots.CreateSuccess) {
-				break
-			}
-		}
-
-		createStatus := helper.CreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
-		require.NotNil(t, createStatus)
-		require.Equal(t, *createStatus.Status, string(snapshots.CreateSuccess))
-	}
-
-	// remove the class so we can restore it
-	helper.DeleteClass(t, gcsBackupJourneyClassName)
-
-	// restore
-	helper.RestoreBackup(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
-
-	// wait for restore success
-	{
-		restoreTime := time.Now()
-		for {
-			if time.Now().After(restoreTime.Add(10 * time.Second)) {
-				break
-			}
-
-			status := helper.RestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
-			require.NotNil(t, status)
-			if *status.Status == string(snapshots.CreateSuccess) {
-				break
-			}
-		}
-
-		restoreStatus := helper.RestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
-		require.NotNil(t, restoreStatus)
-		require.Equal(t, *restoreStatus.Status, string(snapshots.CreateSuccess))
-	}
-
-	// assert class exists again it its entirety
-	count := moduleshelper.GetClassCount(t, gcsBackupJourneyClassName)
-	assert.Equal(t, int64(500), count)
 }
