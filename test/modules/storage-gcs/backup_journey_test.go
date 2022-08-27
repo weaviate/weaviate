@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
+	"github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,13 +44,13 @@ func Test_BackupJourney(t *testing.T) {
 		require.Nil(t, os.Setenv(envGcsEndpoint, compose.GetGCS().URI()))
 		require.Nil(t, os.Setenv(envGcsStorageEmulatorHost, compose.GetGCS().URI()))
 
-		createBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		moduleshelper.CreateBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 	})
 
 	// add test data
 	addTestClass(t, gcsBackupJourneyClassName)
-	addTestData(t, gcsBackupJourneyClassName)
+	addTestObjects(t, gcsBackupJourneyClassName)
 
 	// journey tests
 	t.Run("single shard backup with GCS", singleShardBackupJourneyWithGCS)
@@ -57,7 +58,7 @@ func Test_BackupJourney(t *testing.T) {
 	t.Run("cleanup", func(t *testing.T) {
 		// class cleanup -- might not need this
 		// since containers are ephemeral here
-		deleteClass(t, gcsBackupJourneyClassName)
+		helper.DeleteClass(t, gcsBackupJourneyClassName)
 
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminte test containers: %s", err.Error())
@@ -77,20 +78,20 @@ func singleShardBackupJourneyWithGCS(t *testing.T) {
 				break
 			}
 
-			status := getCreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+			status := helper.CreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
 			require.NotNil(t, status)
 			if *status.Status == string(snapshots.CreateSuccess) {
 				break
 			}
 		}
 
-		createStatus := getCreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+		createStatus := helper.CreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
 		require.NotNil(t, createStatus)
 		require.Equal(t, *createStatus.Status, string(snapshots.CreateSuccess))
 	}
 
 	// remove the class so we can restore it
-	deleteClass(t, gcsBackupJourneyClassName)
+	helper.DeleteClass(t, gcsBackupJourneyClassName)
 
 	// restore
 	helper.RestoreBackup(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
@@ -103,19 +104,19 @@ func singleShardBackupJourneyWithGCS(t *testing.T) {
 				break
 			}
 
-			status := getRestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+			status := helper.RestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
 			require.NotNil(t, status)
 			if *status.Status == string(snapshots.CreateSuccess) {
 				break
 			}
 		}
 
-		restoreStatus := getRestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+		restoreStatus := helper.RestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
 		require.NotNil(t, restoreStatus)
 		require.Equal(t, *restoreStatus.Status, string(snapshots.CreateSuccess))
 	}
 
 	// assert class exists again it its entirety
-	count := getClassCount(t, gcsBackupJourneyClassName)
+	count := moduleshelper.GetClassCount(t, gcsBackupJourneyClassName)
 	assert.Equal(t, int64(500), count)
 }

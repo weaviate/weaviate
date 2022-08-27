@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
+	"github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -51,8 +52,8 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 	defer cancel()
 
 	testdataMainDir := "./testData"
-	testDir := makeTestDir(t, testdataMainDir)
-	defer removeDir(t, testdataMainDir)
+	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	defer moduleshelper.RemoveDir(t, testdataMainDir)
 
 	path, err := os.Getwd()
 	require.Nil(t, err)
@@ -70,7 +71,7 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 		require.Nil(t, os.Setenv(envGcsProjectID, projectID))
 		require.Nil(t, os.Setenv(envGcsBucket, bucketName))
 
-		createBucket(testCtx, t, projectID, bucketName)
+		moduleshelper.CreateBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
@@ -134,10 +135,10 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 	defer cancel()
 
 	testdataMainDir := "./testData"
-	testDir := makeTestDir(t, testdataMainDir)
-	defer removeDir(t, testdataMainDir)
+	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	defer moduleshelper.RemoveDir(t, testdataMainDir)
 
-	createTestFiles(t, testDir)
+	moduleshelper.CreateTestFiles(t, testDir)
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
@@ -152,7 +153,7 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 		require.Nil(t, os.Setenv(envGcsProjectID, projectID))
 		require.Nil(t, os.Setenv(envGcsBucket, bucketName))
 
-		createBucket(testCtx, t, projectID, bucketName)
+		moduleshelper.CreateBucket(testCtx, t, projectID, bucketName)
 	})
 
 	gcsConfig := gcs.NewConfig(bucketName, "")

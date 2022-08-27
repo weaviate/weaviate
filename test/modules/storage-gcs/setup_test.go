@@ -1,18 +1,8 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
-//
-//  CONTACT: hello@semi.technology
-//
-
 package test
 
 import (
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +17,10 @@ const (
 	envGcsProjectID           = "GOOGLE_CLOUD_PROJECT"
 	envGcsBucket              = "STORAGE_GCS_BUCKET"
 )
+
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
 
 func addTestClass(t *testing.T, className string) {
 	class := &models.Class{
@@ -44,10 +38,10 @@ func addTestClass(t *testing.T, className string) {
 		},
 	}
 
-	createClass(t, class)
+	helper.CreateClass(t, class)
 }
 
-func addTestData(t *testing.T, className string) {
+func addTestObjects(t *testing.T, className string) {
 	const (
 		noteLengthMin = 4
 		noteLengthMax = 1024
@@ -70,6 +64,6 @@ func addTestData(t *testing.T, className string) {
 			}
 		}
 
-		createObjectsBatch(t, batch)
+		helper.CreateObjectsBatch(t, batch)
 	}
 }
