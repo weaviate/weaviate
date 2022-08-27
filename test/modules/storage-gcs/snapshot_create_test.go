@@ -37,7 +37,7 @@ func Test_GCSStorage_SnapshotCreate(t *testing.T) {
 		panic(errors.Wrapf(err, "cannot start"))
 	}
 
-	require.Nil(t, os.Setenv(envGcsEndpoint, compose.GetGCS().URI()))
+	require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
 
 	t.Run("store snapshot", moduleLevelStoreSnapshot)
 	t.Run("get meta status", moduleLevelGetMetaStatus)
@@ -60,18 +60,18 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
-	endpoint := os.Getenv(envGcsEndpoint)
+	endpoint := os.Getenv(envGCSEndpoint)
 	bucketName := "weaviate-snapshots"
 	projectID := "project-id"
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envGcsEndpoint, endpoint))
-		require.Nil(t, os.Setenv(envGcsStorageEmulatorHost, endpoint))
-		require.Nil(t, os.Setenv(envGcsCredentials, ""))
-		require.Nil(t, os.Setenv(envGcsProjectID, projectID))
-		require.Nil(t, os.Setenv(envGcsBucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGCSCredentials, ""))
+		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
+		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		moduleshelper.CreateBucket(testCtx, t, projectID, bucketName)
+		createBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
@@ -142,18 +142,18 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
-	endpoint := os.Getenv(envGcsEndpoint)
+	endpoint := os.Getenv(envGCSEndpoint)
 	bucketName := "weaviate-snapshots"
 	projectID := "project-id"
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envGcsEndpoint, endpoint))
-		require.Nil(t, os.Setenv(envGcsStorageEmulatorHost, endpoint))
-		require.Nil(t, os.Setenv(envGcsCredentials, ""))
-		require.Nil(t, os.Setenv(envGcsProjectID, projectID))
-		require.Nil(t, os.Setenv(envGcsBucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGCSCredentials, ""))
+		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
+		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		moduleshelper.CreateBucket(testCtx, t, projectID, bucketName)
+		createBucket(testCtx, t, projectID, bucketName)
 	})
 
 	gcsConfig := gcs.NewConfig(bucketName, "")

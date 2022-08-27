@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	envGcsEndpoint            = "GCS_ENDPOINT"
-	envGcsStorageEmulatorHost = "STORAGE_EMULATOR_HOST"
-	envGcsCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
-	envGcsProjectID           = "GOOGLE_CLOUD_PROJECT"
-	envGcsBucket              = "STORAGE_GCS_BUCKET"
+	envGCSEndpoint            = "GCS_ENDPOINT"
+	envGCSStorageEmulatorHost = "STORAGE_EMULATOR_HOST"
+	envGCSCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
+	envGCSProjectID           = "GOOGLE_CLOUD_PROJECT"
+	envGCSBucket              = "STORAGE_GCS_BUCKET"
 )
 
 func TestMain(m *testing.M) {

@@ -13,6 +13,9 @@ package docker
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -53,5 +56,16 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 	if err != nil {
 		return nil, err
 	}
-	return &DockerContainer{MinIO, endpoint, container, nil}, nil
+	envSettings := make(map[string]string)
+	bucketName := os.Getenv("STORAGE_S3_BUCKET")
+	if bucketName == "" {
+		return nil, errors.New("STORAGE_S3_BUCKET must be set")
+	}
+	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
+	secretKey := os.Getenv("AWS_SECRET_KEY")
+	envSettings["STORAGE_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, "9000")
+	envSettings["STORAGE_S3_BUCKET"] = bucketName
+	envSettings["AWS_ACCESS_KEY_ID"] = accessKey
+	envSettings["AWS_SECRET_KEY"] = secretKey
+	return &DockerContainer{MinIO, endpoint, container, envSettings}, nil
 }

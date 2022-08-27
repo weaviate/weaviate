@@ -12,29 +12,69 @@
 package test
 
 import (
-	"context"
+	"math/rand"
 	"os"
 	"testing"
+	"time"
 
-	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/test/docker"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/test/helper"
 )
 
-const minioEndpoint = "MINIO_ENDPOINT"
+const (
+	envMinioEndpoint = "MINIO_ENDPOINT"
+	envAwsRegion     = "AWS_REGION"
+	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
+	envS3SecretKey   = "AWS_SECRET_KEY"
+	envS3Bucket      = "STORAGE_S3_BUCKET"
+)
 
 func TestMain(m *testing.M) {
-	ctx := context.Background()
-	compose, err := docker.New().WithMinIO().Start(ctx)
-	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
+	os.Exit(m.Run())
+}
+
+func addTestClass(t *testing.T, className string) {
+	class := &models.Class{
+		Class: className,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "contents",
+				DataType: []string{"string"},
+			},
+		},
 	}
 
-	os.Setenv(minioEndpoint, compose.GetMinIO().URI())
-	code := m.Run()
+	helper.CreateClass(t, class)
+}
 
-	if err := compose.Terminate(ctx); err != nil {
-		panic(errors.Wrapf(err, "cannot terminate"))
+func addTestObjects(t *testing.T, className string) {
+	const (
+		noteLengthMin = 4
+		noteLengthMax = 1024
+
+		batchSize  = 10
+		numBatches = 50
+	)
+
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	for i := 0; i < numBatches; i++ {
+		batch := make([]*models.Object, batchSize)
+		for j := 0; j < batchSize; j++ {
+			contentsLength := noteLengthMin + seededRand.Intn(noteLengthMax-noteLengthMin+1)
+			contents := helper.GetRandomString(contentsLength)
+
+			batch[j] = &models.Object{
+				Class:      className,
+				Properties: map[string]interface{}{"contents": contents},
+			}
+		}
+
+		helper.CreateObjectsBatch(t, batch)
 	}
-
-	os.Exit(code)
 }

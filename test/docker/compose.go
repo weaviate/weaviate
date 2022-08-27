@@ -16,6 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/modules/storage-aws-s3"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -48,6 +49,7 @@ func New() *Compose {
 
 func (d *Compose) WithMinIO() *Compose {
 	d.withMinIO = true
+	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
 }
 
@@ -99,6 +101,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startMinIO(ctx, networkName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
 		}
 		containers = append(containers, container)
 	}

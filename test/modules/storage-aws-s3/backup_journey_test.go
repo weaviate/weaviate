@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/modules/storage-gcs"
+	"github.com/semi-technologies/weaviate/modules/storage-aws-s3"
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/test/helper/modules"
@@ -16,10 +16,12 @@ import (
 )
 
 const (
-	gcsBackupJourneyClassName  = "GcsBackup"
-	gcsBackupJourneySnapshotID = "gcs-snapshot"
-	gcsBackupJourneyProjectID  = "gcs-backup-journey"
-	gcsBackupJourneyBucketName = "snapshots"
+	s3BackupJourneyClassName  = "S3Backup"
+	s3BackupJourneySnapshotID = "s3-snapshot"
+	s3BackupJourneyBucketName = "snapshots"
+	s3BackupJourneyRegion     = "eu-west-1"
+	s3BackupJourneyAccessKey  = "aws_access_key"
+	s3BackupJourneySecretKey  = "aws_secret_key"
 )
 
 func Test_BackupJourney(t *testing.T) {
@@ -28,37 +30,34 @@ func Test_BackupJourney(t *testing.T) {
 
 	t.Run("pre-instance env setup", func(t *testing.T) {
 		require.Nil(t, os.Setenv("TEST_WEAVIATE_IMAGE", "weaviate:module-tests"))
-		require.Nil(t, os.Setenv(envGCSCredentials, ""))
-		require.Nil(t, os.Setenv(envGCSProjectID, gcsBackupJourneyProjectID))
-		require.Nil(t, os.Setenv(envGCSBucket, gcsBackupJourneyBucketName))
+		require.Nil(t, os.Setenv(envS3AccessKey, s3BackupJourneyAccessKey))
+		require.Nil(t, os.Setenv(envS3SecretKey, s3BackupJourneySecretKey))
+		require.Nil(t, os.Setenv(envS3Bucket, s3BackupJourneyBucketName))
 	})
 
 	compose, err := docker.New().
-		WithGCS().
+		WithMinIO().
 		WithText2VecContextionary().
 		WithWeaviate().
 		Start(ctx)
 	require.Nil(t, err)
 
 	t.Run("post-instance env setup", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
-		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
-
-		createBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 		helper.SetupClient(compose.GetWeaviate().URI())
 	})
 
 	// add test data
-	addTestClass(t, gcsBackupJourneyClassName)
-	addTestObjects(t, gcsBackupJourneyClassName)
+	addTestClass(t, s3BackupJourneyClassName)
+	addTestObjects(t, s3BackupJourneyClassName)
 
 	// journey tests
-	t.Run("single shard backup with GCS", singleShardBackupJourneyWithGCS)
+	t.Run("single shard backup with AWS S3", singleShardBackupJourneyWithS3)
 
 	t.Run("cleanup", func(t *testing.T) {
 		// class cleanup -- might not need this
 		// since containers are ephemeral here
-		helper.DeleteClass(t, gcsBackupJourneyClassName)
+		helper.DeleteClass(t, s3BackupJourneyClassName)
 
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminte test containers: %s", err.Error())
@@ -66,9 +65,9 @@ func Test_BackupJourney(t *testing.T) {
 	})
 }
 
-func singleShardBackupJourneyWithGCS(t *testing.T) {
+func singleShardBackupJourneyWithS3(t *testing.T) {
 	// create
-	helper.CreateBackup(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+	helper.CreateBackup(t, s3BackupJourneyClassName, modstgs3.Name, s3BackupJourneySnapshotID)
 
 	// wait for create success
 	{
@@ -78,23 +77,23 @@ func singleShardBackupJourneyWithGCS(t *testing.T) {
 				break
 			}
 
-			status := helper.CreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+			status := helper.CreateBackupStatus(t, s3BackupJourneyClassName, modstgs3.Name, s3BackupJourneySnapshotID)
 			require.NotNil(t, status)
 			if *status.Status == string(snapshots.CreateSuccess) {
 				break
 			}
 		}
 
-		createStatus := helper.CreateBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+		createStatus := helper.CreateBackupStatus(t, s3BackupJourneyClassName, modstgs3.Name, s3BackupJourneySnapshotID)
 		require.NotNil(t, createStatus)
 		require.Equal(t, *createStatus.Status, string(snapshots.CreateSuccess))
 	}
 
 	// remove the class so we can restore it
-	helper.DeleteClass(t, gcsBackupJourneyClassName)
+	helper.DeleteClass(t, s3BackupJourneyClassName)
 
 	// restore
-	helper.RestoreBackup(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+	helper.RestoreBackup(t, s3BackupJourneyClassName, modstgs3.Name, s3BackupJourneySnapshotID)
 
 	// wait for restore success
 	{
@@ -104,19 +103,19 @@ func singleShardBackupJourneyWithGCS(t *testing.T) {
 				break
 			}
 
-			status := helper.RestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+			status := helper.RestoreBackupStatus(t, s3BackupJourneyClassName, modstgs3.Name, s3BackupJourneySnapshotID)
 			require.NotNil(t, status)
 			if *status.Status == string(snapshots.CreateSuccess) {
 				break
 			}
 		}
 
-		restoreStatus := helper.RestoreBackupStatus(t, gcsBackupJourneyClassName, modstggcs.Name, gcsBackupJourneySnapshotID)
+		restoreStatus := helper.RestoreBackupStatus(t, s3BackupJourneyClassName, modstgs3.Name, s3BackupJourneySnapshotID)
 		require.NotNil(t, restoreStatus)
 		require.Equal(t, *restoreStatus.Status, string(snapshots.CreateSuccess))
 	}
 
 	// assert class exists again it its entirety
-	count := moduleshelper.GetClassCount(t, gcsBackupJourneyClassName)
+	count := moduleshelper.GetClassCount(t, s3BackupJourneyClassName)
 	assert.Equal(t, int64(500), count)
 }
