@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
@@ -34,6 +36,60 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	}
 
 	return m.addClass(ctx, principal, class)
+}
+
+func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
+	class *models.Class, snapshot *snapshots.Snapshot,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	class.Class = upperCaseClassName(class.Class)
+	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	m.setClassDefaults(class)
+
+	err := m.validateCanAddClass(ctx, principal, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.parseShardingConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.parseVectorIndexConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.invertedConfigValidator(class.InvertedIndexConfig)
+	if err != nil {
+		return err
+	}
+
+	shardStateB := snapshot.ShardingState
+	var shardState *sharding.State
+	if shardStateB != nil {
+		shardState = &sharding.State{}
+		err := json.Unmarshal(shardStateB, shardState)
+		if err != nil {
+			return errors.Wrap(err, "failed to unmarshal sharding state")
+		}
+	}
+
+	semanticSchema := m.state.ObjectSchema
+	semanticSchema.Classes = append(semanticSchema.Classes, class)
+
+	m.state.ShardingState[class.Class] = shardState
+	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
+	err = m.saveSchema(ctx)
+	if err != nil {
+		return err
+	}
+
+	out := m.migrator.AddClass(ctx, class, shardState)
+	return out
 }
 
 func (m *Manager) addClass(ctx context.Context, principal *models.Principal,

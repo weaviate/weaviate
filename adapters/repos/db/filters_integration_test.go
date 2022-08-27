@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -37,12 +36,7 @@ import (
 
 func TestFilters(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -51,6 +45,7 @@ func TestFilters(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -98,7 +93,8 @@ var (
 )
 
 func prepareCarTestSchemaAndData(repo *DB,
-	migrator *Migrator, schemaGetter *fakeSchemaGetter) func(t *testing.T) {
+	migrator *Migrator, schemaGetter *fakeSchemaGetter,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
 			require.Nil(t,
@@ -450,7 +446,8 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 }
 
 func testChainedPrimitiveProps(repo *DB,
-	migrator *Migrator) func(t *testing.T) {
+	migrator *Migrator,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		type test struct {
 			name        string
@@ -558,7 +555,8 @@ func buildSortFilter(path []string, order string) filters.Sort {
 }
 
 func compoundFilter(operator filters.Operator,
-	operands ...*filters.LocalFilter) *filters.LocalFilter {
+	operands ...*filters.LocalFilter,
+) *filters.LocalFilter {
 	clauses := make([]filters.Clause, len(operands), len(operands))
 	for i, filter := range operands {
 		clauses[i] = *filter.Root
@@ -727,12 +725,7 @@ var carVectors = [][]float32{
 
 func TestGeoPropUpdateJourney(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -741,6 +734,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -841,12 +835,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 // https://github.com/semi-technologies/weaviate/issues/1426
 func TestCasingOfOperatorCombinations(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -855,6 +844,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())

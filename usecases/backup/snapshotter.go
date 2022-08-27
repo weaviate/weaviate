@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package backups
+package backup
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 )
 
 type Snapshotter interface { // implemented by the index
-	// Snapshot creates a snapshot which is metadata referencing files on disk.
+	// CreateSnapshot creates a snapshot which is metadata referencing files on disk.
 	// While the snapshot exists, the index makes sure that those files are never
 	// changed, for example by stopping compactions.
 	//
@@ -26,10 +26,14 @@ type Snapshotter interface { // implemented by the index
 	// reads+writes, as the index is built in an append-only-way.
 	//
 	// Snapshot() fails if another snapshot exists.
-	CreateSnapshot(ctx context.Context, id string) (*snapshots.Snapshot, error)
+	CreateSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) (*snapshots.Snapshot, error)
 
 	// ReleaseSnapshot signals to the underlying index that the files have been
 	// copied (or the operation aborted), and that it is safe for the index to
 	// change the files, such as start compactions.
 	ReleaseSnapshot(ctx context.Context, id string) error
+}
+
+type SnapshotterProvider interface {
+	Snapshotter(className string) Snapshotter
 }

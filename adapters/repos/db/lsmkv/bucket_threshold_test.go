@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"math/rand"
 	"os"
@@ -34,13 +33,7 @@ import (
 // flush to segment followed by a switch to a new WAL is being performed
 // once the threshold is reached
 func TestWriteAheadLogThreshold_Replace(t *testing.T) {
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		if err := os.RemoveAll(dirName); err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	amount := 100
 	keys := make([][]byte, amount)
@@ -131,13 +124,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 // that a flush to segment followed by a switch to a new WAL is being
 // performed once the threshold is reached
 func TestMemtableThreshold_Replace(t *testing.T) {
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		if err := os.RemoveAll(dirName); err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	amount := 10000
 	sizePerValue := 8
@@ -205,13 +192,7 @@ func isSizeWithinTolerance(t *testing.T, detectedSize uint64, threshold uint64, 
 
 func TestMemtableFlushesIfIdle(t *testing.T) {
 	t.Run("an empty memtable is not flushed", func(t *testing.T) {
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			if err := os.RemoveAll(dirName); err != nil {
-				fmt.Println(err)
-			}
-		}()
+		dirName := t.TempDir()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),
@@ -246,13 +227,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 	})
 
 	t.Run("a dirty memtable is flushed once the idle period is over", func(t *testing.T) {
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			if err := os.RemoveAll(dirName); err != nil {
-				fmt.Println(err)
-			}
-		}()
+		dirName := t.TempDir()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),
@@ -291,13 +266,7 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 	})
 
 	t.Run("a dirty memtable is not flushed as long as the next write occurs before the idle threshold", func(t *testing.T) {
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			if err := os.RemoveAll(dirName); err != nil {
-				fmt.Println(err)
-			}
-		}()
+		dirName := t.TempDir()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),

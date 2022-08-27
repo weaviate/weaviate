@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -28,12 +27,7 @@ import (
 
 func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -319,12 +313,7 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 
 func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -622,12 +611,7 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 
 func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -797,12 +781,7 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 func TestReplaceStrategy_Cursors(t *testing.T) {
 	t.Run("memtable-only", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
@@ -1036,12 +1015,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 
 	t.Run("with a single flush", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
@@ -1133,12 +1107,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 
 	t.Run("mixing several disk segments and memtable - with updates", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
@@ -1431,12 +1400,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 	// always smaller
 	t.Run("with deletes as latest in some segments", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))

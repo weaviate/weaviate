@@ -57,9 +57,10 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		ctx := testCtx()
 		className := "IndexLevelSnapshotClass"
 		snapshotID := "index-level-snapshot-test"
-		now := time.Now().UnixNano()
+		now := time.Now()
+		snapshot := snapshots.New(className, snapshotID, now)
 
-		shard, index := testShard(ctx, className, withVectorIndexing(true))
+		shard, index := testShard(t, ctx, className, withVectorIndexing(true))
 		// let the index age for a second so that
 		// the commitlogger filenames, which are
 		// based on current timestamp, can differ
@@ -70,9 +71,9 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 				MarshallerVersion: 1,
 				Object: models.Object{
 					Class:              className,
-					CreationTimeUnix:   now,
+					CreationTimeUnix:   now.UnixNano(),
 					ID:                 "ff9fcae5-57b8-431c-b8e2-986fd78f5809",
-					LastUpdateTimeUnix: now,
+					LastUpdateTimeUnix: now.UnixNano(),
 					Vector:             []float32{1, 2, 3},
 					VectorWeights:      nil,
 				},
@@ -81,7 +82,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		})
 
 		t.Run("create snapshot", func(t *testing.T) {
-			snap, err := index.CreateSnapshot(ctx, snapshotID)
+			snap, err := index.CreateSnapshot(ctx, snapshot)
 			assert.Nil(t, err)
 
 			t.Run("assert snapshot file contents", func(t *testing.T) {
@@ -114,18 +115,6 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 				assert.NotEmpty(t, snap.ServerVersion)
 				assert.Equal(t, config.ServerVersion, snap.ServerVersion)
 			})
-
-			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snapPath := snapshots.BuildSnapshotPath(index.Config.RootPath, snap.ClassName, snap.ID)
-
-				contents, err := ioutil.ReadFile(snapPath)
-				require.Nil(t, err)
-
-				expected, err := json.Marshal(snap)
-				require.Nil(t, err)
-
-				assert.Equal(t, expected, contents)
-			})
 		})
 
 		t.Run("release snapshot", func(t *testing.T) {
@@ -133,14 +122,6 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			assert.Nil(t, err)
 
 			assert.False(t, index.snapshotState.InProgress)
-
-			t.Run("assert snapshot disk contents", func(t *testing.T) {
-				snap, err := snapshots.ReadFromDisk(index.Config.RootPath, className, snapshotID)
-				require.Nil(t, err)
-
-				assert.NotEmpty(t, snap.CompletedAt)
-				assert.Equal(t, snapshots.StatusReleased, snap.Status)
-			})
 		})
 
 		t.Run("cleanup", func(t *testing.T) {
@@ -157,13 +138,14 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 
 		className := "IndexLevelSnapshotClass"
 		snapshotID := "index-level-snapshot-test"
+		snapshot := snapshots.New(className, snapshotID, time.Now())
 
-		_, index := testShard(ctx, className, withVectorIndexing(true))
+		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 
 		timeout, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
 
-		snap, err := index.CreateSnapshot(timeout, snapshotID)
+		snap, err := index.CreateSnapshot(timeout, snapshot)
 		assert.Nil(t, snap)
 
 		// due to concurrently running cycle shutdowns,
@@ -199,15 +181,16 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		ctx := testCtx()
 		className := "IndexLevelSnapshotClass"
 		inProgressSnapshotID := "index-level-snapshot-test"
+		snapshot := snapshots.New(className, "some-new-snapshot", time.Now())
 
-		_, index := testShard(ctx, className, withVectorIndexing(true))
+		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 
 		index.snapshotState = snapshots.State{
 			SnapshotID: inProgressSnapshotID,
 			InProgress: true,
 		}
 
-		snap, err := index.CreateSnapshot(ctx, "some-new-snapshot")
+		snap, err := index.CreateSnapshot(ctx, snapshot)
 		assert.Nil(t, snap)
 
 		expectedErr := fmt.Errorf("cannot create new snapshot, snapshot ‘%s’ "+
@@ -228,7 +211,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 func TestSnapshot_BucketLevel(t *testing.T) {
 	ctx := testCtx()
 	className := "BucketLevelSnapshot"
-	shard, _ := testShard(ctx, className)
+	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
 		err := shard.putObject(ctx, &storobj.Object{

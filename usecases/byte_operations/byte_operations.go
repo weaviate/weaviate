@@ -24,7 +24,7 @@ const (
 )
 
 type ByteOperations struct {
-	Position uint32
+	Position uint64
 	Buffer   []byte
 }
 
@@ -43,8 +43,10 @@ func (bo *ByteOperations) ReadUint32() uint32 {
 	return binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
 }
 
-func (bo *ByteOperations) CopyBytesFromBuffer(length uint32) ([]byte, error) {
-	out := make([]byte, length)
+func (bo *ByteOperations) CopyBytesFromBuffer(length uint64, out []byte) ([]byte, error) {
+	if out == nil {
+		out = make([]byte, length)
+	}
 	bo.Position += length
 	numCopiedBytes := copy(out, bo.Buffer[bo.Position-length:bo.Position])
 	if numCopiedBytes != int(length) {
@@ -69,7 +71,7 @@ func (bo *ByteOperations) WriteUint16(value uint16) {
 }
 
 func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
-	lenCopyBytes := uint32(len(copyBytes))
+	lenCopyBytes := uint64(len(copyBytes))
 	bo.Position += lenCopyBytes
 	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], copyBytes)
 	if numCopiedBytes != int(lenCopyBytes) {
@@ -78,7 +80,7 @@ func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
 	return nil
 }
 
-func (bo *ByteOperations) MoveBufferPositionForward(length uint32) {
+func (bo *ByteOperations) MoveBufferPositionForward(length uint64) {
 	bo.Position += length
 }
 

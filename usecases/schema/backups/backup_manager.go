@@ -11,40 +11,16 @@
 
 package backups
 
-import "context"
+import (
+	"context"
 
-const (
-	CS_STARTED      CreateStatus = "STARTED"
-	CS_TRANSFERRING CreateStatus = "TRANSFERRING"
-	CS_TRANSFERRED  CreateStatus = "TRANSFERRED"
-	CS_SUCCESS      CreateStatus = "SUCCESS"
-	CS_FAILED       CreateStatus = "FAILED"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
-
-const (
-	RS_STARTED      RestoreStatus = "STARTED"
-	RS_TRANSFERRING RestoreStatus = "TRANSFERRING"
-	RS_TRANSFERRED  RestoreStatus = "TRANSFERRED"
-	RS_SUCCESS      RestoreStatus = "SUCCESS"
-	RS_FAILED       RestoreStatus = "FAILED"
-)
-
-type (
-	CreateStatus  string
-	RestoreStatus string
-)
-
-type CreateMeta struct {
-	Path   string
-	Status CreateStatus
-}
-
-type RestoreMeta struct {
-	Path   string
-	Status RestoreStatus
-}
 
 type BackupManager interface {
-	CreateBackup(ctx context.Context, className, storageName, snapshotID string) (*CreateMeta, error)
-	RestoreBackup(ctx context.Context, className, storageName, snapshotID string) (*RestoreMeta, error)
+	CreateBackup(ctx context.Context, className, storageName, snapshotID string) (*snapshots.CreateMeta, error)
+	RestoreBackup(ctx context.Context, className, storageName, snapshotID string) (*snapshots.RestoreMeta, *snapshots.Snapshot, error)
+	CreateBackupStatus(ctx context.Context, className, storageName, snapshotID string) (*models.SnapshotMeta, error)
+	DestinationPath(storageName, className, snapshotID string) (string, error)
 }

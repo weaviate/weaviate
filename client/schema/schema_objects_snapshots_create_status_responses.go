@@ -171,13 +171,25 @@ SchemaObjectsSnapshotsCreateStatusNotFound handles this case with default header
 Not Found - Snapshot does not exist
 */
 type SchemaObjectsSnapshotsCreateStatusNotFound struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{className}/snapshots/{storageName}/{id}][%d] schemaObjectsSnapshotsCreateStatusNotFound ", 404)
+	return fmt.Sprintf("[GET /schema/{className}/snapshots/{storageName}/{id}][%d] schemaObjectsSnapshotsCreateStatusNotFound  %+v", 404, o.Payload)
+}
+
+func (o *SchemaObjectsSnapshotsCreateStatusNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaObjectsSnapshotsCreateStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

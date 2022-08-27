@@ -130,6 +130,19 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
+	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse MAX_IMPORT_GOROUTINES_FACTOR as float")
+		} else if asFloat <= 0 {
+			return errors.New("negative MAX_IMPORT_GOROUTINES_FACTOR factor")
+		}
+
+		config.MaxImportGoroutinesFactor = asFloat
+	} else {
+		config.MaxImportGoroutinesFactor = DefaultMaxImportGoroutinesFactor
+	}
+
 	if v := os.Getenv("DEFAULT_VECTORIZER_MODULE"); v != "" {
 		config.DefaultVectorizerModule = v
 	} else {

@@ -32,16 +32,8 @@ import (
 
 func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("with some previous state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
@@ -194,16 +186,8 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("without previous state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
@@ -349,16 +333,8 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 
 func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
@@ -498,16 +474,8 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 
 func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("without prior state", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,

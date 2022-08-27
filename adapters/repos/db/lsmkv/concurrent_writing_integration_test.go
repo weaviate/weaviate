@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -35,12 +34,7 @@ import (
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Replace(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	amount := 2000
 	sizePerValue := 128
@@ -131,12 +125,7 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Set(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	amount := 2000
 	valuesPerKey := 4
@@ -225,12 +214,7 @@ func TestConcurrentWriting_Set(t *testing.T) {
 // there will be no lost writes or other inconsistencies under load
 func TestConcurrentWriting_Map(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	amount := 2000
 	valuesPerKey := 4

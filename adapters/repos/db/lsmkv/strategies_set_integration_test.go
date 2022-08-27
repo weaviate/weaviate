@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -28,12 +27,7 @@ import (
 
 func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -310,12 +304,7 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -695,12 +684,7 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 func TestSetCollectionStrategy_Cursors(t *testing.T) {
 	t.Run("memtable-only", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategySetCollection))
@@ -828,12 +812,7 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 
 	t.Run("with flushes", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
 		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategySetCollection))

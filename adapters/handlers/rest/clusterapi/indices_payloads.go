@@ -31,19 +31,23 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList          errorListPayload
-	SingleObject       singleObjectPayload
-	MergeDoc           mergeDocPayload
-	ObjectList         objectListPayload
-	SearchResults      searchResultsPayload
-	SearchParams       searchParamsPayload
-	ReferenceList      referenceListPayload
-	AggregationParams  aggregationParamsPayload
-	AggregationResult  aggregationResultPayload
-	FindDocIDsParams   findDocIDsParamsPayload
-	FindDocIDsResults  findDocIDsResultsPayload
-	BatchDeleteParams  batchDeleteParamsPayload
-	BatchDeleteResults batchDeleteResultsPayload
+	ErrorList                 errorListPayload
+	SingleObject              singleObjectPayload
+	MergeDoc                  mergeDocPayload
+	ObjectList                objectListPayload
+	SearchResults             searchResultsPayload
+	SearchParams              searchParamsPayload
+	ReferenceList             referenceListPayload
+	AggregationParams         aggregationParamsPayload
+	AggregationResult         aggregationResultPayload
+	FindDocIDsParams          findDocIDsParamsPayload
+	FindDocIDsResults         findDocIDsResultsPayload
+	BatchDeleteParams         batchDeleteParamsPayload
+	BatchDeleteResults        batchDeleteResultsPayload
+	GetShardStatusParams      getShardStatusParamsPayload
+	GetShardStatusResults     getShardStatusResultsPayload
+	UpdateShardStatusParams   updateShardStatusParamsPayload
+	UpdateShardsStatusResults updateShardsStatusResultsPayload
 }
 
 type errorListPayload struct{}
@@ -544,6 +548,94 @@ func (p batchDeleteResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
 }
 
 func (p batchDeleteResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type getShardStatusParamsPayload struct{}
+
+func (p getShardStatusParamsPayload) MIME() string {
+	return "vnd.weaviate.getshardstatusparams+json"
+}
+
+func (p getShardStatusParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p getShardStatusParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type getShardStatusResultsPayload struct{}
+
+func (p getShardStatusResultsPayload) Unmarshal(in []byte) (string, error) {
+	var out string
+	err := json.Unmarshal(in, &out)
+	return out, err
+}
+
+func (p getShardStatusResultsPayload) Marshal(in string) ([]byte, error) {
+	return json.Marshal(in)
+}
+
+func (p getShardStatusResultsPayload) MIME() string {
+	return "application/vnd.weaviate.getshardstatusresults+octet-stream"
+}
+
+func (p getShardStatusResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p getShardStatusResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type updateShardStatusParamsPayload struct{}
+
+func (p updateShardStatusParamsPayload) Marshal(targetStatus string) ([]byte, error) {
+	type params struct {
+		TargetStatus string `json:"targetStatus"`
+	}
+
+	par := params{targetStatus}
+	return json.Marshal(par)
+}
+
+func (p updateShardStatusParamsPayload) Unmarshal(in []byte) (string, error) {
+	type updateShardStatusParametersPayload struct {
+		TargetStatus string `json:"targetStatus"`
+	}
+	var par updateShardStatusParametersPayload
+	err := json.Unmarshal(in, &par)
+	return par.TargetStatus, err
+}
+
+func (p updateShardStatusParamsPayload) MIME() string {
+	return "vnd.weaviate.updateshardstatusparams+json"
+}
+
+func (p updateShardStatusParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p updateShardStatusParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type updateShardsStatusResultsPayload struct{}
+
+func (p updateShardsStatusResultsPayload) MIME() string {
+	return "application/vnd.weaviate.updateshardstatusresults+octet-stream"
+}
+
+func (p updateShardsStatusResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p updateShardsStatusResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
 }

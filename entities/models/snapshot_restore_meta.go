@@ -30,6 +30,9 @@ import (
 // swagger:model SnapshotRestoreMeta
 type SnapshotRestoreMeta struct {
 
+	// The class name of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+	ClassName string `json:"className,omitempty"`
+
 	// error message if restoration failed
 	Error string `json:"error,omitempty"`
 

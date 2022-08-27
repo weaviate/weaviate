@@ -31,13 +31,8 @@ import (
 
 func TestHnswPersistence(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 	indexID := "integrationtest"
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
 
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
@@ -104,13 +99,8 @@ func TestHnswPersistence(t *testing.T) {
 
 func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 	indexID := "integrationtest_corrupt"
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
 
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
@@ -214,14 +204,8 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 
 func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 	indexID := "integrationtest_deletion"
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
-
 	logger, _ := test.NewNullLogger()
 	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
 	makeCL := func() (CommitLogger, error) {
@@ -297,13 +281,8 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 
 func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 	indexID := "integrationtest_tombstonecleanup"
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
 
 	logger, _ := test.NewNullLogger()
 	makeCL := func() (CommitLogger, error) {

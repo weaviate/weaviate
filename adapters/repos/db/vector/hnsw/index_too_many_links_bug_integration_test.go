@@ -16,9 +16,7 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
-	"os"
 	"runtime"
 	"sync"
 	"testing"
@@ -44,12 +42,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	m := 8
 
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	original, err := NewCommitLogger(rootPath, "too_many_links_test", 1, logger,

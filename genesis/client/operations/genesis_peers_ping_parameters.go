@@ -34,7 +34,6 @@ import (
 func NewGenesisPeersPingParams() *GenesisPeersPingParams {
 	var ()
 	return &GenesisPeersPingParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewGenesisPeersPingParams() *GenesisPeersPingParams {
 func NewGenesisPeersPingParamsWithTimeout(timeout time.Duration) *GenesisPeersPingParams {
 	var ()
 	return &GenesisPeersPingParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewGenesisPeersPingParamsWithTimeout(timeout time.Duration) *GenesisPeersPi
 func NewGenesisPeersPingParamsWithContext(ctx context.Context) *GenesisPeersPingParams {
 	var ()
 	return &GenesisPeersPingParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ GenesisPeersPingParams contains all the parameters to send to the API endpoint
 for the genesis peers ping operation typically these are written to a http.Request
 */
 type GenesisPeersPingParams struct {
-
 	/*Body
 	  Request Body
 

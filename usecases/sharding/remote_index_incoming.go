@@ -58,6 +58,8 @@ type RemoteIndexIncomingRepo interface {
 		filters *filters.LocalFilter) ([]uint64, error)
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
+	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
 }
 
 type RemoteIndexIncoming struct {
@@ -207,4 +209,26 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 	}
 
 	return index.IncomingDeleteObjectBatch(ctx, shardName, docIDs, dryRun)
+}
+
+func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
+	indexName, shardName string,
+) (string, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return "", errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingGetShardStatus(ctx, shardName)
+}
+
+func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
+	indexName, shardName, targetStatus string,
+) error {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingUpdateShardStatus(ctx, shardName, targetStatus)
 }

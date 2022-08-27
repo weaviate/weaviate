@@ -17,9 +17,7 @@ package classification_integration_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -40,13 +38,7 @@ import (
 
 func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
-
+	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	var id strfmt.UUID
 
@@ -58,6 +50,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	},
 		&fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	vrepo.SetSchemaGetter(sg)
@@ -188,12 +181,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	t.Skip()
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	var id strfmt.UUID
@@ -205,6 +193,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())
