@@ -12,29 +12,64 @@
 package test
 
 import (
-	"context"
-	"os"
+	"math/rand"
 	"testing"
+	"time"
 
-	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/test/docker"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/test/helper"
 )
 
-const gcsEndpoint = "GCS_ENDPOINT"
+const (
+	envGcsEndpoint            = "GCS_ENDPOINT"
+	envGcsStorageEmulatorHost = "STORAGE_EMULATOR_HOST"
+	envGcsCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
+	envGcsProjectID           = "GOOGLE_CLOUD_PROJECT"
+	envGcsBucket              = "STORAGE_GCS_BUCKET"
+)
 
-func TestMain(m *testing.M) {
-	ctx := context.Background()
-	compose, err := docker.New().WithGCS().Start(ctx)
-	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
+func addTestClass(t *testing.T, className string) {
+	class := &models.Class{
+		Class: className,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "contents",
+				DataType: []string{"string"},
+			},
+		},
 	}
 
-	os.Setenv(gcsEndpoint, compose.GetGCS().URI())
-	code := m.Run()
+	createClass(t, class)
+}
 
-	if err := compose.Terminate(ctx); err != nil {
-		panic(errors.Wrapf(err, "cannot terminate"))
+func addTestData(t *testing.T, className string) {
+	const (
+		noteLengthMin = 4
+		noteLengthMax = 1024
+
+		batchSize  = 10
+		numBatches = 50
+	)
+
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	for i := 0; i < numBatches; i++ {
+		batch := make([]*models.Object, batchSize)
+		for j := 0; j < batchSize; j++ {
+			contentsLength := noteLengthMin + seededRand.Intn(noteLengthMax-noteLengthMin+1)
+			contents := helper.GetRandomString(contentsLength)
+
+			batch[j] = &models.Object{
+				Class:      className,
+				Properties: map[string]interface{}{"contents": contents},
+			}
+		}
+
+		createObjectsBatch(t, batch)
 	}
-
-	os.Exit(code)
 }

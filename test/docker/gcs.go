@@ -15,6 +15,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -58,7 +60,16 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 	if err != nil {
 		return nil, err
 	}
-	return &DockerContainer{GCS, endpoint, container, nil}, nil
+	envSettings := make(map[string]string)
+	bucketName := os.Getenv("STORAGE_GCS_BUCKET")
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if bucketName == "" {
+		return nil, errors.New("STORAGE_GCS_BUCKET must be set")
+	}
+	envSettings["STORAGE_GCS_BUCKET"] = bucketName
+	envSettings["GOOGLE_CLOUD_PROJECT"] = projectID
+	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, "9090")
+	return &DockerContainer{GCS, endpoint, container, envSettings}, nil
 }
 
 func dockerFileFromString(dockerFile string) (testcontainers.FromDockerfile, error) {

@@ -16,6 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -52,6 +53,7 @@ func (d *Compose) WithMinIO() *Compose {
 
 func (d *Compose) WithGCS() *Compose {
 	d.withGCS = true
+	d.enableModules = append(d.enableModules, modstggcs.Name)
 	return d
 }
 
@@ -104,6 +106,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startGCS(ctx, networkName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", GCS)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
 		}
 		containers = append(containers, container)
 	}

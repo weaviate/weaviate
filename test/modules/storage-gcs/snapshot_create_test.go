@@ -14,22 +14,39 @@ package test
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
+	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
-func Test_GCSStorage_StoreSnapshot(t *testing.T) {
+func Test_GCSStorage_SnapshotCreate(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().WithGCS().Start(ctx)
+	if err != nil {
+		panic(errors.Wrapf(err, "cannot start"))
+	}
+
+	require.Nil(t, os.Setenv(envGcsEndpoint, compose.GetGCS().URI()))
+
+	t.Run("store snapshot", moduleLevelStoreSnapshot)
+	t.Run("get meta status", moduleLevelGetMetaStatus)
+
+	if err := compose.Terminate(ctx); err != nil {
+		t.Fatalf("failed to terminte test containers: %s", err.Error())
+	}
+}
+
+func moduleLevelStoreSnapshot(t *testing.T) {
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -42,30 +59,18 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
-	endpoint := os.Getenv(gcsEndpoint)
+	endpoint := os.Getenv(envGcsEndpoint)
 	bucketName := "weaviate-snapshots"
 	projectID := "project-id"
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv("GCS_ENDPOINT", endpoint))
-		require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", endpoint))
-		require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
-		require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", projectID))
-		require.Nil(t, os.Setenv("STORAGE_GCS_BUCKET", bucketName))
+		require.Nil(t, os.Setenv(envGcsEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGcsStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGcsCredentials, ""))
+		require.Nil(t, os.Setenv(envGcsProjectID, projectID))
+		require.Nil(t, os.Setenv(envGcsBucket, bucketName))
 
-		client, err := storage.NewClient(testCtx, option.WithoutAuthentication())
-		require.Nil(t, err)
-
-		err = client.Bucket(bucketName).Create(testCtx, projectID, nil)
-		gcsErr, ok := err.(*googleapi.Error)
-		if ok {
-			// the bucket persists from the previous test.
-			// if the bucket already exists, we can proceed
-			if gcsErr.Code == http.StatusConflict {
-				return
-			}
-		}
-		require.Nil(t, err)
+		createBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("store snapshot in gcs", func(t *testing.T) {
@@ -124,7 +129,7 @@ func Test_GCSStorage_StoreSnapshot(t *testing.T) {
 	})
 }
 
-func Test_GCSStorage_MetaStatus(t *testing.T) {
+func moduleLevelGetMetaStatus(t *testing.T) {
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -136,30 +141,18 @@ func Test_GCSStorage_MetaStatus(t *testing.T) {
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
-	endpoint := os.Getenv(gcsEndpoint)
+	endpoint := os.Getenv(envGcsEndpoint)
 	bucketName := "weaviate-snapshots"
 	projectID := "project-id"
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv("GCS_ENDPOINT", endpoint))
-		require.Nil(t, os.Setenv("STORAGE_EMULATOR_HOST", endpoint))
-		require.Nil(t, os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", ""))
-		require.Nil(t, os.Setenv("GOOGLE_CLOUD_PROJECT", projectID))
-		require.Nil(t, os.Setenv("STORAGE_GCS_BUCKET", bucketName))
+		require.Nil(t, os.Setenv(envGcsEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGcsStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGcsCredentials, ""))
+		require.Nil(t, os.Setenv(envGcsProjectID, projectID))
+		require.Nil(t, os.Setenv(envGcsBucket, bucketName))
 
-		client, err := storage.NewClient(testCtx, option.WithoutAuthentication())
-		require.Nil(t, err)
-
-		err = client.Bucket(bucketName).Create(testCtx, projectID, nil)
-		gcsErr, ok := err.(*googleapi.Error)
-		if ok {
-			// the bucket persists from a previous test.
-			// if the bucket already exists, we can proceed
-			if gcsErr.Code == http.StatusConflict {
-				return
-			}
-		}
-		require.Nil(t, err)
+		createBucket(testCtx, t, projectID, bucketName)
 	})
 
 	gcsConfig := gcs.NewConfig(bucketName, "")
