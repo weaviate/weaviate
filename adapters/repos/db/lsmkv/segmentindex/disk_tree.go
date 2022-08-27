@@ -48,36 +48,43 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	if len(t.data) == 0 {
 		return Node{}, NotFound
 	}
+	var out Node
+	byteOps := byte_operations.ByteOperations{Buffer: t.data}
 
-	return t.getAt(0, key)
-}
-
-func (t *DiskTree) getAt(offset int64, key []byte) (Node, error) {
-	node, err := t.readNodeAt(offset)
-	if err != nil {
-		return Node{}, err
-	}
-
-	if bytes.Equal(node.key, key) {
-		return Node{
-			Key:   node.key,
-			Start: node.startPos,
-			End:   node.endPos,
-		}, nil
-	}
-
-	if bytes.Compare(key, node.key) < 0 {
-		if node.leftChild < 0 {
-			return Node{}, NotFound
+	// jump to the buffer until the node with _key_ is found or return a NotFound error.
+	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
+	// extracting the necessary pieces of information while skipping the rest
+	NodeKeyBuffer := make([]byte, len(key))
+	for {
+		// detect if there is no node with the wanted key.
+		if byteOps.Position+4 > uint64(len(t.data)) || byteOps.Position+4 < 4 {
+			return out, NotFound
 		}
 
-		return t.getAt(node.leftChild, key)
-	} else {
-		if node.rightChild < 0 {
-			return Node{}, NotFound
+		keyLen := byteOps.ReadUint32()
+		if int(keyLen) > len(NodeKeyBuffer) {
+			NodeKeyBuffer = make([]byte, int(keyLen))
+		} else if int(keyLen) < len(NodeKeyBuffer) {
+			NodeKeyBuffer = NodeKeyBuffer[:keyLen]
+		}
+		_, err := byteOps.CopyBytesFromBuffer(uint64(keyLen), NodeKeyBuffer)
+		if err != nil {
+			return out, errors.Wrap(err, "Could not copy node key")
 		}
 
-		return t.getAt(node.rightChild, key)
+		keyEqual := bytes.Compare(key, NodeKeyBuffer)
+		if keyEqual == 0 {
+			out.Key = NodeKeyBuffer
+			out.Start = byteOps.ReadUint64()
+			out.End = byteOps.ReadUint64()
+			return out, nil
+		} else if keyEqual < 0 {
+			byteOps.MoveBufferPositionForward(2 * 8) // jump over start+end position
+			byteOps.Position = byteOps.ReadUint64()  // left child
+		} else {
+			byteOps.MoveBufferPositionForward(3 * 8) // jump over start+end position and left child
+			byteOps.Position = byteOps.ReadUint64()  // right child
+		}
 	}
 }
 
@@ -96,8 +103,8 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 
 	byteOps := byte_operations.ByteOperations{Buffer: in}
 
-	keyLen := byteOps.ReadUint32()
-	copiedBytes, err := byteOps.CopyBytesFromBuffer(keyLen)
+	keyLen := uint64(byteOps.ReadUint32())
+	copiedBytes, err := byteOps.CopyBytesFromBuffer(keyLen, nil)
 	if err != nil {
 		return out, int(byteOps.Position), errors.Wrap(err, "Could not copy node key")
 	}

@@ -42,17 +42,18 @@ func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParam
 	return vectorSearches
 }
 
-func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{},
+func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{}, className string,
 	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return s.vectorFromNearTextParam(ctx,
 		params.(*NearTextParams),
+		className,
 		findVectorFn,
 	)
 }
 
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams, findVectorFn modulecapabilities.FindVectorFn,
+	params *NearTextParams, className string, findVectorFn modulecapabilities.FindVectorFn,
 ) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
@@ -61,7 +62,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 	moveTo := params.MoveTo
 	if moveTo.Force > 0 && (len(moveTo.Values) > 0 || len(moveTo.Objects) > 0) {
-		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values, moveTo.Objects, findVectorFn)
+		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values, moveTo.Objects, className, findVectorFn)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move to: %v", err)
 		}
@@ -75,7 +76,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 	moveAway := params.MoveAwayFrom
 	if moveAway.Force > 0 && (len(moveAway.Values) > 0 || len(moveAway.Objects) > 0) {
-		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values, moveAway.Objects, findVectorFn)
+		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values, moveAway.Objects, className, findVectorFn)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move away from: %v", err)
 		}
@@ -92,7 +93,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	values []string, objects []ObjectMove,
-	findVectorFn modulecapabilities.FindVectorFn,
+	className string, findVectorFn modulecapabilities.FindVectorFn,
 ) ([]float32, error) {
 	var objectVectors [][]float32
 
@@ -118,7 +119,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				id = ref.TargetID
 			}
 
-			vector, err := findVectorFn(ctx, id)
+			vector, err := findVectorFn(ctx, className, id)
 			if err != nil {
 				return nil, err
 			}

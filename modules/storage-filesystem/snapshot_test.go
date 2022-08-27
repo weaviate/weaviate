@@ -130,7 +130,8 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 
 		// Use the previous test snapshot to test the restore function
 
-		err := module.RestoreSnapshot(ctxSnapshot, "classname", "snapshot_id")
+		_, err := module.RestoreSnapshot(ctxSnapshot, "classname", "snapshot_id")
+
 		assert.Nil(t, err)
 
 		assert.DirExists(t, module.dataPath)
@@ -170,7 +171,7 @@ func TestSnapshotStorage_MetaStatus(t *testing.T) {
 		module := New()
 		module.snapshotsPath = snapshotsAbsolutePath
 
-		err := module.SetMetaStatus(context.Background(), testClass, testId, string(snapshots.StatusStarted))
+		err := module.SetMetaStatus(context.Background(), testClass, testId, string(snapshots.CreateStarted))
 		assert.Nil(t, err)
 	})
 
@@ -178,9 +179,9 @@ func TestSnapshotStorage_MetaStatus(t *testing.T) {
 		module := New()
 		module.snapshotsPath = snapshotsAbsolutePath
 
-		status, err := module.GetMetaStatus(context.Background(), testClass, testId)
+		meta, err := module.GetMeta(context.Background(), testClass, testId)
 		assert.Nil(t, err)
-		assert.Equal(t, string(snapshots.StatusStarted), status)
+		assert.Equal(t, string(snapshots.CreateStarted), meta.Status)
 	})
 }
 

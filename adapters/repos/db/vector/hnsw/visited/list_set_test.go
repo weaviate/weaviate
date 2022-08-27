@@ -63,7 +63,7 @@ func TestVisitedList(t *testing.T) {
 		}
 
 		// verify the test is correct and we are indeed at the version we think we are
-		assert.Equal(t, uint8(1), l.version)
+		assert.Equal(t, uint8(1), l.set[0])
 
 		// verify there are zero visited nodes
 		for i := uint64(0); i < 1000; i++ {
@@ -85,11 +85,68 @@ func TestVisitedList(t *testing.T) {
 		}
 
 		// verify the test is correct and we are indeed at the version we think we are
-		assert.Equal(t, l.version, uint8(1))
+		assert.Equal(t, l.set[0], uint8(1))
 
 		// verify there are zero visited nodes
 		for i := uint64(0); i < 1000; i++ {
 			assert.False(t, l.Visited(i), "node should not be visited")
 		}
 	})
+}
+
+func TestListSetResize(t *testing.T) {
+	l := NewList(2)
+	assert.Equal(t, []uint8{1, 0, 0}, l.set)
+	assert.Equal(t, l.Len(), 2)
+	l.Visit(1)
+	assert.Equal(t, []uint8{1, 0, 1}, l.set)
+	assert.Equal(t, l.Len(), 2)
+	l.Reset()
+	assert.Equal(t, []uint8{2, 0, 1}, l.set)
+	assert.Equal(t, l.Len(), 2)
+	l.Visit(1)
+	assert.Equal(t, []uint8{2, 0, 2}, l.set)
+	assert.Equal(t, l.Len(), (2))
+	l.Visit(3)
+	assert.Equal(t, []uint8{2, 0, 2, 0, 2}, l.set[0:5])
+	assert.Equal(t, (2 + 1024), l.Len())
+	l.free()
+	assert.Equal(t, []uint8(nil), l.set)
+}
+
+func TestGrowth(t *testing.T) {
+	MaxInt := 1<<63 - 1 // math.MaxInt needs go >= 1.17
+	tests := []struct {
+		old  int
+		new  int
+		want int
+	}{
+		{512, 1000, 1024},
+		{1024, 1048, 2048},
+		{2000, 3500, 4000},
+		{3500, 4500, 4887},
+		{threshold, threshold + 32, threshold + threshold/2},
+		{2097152, 4194304, 5122952},
+		{threshold, MaxInt, MaxInt},
+		{MaxInt / 2, MaxInt - 1, MaxInt - 1},
+	}
+	for _, tc := range tests {
+		got := growth(tc.old, tc.new)
+		if got != tc.want {
+			t.Errorf("growth(%d,%d) got:%d want:%d", tc.old, tc.new, got, tc.want)
+		}
+	}
+}
+
+func insertItems() {
+	list := NewList(1024)
+	for i := uint64(1); i < 8000000; i++ {
+		list.Visit(i)
+	}
+}
+
+func BenchmarkListInsert(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		insertItems()
+	}
 }

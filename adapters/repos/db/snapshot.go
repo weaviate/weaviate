@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
@@ -31,20 +30,12 @@ import (
 //
 // Make sure to call ReleaseSnapshot for this snapshot's ID once you have finished
 // copying the files to make sure background and maintenance processes can resume.
-func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snapshot, error) {
-	if err := i.initSnapshot(id); err != nil {
+func (i *Index) CreateSnapshot(ctx context.Context, snap *snapshots.Snapshot) (*snapshots.Snapshot, error) {
+	if err := i.initSnapshot(snap.ID); err != nil {
 		return nil, err
 	}
 
-	var (
-		snap = snapshots.New(i.Config.ClassName.String(), id, time.Now())
-		g    errgroup.Group
-	)
-
-	// preliminary write to persist a snapshot status of "started"
-	if err := snap.WriteToDisk(i.Config.RootPath); err != nil {
-		return nil, errors.Wrap(err, "create snapshot")
-	}
+	var g errgroup.Group
 
 	for _, shard := range i.Shards {
 		s := shard
@@ -76,13 +67,6 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 	snap.ShardingState = shardingState
 	snap.Schema = schema
 	snap.ServerVersion = config.ServerVersion
-	snap.Status = snapshots.StatusCreated
-	snap.CompletedAt = time.Now()
-
-	if err := snap.WriteToDisk(i.Config.RootPath); err != nil {
-		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
-		return nil, err
-	}
 
 	return snap, nil
 }
@@ -93,16 +77,6 @@ func (i *Index) CreateSnapshot(ctx context.Context, id string) (*snapshots.Snaps
 func (i *Index) ReleaseSnapshot(ctx context.Context, id string) error {
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err
-	}
-
-	snap, err := snapshots.ReadFromDisk(i.Config.RootPath, i.Config.ClassName.String(), id)
-	if err != nil {
-		return errors.Wrap(err, "release snapshot")
-	}
-
-	snap.Status = snapshots.StatusReleased
-	if err := snap.WriteToDisk(i.Config.RootPath); err != nil {
-		return errors.Wrap(err, "release snapshot")
 	}
 
 	defer i.resetSnapshotState()
@@ -134,7 +108,6 @@ func (i *Index) resetSnapshotOnFailedCreate(ctx context.Context, snap *snapshots
 	ec := errorcompounder.ErrorCompounder{}
 	ec.Add(err)
 	ec.Add(i.resumeMaintenanceCycles(ctx))
-	ec.Add(snap.RemoveFromDisk(i.Config.RootPath))
 	return ec.ToError()
 }
 

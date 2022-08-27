@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 type MergeDocument struct {
@@ -110,6 +111,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 ) (*models.Object, error) {
 	var merged map[string]interface{}
 	var vector []float32
+	vecObtainer := newVectorObtainer(m.vectorizerProvider, m.schemaManager, m.logger)
 	if old == nil {
 		merged = new
 		vector = newVec
@@ -127,15 +129,20 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		if newVec != nil {
 			vector = newVec
 		} else {
-			vector = oldVec
+			vectorizerName, _, err := vecObtainer.getVectorizerOfClass(className, principal)
+			if err != nil {
+				return nil, err
+			}
+			if vectorizerName == config.VectorizerModuleNone {
+				vector = oldVec
+			}
 		}
 	}
 
 	// Note: vector could be a nil vector in case a vectorizer is configered,
 	// then the obtainer will set it
 	obj := &models.Object{Class: className, Properties: merged, Vector: vector}
-	if err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
-		m.logger).Do(ctx, obj, principal); err != nil {
+	if err := vecObtainer.Do(ctx, obj, principal); err != nil {
 		return nil, err
 	}
 

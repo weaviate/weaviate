@@ -52,6 +52,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 		return nil, err
 	}
 
+	if additional.Vector {
+		m.trackUsageSingle(res)
+	}
+
 	return res.ObjectWithVector(additional.Vector), nil
 }
 
@@ -150,6 +154,10 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
 		}
 	}
 
+	if additional.Vector {
+		m.trackUsageList(res)
+	}
+
 	return res.ObjectsWithVector(additional.Vector), nil
 }
 
@@ -212,4 +220,18 @@ func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, 
 	}
 
 	return offset, limit, nil
+}
+
+func (m *Manager) trackUsageSingle(res *search.Result) {
+	if res == nil {
+		return
+	}
+	m.metrics.AddUsageDimensions(res.ClassName, "get_rest", "single_include_vector", res.Dims)
+}
+
+func (m *Manager) trackUsageList(res search.Results) {
+	if len(res) == 0 {
+		return
+	}
+	m.metrics.AddUsageDimensions(res[0].ClassName, "get_rest", "list_include_vector", res[0].Dims)
 }

@@ -70,7 +70,22 @@ func (b *Bucket) FlushMemtable(ctx context.Context) error {
 	}
 	b.flushLock.Unlock()
 
-	return b.FlushAndSwitch()
+	stat, err := b.active.commitlog.file.Stat()
+	if err != nil {
+		b.logger.WithField("action", "lsm_wal_stat").
+			WithField("path", b.dir).
+			WithError(err).
+			Fatal("bucket snapshot memtable flush failed")
+	}
+
+	// attempting a flush&switch on when the active memtable
+	// or WAL is empty results in a corrupted snapshot attempt
+	if b.active.Size() > 0 || stat.Size() > 0 {
+		if err := b.FlushAndSwitch(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListFiles lists all files that currently exist in the Bucket. The files are only

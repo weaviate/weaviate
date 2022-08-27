@@ -32,7 +32,6 @@ import (
 func NewGenesisPeersLeaveParams() *GenesisPeersLeaveParams {
 	var ()
 	return &GenesisPeersLeaveParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -42,7 +41,6 @@ func NewGenesisPeersLeaveParams() *GenesisPeersLeaveParams {
 func NewGenesisPeersLeaveParamsWithTimeout(timeout time.Duration) *GenesisPeersLeaveParams {
 	var ()
 	return &GenesisPeersLeaveParams{
-
 		timeout: timeout,
 	}
 }
@@ -52,7 +50,6 @@ func NewGenesisPeersLeaveParamsWithTimeout(timeout time.Duration) *GenesisPeersL
 func NewGenesisPeersLeaveParamsWithContext(ctx context.Context) *GenesisPeersLeaveParams {
 	var ()
 	return &GenesisPeersLeaveParams{
-
 		Context: ctx,
 	}
 }
@@ -71,7 +68,6 @@ GenesisPeersLeaveParams contains all the parameters to send to the API endpoint
 for the genesis peers leave operation typically these are written to a http.Request
 */
 type GenesisPeersLeaveParams struct {
-
 	/*PeerID
 	  Name of the Weaviate peer
 

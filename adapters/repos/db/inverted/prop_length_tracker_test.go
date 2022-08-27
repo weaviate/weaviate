@@ -14,7 +14,6 @@ package inverted
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"path"
 	"testing"
 	"time"
@@ -25,13 +24,7 @@ import (
 
 func Test_PropertyLengthTracker(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
-
+	dirName := t.TempDir()
 	trackerPath := path.Join(dirName, "my_test_shard")
 
 	// This test suite doesn't actually test persistence, there is a separate
@@ -195,12 +188,7 @@ func create20PropsAndVerify(t *testing.T, tracker *PropertyLengthTracker) {
 
 func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	path := path.Join(dirName, "my_test_shard")
 

@@ -11,14 +11,12 @@
 
 package s3
 
-const (
-	DEFAULT_ENDPOINT = "s3.amazonaws.com"
-	DEFAULT_BUCKET   = "weaviate-snapshots"
-)
+const DEFAULT_ENDPOINT = "s3.amazonaws.com"
 
 type Config interface {
 	Endpoint() string
 	BucketName() string
+	SnapshotRoot() string
 	UseSSL() bool
 }
 
@@ -26,10 +24,15 @@ type config struct {
 	endpoint string
 	bucket   string
 	useSSL   bool
+
+	// this is an optional value, allowing for
+	// the snapshot to be stored in a specific
+	// directory inside the provided bucket
+	snapshotRoot string
 }
 
-func NewConfig(endpoint, bucket string, useSSL bool) Config {
-	return &config{endpoint, bucket, useSSL}
+func NewConfig(endpoint, bucket, root string, useSSL bool) Config {
+	return &config{endpoint, bucket, useSSL, root}
 }
 
 func (c *config) Endpoint() string {
@@ -40,10 +43,11 @@ func (c *config) Endpoint() string {
 }
 
 func (c *config) BucketName() string {
-	if len(c.bucket) > 0 {
-		return c.bucket
-	}
-	return DEFAULT_BUCKET
+	return c.bucket
+}
+
+func (c *config) SnapshotRoot() string {
+	return c.snapshotRoot
 }
 
 func (c *config) UseSSL() bool {

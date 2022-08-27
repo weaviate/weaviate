@@ -103,9 +103,21 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/className/snapshots/storageName/id",
 		},
 		{
+			methodName:       "CreateSnapshotStatus",
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			expectedVerb:     "get",
+			expectedResource: "schema/className/snapshots/storageName/id",
+		},
+		{
 			methodName:       "RestoreSnapshot",
 			additionalArgs:   []interface{}{"className", "storageName", "id"},
 			expectedVerb:     "restore",
+			expectedResource: "schema/className/snapshots/storageName/id/restore",
+		},
+		{
+			methodName:       "RestoreSnapshotStatus",
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			expectedVerb:     "get",
 			expectedResource: "schema/className/snapshots/storageName/id/restore",
 		},
 	}

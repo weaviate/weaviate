@@ -51,6 +51,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		p.Register(newSearcherModule("mod").
 			withArg("nearGrape").
 			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				className string,
 				findVectorFn modulecapabilities.FindVectorFn,
 				cfg moduletools.ClassConfig,
 			) ([]float32, error) {
@@ -61,7 +62,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "123")
+				initial, _ := findVectorFn(ctx, "class", "123")
 				return append(initial, 4), nil
 			}),
 		)
@@ -82,6 +83,7 @@ func TestModulesWithSearchers(t *testing.T) {
 		p.Register(newSearcherModule("mod").
 			withArg("nearGrape").
 			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				className string,
 				findVectorFn modulecapabilities.FindVectorFn,
 				cfg moduletools.ClassConfig,
 			) ([]float32, error) {
@@ -93,7 +95,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "123")
+				initial, _ := findVectorFn(ctx, "class", "123")
 				return append(initial, 4), nil
 			}),
 		)
@@ -107,7 +109,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 }
 
-func fakeFindVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
+func fakeFindVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
 	return []float32{1, 2, 3}, nil
 }
 

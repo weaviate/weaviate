@@ -31,7 +31,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -47,7 +48,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -67,7 +69,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -84,14 +87,18 @@ func Test_ExploreConcepts(t *testing.T) {
 				ID:        "123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}
+
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearCustomText", 128)
 
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
@@ -102,6 +109,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/BestClass/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
@@ -109,6 +117,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/AnAction/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}, res)
 
@@ -123,7 +132,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -138,15 +148,18 @@ func Test_ExploreConcepts(t *testing.T) {
 				ID:        "123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearVector", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
@@ -156,6 +169,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/BestClass/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
@@ -163,6 +177,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/AnAction/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}, res)
 
@@ -177,7 +192,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -191,23 +207,26 @@ func Test_ExploreConcepts(t *testing.T) {
 			ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 		}
 		vectorSearcher.
-			On("ObjectByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
-			Return(&searchRes, nil)
+			On("ObjectsByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
+			Return(search.Results{searchRes}, nil)
 		vectorSearcher.results = []search.Result{
 			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearObject", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
@@ -217,6 +236,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/BestClass/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
@@ -224,6 +244,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/AnAction/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}, res)
 
@@ -237,7 +258,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, nil, nil)
@@ -251,23 +273,26 @@ func Test_ExploreConcepts(t *testing.T) {
 			ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 		}
 		vectorSearcher.
-			On("ObjectByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
-			Return(&searchRes, nil)
+			On("ObjectsByID", strfmt.UUID("bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a")).
+			Return(search.Results{searchRes}, nil)
 		vectorSearcher.results = []search.Result{
 			{
 				ClassName: "BestClass",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearObject", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
@@ -277,6 +302,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/BestClass/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23a",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
@@ -284,6 +310,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/AnAction/bd3d1560-3f0e-4b39-9d62-38b4a3c4f23b",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}, res)
 
@@ -297,7 +324,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -314,14 +342,17 @@ func Test_ExploreConcepts(t *testing.T) {
 				ClassName: "BestClass",
 				ID:        "123-456-789",
 				Dist:      0.4,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Dist:      0.4,
+				Dims:      128,
 			},
 		}
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearVector", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{}, res) // certainty not matched
@@ -337,7 +368,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -352,13 +384,16 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
+				Dims:      128,
 			},
 		}
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearVector", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{}, res) // certainty not matched
@@ -374,7 +409,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -402,7 +438,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -418,13 +455,16 @@ func Test_ExploreConcepts(t *testing.T) {
 			{
 				ClassName: "BestClass",
 				ID:        "123-456-789",
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
+				Dims:      128,
 			},
 		}
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearCustomText", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{}, res, "empty result because certainty is not met")
@@ -439,7 +479,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -465,15 +506,18 @@ func Test_ExploreConcepts(t *testing.T) {
 				ID:        "123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearCustomText", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
@@ -483,6 +527,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/BestClass/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
@@ -490,6 +535,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/AnAction/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}, res)
 
@@ -506,7 +552,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider())
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(vectorSearcher, log, getFakeModulesProvider(), metrics)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorSearcher, explorer, schemaGetter, getFakeModulesProvider(), nil)
@@ -549,29 +596,35 @@ func Test_ExploreConcepts(t *testing.T) {
 				ID:        "123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
 				ID:        "987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}
 		searchRes1 := search.Result{
 			ClassName: "BestClass",
 			ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
+			Dims:      128,
 		}
 		searchRes2 := search.Result{
 			ClassName: "BestClass",
 			ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e042",
+			Dims:      128,
 		}
 		searchRes3 := search.Result{
 			ClassName: "BestClass",
 			ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e043",
+			Dims:      128,
 		}
 		searchRes4 := search.Result{
 			ClassName: "BestClass",
 			ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e044",
+			Dims:      128,
 		}
 
 		vectorSearcher.
@@ -587,6 +640,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			On("ObjectByID", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e044")).
 			Return(&searchRes4, nil)
 
+		metrics.On("AddUsageDimensions", "n/a", "explore_graphql", "nearCustomText", 128)
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []search.Result{
@@ -596,6 +650,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/BestClass/123-456-789",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 			{
 				ClassName: "AnAction",
@@ -603,6 +658,7 @@ func Test_ExploreConcepts(t *testing.T) {
 				Beacon:    "weaviate://localhost/AnAction/987-654-321",
 				Certainty: 0.5,
 				Dist:      0.5,
+				Dims:      128,
 			},
 		}, res)
 

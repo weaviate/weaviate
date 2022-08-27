@@ -180,7 +180,8 @@ func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, fi
 
 func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
 	args := f.Called(q)
-	return args.Get(0).([]search.Result), args.Error(1).(*Error)
+	res, err := args.Get(0).([]search.Result), args.Error(1).(*Error)
+	return res, err
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context,
@@ -672,4 +673,86 @@ func getFakeModulesProviderWithCustomExtenders(
 	customProjector *fakeProjector,
 ) *fakeModulesProvider {
 	return &fakeModulesProvider{customExtender, customProjector}
+}
+
+type fakeMetrics struct {
+	// Note: only those metric functions that relate to usage-related metrics are
+	// covered by this mock, others are empty shells
+	mock.Mock
+}
+
+func (f *fakeMetrics) BatchInc() {
+}
+
+func (f *fakeMetrics) BatchDec() {
+}
+
+func (f *fakeMetrics) BatchRefInc() {
+}
+
+func (f *fakeMetrics) BatchRefDec() {
+}
+
+func (f *fakeMetrics) BatchDeleteInc() {
+}
+
+func (f *fakeMetrics) BatchDeleteDec() {
+}
+
+func (f *fakeMetrics) AddObjectInc() {
+}
+
+func (f *fakeMetrics) AddObjectDec() {
+}
+
+func (f *fakeMetrics) UpdateObjectInc() {
+}
+
+func (f *fakeMetrics) UpdateObjectDec() {
+}
+
+func (f *fakeMetrics) MergeObjectInc() {
+}
+
+func (f *fakeMetrics) MergeObjectDec() {
+}
+
+func (f *fakeMetrics) DeleteObjectInc() {
+}
+
+func (f *fakeMetrics) DeleteObjectDec() {
+}
+
+func (f *fakeMetrics) GetObjectInc() {
+}
+
+func (f *fakeMetrics) GetObjectDec() {
+}
+
+func (f *fakeMetrics) HeadObjectInc() {
+}
+
+func (f *fakeMetrics) HeadObjectDec() {
+}
+
+func (f *fakeMetrics) AddReferenceInc() {
+}
+
+func (f *fakeMetrics) AddReferenceDec() {
+}
+
+func (f *fakeMetrics) UpdateReferenceInc() {
+}
+
+func (f *fakeMetrics) UpdateReferenceDec() {
+}
+
+func (f *fakeMetrics) DeleteReferenceInc() {
+}
+
+func (f *fakeMetrics) DeleteReferenceDec() {
+}
+
+func (f *fakeMetrics) AddUsageDimensions(className, queryType, op string, dims int) {
+	f.Mock.MethodCalled("AddUsageDimensions", className, queryType, op, dims)
 }

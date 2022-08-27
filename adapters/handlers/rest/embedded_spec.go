@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.14.1"
+    "version": "1.15.0-alpha1"
   },
   "basePath": "/v1",
   "paths": {
@@ -2235,7 +2235,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Snapshot does not exist"
+            "description": "Not Found - Snapshot does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -3644,6 +3647,10 @@ func init() {
     "SnapshotRestoreMeta": {
       "description": "The definition of a snapshot metadata",
       "properties": {
+        "className": {
+          "description": "The class name of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"
@@ -3914,7 +3921,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.14.1"
+    "version": "1.15.0-alpha1"
   },
   "basePath": "/v1",
   "paths": {
@@ -6128,7 +6135,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Not Found - Snapshot does not exist"
+            "description": "Not Found - Snapshot does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7714,6 +7724,10 @@ func init() {
     "SnapshotRestoreMeta": {
       "description": "The definition of a snapshot metadata",
       "properties": {
+        "className": {
+          "description": "The class name of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"

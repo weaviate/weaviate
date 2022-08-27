@@ -94,6 +94,12 @@ func (a *numericalAggregator) AddFloat64(value float64) error {
 
 // turns the value counter into a sorted list, as well as identifying the mode
 func (a *numericalAggregator) buildPairsFromCounts() {
+	if a.pairs == nil {
+		a.pairs = make([]floatCountPair, 0, len(a.valueCounter))
+	} else {
+		a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
+	}
+
 	for value, count := range a.valueCounter {
 		if count > a.maxCount {
 			a.maxCount = count

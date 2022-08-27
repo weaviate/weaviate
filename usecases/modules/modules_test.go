@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -22,7 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/backups"
+	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -322,8 +323,10 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
-		provider, ok := interface{}(modulesProvider).(backups.BackupStorageProvider)
+		provider, ok := interface{}(modulesProvider).(backup.BackupStorageProvider)
 		assert.True(t, ok)
+
+		fmt.Printf("provider: %v\n", provider)
 
 		storageByName, err1 := provider.BackupStorage("SomeStorage")
 		storageByAltName, err2 := provider.BackupStorage("YetAnotherStorageName")
@@ -493,18 +496,26 @@ func (m *dummyStorageModuleWithAltNames) StoreSnapshot(ctx context.Context, snap
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
-	return nil
+func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return nil, nil
 }
 
 func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return "", nil
+func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return nil, nil
 }
 
 func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId string) string {
 	return ""
+}
+
+func (m *dummyStorageModuleWithAltNames) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return nil, nil
 }

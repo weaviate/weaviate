@@ -26,6 +26,15 @@ const (
 	Name      = "storage-gcs"
 	AltName1  = "gcs"
 	gcsBucket = "STORAGE_GCS_BUCKET"
+
+	// this is an optional value, allowing for
+	// the snapshot to be stored in a specific
+	// directory inside the provided bucket.
+	//
+	// if left unset, the snapshot files will
+	// be stored directly in the root of the
+	// bucket.
+	gcsSnapshotRoot = "STORAGE_GCS_ROOT"
 )
 
 type StorageGCSModule struct {
@@ -72,6 +81,9 @@ func (m *StorageGCSModule) RootHandler() http.Handler {
 func (m *StorageGCSModule) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["bucketName"] = m.config.BucketName()
+	if root := m.config.SnapshotRoot(); root != "" {
+		metaInfo["rootName"] = root
+	}
 	return metaInfo, nil
 }
 

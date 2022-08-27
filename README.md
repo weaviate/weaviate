@@ -10,9 +10,16 @@
 
 ## Description
 
-**Weaviate in a nutshell**: Weaviate is a vector search engine and vector database. Weaviate uses machine learning to vectorize and store data, and to find answers to natural language queries. With Weaviate you can also bring your custom ML models to production scale.
+**Weaviate in a nutshell**: 
 
-**Weaviate in detail**: Weaviate is a low-latency vector search engine with out-of-the-box support for different media types (text, images, etc.). It offers Semantic Search, Question-Answer-Extraction, Classification, Customizable Models (PyTorch/TensorFlow/Keras), and more. Built from scratch in Go, Weaviate stores both objects and vectors, allowing for combining vector search with structured filtering with the fault-tolerance of a cloud-native database, all accessible through GraphQL, REST, and various language clients.
+* Weaviate is an open source ​database of the type ​vector search engine. 
+* Weaviate allows you to store JSON documents in a class property-like fashion while attaching machine learning vectors to these documents to represent them in vector space.
+* Weaviate can be used stand-alone (aka _bring your vectors_), with a wide variety of modules that can do the vectorization for you or extend the core capabilities.
+* Weaviate has a GraphQL-API to access your data easily.
+* ​We aim to bring your vector search set up to production to query in mere milliseconds (check our [open source benchmarks](https://weaviate.io/developers/weaviate/current/benchmarks/) to see if Weaviate fits your use case).
+* Get to know Weaviate in the [basics getting started guide](https://weaviate.io/developers/weaviate/current/core-knowledge/basics.html) in under five minutes. 
+
+**Weaviate in detail**: Weaviate is a low-latency vector search engine with out-of-the-box support for different media types (text, images, etc.). It offers Semantic Search, Question-Answer Extraction, Classification, Customizable Models (PyTorch/TensorFlow/Keras), etc. Built from scratch in Go, Weaviate stores both objects and vectors, allowing for combining vector search with structured filtering and the fault-tolerance of a cloud-native database, all accessible through GraphQL, REST, and various programming languages client.
 
 ## Weaviate helps ...
 
@@ -54,7 +61,10 @@ Weaviate makes it easy to use state-of-the-art ML models while giving you the sc
 Weaviate lets you search through your data even if it’s currently being imported or updated. In addition, every write is written to a Write-Ahead-Log (WAL) for immediately persisted writes - even when a crash occurs.
 
 * **Horizontal Scalability**<br>
-  Scale Weaviate for your exact needs, e.g. High-Availability, maximum ingestion, largest possible dataset size, maximum queries per second, etc. (Multi-Node sharding since `v1.8.0`, Replication under development) 
+  Scale Weaviate for your exact needs, e.g., maximum ingestion, largest possible dataset size, maximum queries per second, etc.
+
+* **High-Availability**<br>
+  Is on our [roadmap](https://weaviate.io/developers/weaviate/current/architecture/roadmap.html) and will be released later this year.
 
 * **Cost-Effectiveness**<br>
   Very large datasets do not need to be kept entirely in memory in Weaviate. At the same time available memory can be used to increase the speed of queries. This allows for a conscious speed/cost trade-off to suit every use case.

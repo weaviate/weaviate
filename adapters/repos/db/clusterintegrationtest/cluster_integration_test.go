@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -66,16 +65,12 @@ const (
 // between the repos.
 func TestDistributedSetup(t *testing.T) {
 	t.Run("individual imports", func(t *testing.T) {
-		dirName, cleanup := setupDirectory()
-		defer cleanup()
-
+		dirName := setupDirectory(t)
 		testDistributed(t, dirName, false)
 	})
 
 	t.Run("batched imports", func(t *testing.T) {
-		dirName, cleanup := setupDirectory()
-		defer cleanup()
-
+		dirName := setupDirectory(t)
 		testDistributed(t, dirName, true)
 	})
 }
@@ -626,16 +621,10 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	})
 }
 
-func setupDirectory() (string, func()) {
+func setupDirectory(t *testing.T) string {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	return dirName, func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}
+	dirName := t.TempDir()
+	return dirName
 }
 
 func dataAsBatch(data []*models.Object) objects.BatchObjects {
@@ -701,7 +690,8 @@ type node struct {
 }
 
 func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
-	allNodes *[]*node) {
+	allNodes *[]*node,
+) {
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 
@@ -721,6 +711,7 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, client, nodeResolver, nil)
 	n.schemaGetter = &fakeSchemaGetter{
 		shardState: shardState,
@@ -946,7 +937,8 @@ func exampleDataWithRefs(size int, refCount int, targetObjs []*models.Object) []
 }
 
 func bruteForceObjectsByQuery(objs []*models.Object,
-	query []float32) []*models.Object {
+	query []float32,
+) []*models.Object {
 	type distanceAndObj struct {
 		distance float32
 		obj      *models.Object
@@ -991,7 +983,8 @@ func normalize(v []float32) []float32 {
 
 func manuallyResolveRef(t *testing.T, obj *models.Object,
 	possibleTargets []*models.Object, localPropName,
-	referencedPropName string) []map[string]interface{} {
+	referencedPropName string,
+) []map[string]interface{} {
 	beacons := obj.Properties.(map[string]interface{})[localPropName].(models.MultipleRef)
 	out := make([]map[string]interface{}, len(beacons))
 

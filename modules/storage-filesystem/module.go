@@ -32,7 +32,7 @@ const (
 type StorageFileSystemModule struct {
 	logger        logrus.FieldLogger
 	dataPath      string // path to the current (operational) data
-	snapshotsPath string // complete(?) path to the the directory that holds all the snapshots
+	snapshotsPath string // complete(?) path to the directory that holds all the snapshots
 }
 
 func New() *StorageFileSystemModule {
@@ -88,7 +88,8 @@ func (m *StorageFileSystemModule) makeSnapshotFilePath(className, id, relPath st
 }
 
 func (m *StorageFileSystemModule) makeMetaFilePath(className, id string) string {
-	return filepath.Join(m.makeSnapshotDirPath(className, id), "snapshot.json")
+	dir := m.makeSnapshotDirPath(className, id)
+	return filepath.Join(dir, "snapshot.json")
 }
 
 // verify we implement the modules.Module interface

@@ -51,13 +51,15 @@ type VectorSearcher interface {
 	VectorSearch(ctx context.Context, vector []float32,
 		offset, limit int, filters *filters.LocalFilter) ([]search.Result, error)
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
-	ObjectByID(ctx context.Context, id strfmt.UUID,
+	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
 
 type explorer interface {
 	GetClass(ctx context.Context, params GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params ExploreParams) ([]search.Result, error)
+	CrossClassVectorSearch(ctx context.Context, params ExploreParams) ([]search.Result, error)
 }
 
 // NewTraverser to traverse the knowledge graph

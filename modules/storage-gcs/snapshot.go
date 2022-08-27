@@ -24,7 +24,7 @@ func (m *StorageGCSModule) StoreSnapshot(ctx context.Context, snapshot *snapshot
 	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 
-func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) error {
+func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 
@@ -32,16 +32,29 @@ func (m *StorageGCSModule) SetMetaStatus(ctx context.Context, className, snapsho
 	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
 }
 
-func (m *StorageGCSModule) GetMetaStatus(ctx context.Context, className, snapshotID string) (string, error) {
-	return m.storageProvider.GetMetaStatus(ctx, className, snapshotID)
+func (m *StorageGCSModule) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
+	return m.storageProvider.SetMetaError(ctx, className, snapshotID, err)
+}
+
+func (m *StorageGCSModule) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return m.storageProvider.GetMeta(ctx, className, snapshotID)
 }
 
 func (m *StorageGCSModule) DestinationPath(className, snapshotID string) string {
 	return m.storageProvider.DestinationPath(className, snapshotID)
 }
 
+func (m *StorageGCSModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	return m.storageProvider.InitSnapshot(ctx, className, snapshotID)
+}
+
 func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
-	config := gcs.NewConfig(os.Getenv(gcsBucket))
+	bucketName := os.Getenv(gcsBucket)
+	if bucketName == "" {
+		return errors.Errorf("snapshot init: '%s' must be set", gcsBucket)
+	}
+
+	config := gcs.NewConfig(bucketName, os.Getenv(gcsSnapshotRoot))
 	storageProvider, err := gcs.New(ctx, config, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")

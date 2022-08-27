@@ -45,7 +45,9 @@ func gettingObjectsWithCustomVectors(t *testing.T) {
 
 		assert.Equal(t, expected, results)
 	})
+}
 
+func exploreObjectsWithCustomVectors(t *testing.T) {
 	t.Run("through Explore {}", func(t *testing.T) {
 		query := `
 		{

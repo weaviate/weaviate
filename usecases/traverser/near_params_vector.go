@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
 type nearParamsVector struct {
@@ -31,8 +32,10 @@ type nearParamsVector struct {
 }
 
 type nearParamsSearcher interface {
-	ObjectByID(ctx context.Context, id strfmt.UUID,
+	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
 
 func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearcher) *nearParamsVector {
@@ -59,7 +62,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearObject != nil {
-		vector, err := v.vectorFromNearObjectParams(ctx, nearObject)
+		vector, err := v.vectorFromNearObjectParams(ctx, className, nearObject)
 		if err != nil {
 			return nil, errors.Errorf("nearObject params: %v", err)
 		}
@@ -153,20 +156,54 @@ func (v *nearParamsVector) vectorFromModules(ctx context.Context,
 	return nil, errors.New("no modules defined")
 }
 
-func (v *nearParamsVector) findVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
-	res, err := v.search.ObjectByID(ctx, id, search.SelectProperties{}, additional.Properties{})
+func (v *nearParamsVector) findVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
+	switch className {
+	case "":
+		// Explore cross class searches where we don't have class context
+		return v.crossClassFindVector(ctx, id)
+	default:
+		return v.classFindVector(ctx, className, id)
+	}
+}
+
+func (v *nearParamsVector) classFindVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
+	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{})
 	if err != nil {
 		return nil, err
 	}
 	if res == nil {
 		return nil, errors.New("vector not found")
 	}
-
 	return res.Vector, nil
 }
 
-func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
+func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
+	res, err := v.search.ObjectsByID(ctx, id, search.SelectProperties{}, additional.Properties{})
+	if err != nil {
+		return nil, errors.Wrap(err, "find objects")
+	}
+	switch len(res) {
+	case 0:
+		return nil, errors.New("vector not found")
+	case 1:
+		return res[0].Vector, nil
+	default:
+		vectors := make([][]float32, len(res))
+		for i := range res {
+			vectors[i] = res[i].Vector
+		}
+		return libvectorizer.CombineVectors(vectors), nil
+	}
+}
+
+func (v *nearParamsVector) crossClassVectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject,
+) ([]float32, error) {
+	return v.vectorFromNearObjectParams(ctx, "", params)
+}
+
+func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
+	className string, params *searchparams.NearObject,
 ) ([]float32, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, errors.New("empty id and beacon")
@@ -183,7 +220,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 		id = ref.TargetID
 	}
 
-	return v.findVector(ctx, id)
+	return v.findVector(ctx, className, id)
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,

@@ -31,7 +31,6 @@ import (
 // with the default values initialized.
 func NewGenesisPeersListParams() *GenesisPeersListParams {
 	return &GenesisPeersListParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -40,7 +39,6 @@ func NewGenesisPeersListParams() *GenesisPeersListParams {
 // with the default values initialized, and the ability to set a timeout on a request
 func NewGenesisPeersListParamsWithTimeout(timeout time.Duration) *GenesisPeersListParams {
 	return &GenesisPeersListParams{
-
 		timeout: timeout,
 	}
 }
@@ -49,7 +47,6 @@ func NewGenesisPeersListParamsWithTimeout(timeout time.Duration) *GenesisPeersLi
 // with the default values initialized, and the ability to set a context for a request
 func NewGenesisPeersListParamsWithContext(ctx context.Context) *GenesisPeersListParams {
 	return &GenesisPeersListParams{
-
 		Context: ctx,
 	}
 }
