@@ -32,11 +32,22 @@ const (
 	envTestQnATransformersImage = "TEST_QNA_TRANSFORMERS_IMAGE"
 )
 
+const (
+	StorageFileSystem = "storage-filesystem"
+	StorageAWSS3      = "storage-aws-s3"
+	StorageGCS        = "storage-gcs"
+)
+
 type Compose struct {
 	enableModules           []string
 	defaultVectorizerModule string
 	withMinIO               bool
 	withGCS                 bool
+	withStorageFilesystem   bool
+	withStorageAWSS3        bool
+	withStorageAWSS3Bucket  string
+	withStorageGCS          bool
+	withStorageGCSBucket    string
 	withTransformers        bool
 	withContextionary       bool
 	withQnATransformers     bool
@@ -79,6 +90,28 @@ func (d *Compose) WithQnATransformers() *Compose {
 	return d
 }
 
+func (d *Compose) WithStorageFilesystem() *Compose {
+	d.withStorageFilesystem = true
+	d.enableModules = append(d.enableModules, StorageFileSystem)
+	return d
+}
+
+func (d *Compose) WithStorageAWSS3(bucket string) *Compose {
+	d.withStorageAWSS3 = true
+	d.withStorageAWSS3Bucket = bucket
+	d.withMinIO = true
+	d.enableModules = append(d.enableModules, StorageAWSS3)
+	return d
+}
+
+func (d *Compose) WithStorageGCS(bucket string) *Compose {
+	d.withStorageGCS = true
+	d.withStorageGCSBucket = bucket
+	d.withGCS = true
+	d.enableModules = append(d.enableModules, StorageGCS)
+	return d
+}
+
 func (d *Compose) WithWeaviate() *Compose {
 	d.withWeaviate = true
 	return d
@@ -102,20 +135,29 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
-		for k, v := range container.envSettings {
-			envSettings[k] = v
-		}
 		containers = append(containers, container)
+		if d.withStorageAWSS3 {
+			for k, v := range container.envSettings {
+				envSettings[k] = v
+			}
+			envSettings["STORAGE_S3_BUCKET"] = d.withStorageAWSS3Bucket
+		}
 	}
 	if d.withGCS {
 		container, err := startGCS(ctx, networkName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", GCS)
 		}
-		for k, v := range container.envSettings {
-			envSettings[k] = v
-		}
 		containers = append(containers, container)
+		if d.withStorageGCS {
+			for k, v := range container.envSettings {
+				envSettings[k] = v
+			}
+			envSettings["STORAGE_GCS_BUCKET"] = d.withStorageGCSBucket
+		}
+	}
+	if d.withStorageFilesystem {
+		envSettings["STORAGE_FS_SNAPSHOTS_PATH"] = "/tmp/snapshots"
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
