@@ -353,3 +353,52 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		assert.Equal(t, []float32{9, 9, 9}, vec, "check that vector was overridden")
 	})
 }
+
+func Test_AddObjectEmptyProperties(t *testing.T) {
+	var (
+		vectorRepo *fakeVectorRepo
+		manager    *Manager
+	)
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "TestClass",
+					VectorIndexConfig: hnsw.UserConfig{},
+
+					Properties: []*models.Property{
+						{
+							Name:     "strings",
+							DataType: []string{"string[]"},
+						},
+					},
+				},
+			},
+		},
+	}
+	reset := func() {
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+		schemaManager := &fakeSchemaManager{
+			GetSchemaResponse: schema,
+		}
+		locks := &fakeLocks{}
+		cfg := &config.WeaviateConfig{}
+		authorizer := &fakeAuthorizer{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		metrics := &fakeMetrics{}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+	}
+	reset()
+	ctx := context.Background()
+	object := &models.Object{
+		Class:  "TestClass",
+		Vector: []float32{9, 9, 9},
+	}
+	assert.Nil(t, object.Properties)
+	addedObject, err := manager.AddObject(ctx, nil, object)
+	assert.Nil(t, err)
+	assert.NotNil(t, addedObject.Properties)
+}
