@@ -52,7 +52,7 @@ func TestVertex_SetConnections(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			v := &vertex{
-				connections: make([][]uint64, 1, 1),
+				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
 
@@ -107,7 +107,7 @@ func TestVertex_AppendConnection(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			v := &vertex{
-				connections: make([][]uint64, 1, 1),
+				connections: make([][]uint64, 1),
 			}
 			v.connections[0] = tc.initial
 
@@ -125,7 +125,7 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 func TestVertex_ResetConnections(t *testing.T) {
 	v := &vertex{
-		connections: make([][]uint64, 1, 1),
+		connections: make([][]uint64, 1),
 	}
 	v.connections[0] = makeConnections(4, 4)
 
