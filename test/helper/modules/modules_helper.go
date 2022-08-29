@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/require"
 )
 
