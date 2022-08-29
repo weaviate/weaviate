@@ -46,6 +46,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (multi shard)", addTestDataMultiShard)
 	t.Run("import test data (date field class)", addDateFieldClass)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
+	t.Run("import test data (class without properties)", addTestDataNoProperties)
 
 	// explore tests
 	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
@@ -89,6 +90,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "RansomNote")
 	deleteObjectClass(t, "MultiShard")
 	deleteObjectClass(t, "HasDateField")
+	deleteObjectClass(t, "ClassWithoutProperties")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -481,6 +483,15 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "name",
 				DataType: []string{"string"},
+			},
+		},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class: "ClassWithoutProperties",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
 			},
 		},
 	})
@@ -886,6 +897,24 @@ func addTestDataCVC(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, cvc3)
+}
+
+func addTestDataNoProperties(t *testing.T) {
+	var (
+		EmptyID1 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a"
+		EmptyID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
+	)
+	createObject(t, &models.Object{
+		Class: "ClassWithoutProperties",
+		ID:    EmptyID1,
+	})
+	assertGetObjectEventually(t, EmptyID1)
+
+	createObject(t, &models.Object{
+		Class: "ClassWithoutProperties",
+		ID:    EmptyID2,
+	})
+	assertGetObjectEventually(t, EmptyID2)
 }
 
 func addTestDataArrayClasses(t *testing.T) {
