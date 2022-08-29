@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -43,6 +44,8 @@ func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
 ) error {
 	m.Lock()
 	defer m.Unlock()
+	timer := prometheus.NewTimer(m.metrics.SnapshotRestoreClassDurations.WithLabelValues(class.Class))
+	defer timer.ObserveDuration()
 
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)

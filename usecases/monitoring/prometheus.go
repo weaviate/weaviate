@@ -12,44 +12,59 @@
 package monitoring
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 type PrometheusMetrics struct {
-	BatchTime                          *prometheus.HistogramVec
-	BatchDeleteTime                    *prometheus.HistogramVec
-	ObjectsTime                        *prometheus.HistogramVec
-	LSMBloomFilters                    *prometheus.HistogramVec
-	AsyncOperations                    *prometheus.GaugeVec
-	LSMSegmentCount                    *prometheus.GaugeVec
-	LSMSegmentCountByLevel             *prometheus.GaugeVec
-	LSMSegmentObjects                  *prometheus.GaugeVec
-	LSMSegmentSize                     *prometheus.GaugeVec
-	LSMMemtableSize                    *prometheus.GaugeVec
-	LSMMemtableDurations               *prometheus.HistogramVec
-	VectorIndexTombstones              *prometheus.GaugeVec
-	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
-	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
-	VectorIndexOperations              *prometheus.GaugeVec
-	VectorIndexDurations               *prometheus.HistogramVec
-	VectorIndexSize                    *prometheus.GaugeVec
-	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
-	ObjectCount                        *prometheus.GaugeVec
-	QueriesCount                       *prometheus.GaugeVec
-	GoroutinesCount                    *prometheus.GaugeVec
-	QueryDimensions                    *prometheus.CounterVec
-	SnapshotRestoreDurations           *prometheus.HistogramVec
+	BatchTime                           *prometheus.HistogramVec
+	BatchDeleteTime                     *prometheus.HistogramVec
+	ObjectsTime                         *prometheus.HistogramVec
+	LSMBloomFilters                     *prometheus.HistogramVec
+	AsyncOperations                     *prometheus.GaugeVec
+	LSMSegmentCount                     *prometheus.GaugeVec
+	LSMSegmentCountByLevel              *prometheus.GaugeVec
+	LSMSegmentObjects                   *prometheus.GaugeVec
+	LSMSegmentSize                      *prometheus.GaugeVec
+	LSMMemtableSize                     *prometheus.GaugeVec
+	LSMMemtableDurations                *prometheus.HistogramVec
+	VectorIndexTombstones               *prometheus.GaugeVec
+	VectorIndexTombstoneCleanupThreads  *prometheus.GaugeVec
+	VectorIndexTombstoneCleanedCount    *prometheus.CounterVec
+	VectorIndexOperations               *prometheus.GaugeVec
+	VectorIndexDurations                *prometheus.HistogramVec
+	VectorIndexSize                     *prometheus.GaugeVec
+	VectorIndexMaintenanceDurations     *prometheus.HistogramVec
+	ObjectCount                         *prometheus.GaugeVec
+	QueriesCount                        *prometheus.GaugeVec
+	QueryDimensions                     *prometheus.CounterVec
+	GoroutinesCount                     *prometheus.GaugeVec
+	SnapshotRestoreDurations            *prometheus.HistogramVec
+	SnapshotRestoreClassDurations       *prometheus.HistogramVec
+	SnapshotRestoreBackupInitDurations  *prometheus.HistogramVec
+	SnapshotRestoreFromStorageDurations *prometheus.HistogramVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.HistogramVec
 	StartupDiskIO    *prometheus.HistogramVec
 }
 
-var msBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
+var (
+	msBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
+	metrics   *PrometheusMetrics
+)
+
+func GetMetrics() *PrometheusMetrics {
+	if metrics == nil {
+		NewPrometheusMetrics()
+	}
+	return metrics
+}
 
 func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
-	return &PrometheusMetrics{
+	metrics = &PrometheusMetrics{
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
@@ -171,6 +186,40 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name:    "snapshot_restore_ms",
 			Help:    "Duration of a snapshot restore",
 			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
-		}, []string{"storage_name", "class_name", "id"}),
+		}, []string{"storage_name", "class_name"}),
+		SnapshotRestoreClassDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "snapshot_restore_class_ms",
+			Help:    "Duration restoring class",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"class_name"}),
+		SnapshotRestoreBackupInitDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "snapshot_restore_init_ms",
+			Help:    "startup phase of a snapshot restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"storage_name", "class_name"}),
+		SnapshotRestoreFromStorageDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "snapshot_restore_from_storage_ms",
+			Help:    "file transfer stage of a snapshot restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"storage_name", "class_name"}),
 	}
+
+	return metrics
+}
+
+type OnceUponATimer struct {
+	sync.Once
+	Timer *prometheus.Timer
+}
+
+func NewOnceTimer(promTimer *prometheus.Timer) *OnceUponATimer {
+	o := OnceUponATimer{}
+	o.Timer = promTimer
+	return &o
+}
+
+func (o *OnceUponATimer) ObserveDurationOnce() {
+	o.Do(func() {
+		o.Timer.ObserveDuration()
+	})
 }

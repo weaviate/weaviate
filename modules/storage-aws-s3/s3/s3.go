@@ -24,7 +24,9 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -115,6 +117,8 @@ func (s *s3) putMeta(ctx context.Context, snapshot *snapshots.Snapshot) error {
 }
 
 func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("s3", className))
+	defer timer.ObserveDuration()
 	bucketName, err := s.findBucket(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "restore snapshot")

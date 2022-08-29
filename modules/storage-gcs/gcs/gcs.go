@@ -21,7 +21,9 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
@@ -105,6 +107,8 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 }
 
 func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("gcs", className))
+	defer timer.ObserveDuration()
 	bucket, err := g.findBucket(ctx)
 	if err != nil || bucket == nil {
 		return nil, errors.Wrap(err, "snapshot bucket does not exist")
