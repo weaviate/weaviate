@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -47,7 +46,6 @@ type Manager struct {
 	backups                 backups.BackupManager
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
-	metrics                 monitoring.MonitoringI
 	sync.Mutex
 }
 
