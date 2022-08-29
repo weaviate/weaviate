@@ -113,6 +113,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 		clusterState:            clusterState,
 		backups:                 backupManager,
+		metrics:                 prom,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)
