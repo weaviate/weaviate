@@ -137,7 +137,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		timeSource:         defaultTimeSource{},
 		modulesProvider:    modulesProvider,
 		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
-		metrics:            NewMetrics(prom),
+		metrics:            metrics,
 	}
 }
 
