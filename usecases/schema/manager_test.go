@@ -475,6 +475,7 @@ func newSchemaManager() *Manager {
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
 		&fakeTxClient{}, &fakeBackupManager{},
+		&fakeMonitor{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -523,6 +524,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
 		&fakeTxClient{}, &fakeBackupManager{},
+		&fakeMonitor{},
 	)
 	require.Nil(t, err)
 

@@ -152,6 +152,8 @@ func testProperty() *models.Property {
 	}
 }
 
+type fakeMonitor struct{}
+
 // New Local Schema *Manager
 func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 	client cluster.Client,
@@ -165,6 +167,7 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterState, client, &fakeBackupManager{},
+		&fakeMonitor{},
 	)
 	if err != nil {
 		panic(err.Error())
