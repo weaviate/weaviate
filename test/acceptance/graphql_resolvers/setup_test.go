@@ -893,6 +893,7 @@ func addTestDataArrayClasses(t *testing.T) {
 		arrayClassID1 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a"
 		arrayClassID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
 		arrayClassID3 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534c"
+		arrayClassID4 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534d"
 	)
 	createObject(t, &models.Object{
 		Class: "ArrayClass",
@@ -956,6 +957,13 @@ func addTestDataArrayClasses(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID3)
+
+	// objects with null objects
+	createObject(t, &models.Object{
+		Class: "ArrayClass",
+		ID:    arrayClassID4,
+	})
+	assertGetObjectEventually(t, arrayClassID4)
 }
 
 func addTestDataRansomNotes(t *testing.T) {

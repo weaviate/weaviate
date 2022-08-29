@@ -77,20 +77,20 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 			},
 			{
 				name:    "with nearObject filter",
-				filters: `( nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9} )`,
+				filters: `( nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.1} )`,
 			},
 			{
 				name: "with where and nearObject filter",
 				filters: `(
 					where:{operator: Like path:["id"] valueString:"*"}
-					nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.9}
+					nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.1}
 				)`,
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
-				assert.Equal(t, json.Number("3"), getCount(result, "ArrayClass", "meta"))
+				assert.Equal(t, json.Number("4"), getCount(result, "ArrayClass", "meta"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "booleans"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "datesAsStrings"))
 				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "dates"))
@@ -106,7 +106,7 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 		query := `
 			{
 			  Aggregate {
-				City 
+				City
 				%s
 				{
 				  meta {

@@ -142,6 +142,9 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		object.Properties = concept.Properties
 	}
 
+	if object.Properties == nil {
+		object.Properties = map[string]interface{}{}
+	}
 	now := unixNow()
 	if _, ok := fieldsToKeep["creationTimeUnix"]; ok {
 		object.CreationTimeUnix = now
