@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -44,7 +45,7 @@ func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
 ) error {
 	m.Lock()
 	defer m.Unlock()
-	timer := prometheus.NewTimer(m.metrics.SnapshotRestoreClassDurations.WithLabelValues(class.Class))
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreClassDurations.WithLabelValues(class.Class))
 	defer timer.ObserveDuration()
 
 	class.Class = upperCaseClassName(class.Class)

@@ -47,7 +47,7 @@ type Manager struct {
 	backups                 backups.BackupManager
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
-	metrics                 *monitoring.PrometheusMetrics
+	metrics                 monitoring.MonitoringI
 	sync.Mutex
 }
 
@@ -97,7 +97,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, backupManager backups.BackupManager,
-	prom *monitoring.PrometheusMetrics,
+	prom monitoring.MonitoringI,
 ) (*Manager, error) {
 	m := &Manager{
 		config:                  config,

@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -316,7 +317,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 	}
 
 	go func(ctx context.Context, className, snapshotId string) {
-		timer := prometheus.NewTimer(m.metrics.SnapshotRestoreDurations.WithLabelValues(storageName, className))
+		timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreDurations.WithLabelValues(storageName, className))
 		defer timer.ObserveDuration()
 		m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusTRANSFERRING)
 		if meta, snapshot, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {

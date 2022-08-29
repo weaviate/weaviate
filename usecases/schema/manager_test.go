@@ -532,6 +532,8 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	}, classes[0].VectorIndexConfig)
 }
 
+type fakeMonitor struct{}
+
 func Test_DestinationPath(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -550,7 +552,7 @@ func Test_DestinationPath(t *testing.T) {
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{}, &fakeBackupManager{},
+		&fakeTxClient{}, &fakeBackupManager{}, &fakeMonitor{},
 	)
 	require.Nil(t, err)
 
