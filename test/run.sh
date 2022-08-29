@@ -47,7 +47,7 @@ function main() {
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
-    surpress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
+    suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
 
     echo_green "Start up weaviate and backing dbs in docker-compose..."
     echo "This could take some time..."
@@ -57,7 +57,7 @@ function main() {
     # # Note: It's not best practice to do this as part of the test script
     # # It would be better if each test independently prepared (and also 
     # # cleaned up) the test fixtures it needs, but one step at a time ;)
-    # surpress_on_success import_test_fixtures
+    # suppress_on_success import_test_fixtures
 
     if $run_benchmark
     then
@@ -73,8 +73,17 @@ function main() {
   fi
 
   if $run_module_tests; then
+    local module_test_image=weaviate:module-tests
     echo_green "Running module acceptance tests..."
+    echo_green "Stop any running docker-compose containers..."
+    suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
+    echo_green "Building weaviate image for module acceptance tests..."
+    echo "This could take some time..."
+    docker build -t $module_test_image .
+    export "TEST_WEAVIATE_IMAGE"=$module_test_image
+
     run_module_tests "$@"
+    echo_green "Module acceptance tests successful"
   fi
   
   echo "Done!"
@@ -117,7 +126,7 @@ function run_module_tests() {
     done
 }
 
-surpress_on_success() {
+suppress_on_success() {
   out="$("${@}" 2>&1)" || { echo_red "FAILED!";  echo "$out"; return 1; }
   echo "Done!"
 }

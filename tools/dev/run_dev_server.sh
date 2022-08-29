@@ -229,6 +229,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       STORAGE_S3_ENDPOINT="localhost:9000" \
+      STORAGE_S3_BUCKET="weaviate-snapshots" \
       AWS_ACCESS_KEY_ID="aws_access_key" \
       AWS_SECRET_KEY="aws_secret_key" \
       ENABLE_MODULES="text2vec-contextionary,storage-aws-s3" \
@@ -242,9 +243,29 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+
+  local-gcs)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      GOOGLE_CLOUD_PROJECT=project-id \
+      STORAGE_EMULATOR_HOST=localhost:9090 \
+      STORAGE_GCS_ENDPOINT=localhost:9090 \
+      STORAGE_GCS_BUCKET=weaviate-snapshots \
+      ENABLE_MODULES="text2vec-contextionary,storage-gcs" \
+      CLUSTER_HOSTNAME="node1" \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
+
   *) 
     echo "Invalid config" 2>&1
     exit 1
     ;;
 esac
-
