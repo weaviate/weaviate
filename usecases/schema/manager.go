@@ -97,7 +97,6 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, backupManager backups.BackupManager,
-	prom monitoring.MonitoringI,
 ) (*Manager, error) {
 	m := &Manager{
 		config:                  config,
@@ -113,7 +112,6 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 		clusterState:            clusterState,
 		backups:                 backupManager,
-		metrics:                 prom,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)
