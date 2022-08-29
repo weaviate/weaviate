@@ -16,8 +16,8 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/storage-aws-s3"
-	"github.com/semi-technologies/weaviate/modules/storage-gcs"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
+	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/testcontainers/testcontainers-go"
 )
 
