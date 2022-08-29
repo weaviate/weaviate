@@ -315,6 +315,8 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 	}
 
 	go func(ctx context.Context, className, snapshotId string) {
+		//timer := prometheus.NewTimer(m.metrics.VectorIndexMaintenanceDurations.WithLabelValues(storageName, className, snapshotId))
+		//defer timer.ObserveDuration()
 		m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusTRANSFERRING)
 		if meta, snapshot, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
 			if meta != nil {

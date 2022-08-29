@@ -39,6 +39,7 @@ type PrometheusMetrics struct {
 	QueriesCount                       *prometheus.GaugeVec
 	GoroutinesCount                    *prometheus.GaugeVec
 	QueryDimensions                    *prometheus.CounterVec
+	SnapshotRestoreDurations           *prometheus.HistogramVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.HistogramVec
@@ -165,5 +166,11 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
 		}, []string{"query_type", "operation", "class_name"}),
+
+		SnapshotRestoreDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "snapshot_restore_ms",
+			Help:    "Duration of a snapshot restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"storage_name", "class_name", "id"}),
 	}
 }

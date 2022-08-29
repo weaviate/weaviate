@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -46,6 +47,7 @@ type Manager struct {
 	backups                 backups.BackupManager
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
+	metrics                 *monitoring.PrometheusMetrics
 	sync.Mutex
 }
 
@@ -95,6 +97,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, backupManager backups.BackupManager,
+	prom *monitoring.PrometheusMetrics,
 ) (*Manager, error) {
 	m := &Manager{
 		config:                  config,
@@ -110,6 +113,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
 		clusterState:            clusterState,
 		backups:                 backupManager,
+		metrics:                 prom,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)
