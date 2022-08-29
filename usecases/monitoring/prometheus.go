@@ -43,6 +43,7 @@ type PrometheusMetrics struct {
 	GoroutinesCount                     *prometheus.GaugeVec
 	SnapshotRestoreDurations            *prometheus.HistogramVec
 	SnapshotStoreDurations              *prometheus.HistogramVec
+	BucketPauseDurations                *prometheus.HistogramVec
 	SnapshotRestoreClassDurations       *prometheus.HistogramVec
 	SnapshotRestoreBackupInitDurations  *prometheus.HistogramVec
 	SnapshotRestoreFromStorageDurations *prometheus.HistogramVec
@@ -210,6 +211,11 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 			Help:    "file transfer stage of a snapshot restore",
 			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
 		}, []string{"storage_name", "class_name"}),
+		BucketPauseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "bucket_pause_durations_ms",
+			Help:    "bucket pause durations",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"bucket_dir"}),
 		SnapshotRestoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "snapshot_restore_data_transferred",
 			Help: "Total number of bytes transferred during a snapshot restore",

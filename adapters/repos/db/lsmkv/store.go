@@ -160,6 +160,7 @@ type jobFunc func(context.Context, *Bucket) (interface{}, error)
 type rollbackFunc func(context.Context, *Bucket) error
 
 func (s *Store) PauseCompaction(ctx context.Context) error {
+	
 	pauseCompaction := func(ctx context.Context, b *Bucket) (interface{}, error) {
 		return nil, b.PauseCompaction(ctx)
 	}

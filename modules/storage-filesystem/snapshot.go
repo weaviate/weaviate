@@ -28,6 +28,8 @@ import (
 )
 
 func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("filesystem", snapshot.ClassName))
+	defer timer.ObserveDuration()
 	if err := ctx.Err(); err != nil {
 		return snapshots.NewErrContextExpired(
 			errors.Wrap(err, "store snapshot aborted"))
