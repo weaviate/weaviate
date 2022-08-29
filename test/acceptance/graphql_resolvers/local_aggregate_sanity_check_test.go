@@ -102,6 +102,52 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 		}
 	})
 
+	t.Run("running Aggregate against empty class", func(t *testing.T) {
+		query := `
+			{
+				Aggregate {
+					ClassWithoutProperties
+					%s
+					{
+						meta{
+							count
+						}
+					}
+				}
+			}
+		`
+
+		tests := []struct {
+			name    string
+			filters string
+		}{
+			{
+				name: "without filters",
+			},
+			{
+				name:    "with where filter",
+				filters: `( where:{operator: Like path:["id"] valueString:"*"} )`,
+			},
+			{
+				name:    "with nearObject filter",
+				filters: `( nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.1} )`,
+			},
+			{
+				name: "with where and nearObject filter",
+				filters: `(
+					where:{operator: Like path:["id"] valueString:"*"}
+					nearObject:{id: "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a" certainty: 0.1}
+				)`,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
+				assert.Equal(t, json.Number("2"), getCount(result, "ClassWithoutProperties", "meta"))
+			})
+		}
+	})
+
 	t.Run("running Aggregate against City", func(t *testing.T) {
 		query := `
 			{
