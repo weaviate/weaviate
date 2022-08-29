@@ -209,7 +209,6 @@ func (s *s3) findBucket(ctx context.Context) (string, error) {
 }
 
 func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
-	
 	if _, err := s.findBucket(ctx); err != nil {
 		return nil, errors.Wrap(err, "init snapshot")
 	}

@@ -189,9 +189,7 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 
 	timer.ObserveDurationOnce()
 
-	
 	snapshot, err := storage.RestoreSnapshot(ctx, className, snapshotID)
-	
 	if err != nil {
 		bm.setRestoreInProgress(className, false)
 		return nil, nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "restore snapshot %s of index for %s", snapshotID, className))

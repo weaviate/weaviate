@@ -53,7 +53,7 @@ func (b *Bucket) FlushMemtable(ctx context.Context) error {
 	if b.isReadOnly() {
 		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 	}
-	
+
 	if err := b.flushCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(ctx.Err(), "long-running memtable flush in progress")
 	}

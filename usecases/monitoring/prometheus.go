@@ -55,8 +55,7 @@ type PrometheusMetrics struct {
 	StartupDiskIO    *prometheus.HistogramVec
 }
 
-type MonitoringI interface {
-}
+type MonitoringI interface{}
 
 var (
 	msBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
