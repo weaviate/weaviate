@@ -475,7 +475,6 @@ func newSchemaManager() *Manager {
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
 		&fakeTxClient{}, &fakeBackupManager{},
-		&fakeMonitor{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -524,7 +523,6 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
 		&fakeTxClient{}, &fakeBackupManager{},
-		&fakeMonitor{},
 	)
 	require.Nil(t, err)
 
@@ -554,7 +552,7 @@ func Test_DestinationPath(t *testing.T) {
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{}, &fakeBackupManager{}, &fakeMonitor{},
+		&fakeTxClient{}, &fakeBackupManager{},
 	)
 	require.Nil(t, err)
 

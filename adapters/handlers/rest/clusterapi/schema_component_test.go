@@ -167,7 +167,6 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterState, client, &fakeBackupManager{},
-		&fakeMonitor{},
 	)
 	if err != nil {
 		panic(err.Error())
