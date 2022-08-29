@@ -532,8 +532,6 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	}, classes[0].VectorIndexConfig)
 }
 
-type fakeMonitor struct{}
-
 func Test_DestinationPath(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 

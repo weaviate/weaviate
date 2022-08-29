@@ -152,8 +152,6 @@ func testProperty() *models.Property {
 	}
 }
 
-type fakeMonitor struct{}
-
 // New Local Schema *Manager
 func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 	client cluster.Client,
