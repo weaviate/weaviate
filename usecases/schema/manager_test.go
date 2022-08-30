@@ -18,7 +18,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -474,7 +473,7 @@ func newSchemaManager() *Manager {
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{}, &fakeBackupManager{},
+		&fakeTxClient{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -522,7 +521,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{}, &fakeBackupManager{},
+		&fakeTxClient{},
 	)
 	require.Nil(t, err)
 
@@ -530,55 +529,4 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	assert.Equal(t, fakeVectorConfig{
 		raw: "parse me, i should be in some sort of an object",
 	}, classes[0].VectorIndexConfig)
-}
-
-func Test_DestinationPath(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-
-	repo := newFakeRepo()
-	repo.schema = &State{
-		ObjectSchema: &models.Schema{
-			Classes: []*models.Class{{
-				Class:             "Foo",
-				VectorIndexConfig: make(map[string]interface{}),
-				VectorIndexType:   "hnsw", // will always be set when loading from disk
-			}},
-		},
-	}
-	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
-		dummyParseVectorConfig, // only option for now
-		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{}, &fakeBackupManager{},
-	)
-	require.Nil(t, err)
-
-	path, err := sm.destinationPath("storageName", "className", "ID")
-	require.Nil(t, err)
-	assert.Equal(t, "a fake backup path", path)
-}
-
-type fakeBackupManager struct{}
-
-func (f *fakeBackupManager) CreateBackup(ctx context.Context,
-	className, storageName, snapshotID string,
-) (*snapshots.CreateMeta, error) {
-	return nil, nil
-}
-
-func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
-	className, storageName, snapshotID string,
-) (*snapshots.RestoreMeta, *snapshots.Snapshot, error) {
-	return nil, nil, nil
-}
-
-func (f *fakeBackupManager) CreateBackupStatus(ctx context.Context,
-	className, storageName, snapshotID string,
-) (*models.SnapshotMeta, error) {
-	return nil, nil
-}
-
-func (f *fakeBackupManager) DestinationPath(storageName, className, snapshotID string) (string, error) {
-	return "a fake backup path", nil
 }

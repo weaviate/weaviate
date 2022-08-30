@@ -16,7 +16,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
@@ -179,107 +178,6 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 	return schema.NewSchemaObjectsShardsUpdateOK().WithPayload(payload)
 }
 
-func (s *schemaHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCreateParams,
-	principal *models.Principal,
-) middleware.Responder {
-	meta, err := s.manager.CreateSnapshot(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.StorageName, params.ID)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrUnprocessable:
-			return schema.NewSchemaObjectsSnapshotsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaObjectsSnapshotsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return schema.NewSchemaObjectsSnapshotsCreateOK().WithPayload(meta)
-}
-
-func (s *schemaHandlers) createSnapshotStatus(params schema.SchemaObjectsSnapshotsCreateStatusParams,
-	principal *models.Principal,
-) middleware.Responder {
-	status, err := s.manager.CreateSnapshotStatus(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.StorageName, params.ID)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsCreateStatusForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrNotFound:
-			return schema.NewSchemaObjectsSnapshotsCreateStatusNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaObjectsSnapshotsCreateStatusInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-	return schema.NewSchemaObjectsSnapshotsCreateStatusOK().WithPayload(status)
-}
-
-func (s *schemaHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRestoreParams,
-	principal *models.Principal,
-) middleware.Responder {
-	meta, err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.StorageName, params.ID)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrNotFound:
-			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrUnprocessable:
-			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaObjectsSnapshotsRestoreInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return schema.NewSchemaObjectsSnapshotsRestoreOK().WithPayload(meta)
-}
-
-func (s *schemaHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
-	principal *models.Principal,
-) middleware.Responder {
-	status, restoreError, path, err := s.manager.RestoreSnapshotStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrNotFound:
-			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrUnprocessable:
-			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaObjectsSnapshotsRestoreInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return schema.
-		NewSchemaObjectsSnapshotsRestoreStatusOK().
-		WithPayload(&models.SnapshotRestoreMeta{
-			Status:      &status,
-			ClassName:   params.ClassName,
-			Error:       restoreError,
-			ID:          params.ID,
-			Path:        path,
-			StorageName: params.StorageName,
-		})
-}
-
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
 	h := &schemaHandlers{manager}
 
@@ -302,13 +200,4 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
-
-	api.SchemaSchemaObjectsSnapshotsCreateHandler = schema.
-		SchemaObjectsSnapshotsCreateHandlerFunc(h.createSnapshot)
-	api.SchemaSchemaObjectsSnapshotsCreateStatusHandler = schema.
-		SchemaObjectsSnapshotsCreateStatusHandlerFunc(h.createSnapshotStatus)
-	api.SchemaSchemaObjectsSnapshotsRestoreHandler = schema.
-		SchemaObjectsSnapshotsRestoreHandlerFunc(h.restoreSnapshot)
-	api.SchemaSchemaObjectsSnapshotsRestoreStatusHandler = schema.
-		SchemaObjectsSnapshotsRestoreStatusHandlerFunc(h.restoreSnapshotStatus)
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
@@ -43,7 +42,7 @@ type backupManager struct {
 
 func NewBackupManager(logger logrus.FieldLogger, snapshotters SnapshotterProvider, storages BackupStorageProvider,
 	shardingStateFunc shardingStateFunc,
-) backups.BackupManager {
+) *backupManager {
 	return &backupManager{
 		logger:            logger,
 		snapshotters:      snapshotters,
