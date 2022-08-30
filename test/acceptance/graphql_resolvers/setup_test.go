@@ -987,7 +987,7 @@ func addTestDataArrayClasses(t *testing.T) {
 	})
 	assertGetObjectEventually(t, arrayClassID3)
 
-	// objects with null objects
+	// object without properties
 	createObject(t, &models.Object{
 		Class: "ArrayClass",
 		ID:    arrayClassID4,

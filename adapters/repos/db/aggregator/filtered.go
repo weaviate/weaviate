@@ -151,7 +151,10 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 				return err
 			}
 		case schema.DataTypeBooleanArray:
-			valueStruct := value.([]interface{})
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []boolean, received %T", valueStruct)
+			}
 			for _, val := range valueStruct {
 				if err := analyzeBool(val); err != nil {
 					return err
@@ -177,7 +180,10 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 				return err
 			}
 		case schema.DataTypeNumberArray, schema.DataTypeIntArray:
-			valueStruct := value.([]interface{})
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []float* or []int*, received %T", valueStruct)
+			}
 			for _, val := range valueStruct {
 				if err := analyzeFloat(val); err != nil {
 					return err
@@ -203,7 +209,10 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 				return err
 			}
 		case schema.DataTypeTextArray, schema.DataTypeStringArray:
-			valueStruct := value.([]interface{})
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []text or []string, received %T", valueStruct)
+			}
 			for _, val := range valueStruct {
 				if err := analyzeString(val); err != nil {
 					return err
@@ -229,7 +238,10 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 				return err
 			}
 		case schema.DataTypeDateArray:
-			valueStruct := value.([]interface{})
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []date, received %T", valueStruct)
+			}
 			for _, val := range valueStruct {
 				if err := analyzeDate(val); err != nil {
 					return err

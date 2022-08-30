@@ -34,7 +34,6 @@ func newPropertyExtractor(className schema.ClassName,
 
 func (e *lsmPropertyExtractor) getProperty(v []byte) interface{} {
 	prop, success, _ := storobj.ParseAndExtractProperty(v, e.property)
-
 	// in case the property does not exist for the object return nil
 	if len(prop) == 0 {
 		return nil
