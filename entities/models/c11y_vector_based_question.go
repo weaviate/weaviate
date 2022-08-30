@@ -60,6 +60,7 @@ func (m C11yVectorBasedQuestion) Validate(formats strfmt.Registry) error {
 //
 // swagger:model C11yVectorBasedQuestionItems0
 type C11yVectorBasedQuestionItems0 struct {
+
 	// Vectorized properties.
 	// Max Items: 300
 	// Min Items: 300
@@ -90,6 +91,7 @@ func (m *C11yVectorBasedQuestionItems0) Validate(formats strfmt.Registry) error 
 }
 
 func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ClassProps) { // not required
 		return nil
 	}
@@ -124,6 +126,7 @@ func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Regist
 }
 
 func (m *C11yVectorBasedQuestionItems0) validateClassVectors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ClassVectors) { // not required
 		return nil
 	}
@@ -163,6 +166,7 @@ func (m *C11yVectorBasedQuestionItems0) UnmarshalBinary(b []byte) error {
 //
 // swagger:model C11yVectorBasedQuestionItems0ClassPropsItems0
 type C11yVectorBasedQuestionItems0ClassPropsItems0 struct {
+
 	// props vectors
 	PropsVectors []float32 `json:"propsVectors"`
 
