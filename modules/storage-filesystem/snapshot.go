@@ -22,10 +22,14 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
 func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("filesystem", snapshot.ClassName))
+	defer timer.ObserveDuration()
 	if err := ctx.Err(); err != nil {
 		return snapshots.NewErrContextExpired(
 			errors.Wrap(err, "store snapshot aborted"))
@@ -44,6 +48,14 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 		if err := m.copyFile(dstSnapshotPath, m.dataPath, srcRelPath); err != nil {
 			return err
 		}
+
+		destPath := m.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, srcRelPath)
+		// Get size of file
+		fileInfo, err := os.Stat(destPath)
+		if err != nil {
+			return errors.Errorf("Unable to get size of file %v", destPath)
+		}
+		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("filesystem", snapshot.ClassName).Add(float64(fileInfo.Size()))
 	}
 
 	if err := m.saveMeta(snapshot); err != nil {
@@ -54,12 +66,17 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 }
 
 func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("filesystem", className))
+	defer timer.ObserveDuration()
 	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
 		return nil, errors.Wrap(err, "restore snapshot")
 	}
 
 	for _, srcRelPath := range snapshot.Files {
+
+		destPath := m.makeSnapshotFilePath(className, snapshotID, srcRelPath)
+
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
 		}
@@ -69,7 +86,16 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
 			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
 		}
+
+		// Get size of file
+		fileInfo, err := os.Stat(destPath)
+		if err != nil {
+			return nil, errors.Errorf("Unable to get size of file %v", destPath)
+		}
+		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("filesystem", className).Add(float64(fileInfo.Size()))
+
 	}
+
 	return snapshot, nil
 }
 

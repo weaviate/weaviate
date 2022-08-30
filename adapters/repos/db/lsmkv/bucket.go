@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
@@ -59,6 +60,8 @@ type Bucket struct {
 	// produce a meaningful count. Typically, the only count we're interested in
 	// is that of the bucket that holds objects
 	monitorCount bool
+
+	pauseTimer *prometheus.Timer // Times the pause
 }
 
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,

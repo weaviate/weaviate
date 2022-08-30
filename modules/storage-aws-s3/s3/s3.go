@@ -24,7 +24,9 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -72,6 +74,8 @@ func makeFilePath(parts ...string) string {
 }
 
 func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("s3", snapshot.ClassName))
+	defer timer.ObserveDuration()
 	bucketName, err := s.findBucket(ctx)
 	if err != nil {
 		return snapshots.NewErrInternal(errors.Wrap(err, "store snapshot"))
@@ -93,6 +97,14 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 			return snapshots.NewErrInternal(
 				errors.Wrapf(err, "put file '%s'", objectName))
 		}
+
+		// Get size of file
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return errors.Errorf("Unable to get size of file %v", filePath)
+		}
+		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("s3", snapshot.ClassName).Add(float64(fileInfo.Size()))
+
 	}
 
 	return s.putMeta(ctx, snapshot)
@@ -115,6 +127,8 @@ func (s *s3) putMeta(ctx context.Context, snapshot *snapshots.Snapshot) error {
 }
 
 func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("s3", className))
+	defer timer.ObserveDuration()
 	bucketName, err := s.findBucket(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "restore snapshot")
@@ -141,6 +155,13 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 		if err != nil {
 			return nil, errors.Wrapf(err, "Unable to restore file %s, system might be in a corrupted state", filePath)
 		}
+		// Get size of file
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return nil, errors.Errorf("Unable to get size of file %v", filePath)
+		}
+		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("s3", className).Add(float64(fileInfo.Size()))
+
 	}
 	return snapshot, nil
 }

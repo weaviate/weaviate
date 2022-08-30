@@ -18,11 +18,13 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -43,6 +45,8 @@ func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
 ) error {
 	m.Lock()
 	defer m.Unlock()
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreClassDurations.WithLabelValues(class.Class))
+	defer timer.ObserveDuration()
 
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)

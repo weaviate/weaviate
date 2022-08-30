@@ -21,7 +21,9 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
@@ -111,6 +113,8 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 }
 
 func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("gcs", className))
+	defer timer.ObserveDuration()
 	bucket, err := g.findBucket(ctx)
 	if err != nil || bucket == nil {
 		return nil, errors.Wrap(err, "snapshot bucket does not exist")
@@ -145,11 +149,20 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string)
 		if err := g.saveFile(ctx, bucket, snapshotID, objectName, filePath); err != nil {
 			return nil, errors.Wrap(err, "put file")
 		}
+
+		// Get size of file
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return nil, errors.Errorf("Unable to get size of file %v", filePath)
+		}
+		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("gcs", className).Add(float64(fileInfo.Size()))
 	}
 	return &snapshot, nil
 }
 
 func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("gcs", snapshot.ClassName))
+	defer timer.ObserveDuration()
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return err
@@ -174,6 +187,8 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 		if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
 			return errors.Wrap(err, "put file")
 		}
+
+		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("gcs", snapshot.ClassName).Add(float64(len(content)))
 	}
 
 	if err := g.putMeta(ctx, bucket, snapshot); err != nil {
