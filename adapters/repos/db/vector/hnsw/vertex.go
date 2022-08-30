@@ -14,23 +14,21 @@ type vertex struct {
 
 func (v *vertex) markAsMaintenance() {
 	v.Lock()
-	defer v.Unlock()
-
 	v.maintenance = true
+	v.Unlock()
 }
 
 func (v *vertex) unmarkAsMaintenance() {
 	v.Lock()
-	defer v.Unlock()
-
 	v.maintenance = false
+	v.Unlock()
 }
 
 func (v *vertex) isUnderMaintenance() bool {
 	v.Lock()
-	defer v.Unlock()
-
-	return v.maintenance
+	m := v.maintenance
+	v.Unlock()
+	return m
 }
 
 func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
