@@ -26,7 +26,8 @@ type Snapshotter interface { // implemented by the index
 	// reads+writes, as the index is built in an append-only-way.
 	//
 	// Snapshot() fails if another snapshot exists.
-	CreateSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) (*snapshots.Snapshot, error)
+	CreateSnapshot(ctx context.Context, snapshot *snapshots.Snapshot,
+		nodeName string) (*snapshots.Snapshot, error)
 
 	// ReleaseSnapshot signals to the underlying index that the files have been
 	// copied (or the operation aborted), and that it is safe for the index to

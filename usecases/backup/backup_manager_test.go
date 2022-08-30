@@ -29,6 +29,7 @@ import (
 )
 
 func TestBackupManager_CreateBackup(t *testing.T) {
+	nodeName := "node1"
 	className := "DemoClass"
 	className2 := "DemoClass2"
 	storageName := "DemoStorage"
@@ -40,7 +41,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 	t.Run("fails when index does not exist", func(t *testing.T) {
 		bm := createBackupManager(nil, nil, nil, nil)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -53,7 +54,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}, "b": {}}}
 		bm := createBackupManager(snapshotter, nil, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -67,7 +68,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storageError := errors.New("I do not exist")
 		bm := createBackupManager(snapshotter, nil, storageError, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -82,7 +83,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
 		bm := createBackupManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -97,7 +98,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
 		bm := createBackupManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -107,7 +108,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 	t.Run("fails when snapshot creation already in progress", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, mock.Anything).Return(nil, nil)
+		snapshotter.On("CreateSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 		snapshotter.On("ReleaseSnapshot", mock.Anything, mock.Anything).Return(nil)
 		// make sure create backup takes some time, so the parallel execution has enough time to start before first one finishes
 		storage := &fakeStorage{getMetaStatusSleep: 5 * time.Millisecond, storeSnapshotSleep: 5 * time.Millisecond}
@@ -124,7 +125,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		wg.Add(2)
 
 		go func() {
-			meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+			meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 			time.Sleep(10 * time.Millisecond) // enough time to async create finish.
 
 			assert.NotNil(t, meta)
@@ -135,7 +136,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		}()
 		go func() {
 			time.Sleep(time.Millisecond)
-			meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID2)
+			meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID2)
 			time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 			assert.Nil(t, meta)
@@ -156,7 +157,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
 		bm := createBackupManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -166,7 +167,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 	t.Run("successfully starts", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, mock.Anything).Return(nil, nil).Once()
+		snapshotter.On("CreateSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
 		snapshotter.On("ReleaseSnapshot", mock.Anything, mock.Anything).Return(nil).Once()
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, snapshots.NewErrNotFound(errors.New("not found")))
@@ -177,7 +178,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
 		bm := createBackupManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 		time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 		assert.NotNil(t, meta)
@@ -189,7 +190,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 	t.Run("successfully starts for multiple classes", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, mock.Anything).Return(nil, nil).Twice()
+		snapshotter.On("CreateSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Twice()
 		snapshotter.On("ReleaseSnapshot", mock.Anything, mock.Anything).Return(nil).Twice()
 		// make sure create backup takes some time, so the parallel execution has enough time to start before first one finishes
 		storage := &fakeStorage{getMetaStatusSleep: 5 * time.Millisecond, storeSnapshotSleep: 5 * time.Millisecond}
@@ -208,7 +209,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		wg.Add(2)
 
 		go func() {
-			meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+			meta, err := bm.CreateBackup(ctx, nodeName, className, storageName, snapshotID)
 			time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 			assert.NotNil(t, meta)
@@ -219,7 +220,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		}()
 		go func() {
 			time.Sleep(time.Millisecond)
-			meta, err := bm.CreateBackup(ctx, className2, storageName, snapshotID2)
+			meta, err := bm.CreateBackup(ctx, nodeName, className2, storageName, snapshotID2)
 			time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 			assert.NotNil(t, meta)

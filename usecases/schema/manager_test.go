@@ -562,7 +562,7 @@ func Test_DestinationPath(t *testing.T) {
 type fakeBackupManager struct{}
 
 func (f *fakeBackupManager) CreateBackup(ctx context.Context,
-	className, storageName, snapshotID string,
+	nodeName, className, storageName, snapshotID string,
 ) (*snapshots.CreateMeta, error) {
 	return nil, nil
 }

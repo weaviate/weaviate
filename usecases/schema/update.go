@@ -256,7 +256,8 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
-	if meta, err := m.backups.CreateBackup(ctx, className, storageName, ID); err != nil {
+	if meta, err := m.backups.CreateBackup(ctx, m.clusterState.LocalName(),
+		className, storageName, ID); err != nil {
 		return nil, err
 	} else {
 		status := string(meta.Status)

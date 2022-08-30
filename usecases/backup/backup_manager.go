@@ -56,7 +56,7 @@ func NewBackupManager(logger logrus.FieldLogger, snapshotters SnapshotterProvide
 }
 
 // CreateBackup is called by the User
-func (bm *backupManager) CreateBackup(ctx context.Context, className,
+func (bm *backupManager) CreateBackup(ctx context.Context, nodeName, className,
 	storageName, snapshotID string,
 ) (*snapshots.CreateMeta, error) {
 	// snapshotter (index) exists
@@ -98,7 +98,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	}
 
 	go func(ctx context.Context, provider *snapshotProvider) {
-		if err := provider.backup(ctx, snapshot); err != nil {
+		if err := provider.backup(ctx, snapshot, nodeName); err != nil {
 			bm.logger.WithField("action", "create_backup").
 				Error(err)
 		}

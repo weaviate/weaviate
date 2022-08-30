@@ -17,9 +17,8 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/storagestate"
-
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
@@ -105,9 +104,9 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		path, err2 := filepath.Rel(b.rootDir, path)
-		if err2 != nil {
-			return err2
+		path, relErr := filepath.Rel(b.rootDir, path)
+		if relErr != nil {
+			return relErr
 		}
 		files = append(files, path)
 		return nil

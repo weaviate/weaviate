@@ -20,11 +20,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) error {
+func (s *Shard) createSnapshot(ctx context.Context,
+	snap *snapshots.Snapshot, nodeName string,
+) error {
 	var g errgroup.Group
 
 	g.Go(func() error {
-		files, err := s.createStoreLevelSnapshot(ctx)
+		files, err := s.createStoreLevelSnapshot(ctx, nodeName)
 		if err != nil {
 			return err
 		}
@@ -35,7 +37,7 @@ func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) er
 	})
 
 	g.Go(func() error {
-		files, err := s.createVectorIndexLevelSnapshot(ctx)
+		files, err := s.createVectorIndexLevelSnapshot(ctx, nodeName)
 		if err != nil {
 			return err
 		}
@@ -80,7 +82,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
+func (s *Shard) createStoreLevelSnapshot(ctx context.Context, nodeName string) ([]snapshots.File, error) {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -101,15 +103,20 @@ func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) 
 		return nil, err
 	}
 
-	files, err := s.store.ListFiles(ctx)
+	paths, err := s.store.ListFiles(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "create snapshot")
+	}
+
+	files := make([]snapshots.File, len(paths))
+	for i, pth := range paths {
+		files[i] = s.buildSnapshotFile(pth, nodeName)
 	}
 
 	return files, nil
 }
 
-func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]string, error) {
+func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context, nodeName string) ([]snapshots.File, error) {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -130,9 +137,14 @@ func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]string, e
 		return nil, err
 	}
 
-	files, err := s.vectorIndex.ListFiles(ctx)
+	paths, err := s.vectorIndex.ListFiles(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "create snapshot")
+	}
+
+	files := make([]snapshots.File, len(paths))
+	for i, pth := range paths {
+		files[i] = s.buildSnapshotFile(pth, nodeName)
 	}
 
 	return files, nil
@@ -174,4 +186,13 @@ func (s *Shard) readPropLengthTracker() ([]byte, error) {
 
 func (s *Shard) readShardVersion() ([]byte, error) {
 	return os.ReadFile(s.versioner.path)
+}
+
+func (s *Shard) buildSnapshotFile(pth, nodeName string) snapshots.File {
+	return snapshots.File{
+		Path:  pth,
+		Class: s.index.Config.ClassName.String(),
+		Shard: s.name,
+		Node:  nodeName,
+	}
 }

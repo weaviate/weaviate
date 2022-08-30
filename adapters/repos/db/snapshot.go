@@ -30,7 +30,9 @@ import (
 //
 // Make sure to call ReleaseSnapshot for this snapshot's ID once you have finished
 // copying the files to make sure background and maintenance processes can resume.
-func (i *Index) CreateSnapshot(ctx context.Context, snap *snapshots.Snapshot) (*snapshots.Snapshot, error) {
+func (i *Index) CreateSnapshot(ctx context.Context,
+	snap *snapshots.Snapshot, nodeName string,
+) (*snapshots.Snapshot, error) {
 	if err := i.initSnapshot(snap.ID); err != nil {
 		return nil, err
 	}
@@ -40,7 +42,7 @@ func (i *Index) CreateSnapshot(ctx context.Context, snap *snapshots.Snapshot) (*
 	for _, shard := range i.Shards {
 		s := shard
 		g.Go(func() error {
-			if err := s.createSnapshot(ctx, snap); err != nil {
+			if err := s.createSnapshot(ctx, snap, nodeName); err != nil {
 				return err
 			}
 			return nil

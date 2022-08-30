@@ -37,6 +37,7 @@ import (
 )
 
 func TestSnapshot_IndexLevel(t *testing.T) {
+	nodeName := "single-node"
 	t.Run("successful snapshot creation", func(t *testing.T) {
 		t.Run("setup env", func(t *testing.T) {
 			var spec struct {
@@ -82,7 +83,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		})
 
 		t.Run("create snapshot", func(t *testing.T) {
-			snap, err := index.CreateSnapshot(ctx, snapshot)
+			snap, err := index.CreateSnapshot(ctx, snapshot, nodeName)
 			assert.Nil(t, err)
 
 			t.Run("assert snapshot file contents", func(t *testing.T) {
@@ -145,7 +146,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		timeout, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
 
-		snap, err := index.CreateSnapshot(timeout, snapshot)
+		snap, err := index.CreateSnapshot(timeout, snapshot, nodeName)
 		assert.Nil(t, snap)
 
 		// due to concurrently running cycle shutdowns,
@@ -190,7 +191,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			InProgress: true,
 		}
 
-		snap, err := index.CreateSnapshot(ctx, snapshot)
+		snap, err := index.CreateSnapshot(ctx, snapshot, nodeName)
 		assert.Nil(t, snap)
 
 		expectedErr := fmt.Errorf("cannot create new snapshot, snapshot ‘%s’ "+
