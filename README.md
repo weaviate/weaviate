@@ -103,4 +103,3 @@ You can find [code examples here](https://github.com/semi-technologies/weaviate-
 ## Contributing
 
 - [How to Contribute](https://weaviate.io/developers/contributor-guide/current/)
-
