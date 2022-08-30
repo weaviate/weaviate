@@ -25,9 +25,9 @@ different usecase for a [Bucket].
 
   - "Set" (aka "SetCollection")
 
-    A set behaves like a like an unordered collection of independent values. In
-    other words a single key has multiple values. For example, for key "foo",
-    you could have values "bar1", "bar2", "bazzinga". A bucket of this type is
+    A set behaves like an unordered collection of independent values. In other
+    words a single key has multiple values. For example, for key "foo", you
+    could have values "bar1", "bar2", "bazzinga". A bucket of this type is
     optimized for cheap writes to add new set additions. For example adding
     another set element has a fixed cost independent of the number of the
     existing set length. This makes it very well suited for building an
