@@ -123,6 +123,66 @@ func TestVertex_AppendConnection(t *testing.T) {
 	}
 }
 
+func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
+	type test struct {
+		name        string
+		initial     []uint64
+		expectedCap int
+	}
+
+	tests := []test{
+		{
+			name:        "no connections set before, expect 1/4 of max",
+			initial:     nil,
+			expectedCap: 15,
+		},
+		{
+			name:    "less than 1/4, expect 1/4 of max",
+			initial: makeConnections(15, 15),
+			// provoke rounding error
+			expectedCap: 16,
+		},
+		{
+			name:        "less than 1/2, expect 1/2 of max",
+			initial:     makeConnections(31, 31),
+			expectedCap: 32,
+		},
+		{
+			name:        "less than 3/4, expect 3/4 of max",
+			initial:     makeConnections(42, 42),
+			expectedCap: 47,
+		},
+		{
+			name:        "more than 3/4, expect full size",
+			initial:     makeConnections(53, 53),
+			expectedCap: 63,
+		},
+		{
+			name:        "enough capacity to not require growing",
+			initial:     makeConnections(17, 53),
+			expectedCap: 53,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := &vertex{
+				connections: make([][]uint64, 1),
+			}
+			v.connections[0] = tc.initial
+
+			v.appendConnectionAtLevelNoLock(0, 18, 63)
+
+			newConns := make([]uint64, len(tc.initial)+1)
+			copy(newConns, tc.initial)
+			newConns[len(newConns)-1] = 18
+
+			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
+			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
+		})
+	}
+}
+
 func TestVertex_ResetConnections(t *testing.T) {
 	v := &vertex{
 		connections: make([][]uint64, 1),
