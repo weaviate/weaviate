@@ -13,19 +13,19 @@ are highlighted.
 # Strategies
 
 To understand the different type of buckets in this store, you need to
-familiarzie yourself with the following strategies. A strategy defines a
+familiarize yourself with the following strategies. A strategy defines a
 different usecase for a [Bucket].
 
   - "Replace"
 
-    Replace resembles the classical key-value core. Each key has exactly one
+    Replace resembles the classical key-value store. Each key has exactly one
     value. A subsequent PUT on an an existing key, replaces the value (hence
     the name "replace"). Once replaced a former value can no longer be
     retrieved, and will eventually be removed in compactions.
 
   - "Set" (aka "SetCollection")
 
-    A set behaves like a like an unordered collection of independent values.In
+    A set behaves like a like an unordered collection of independent values. In
     other words a single key has multiple values. For example, for key "foo",
     you could have values "bar1", "bar2", "bazzinga". A bucket of this type is
     optimized for cheap writes to add new set additions. For example adding
@@ -42,7 +42,7 @@ different usecase for a [Bucket].
 
     Maps are similar to Sets in the sense that for a single key there are
     multiple values. However, each value is in itself a key-value pair. This
-    makes this type very simliar to a dict or hashmap type. For example for
+    makes this type very similar to a dict or hashmap type. For example for
     key "foo", you could have value pairs: "bar":17, "baz":19.
 
     This makes a map a great use case for an inverted index that needs to store
