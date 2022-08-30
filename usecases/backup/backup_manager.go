@@ -18,8 +18,10 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -157,6 +159,8 @@ func (bm *backupManager) DestinationPath(storageName, className, snapshotID stri
 func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 	storageName, snapshotID string,
 ) (*snapshots.RestoreMeta, *snapshots.Snapshot, error) {
+	timer := monitoring.NewOnceTimer(prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreBackupInitDurations.WithLabelValues(storageName, className)))
+	defer timer.ObserveDurationOnce()
 	// snapshotter (index) does not exist
 	if snapshotter := bm.snapshotters.Snapshotter(className); snapshotter != nil {
 		return nil, nil, snapshots.NewErrUnprocessable(fmt.Errorf("can not restore snapshot of existing index for %s", className))
@@ -183,14 +187,14 @@ func (bm *backupManager) RestoreBackup(ctx context.Context, className,
 		return nil, nil, snapshots.NewErrUnprocessable(fmt.Errorf("restoration of index for %s already in progress", className))
 	}
 
+	timer.ObserveDurationOnce()
+
 	snapshot, err := storage.RestoreSnapshot(ctx, className, snapshotID)
 	if err != nil {
 		bm.setRestoreInProgress(className, false)
 		return nil, nil, snapshots.NewErrUnprocessable(errors.Wrapf(err, "restore snapshot %s of index for %s", snapshotID, className))
 	}
-	// TODO after copying files from storage schema needs to be updated.
-	// This most likely requires a new method since we need to create a class with existing sharding state.
-	// Currently Create Class would initiate a new sharding state.
+
 	bm.setRestoreInProgress(className, false)
 
 	return &snapshots.RestoreMeta{

@@ -27,7 +27,6 @@ import (
 //
 // swagger:model BatchReference
 type BatchReference struct {
-
 	// Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/<kinds>/<uuid>/<className>/<propertyName>, where <kinds> must be one of 'objects', 'objects' and <className> and <propertyName> must represent the cross-ref property of source class to be used.
 	// Format: uri
 	From strfmt.URI `json:"from,omitempty"`
@@ -56,7 +55,6 @@ func (m *BatchReference) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchReference) validateFrom(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.From) { // not required
 		return nil
 	}
@@ -69,7 +67,6 @@ func (m *BatchReference) validateFrom(formats strfmt.Registry) error {
 }
 
 func (m *BatchReference) validateTo(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.To) { // not required
 		return nil
 	}

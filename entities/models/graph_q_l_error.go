@@ -28,7 +28,6 @@ import (
 //
 // swagger:model GraphQLError
 type GraphQLError struct {
-
 	// locations
 	Locations []*GraphQLErrorLocationsItems0 `json:"locations"`
 
@@ -54,7 +53,6 @@ func (m *GraphQLError) Validate(formats strfmt.Registry) error {
 }
 
 func (m *GraphQLError) validateLocations(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Locations) { // not required
 		return nil
 	}
@@ -100,7 +98,6 @@ func (m *GraphQLError) UnmarshalBinary(b []byte) error {
 //
 // swagger:model GraphQLErrorLocationsItems0
 type GraphQLErrorLocationsItems0 struct {
-
 	// column
 	Column int64 `json:"column,omitempty"`
 

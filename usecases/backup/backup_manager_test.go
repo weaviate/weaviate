@@ -125,7 +125,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		go func() {
 			meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
-			time.Sleep(10 * time.Millisecond) // enough time to async create finish
+			time.Sleep(10 * time.Millisecond) // enough time to async create finish.
 
 			assert.NotNil(t, meta)
 			assert.Equal(t, snapshots.CreateStarted, meta.Status)

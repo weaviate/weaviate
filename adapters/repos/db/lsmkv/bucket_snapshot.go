@@ -18,6 +18,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
 // PauseCompaction waits for all ongoing compactions to finish,
@@ -30,6 +33,7 @@ import (
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (b *Bucket) PauseCompaction(ctx context.Context) error {
+	b.pauseTimer = prometheus.NewTimer(monitoring.GetMetrics().BucketPauseDurations.WithLabelValues(b.dir))
 	if err := b.disk.compactionCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(err, "long-running compaction in progress")
 	}
@@ -119,5 +123,6 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 // It errors if compactions were not paused
 func (b *Bucket) ResumeCompaction(ctx context.Context) error {
 	b.disk.compactionCycle.Start()
+	b.pauseTimer.ObserveDuration()
 	return nil
 }
