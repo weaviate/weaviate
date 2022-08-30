@@ -52,7 +52,6 @@ import (
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
-	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -183,13 +182,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	// SchemaManager is not set at that point, so it is passed as a callback
-	shardingStateFunc := func(className string) *sharding.State {
-		return appState.SchemaManager.ShardingState(className)
-	}
-	snapshotterProvider := newSnapshotterProvider(repo)
-	backupManager := backup.NewBackupManager(appState.Logger, snapshotterProvider, appState.Modules, shardingStateFunc)
-
 	// TODO: configure http transport for efficient intra-cluster comm
 	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
 	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
@@ -201,7 +193,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		hnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
-		schemaTxClient, backupManager)
+		schemaTxClient)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -251,6 +243,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
+	setupBackupHandlers(api, schemaManager, repo, appState)
 
 	api.ServerShutdown = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
