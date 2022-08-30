@@ -30,7 +30,7 @@ func removingObjects(t *testing.T) {
 	delResp, err := helper.Client(t).Objects.ObjectsDelete(objects.NewObjectsDeleteParams().WithID(objectId), nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
-	_ = helper.AssertGetObjectFailsEventually(t, objectId)
+	_ = helper.AssertGetObjectFailsEventually(t, "TestObject", objectId)
 
 	// And verify that the object is gone
 	getResp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(objectId), nil)

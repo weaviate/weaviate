@@ -12,48 +12,30 @@
 package test
 
 import (
-	"fmt"
-	"math/rand"
-	"os"
-	"path/filepath"
-	"strconv"
+	"context"
 	"testing"
-	"time"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/stretchr/testify/require"
 )
 
-func makeTestDir(t *testing.T, basePath string) string {
-	rand.Seed(time.Now().UnixNano())
-	dirPath := filepath.Join(basePath, strconv.Itoa(rand.Intn(10000000)))
-	makeDir(t, dirPath)
-	return dirPath
-}
+func createBucket(ctx context.Context, t *testing.T, endpoint, region, bucketName string) {
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewEnvAWS(),
+		Region: region,
+		Secure: false,
+	})
+	require.Nil(t, err)
 
-func makeDir(t *testing.T, dirPath string) {
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		t.Fatalf("failed to make test dir '%s': %s", dirPath, err)
-	}
-}
-
-func removeDir(t *testing.T, dirPath string) {
-	if err := os.RemoveAll(dirPath); err != nil {
-		t.Errorf("failed to remove test dir '%s': %s", dirPath, err)
-	}
-}
-
-func createTestFiles(t *testing.T, dirPath string) []string {
-	count := 5
-	filePaths := make([]string, count)
-	var fileName string
-
-	for i := 0; i < count; i += 1 {
-		fileName = fmt.Sprintf("file_%d.db", i)
-		filePaths[i] = filepath.Join(dirPath, fileName)
-		file, err := os.Create(filePaths[i])
-		if err != nil {
-			t.Fatalf("failed to create test file '%s': %s", fileName, err)
+	err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+	minioErr, ok := err.(minio.ErrorResponse)
+	if ok {
+		// the bucket persists from a previous test.
+		// if the bucket already exists, we can proceed
+		if minioErr.Code == "BucketAlreadyOwnedByYou" {
+			return
 		}
-		fmt.Fprintf(file, "This is content of db file named %s", fileName)
-		file.Close()
 	}
-	return filePaths
+	require.Nil(t, err)
 }

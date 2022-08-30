@@ -16,6 +16,8 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
+	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -32,11 +34,22 @@ const (
 	envTestSUMTransformersImage = "TEST_SUM_TRANSFORMERS_IMAGE"
 )
 
+const (
+	StorageFileSystem = "storage-filesystem"
+	StorageAWSS3      = "storage-aws-s3"
+	StorageGCS        = "storage-gcs"
+)
+
 type Compose struct {
 	enableModules           []string
 	defaultVectorizerModule string
 	withMinIO               bool
 	withGCS                 bool
+	withStorageFilesystem   bool
+	withStorageAWSS3        bool
+	withStorageAWSS3Bucket  string
+	withStorageGCS          bool
+	withStorageGCSBucket    string
 	withTransformers        bool
 	withContextionary       bool
 	withQnATransformers     bool
@@ -50,11 +63,13 @@ func New() *Compose {
 
 func (d *Compose) WithMinIO() *Compose {
 	d.withMinIO = true
+	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
 }
 
 func (d *Compose) WithGCS() *Compose {
 	d.withGCS = true
+	d.enableModules = append(d.enableModules, modstggcs.Name)
 	return d
 }
 
@@ -75,6 +90,28 @@ func (d *Compose) WithText2VecContextionary() *Compose {
 func (d *Compose) WithQnATransformers() *Compose {
 	d.withQnATransformers = true
 	d.enableModules = append(d.enableModules, QnATransformers)
+	return d
+}
+
+func (d *Compose) WithStorageFilesystem() *Compose {
+	d.withStorageFilesystem = true
+	d.enableModules = append(d.enableModules, StorageFileSystem)
+	return d
+}
+
+func (d *Compose) WithStorageAWSS3(bucket string) *Compose {
+	d.withStorageAWSS3 = true
+	d.withStorageAWSS3Bucket = bucket
+	d.withMinIO = true
+	d.enableModules = append(d.enableModules, StorageAWSS3)
+	return d
+}
+
+func (d *Compose) WithStorageGCS(bucket string) *Compose {
+	d.withStorageGCS = true
+	d.withStorageGCSBucket = bucket
+	d.withGCS = true
+	d.enableModules = append(d.enableModules, StorageGCS)
 	return d
 }
 
@@ -108,6 +145,12 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
+		if d.withStorageAWSS3 {
+			for k, v := range container.envSettings {
+				envSettings[k] = v
+			}
+			envSettings["STORAGE_S3_BUCKET"] = d.withStorageAWSS3Bucket
+		}
 	}
 	if d.withGCS {
 		container, err := startGCS(ctx, networkName)
@@ -115,6 +158,15 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			return nil, errors.Wrapf(err, "start %s", GCS)
 		}
 		containers = append(containers, container)
+		if d.withStorageGCS {
+			for k, v := range container.envSettings {
+				envSettings[k] = v
+			}
+			envSettings["STORAGE_GCS_BUCKET"] = d.withStorageGCSBucket
+		}
+	}
+	if d.withStorageFilesystem {
+		envSettings["STORAGE_FS_SNAPSHOTS_PATH"] = "/tmp/snapshots"
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)

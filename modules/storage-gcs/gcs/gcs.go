@@ -97,6 +97,12 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 		return errors.Wrapf(err, "get object: %v", objectName)
 	}
 
+	destDir := path.Dir(targetPath)
+	if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
+		return errors.Wrapf(err,
+			"save file: failed to make destination dir for file '%s'", targetPath)
+	}
+
 	// Write it to disk
 	if err := os.WriteFile(targetPath, content, 0o644); err != nil {
 		return errors.Wrapf(err, "write file: %v", targetPath)
@@ -170,6 +176,22 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 		}
 	}
 
+	if err := g.putMeta(ctx, bucket, snapshot); err != nil {
+		return errors.Wrap(err, "store snapshot")
+	}
+
+	return nil
+}
+
+func (g *gcs) putMeta(ctx context.Context, bucket *storage.BucketHandle, snapshot *snapshots.Snapshot) error {
+	content, err := json.Marshal(snapshot)
+	if err != nil {
+		return errors.Wrap(err, "failed to marshal meta")
+	}
+	objectName := g.makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
+	if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
+		return errors.Wrap(err, "failed to store meta")
+	}
 	return nil
 }
 
@@ -201,12 +223,7 @@ func (g *gcs) GetMeta(ctx context.Context, className, snapshotID string) (*snaps
 func (g *gcs) SetMetaError(ctx context.Context, className, snapshotID string, snapErr error) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
-	}
-
-	if bucket == nil {
-		return errors.Wrap(errors.New("bucket not found"),
-			"set snapshot status")
+		return errors.Wrap(err, "set snapshot error")
 	}
 
 	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
@@ -218,40 +235,35 @@ func (g *gcs) SetMetaError(ctx context.Context, className, snapshotID string, sn
 	var snapshot snapshots.Snapshot
 	err = json.Unmarshal(contents, &snapshot)
 	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
+		return errors.Wrap(err, "set meta error")
 	}
 
 	snapshot.Status = string(snapshots.CreateFailed)
 	snapshot.Error = snapErr.Error()
-	b, err := json.Marshal(&snapshot)
-	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
+
+	if err := g.putMeta(ctx, bucket, &snapshot); err != nil {
+		return errors.Wrap(err, "set meta error")
 	}
 
-	return g.putFile(ctx, bucket, snapshotID, objectName, b)
+	return nil
 }
 
 func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
-	}
-
-	if bucket == nil {
-		return errors.Wrap(errors.New("bucket not found"),
-			"set snapshot status")
+		return errors.Wrap(err, "set meta status")
 	}
 
 	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
 	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
 	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
+		return errors.Wrap(err, "set meta status")
 	}
 
 	var snapshot snapshots.Snapshot
 	err = json.Unmarshal(contents, &snapshot)
 	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
+		return errors.Wrap(err, "set meta status")
 	}
 
 	if status == string(snapshots.CreateSuccess) {
@@ -259,12 +271,12 @@ func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status s
 	}
 
 	snapshot.Status = status
-	b, err := json.Marshal(&snapshot)
-	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
+
+	if err := g.putMeta(ctx, bucket, &snapshot); err != nil {
+		return errors.Wrap(err, "set meta status")
 	}
 
-	return g.putFile(ctx, bucket, snapshotID, objectName, b)
+	return nil
 }
 
 func (g *gcs) DestinationPath(className, snapshotID string) string {
