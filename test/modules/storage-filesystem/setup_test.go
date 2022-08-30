@@ -20,16 +20,19 @@ import (
 	"github.com/semi-technologies/weaviate/test/docker"
 )
 
-const gcsEndpoint = "GCS_ENDPOINT"
+const weaviateEndpoint = "WEAVIATE_ENDPOINT"
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-	compose, err := docker.New().WithGCS().Start(ctx)
+	compose, err := docker.New().
+		WithWeaviate().
+		WithStorageFilesystem().WithText2VecContextionary().
+		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))
 	}
 
-	os.Setenv(gcsEndpoint, compose.GetGCS().URI())
+	os.Setenv(weaviateEndpoint, compose.GetWeaviate().URI())
 	code := m.Run()
 
 	if err := compose.Terminate(ctx); err != nil {

@@ -19,52 +19,54 @@ import (
 	"testing"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
+	"github.com/semi-technologies/weaviate/test/docker"
+	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_S3Storage_StoreSnapshot(t *testing.T) {
+func Test_S3Storage_SnapshotCreate(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().WithMinIO().Start(ctx)
+	if err != nil {
+		panic(errors.Wrapf(err, "cannot start"))
+	}
+
+	require.Nil(t, os.Setenv(envMinioEndpoint, compose.GetMinIO().URI()))
+
+	t.Run("store snapshot", moduleLevelStoreSnapshot)
+	t.Run("get meta status", moduleLevelGetMetaStatus)
+
+	if err := compose.Terminate(ctx); err != nil {
+		t.Fatalf("failed to terminte test containers: %s", err.Error())
+	}
+}
+
+func moduleLevelStoreSnapshot(t *testing.T) {
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	testdataMainDir := "./testData"
-	testDir := makeTestDir(t, testdataMainDir)
-	defer removeDir(t, testdataMainDir)
+	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	defer moduleshelper.RemoveDir(t, testdataMainDir)
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
 	bucketName := "bucket"
 	region := "eu-west-1"
-	endpoint := os.Getenv(minioEndpoint)
+	endpoint := os.Getenv(envMinioEndpoint)
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv("AWS_REGION", region))
-		require.Nil(t, os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key"))
-		require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
-		require.Nil(t, os.Setenv("STORAGE_S3_BUCKET", bucketName))
+		require.Nil(t, os.Setenv(envAwsRegion, region))
+		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
+		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
+		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
 
-		client, err := minio.New(endpoint, &minio.Options{
-			Creds:  credentials.NewEnvAWS(),
-			Region: region,
-			Secure: false,
-		})
-		require.Nil(t, err)
-
-		err = client.MakeBucket(testCtx, bucketName, minio.MakeBucketOptions{})
-		minioErr, ok := err.(minio.ErrorResponse)
-		if ok {
-			// the bucket persists from a previous test.
-			// if the bucket already exists, we can proceed
-			if minioErr.Code == "BucketAlreadyOwnedByYou" {
-				return
-			}
-		}
-		require.Nil(t, err)
+		createBucket(testCtx, t, endpoint, region, bucketName)
 	})
 
 	t.Run("store snapshot in s3", func(t *testing.T) {
@@ -129,45 +131,29 @@ func Test_S3Storage_StoreSnapshot(t *testing.T) {
 	})
 }
 
-func Test_S3Storage_MetaStatus(t *testing.T) {
+func moduleLevelGetMetaStatus(t *testing.T) {
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	testdataMainDir := "./testData"
-	testDir := makeTestDir(t, testdataMainDir)
-	defer removeDir(t, testdataMainDir)
+	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	defer moduleshelper.RemoveDir(t, testdataMainDir)
 
-	createTestFiles(t, testDir)
+	moduleshelper.CreateTestFiles(t, testDir)
 
 	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
 	bucketName := "bucket"
 	region := "eu-west-1"
-	endpoint := os.Getenv(minioEndpoint)
+	endpoint := os.Getenv(envMinioEndpoint)
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv("AWS_REGION", region))
-		require.Nil(t, os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key"))
-		require.Nil(t, os.Setenv("AWS_SECRET_KEY", "aws_secret_key"))
-		require.Nil(t, os.Setenv("STORAGE_S3_BUCKET", bucketName))
+		require.Nil(t, os.Setenv(envAwsRegion, region))
+		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
+		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
+		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
 
-		client, err := minio.New(endpoint, &minio.Options{
-			Creds:  credentials.NewEnvAWS(),
-			Region: region,
-			Secure: false,
-		})
-		require.Nil(t, err)
-
-		err = client.MakeBucket(testCtx, bucketName, minio.MakeBucketOptions{})
-		minioErr, ok := err.(minio.ErrorResponse)
-		if ok {
-			// the bucket persists from a previous test.
-			// if the bucket already exists, we can proceed
-			if minioErr.Code == "BucketAlreadyOwnedByYou" {
-				return
-			}
-		}
-		require.Nil(t, err)
+		createBucket(testCtx, t, endpoint, region, bucketName)
 	})
 
 	s3Config := s3.NewConfig(endpoint, bucketName, "", false)

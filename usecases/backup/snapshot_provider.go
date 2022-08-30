@@ -23,9 +23,9 @@ import (
 
 // TODO adjust or make configurable
 const (
-	createTimeout  = time.Minute
-	storeTimeout   = time.Minute
-	releaseTimeout = time.Minute
+	createTimeout  = 5 * time.Minute
+	storeTimeout   = 12 * time.Hour
+	releaseTimeout = 30 * time.Second
 	metaTimeout    = 5 * time.Second
 )
 
