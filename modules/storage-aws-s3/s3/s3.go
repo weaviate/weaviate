@@ -97,6 +97,14 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) er
 			return snapshots.NewErrInternal(
 				errors.Wrapf(err, "put file '%s'", objectName))
 		}
+
+		// Get size of file
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return errors.Errorf("Unable to get size of file %v", filePath)
+		}
+		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("s3", snapshot.ClassName).Add(float64(fileInfo.Size()))
+
 	}
 
 	return s.putMeta(ctx, snapshot)

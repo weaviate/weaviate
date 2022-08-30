@@ -61,7 +61,7 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	pauseTimer *prometheus.Timer
+	pauseTimer *prometheus.Timer // Times the pause
 }
 
 func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,

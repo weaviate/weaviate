@@ -48,6 +48,14 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 		if err := m.copyFile(dstSnapshotPath, m.dataPath, srcRelPath); err != nil {
 			return err
 		}
+
+		destPath := m.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, srcRelPath)
+		// Get size of file
+		fileInfo, err := os.Stat(destPath)
+		if err != nil {
+			return errors.Errorf("Unable to get size of file %v", destPath)
+		}
+		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("filesystem", snapshot.ClassName).Add(float64(fileInfo.Size()))
 	}
 
 	if err := m.saveMeta(snapshot); err != nil {

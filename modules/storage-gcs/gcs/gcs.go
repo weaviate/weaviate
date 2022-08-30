@@ -182,7 +182,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 			return errors.Wrap(err, "put file")
 		}
 
-		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("gcs", snapshot.ClassName).Add(float64(len(content)))
+		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("gcs", snapshot.ClassName).Add(float64(len(content)))
 	}
 
 	return nil
