@@ -63,6 +63,10 @@ services:
     image: semitechnologies/ner-transformers:latest
     ports:
       - "8003:8080"
+  sum-transformers:
+    image: semitechnologies/sum-transformers:facebook-bart-large-cnn-1.0.0
+    ports:
+      - "8008:8080"
   text-spellcheck:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
     ports:
@@ -90,13 +94,8 @@ services:
       MINIO_ROOT_PASSWORD: aws_secret_key
     command: server /data
   storage-gcs:
-    image: fullstorydev/gcsemulator
+    image: oittaa/gcp-storage-emulator
     ports:
-      - "9090:9090"
+      - "9090:8080"
     volumes:
-      - ./snapshots-gcs:/storage
-    command:
-      - "-port"
-      - "9090"
-      - "-dir"
-      - "storage"
+          - ./snapshots-gcs:/storage

@@ -13,7 +13,6 @@ package summary
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -71,11 +70,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 	})
 
 	t.Run("should summarize", func(t *testing.T) {
-		// given
-		// logger := logrus.New()
-		// uri := "http://localhost:8006"
-		// fmt.Print("uri is: ", uri)
-		// sumClient := client.New(uri, logger)
 		sumClient := &fakeSUMClient{}
 		summaryProvider := New(sumClient)
 		in := []search.Result{
@@ -92,64 +86,18 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 		// when
 		out, err := summaryProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
-
-		fmt.Print("out is: ", out, "\n")
 		// then
 		require.Nil(t, err)
 		require.NotEmpty(t, out)
 		assert.Equal(t, 1, len(in))
-		fmt.Print("in is\n", in, "\n")
-		fmt.Print("out is\n", out, "\n")
 		answer, answerOK := in[0].AdditionalProperties["summary"]
-		fmt.Print("answer is \n", answer, "\n")
-		fmt.Printf("%+v\n", answer)
-		fmt.Printf("Type of answer is %T \n", answer)
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
 		answerAdditional, answerAdditionalOK := answer.([]ent.SummaryResult)
-		fmt.Print("answerAdditional is \n", answerAdditional, "\n")
 		assert.True(t, answerAdditionalOK)
-		// assert.Equal(t, "this is the summary", answerAdditional.Result)
-		// assert.Equal(t, "content", answerAdditional.Property)
+		assert.Equal(t, "this is the summary", answerAdditional[0].Result)
+		assert.Equal(t, "content", answerAdditional[0].Property)
 	})
-
-	// t.Run("should answer with property", func(t *testing.T) {
-	// 	// given
-	// 	qnaClient := &fakeQnAClient{}
-	// 	fakeHelper := &fakeParamsHelper{}
-	// 	answerProvider := New(qnaClient, fakeHelper)
-	// 	in := []search.Result{
-	// 		{
-	// 			ID: "some-uuid",
-	// 			Schema: map[string]interface{}{
-	// 				"content":  "content with answer",
-	// 				"content2": "this one is just a title",
-	// 			},
-	// 		},
-	// 	}
-	// 	fakeParams := &Params{}
-	// 	limit := 1
-	// 	argumentModuleParams := map[string]interface{}{}
-
-	// 	// when
-	// 	out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
-
-	// 	// then
-	// 	require.Nil(t, err)
-	// 	require.NotEmpty(t, out)
-	// 	assert.Equal(t, 1, len(in))
-	// 	answer, answerOK := in[0].AdditionalProperties["answer"]
-	// 	assert.True(t, answerOK)
-	// 	assert.NotNil(t, answer)
-	// 	answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
-	// 	assert.True(t, answerAdditionalOK)
-	// 	assert.Equal(t, "answer", *answerAdditional.Result)
-	// 	assert.Equal(t, "content", *answerAdditional.Property)
-	// 	assert.Equal(t, 0.8, *answerAdditional.Certainty)
-	// 	assert.Equal(t, 13, answerAdditional.StartPosition)
-	// 	assert.Equal(t, 19, answerAdditional.EndPosition)
-	// 	assert.Equal(t, true, answerAdditional.HasAnswer)
-	// })
 
 }
 

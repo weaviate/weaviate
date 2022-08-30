@@ -114,7 +114,7 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      SUM_INFERENCE_API="http://localhost:8006" \
+      SUM_INFERENCE_API="http://localhost:8008" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,sum-transformers" \
       go run ./cmd/weaviate-server \

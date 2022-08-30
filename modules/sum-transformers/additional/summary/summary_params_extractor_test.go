@@ -57,23 +57,6 @@ func Test_parseSummaryArguments(t *testing.T) {
 	}
 }
 
-// func createArg(name string, value string) *ast.Argument {
-// 	n := ast.Name{
-// 		Value: name,
-// 	}
-// 	val := ast.StringValue{
-// 		Kind:  "Kind",
-// 		Value: value,
-// 	}
-// 	arg := ast.Argument{
-// 		Name:  ast.NewName(&n),
-// 		Kind:  "Kind",
-// 		Value: ast.NewStringValue(&val),
-// 	}
-// 	a := ast.NewArgument(&arg)
-// 	return a
-// }
-
 func createListArg(name string, valuesIn []string) *ast.Argument {
 	n := ast.Name{
 		Value: name,
