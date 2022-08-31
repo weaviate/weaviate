@@ -124,7 +124,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		snapshotter.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil)
 		snapshotter.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
 		// make sure create backup takes some time, so the parallel execution has enough time to start before first one finishes
-		storage := &fakeStorage{getMetaStatusSleep: 5 * time.Millisecond, storeSnapshotSleep: 5 * time.Millisecond}
+		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, storeSnapshotSleep: 50 * time.Millisecond}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("GetMeta", ctx, className, snapshotID2).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("InitSnapshot", mock.Anything, className, snapshotID).Return(&backup.Snapshot{}, nil)
@@ -139,7 +139,8 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		go func() {
 			meta, err := bm.CreateBackup(ctx, nil, className, storageName, snapshotID)
-			time.Sleep(10 * time.Millisecond) // enough time to async create finish
+			time.Sleep(75 * time.Millisecond) // enough time to async create finish
+
 			assert.NotNil(t, meta)
 			assert.Equal(t, backup.CreateStarted, backup.CreateStatus(*meta.Status))
 			assert.Equal(t, path, meta.Path)
@@ -147,9 +148,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 			wg.Done()
 		}()
 		go func() {
-			time.Sleep(time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 			meta, err := bm.CreateBackup(ctx, nil, className, storageName, snapshotID2)
-			time.Sleep(10 * time.Millisecond) // enough time to async create finish
+			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
@@ -205,7 +206,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		snapshotter.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil).Twice()
 		snapshotter.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil).Twice()
 		// make sure create backup takes some time, so the parallel execution has enough time to start before first one finishes
-		storage := &fakeStorage{getMetaStatusSleep: 5 * time.Millisecond, storeSnapshotSleep: 5 * time.Millisecond}
+		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, storeSnapshotSleep: 50 * time.Millisecond}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("GetMeta", ctx, className2, snapshotID2).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("InitSnapshot", mock.Anything, className, snapshotID).Return(&backup.Snapshot{}, nil)
@@ -222,7 +223,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		go func() {
 			meta, err := bm.CreateBackup(ctx, nil, className, storageName, snapshotID)
-			time.Sleep(10 * time.Millisecond) // enough time to async create finish
+			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
 			assert.NotNil(t, meta)
 			assert.Equal(t, backup.CreateStarted, backup.CreateStatus(*meta.Status))
@@ -231,9 +232,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 			wg.Done()
 		}()
 		go func() {
-			time.Sleep(time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 			meta, err := bm.CreateBackup(ctx, nil, className2, storageName, snapshotID2)
-			time.Sleep(10 * time.Millisecond) // enough time to async create finish
+			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
 			assert.NotNil(t, meta)
 			assert.Equal(t, backup.CreateStarted, backup.CreateStatus(*meta.Status))
@@ -324,7 +325,7 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 
 	t.Run("fails when snapshot restoration already in progress", func(t *testing.T) {
 		// make sure restore backup takes some time, so the parallel execution has enough time to start before first one finishes
-		storage := &fakeStorage{getMetaStatusSleep: 5 * time.Millisecond, restoreSnapshotSleep: 5 * time.Millisecond}
+		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 		storage.On("GetMeta", ctx, className, snapshotID2).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 		storage.On("DestinationPath", className, snapshotID).Return(path)
@@ -336,7 +337,7 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 
 		go func() {
 			meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
-			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
+			time.Sleep(75 * time.Millisecond) // enough time to async restore finish
 
 			assert.NotNil(t, meta)
 			assert.Equal(t, backup.RestoreStarted, meta.Status)
@@ -345,9 +346,9 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 			wg.Done()
 		}()
 		go func() {
-			time.Sleep(time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 			meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID2)
-			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
+			time.Sleep(75 * time.Millisecond) // enough time to async restore finish
 
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
@@ -378,7 +379,7 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 
 	t.Run("successfully starts for multiple classes", func(t *testing.T) {
 		// make sure restore backup takes some time, so the parallel execution has enough time to start before first one finishes
-		storage := &fakeStorage{getMetaStatusSleep: 5 * time.Millisecond, restoreSnapshotSleep: 5 * time.Millisecond}
+		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 		storage.On("GetMeta", ctx, className2, snapshotID2).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 		storage.On("DestinationPath", className, snapshotID).Return(path)
@@ -391,7 +392,7 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 
 		go func() {
 			meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
-			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
+			time.Sleep(75 * time.Millisecond) // enough time to async restore finish
 
 			assert.NotNil(t, meta)
 			assert.Equal(t, backup.RestoreStarted, meta.Status)
@@ -400,9 +401,9 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 			wg.Done()
 		}()
 		go func() {
-			time.Sleep(time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 			meta, _, err := bm.backups.RestoreBackup(ctx, className2, storageName, snapshotID2)
-			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
+			time.Sleep(75 * time.Millisecond) // enough time to async restore finish
 
 			assert.NotNil(t, meta)
 			assert.Equal(t, backup.RestoreStarted, meta.Status)
@@ -491,7 +492,7 @@ func TestBackupManager_CreateBackupStatus(t *testing.T) {
 	})
 }
 
-func Test_DestinationPath(t *testing.T) {
+func TestBackupManager_DestinationPath(t *testing.T) {
 	storageError := errors.New("I do not exist")
 	sm := createManager(nil, nil, storageError, nil)
 	path, err := sm.backups.DestinationPath("storageName", "className", "ID")
