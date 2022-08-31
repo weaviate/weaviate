@@ -131,7 +131,7 @@ func (m *StorageFileSystemModule) GetMeta(ctx context.Context, className, snapsh
 }
 
 func (m *StorageFileSystemModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	snapshot := backup.New(className, snapshotID, time.Now())
+	snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
 	snapshot.Status = string(backup.CreateStarted)
 
 	if err := m.saveMeta(snapshot); err != nil {

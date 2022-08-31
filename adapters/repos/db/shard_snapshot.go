@@ -80,7 +80,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]snapshots.File, error) {
+func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]backup.SnapshotFile, error) {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -106,9 +106,9 @@ func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]snapshots.File,
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
-	files := make([]snapshots.File, len(paths))
+	files := make([]backup.SnapshotFile, len(paths))
 	for i, pth := range paths {
-		files[i] = snapshots.File{
+		files[i] = backup.SnapshotFile{
 			Path:  pth,
 			Class: s.index.Config.ClassName.String(),
 			Node:  s.index.Config.NodeName,
@@ -119,7 +119,7 @@ func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]snapshots.File,
 	return files, nil
 }
 
-func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]snapshots.File, error) {
+func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]backup.SnapshotFile, error) {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -145,9 +145,9 @@ func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]snapshots
 		return nil, errors.Wrap(err, "create snapshot")
 	}
 
-	files := make([]snapshots.File, len(paths))
+	files := make([]backup.SnapshotFile, len(paths))
 	for i, pth := range paths {
-		files[i] = snapshots.File{
+		files[i] = backup.SnapshotFile{
 			Path:  pth,
 			Class: s.index.Config.ClassName.String(),
 			Node:  s.index.Config.NodeName,

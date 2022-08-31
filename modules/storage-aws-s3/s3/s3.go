@@ -221,7 +221,7 @@ func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*b
 		return nil, errors.Wrap(err, "init snapshot")
 	}
 
-	snapshot := backup.New(className, snapshotID, time.Now())
+	snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
 	snapshot.Status = string(backup.CreateStarted)
 
 	if err := s.putMeta(ctx, snapshot); err != nil {

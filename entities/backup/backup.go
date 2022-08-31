@@ -30,7 +30,7 @@ type ShardMetadata struct {
 	ShardVersion      []byte `json:"shardVersion"`
 }
 
-type File struct {
+type SnapshotFile struct {
 	Class string `json:"class"` // Name of class to which the file belongs
 	Node  string `json:"node"`  // Name of node to which the file belongs
 	Shard string `json:"shard"` // Name of shard to which the file belongs
@@ -44,7 +44,7 @@ type Snapshot struct {
 	ID            string                    `json:"id"`        // User created snapshot id
 	ClassName     string                    `json:"className"` // DB class name, also selected by user
 	Status        string                    `json:"status"`    // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED"
-	Files         []File                    `json:"files"`
+	Files         []SnapshotFile            `json:"files"`
 	ShardMetadata map[string]*ShardMetadata `json:"shardMetadata"`
 	ShardingState []byte                    `json:"shardingState"`
 	Schema        []byte                    `json:"schema"`
@@ -55,7 +55,7 @@ type Snapshot struct {
 	sync.Mutex `json:"-"`
 }
 
-func New(className, id string, startedAt time.Time) *Snapshot {
+func NewSnapshot(className, id string, startedAt time.Time) *Snapshot {
 	return &Snapshot{
 		ClassName:     className,
 		ID:            id,

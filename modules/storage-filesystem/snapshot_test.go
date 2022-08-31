@@ -208,13 +208,13 @@ func createBackupInstance(t *testing.T, dirPath string) *backup.Snapshot {
 	startedAt := time.Now()
 
 	filePaths := createTestFiles(t, dirPath)
-	files := make([]snapshots.File, len(filePaths))
+	files := make([]backup.SnapshotFile, len(filePaths))
 	for i := range filePaths {
-		files[i] = snapshots.File{Path: filePaths[i]}
+		files[i] = backup.SnapshotFile{Path: filePaths[i]}
 	}
 
-	snap := backup.New("classname", "snapshot_id", startedAt)
-	snap.Files = filePaths
+	snap := backup.NewSnapshot("classname", "snapshot_id", startedAt)
+	snap.Files = files
 	snap.CompletedAt = time.Now()
 	return snap
 }

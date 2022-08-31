@@ -14,14 +14,14 @@ package backup
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
 type fakeSchemaManger struct{}
 
 func (f *fakeSchemaManger) RestoreClass(context.Context, *models.Principal,
-	*models.Class, *snapshots.Snapshot,
+	*models.Class, *backup.Snapshot,
 ) error {
 	return nil
 }
