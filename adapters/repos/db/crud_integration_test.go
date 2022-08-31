@@ -255,8 +255,11 @@ func TestCRUD(t *testing.T) {
 			},
 			Additional: models.AdditionalProperties{},
 		}
-
 		res, err := repo.ObjectByID(context.Background(), thingID, nil,
+			additional.Properties{})
+		require.Nil(t, err)
+
+		res, err = repo.Object(context.Background(), expected.Class, thingID, nil,
 			additional.Properties{})
 		require.Nil(t, err)
 
@@ -610,6 +613,20 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
 		item, err := repo.ObjectByID(context.Background(), thingID, search.SelectProperties{}, additional.Properties{})
+		require.Nil(t, err)
+		require.NotNil(t, item, "must have a result")
+
+		assert.Equal(t, thingID, item.ID, "extracted the ID")
+		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID, schema["id"], "has id in schema as uuid field")
+	})
+
+	// Check the same, but with Object()
+	t.Run("searching a thing by ID", func(t *testing.T) {
+		item, err := repo.Object(context.Background(), "TheBestThingClass", thingID, search.SelectProperties{}, additional.Properties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
