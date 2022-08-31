@@ -37,6 +37,9 @@ type Store struct {
 	bucketAccessLock sync.RWMutex
 }
 
+// New initializes a new [Store] based on the root dir. If state is present on
+// disk, it is loaded, if the folder is empty a new store is initialized in
+// there.
 func New(dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics,
 ) (*Store, error) {
@@ -92,6 +95,17 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
 }
 
+// CreateOrLoadBucket registers a bucket with the given name. If state on disk
+// exists for this bucket it is loaded, otherwise created. Pass [BucketOptions]
+// to configure the strategy of a bucket. The strategy defaults to "replace".
+// For example, to load or create a map-type bucket, do:
+//
+//	ctx := context.Background()
+//	err := store.CreateOrLoadBucket(ctx, "my_bucket_name", WithStrategy(StrategyReplace))
+//	if err != nil { /* handle error */ }
+//
+//	// you can now access the bucket using store.Bucket()
+//	b := store.Bucket("my_bucket_name")
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
