@@ -86,6 +86,8 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 			if *status.Status == string(backup.CreateSuccess) {
 				break
 			}
+
+			time.Sleep(time.Second)
 		}
 
 		restoreStatus := helper.RestoreBackupStatus(t, className, storage, snapshotID)

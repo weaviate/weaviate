@@ -83,14 +83,14 @@ func (s *s3) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error
 
 	// save files
 	putOptions := minio.PutObjectOptions{ContentType: "application/octet-stream"}
-	for _, srcRelPath := range snapshot.Files {
+	for _, file := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
 			return backup.NewErrContextExpired(
 				errors.Wrap(err, "store snapshot aborted"))
 		}
 
-		objectName := s.makeObjectName(snapshot.ClassName, snapshot.ID, srcRelPath)
-		filePath := makeFilePath(s.dataPath, srcRelPath)
+		objectName := s.makeObjectName(snapshot.ClassName, snapshot.ID, file.Path)
+		filePath := makeFilePath(s.dataPath, file.Path)
 
 		_, err := s.client.FPutObject(ctx, bucketName, objectName, filePath, putOptions)
 		if err != nil {
@@ -141,14 +141,14 @@ func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) 
 	}
 
 	// Restore the files
-	for _, srcRelPath := range snapshot.Files {
+	for _, file := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrapf(err, "restore snapshot aborted")
 		}
 
 		// Get the correct paths for the backup file and the active file
-		objectName := s.makeObjectName(className, snapshotID, srcRelPath)
-		filePath := makeFilePath(s.dataPath, srcRelPath)
+		objectName := s.makeObjectName(className, snapshotID, file.Path)
+		filePath := makeFilePath(s.dataPath, file.Path)
 
 		// Download the backup file from the bucket
 		err := s.client.FGetObject(ctx, bucketName, objectName, filePath, minio.GetObjectOptions{})
@@ -221,7 +221,7 @@ func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*b
 		return nil, errors.Wrap(err, "init snapshot")
 	}
 
-	snapshot := backup.New(className, snapshotID, time.Now())
+	snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
 	snapshot.Status = string(backup.CreateStarted)
 
 	if err := s.putMeta(ctx, snapshot); err != nil {

@@ -58,7 +58,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		className := "IndexLevelSnapshotClass"
 		snapshotID := "index-level-snapshot-test"
 		now := time.Now()
-		snapshot := backup.New(className, snapshotID, now)
+		snapshot := backup.NewSnapshot(className, snapshotID, now)
 
 		shard, index := testShard(t, ctx, className, withVectorIndexing(true))
 		// let the index age for a second so that
@@ -135,7 +135,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 
 		className := "IndexLevelSnapshotClass"
 		snapshotID := "index-level-snapshot-test"
-		snapshot := backup.New(className, snapshotID, time.Now())
+		snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
 
 		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 
@@ -178,7 +178,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		ctx := testCtx()
 		className := "IndexLevelSnapshotClass"
 		inProgressSnapshotID := "index-level-snapshot-test"
-		snapshot := backup.New(className, "some-new-snapshot", time.Now())
+		snapshot := backup.NewSnapshot(className, "some-new-snapshot", time.Now())
 
 		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 

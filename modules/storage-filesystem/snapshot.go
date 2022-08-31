@@ -40,16 +40,16 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *b
 		return err
 	}
 
-	for _, srcRelPath := range snapshot.Files {
+	for _, file := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
 			return backup.NewErrContextExpired(
 				errors.Wrap(err, "store snapshot aborted"))
 		}
-		if err := m.copyFile(dstSnapshotPath, m.dataPath, srcRelPath); err != nil {
+		if err := m.copyFile(dstSnapshotPath, m.dataPath, file.Path); err != nil {
 			return err
 		}
 
-		destPath := m.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, srcRelPath)
+		destPath := m.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, file.Path)
 		// Get size of file
 		fileInfo, err := os.Stat(destPath)
 		if err != nil {
@@ -73,18 +73,17 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 		return nil, errors.Wrap(err, "restore snapshot")
 	}
 
-	for _, srcRelPath := range snapshot.Files {
-
-		destPath := m.makeSnapshotFilePath(className, snapshotID, srcRelPath)
+	for _, file := range snapshot.Files {
+		destPath := m.makeSnapshotFilePath(className, snapshotID, file.Path)
 
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrap(err, "restore snapshot aborted, system might be in an invalid state")
 		}
-		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
-			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
+		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), file.Path); err != nil {
+			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", file.Path)
 		}
-		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), srcRelPath); err != nil {
-			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", srcRelPath)
+		if err := m.copyFile(m.dataPath, m.makeSnapshotDirPath(className, snapshotID), file.Path); err != nil {
+			return nil, errors.Wrapf(err, "restore snapshot aborted, system might be in an invalid state: file %v", file.Path)
 		}
 
 		// Get size of file
@@ -132,7 +131,7 @@ func (m *StorageFileSystemModule) GetMeta(ctx context.Context, className, snapsh
 }
 
 func (m *StorageFileSystemModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	snapshot := backup.New(className, snapshotID, time.Now())
+	snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
 	snapshot.Status = string(backup.CreateStarted)
 
 	if err := m.saveMeta(snapshot); err != nil {
