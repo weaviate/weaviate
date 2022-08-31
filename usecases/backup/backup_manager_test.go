@@ -21,26 +21,40 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBackupManager_CreateBackup(t *testing.T) {
 	className := "DemoClass"
 	className2 := "DemoClass2"
 	storageName := "DemoStorage"
-	snapshotID := "SnapshotID"
-	snapshotID2 := "SnapshotID2"
+	snapshotID := "snapshot-id"
+	snapshotID2 := "snapshot-id2"
 	ctx := context.Background()
 	path := "dst/path"
 
-	t.Run("fails when index does not exist", func(t *testing.T) {
-		bm := createBackupManager(nil, nil, nil, nil)
+	t.Run("fails when snapshot is not valid", func(t *testing.T) {
+		bm := createManager(nil, nil, nil, nil)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, "A*:")
+
+		assert.Nil(t, meta)
+		assert.NotNil(t, err)
+
+		meta, err = bm.CreateSnapshot(ctx, nil, className, storageName, "")
+
+		assert.Nil(t, meta)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("fails when index does not exist", func(t *testing.T) {
+		bm := createManager(nil, nil, nil, nil)
+
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -51,9 +65,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 	t.Run("fails when index has multiple shards", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}, "b": {}}}
-		bm := createBackupManager(snapshotter, nil, nil, shardingState)
+		bm := createManager(snapshotter, nil, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -65,9 +79,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
 		storageError := errors.New("I do not exist")
-		bm := createBackupManager(snapshotter, nil, storageError, shardingState)
+		bm := createManager(snapshotter, nil, storageError, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -80,9 +94,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, errors.New("can not be read"))
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
-		bm := createBackupManager(snapshotter, storage, nil, shardingState)
+		bm := createManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -95,9 +109,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(&snapshots.Snapshot{}, nil)
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
-		bm := createBackupManager(snapshotter, storage, nil, shardingState)
+		bm := createManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -118,24 +132,23 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
-		bm := createBackupManager(snapshotter, storage, nil, shardingState)
+		bm := createManager(snapshotter, storage, nil, shardingState)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 
 		go func() {
-			meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
-			time.Sleep(10 * time.Millisecond) // enough time to async create finish.
-
+			meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
+			time.Sleep(10 * time.Millisecond) // enough time to async create finish
 			assert.NotNil(t, meta)
-			assert.Equal(t, snapshots.CreateStarted, meta.Status)
+			assert.Equal(t, snapshots.CreateStarted, snapshots.CreateStatus(*meta.Status))
 			assert.Equal(t, path, meta.Path)
 			assert.Nil(t, err)
 			wg.Done()
 		}()
 		go func() {
 			time.Sleep(time.Millisecond)
-			meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID2)
+			meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID2)
 			time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 			assert.Nil(t, meta)
@@ -154,9 +167,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, snapshots.NewErrNotFound(errors.New("not found")))
 		storage.On("InitSnapshot", mock.Anything, className, snapshotID).Return(nil, errors.New("init meta failed"))
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
-		bm := createBackupManager(snapshotter, storage, nil, shardingState)
+		bm := createManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -175,13 +188,13 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
-		bm := createBackupManager(snapshotter, storage, nil, shardingState)
+		bm := createManager(snapshotter, storage, nil, shardingState)
 
-		meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 		time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 		assert.NotNil(t, meta)
-		assert.Equal(t, snapshots.CreateStarted, meta.Status)
+		assert.Equal(t, snapshots.CreateStarted, snapshots.CreateStatus(*meta.Status))
 		assert.Equal(t, path, meta.Path)
 		assert.Nil(t, err)
 		snapshotter.AssertExpectations(t) // make sure async create called
@@ -202,28 +215,28 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
 		shardingState := &sharding.State{Physical: map[string]sharding.Physical{"a": {}}}
-		bm := createBackupManager(snapshotter, storage, nil, shardingState)
+		bm := createManager(snapshotter, storage, nil, shardingState)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 
 		go func() {
-			meta, err := bm.CreateBackup(ctx, className, storageName, snapshotID)
+			meta, err := bm.CreateSnapshot(ctx, nil, className, storageName, snapshotID)
 			time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 			assert.NotNil(t, meta)
-			assert.Equal(t, snapshots.CreateStarted, meta.Status)
+			assert.Equal(t, snapshots.CreateStarted, snapshots.CreateStatus(*meta.Status))
 			assert.Equal(t, path, meta.Path)
 			assert.Nil(t, err)
 			wg.Done()
 		}()
 		go func() {
 			time.Sleep(time.Millisecond)
-			meta, err := bm.CreateBackup(ctx, className2, storageName, snapshotID2)
+			meta, err := bm.CreateSnapshot(ctx, nil, className2, storageName, snapshotID2)
 			time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
 			assert.NotNil(t, meta)
-			assert.Equal(t, snapshots.CreateStarted, meta.Status)
+			assert.Equal(t, snapshots.CreateStarted, snapshots.CreateStatus(*meta.Status))
 			assert.Equal(t, path, meta.Path)
 			assert.Nil(t, err)
 			wg.Done()
@@ -245,9 +258,8 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 
 	t.Run("fails when index already exists", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		bm := createBackupManager(snapshotter, nil, nil, nil)
-
-		meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+		bm := createManager(snapshotter, nil, nil, nil)
+		meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -257,9 +269,9 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 
 	t.Run("fails when storage not registered", func(t *testing.T) {
 		storageError := errors.New("I do not exist")
-		bm := createBackupManager(nil, nil, storageError, nil)
+		bm := createManager(nil, nil, storageError, nil)
 
-		meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+		meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -270,9 +282,9 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 	t.Run("fails when error reading meta from storage", func(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, errors.New("can not be read"))
-		bm := createBackupManager(nil, storage, nil, nil)
+		bm := createManager(nil, storage, nil, nil)
 
-		meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+		meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -283,9 +295,9 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 	t.Run("fails when meta does not exist on storage", func(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, snapshots.NewErrNotFound(errors.New("not found")))
-		bm := createBackupManager(nil, storage, nil, nil)
+		bm := createManager(nil, storage, nil, nil)
 
-		meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+		meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -299,9 +311,9 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 		for _, status := range statuses {
 			storage := &fakeStorage{}
 			storage.On("GetMeta", ctx, className, snapshotID).Return(&snapshots.Snapshot{Status: status}, nil)
-			bm := createBackupManager(nil, storage, nil, nil)
+			bm := createManager(nil, storage, nil, nil)
 
-			meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+			meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
@@ -317,13 +329,13 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 		storage.On("GetMeta", ctx, className, snapshotID2).Return(&snapshots.Snapshot{Status: string(snapshots.CreateSuccess)}, nil)
 		storage.On("DestinationPath", className, snapshotID).Return(path)
 		storage.On("RestoreSnapshot", mock.Anything, className, snapshotID).Return(&snapshots.Snapshot{}, nil).Once()
-		bm := createBackupManager(nil, storage, nil, nil)
+		bm := createManager(nil, storage, nil, nil)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 
 		go func() {
-			meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+			meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
 
 			assert.NotNil(t, meta)
@@ -334,7 +346,7 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 		}()
 		go func() {
 			time.Sleep(time.Millisecond)
-			meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID2)
+			meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID2)
 			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
 
 			assert.Nil(t, meta)
@@ -352,9 +364,9 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 		storage.On("GetMeta", ctx, className, snapshotID).Return(&snapshots.Snapshot{Status: string(snapshots.CreateSuccess)}, nil)
 		storage.On("DestinationPath", className, snapshotID).Return(path)
 		storage.On("RestoreSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(&snapshots.Snapshot{}, nil).Once()
-		bm := createBackupManager(nil, storage, nil, nil)
+		bm := createManager(nil, storage, nil, nil)
 
-		meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+		meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 		time.Sleep(10 * time.Millisecond) // enough time to async restore start
 
 		assert.NotNil(t, meta)
@@ -372,13 +384,13 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 		storage.On("DestinationPath", className, snapshotID).Return(path)
 		storage.On("DestinationPath", className2, snapshotID2).Return(path)
 		storage.On("RestoreSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(&snapshots.Snapshot{}, nil).Twice()
-		bm := createBackupManager(nil, storage, nil, nil)
+		bm := createManager(nil, storage, nil, nil)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 
 		go func() {
-			meta, _, err := bm.RestoreBackup(ctx, className, storageName, snapshotID)
+			meta, _, err := bm.backups.RestoreBackup(ctx, className, storageName, snapshotID)
 			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
 
 			assert.NotNil(t, meta)
@@ -389,7 +401,7 @@ func TestBackupManager_RestoreBackup(t *testing.T) {
 		}()
 		go func() {
 			time.Sleep(time.Millisecond)
-			meta, _, err := bm.RestoreBackup(ctx, className2, storageName, snapshotID2)
+			meta, _, err := bm.backups.RestoreBackup(ctx, className2, storageName, snapshotID2)
 			time.Sleep(10 * time.Millisecond) // enough time to async restore finish
 
 			assert.NotNil(t, meta)
@@ -411,9 +423,9 @@ func TestBackupManager_CreateBackupStatus(t *testing.T) {
 	path := "dst/path"
 
 	t.Run("fails when index does not exist", func(t *testing.T) {
-		bm := createBackupManager(nil, nil, nil, nil)
+		bm := createManager(nil, nil, nil, nil)
 
-		meta, err := bm.CreateBackupStatus(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshotStatus(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -424,9 +436,9 @@ func TestBackupManager_CreateBackupStatus(t *testing.T) {
 	t.Run("fails when storage not registered", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
 		storageError := errors.New("I do not exist")
-		bm := createBackupManager(snapshotter, nil, storageError, nil)
+		bm := createManager(snapshotter, nil, storageError, nil)
 
-		meta, err := bm.CreateBackupStatus(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshotStatus(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -438,9 +450,9 @@ func TestBackupManager_CreateBackupStatus(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, errors.New("any type of error"))
-		bm := createBackupManager(snapshotter, storage, nil, nil)
+		bm := createManager(snapshotter, storage, nil, nil)
 
-		meta, err := bm.CreateBackupStatus(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshotStatus(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -451,9 +463,9 @@ func TestBackupManager_CreateBackupStatus(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, snapshots.NewErrNotFound(errors.New("not found")))
-		bm := createBackupManager(snapshotter, storage, nil, nil)
+		bm := createManager(snapshotter, storage, nil, nil)
 
-		meta, err := bm.CreateBackupStatus(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshotStatus(ctx, nil, className, storageName, snapshotID)
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
@@ -466,9 +478,9 @@ func TestBackupManager_CreateBackupStatus(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, className, snapshotID).Return(&snapshots.Snapshot{Status: "SOME_STATUS"}, nil)
 		storage.On("DestinationPath", className, snapshotID).Return(path)
-		bm := createBackupManager(snapshotter, storage, nil, nil)
+		bm := createManager(snapshotter, storage, nil, nil)
 
-		meta, err := bm.CreateBackupStatus(ctx, className, storageName, snapshotID)
+		meta, err := bm.CreateSnapshotStatus(ctx, nil, className, storageName, snapshotID)
 
 		assert.NotNil(t, meta)
 		assert.Equal(t, "SOME_STATUS", *meta.Status)
@@ -479,13 +491,28 @@ func TestBackupManager_CreateBackupStatus(t *testing.T) {
 	})
 }
 
-func createBackupManager(snapshotter Snapshotter, storage modulecapabilities.SnapshotStorage,
+func Test_DestinationPath(t *testing.T) {
+	storageError := errors.New("I do not exist")
+	sm := createManager(nil, nil, storageError, nil)
+	path, err := sm.backups.DestinationPath("storageName", "className", "ID")
+	require.NotNil(t, err)
+	assert.Equal(t, "", path)
+
+	storage := &fakeStorage{}
+	storage.On("DestinationPath", "className", "ID").Return(path)
+	sm = createManager(nil, storage, nil, nil)
+	path2, err := sm.backups.DestinationPath("storageName", "className", "ID")
+	require.Nil(t, err)
+	assert.Equal(t, path, path2)
+}
+
+func createManager(snapshotter Snapshotter, storage modulecapabilities.SnapshotStorage,
 	storageErr error, shardingState *sharding.State,
-) backups.BackupManager {
+) *Manager {
 	snapshotters := &fakeSnapshotterProvider{snapshotter}
 	storages := &fakeBackupStorageProvider{storage, storageErr}
 	shardingStateFunc := func(className string) *sharding.State { return shardingState }
 
 	logger, _ := test.NewNullLogger()
-	return NewBackupManager(logger, snapshotters, storages, shardingStateFunc)
+	return NewManager(logger, &fakeAuthorizer{}, &fakeSchemaManger{}, snapshotters, storages, shardingStateFunc)
 }
