@@ -20,9 +20,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -41,7 +41,7 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
-	class *models.Class, snapshot *snapshots.Snapshot,
+	class *models.Class, snapshot *backup.Snapshot,
 ) error {
 	m.Lock()
 	defer m.Unlock()

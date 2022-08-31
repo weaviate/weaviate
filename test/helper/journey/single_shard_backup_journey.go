@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/test/helper"
 	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/stretchr/testify/assert"
@@ -57,14 +57,14 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 
 			status := helper.CreateBackupStatus(t, className, storage, snapshotID)
 			require.NotNil(t, status)
-			if *status.Status == string(snapshots.CreateSuccess) {
+			if *status.Status == string(backup.CreateSuccess) {
 				break
 			}
 		}
 
 		createStatus := helper.CreateBackupStatus(t, className, storage, snapshotID)
 		require.NotNil(t, createStatus)
-		require.Equal(t, *createStatus.Status, string(snapshots.CreateSuccess))
+		require.Equal(t, *createStatus.Status, string(backup.CreateSuccess))
 	}
 
 	// remove the class so we can restore it
@@ -83,14 +83,14 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 
 			status := helper.RestoreBackupStatus(t, className, storage, snapshotID)
 			require.NotNil(t, status)
-			if *status.Status == string(snapshots.CreateSuccess) {
+			if *status.Status == string(backup.CreateSuccess) {
 				break
 			}
 		}
 
 		restoreStatus := helper.RestoreBackupStatus(t, className, storage, snapshotID)
 		require.NotNil(t, restoreStatus)
-		require.Equal(t, *restoreStatus.Status, string(snapshots.CreateSuccess))
+		require.Equal(t, *restoreStatus.Status, string(backup.CreateSuccess))
 	}
 
 	// assert class exists again it its entirety

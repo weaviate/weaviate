@@ -28,8 +28,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
@@ -58,7 +58,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		className := "IndexLevelSnapshotClass"
 		snapshotID := "index-level-snapshot-test"
 		now := time.Now()
-		snapshot := snapshots.New(className, snapshotID, now)
+		snapshot := backup.New(className, snapshotID, now)
 
 		shard, index := testShard(t, ctx, className, withVectorIndexing(true))
 		// let the index age for a second so that
@@ -82,7 +82,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		})
 
 		t.Run("create snapshot", func(t *testing.T) {
-			snap, err := index.CreateSnapshot(ctx, snapshot)
+			snap, err := index.CreateBackup(ctx, snapshot)
 			assert.Nil(t, err)
 
 			t.Run("assert snapshot file contents", func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		})
 
 		t.Run("release snapshot", func(t *testing.T) {
-			err := index.ReleaseSnapshot(ctx, snapshotID)
+			err := index.ReleaseBackup(ctx, snapshotID)
 			assert.Nil(t, err)
 
 			assert.False(t, index.snapshotState.InProgress)
@@ -135,14 +135,14 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 
 		className := "IndexLevelSnapshotClass"
 		snapshotID := "index-level-snapshot-test"
-		snapshot := snapshots.New(className, snapshotID, time.Now())
+		snapshot := backup.New(className, snapshotID, time.Now())
 
 		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 
 		timeout, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
 
-		snap, err := index.CreateSnapshot(timeout, snapshot)
+		snap, err := index.CreateBackup(timeout, snapshot)
 		assert.Nil(t, snap)
 
 		// due to concurrently running cycle shutdowns,
@@ -160,7 +160,7 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		assert.False(t, index.snapshotState.InProgress)
 		assert.Empty(t, index.snapshotState.SnapshotID)
 
-		snapPath := snapshots.BuildSnapshotPath(index.Config.RootPath, className, snapshotID)
+		snapPath := backup.BuildSnapshotPath(index.Config.RootPath, className, snapshotID)
 		_, err = os.Stat(snapPath)
 		expectedErr := &fs.PathError{Op: "stat", Path: snapPath, Err: syscall.ENOENT}
 		assert.Equal(t, err, expectedErr)
@@ -178,16 +178,16 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 		ctx := testCtx()
 		className := "IndexLevelSnapshotClass"
 		inProgressSnapshotID := "index-level-snapshot-test"
-		snapshot := snapshots.New(className, "some-new-snapshot", time.Now())
+		snapshot := backup.New(className, "some-new-snapshot", time.Now())
 
 		_, index := testShard(t, ctx, className, withVectorIndexing(true))
 
-		index.snapshotState = snapshots.State{
+		index.snapshotState = backup.State{
 			SnapshotID: inProgressSnapshotID,
 			InProgress: true,
 		}
 
-		snap, err := index.CreateSnapshot(ctx, snapshot)
+		snap, err := index.CreateBackup(ctx, snapshot)
 		assert.Nil(t, snap)
 
 		expectedErr := fmt.Errorf("cannot create new snapshot, snapshot ‘%s’ "+

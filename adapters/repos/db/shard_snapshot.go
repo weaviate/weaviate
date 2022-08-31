@@ -16,11 +16,11 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"golang.org/x/sync/errgroup"
 )
 
-func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) error {
+func (s *Shard) createBackup(ctx context.Context, snap *backup.Snapshot) error {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -138,7 +138,7 @@ func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]string, e
 	return files, nil
 }
 
-func (s *Shard) readSnapshotMetadata() (*snapshots.ShardMetadata, error) {
+func (s *Shard) readSnapshotMetadata() (*backup.ShardMetadata, error) {
 	counterContents, err := s.readIndexCounter()
 	if err != nil {
 		return nil, errors.Wrapf(err,
@@ -157,7 +157,7 @@ func (s *Shard) readSnapshotMetadata() (*snapshots.ShardMetadata, error) {
 			"failed to read shard version for shard '%s'", s.name)
 	}
 
-	return &snapshots.ShardMetadata{
+	return &backup.ShardMetadata{
 		DocIDCounter:      counterContents,
 		PropLengthTracker: propLenContents,
 		ShardVersion:      shardVersion,

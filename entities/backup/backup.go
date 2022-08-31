@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package snapshots
+package backup
 
 import (
 	"encoding/json"
