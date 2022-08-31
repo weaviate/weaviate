@@ -412,7 +412,20 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		// deleted), and not under maintenance is a viable candidate
 		for res.Len() > 0 {
 			cand := res.Pop()
-			if n := h.nodeByID(cand.ID); n != nil && !n.isUnderMaintenance() {
+			n := h.nodeByID(cand.ID)
+			if n == nil {
+				// we have found a node in results that is nil. This means it was
+				// deleted, but not cleaned up properly. Make sure to add a tombstone to
+				// this node, so it can be cleaned up in the next cycle.
+				if err := h.addTombstone(cand.ID); err != nil {
+					return nil, nil, err
+				}
+
+				// skip the nil node, as it does not make a valid entrypoint
+				continue
+			}
+
+			if !n.isUnderMaintenance() {
 				entryPointID = cand.ID
 				entryPointDistance = cand.Dist
 				break
