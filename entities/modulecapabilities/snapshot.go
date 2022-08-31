@@ -14,15 +14,15 @@ package modulecapabilities
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 )
 
 type SnapshotStorage interface {
-	StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error
-	RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
+	StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error
+	RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error)
 
-	InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
-	GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error)
+	InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error)
+	GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error)
 	SetMetaStatus(ctx context.Context, className, snapshotID, status string) error
 	SetMetaError(ctx context.Context, className, snapshotID string, err error) error
 	DestinationPath(className, snapshotID string) string

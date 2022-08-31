@@ -17,24 +17,24 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	entitySchema "github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	"github.com/semi-technologies/weaviate/usecases/backup"
+	ubak "github.com/semi-technologies/weaviate/usecases/backup"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
-func newSnapshotterProvider(db *db.DB) backup.SnapshotterProvider {
-	return &snapshotterProvider{db}
+func newSource(db *db.DB) ubak.SourceFactory {
+	return &sourcer{db}
 }
 
-type snapshotterProvider struct {
+type sourcer struct {
 	db *db.DB
 }
 
-func (sp *snapshotterProvider) Snapshotter(className string) backup.Snapshotter {
+func (sp *sourcer) SourceFactory(className string) ubak.Sourcer {
 	if idx := sp.db.GetIndex(entitySchema.ClassName(className)); idx != nil {
 		return idx
 	}
@@ -42,20 +42,20 @@ func (sp *snapshotterProvider) Snapshotter(className string) backup.Snapshotter 
 }
 
 type backupHandlers struct {
-	manager *backup.Manager
+	manager *ubak.Manager
 }
 
-func (s *backupHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCreateParams,
+func (s *backupHandlers) createBackup(params schema.SchemaObjectsSnapshotsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	meta, err := s.manager.CreateSnapshot(params.HTTPRequest.Context(), principal,
+	meta, err := s.manager.CreateBackup(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrUnprocessable:
+		case backup.ErrUnprocessable:
 			return schema.NewSchemaObjectsSnapshotsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -67,17 +67,17 @@ func (s *backupHandlers) createSnapshot(params schema.SchemaObjectsSnapshotsCrea
 	return schema.NewSchemaObjectsSnapshotsCreateOK().WithPayload(meta)
 }
 
-func (s *backupHandlers) createSnapshotStatus(params schema.SchemaObjectsSnapshotsCreateStatusParams,
+func (s *backupHandlers) createBackupStatus(params schema.SchemaObjectsSnapshotsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.CreateSnapshotStatus(params.HTTPRequest.Context(), principal,
+	status, err := s.manager.CreateBackupStatus(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsCreateStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrNotFound:
+		case backup.ErrNotFound:
 			return schema.NewSchemaObjectsSnapshotsCreateStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -88,20 +88,20 @@ func (s *backupHandlers) createSnapshotStatus(params schema.SchemaObjectsSnapsho
 	return schema.NewSchemaObjectsSnapshotsCreateStatusOK().WithPayload(status)
 }
 
-func (s *backupHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRestoreParams,
+func (s *backupHandlers) restoreBackup(params schema.SchemaObjectsSnapshotsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	meta, err := s.manager.RestoreSnapshot(params.HTTPRequest.Context(), principal,
+	meta, err := s.manager.RestoreBackup(params.HTTPRequest.Context(), principal,
 		params.ClassName, params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrNotFound:
+		case backup.ErrNotFound:
 			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrUnprocessable:
+		case backup.ErrUnprocessable:
 			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -113,19 +113,19 @@ func (s *backupHandlers) restoreSnapshot(params schema.SchemaObjectsSnapshotsRes
 	return schema.NewSchemaObjectsSnapshotsRestoreOK().WithPayload(meta)
 }
 
-func (s *backupHandlers) restoreSnapshotStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
+func (s *backupHandlers) restoreBackupStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, restoreError, path, err := s.manager.RestoreSnapshotStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
+	status, restoreError, path, err := s.manager.RestoreBackupStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrNotFound:
+		case backup.ErrNotFound:
 			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
-		case snapshots.ErrUnprocessable:
+		case backup.ErrUnprocessable:
 			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
@@ -150,18 +150,18 @@ func setupBackupHandlers(api *operations.WeaviateAPI, schemaManger *schemaUC.Man
 	shardingStateFunc := func(className string) *sharding.State {
 		return appState.SchemaManager.ShardingState(className)
 	}
-	snapshotterProvider := newSnapshotterProvider(repo)
-	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
+	snapshotterProvider := newSource(repo)
+	backupManager := ubak.NewManager(appState.Logger, appState.Authorizer,
 		schemaManger, snapshotterProvider,
 		appState.Modules, shardingStateFunc)
 
 	h := &backupHandlers{backupManager}
 	api.SchemaSchemaObjectsSnapshotsCreateHandler = schema.
-		SchemaObjectsSnapshotsCreateHandlerFunc(h.createSnapshot)
+		SchemaObjectsSnapshotsCreateHandlerFunc(h.createBackup)
 	api.SchemaSchemaObjectsSnapshotsCreateStatusHandler = schema.
-		SchemaObjectsSnapshotsCreateStatusHandlerFunc(h.createSnapshotStatus)
+		SchemaObjectsSnapshotsCreateStatusHandlerFunc(h.createBackupStatus)
 	api.SchemaSchemaObjectsSnapshotsRestoreHandler = schema.
-		SchemaObjectsSnapshotsRestoreHandlerFunc(h.restoreSnapshot)
+		SchemaObjectsSnapshotsRestoreHandlerFunc(h.restoreBackup)
 	api.SchemaSchemaObjectsSnapshotsRestoreStatusHandler = schema.
-		SchemaObjectsSnapshotsRestoreStatusHandlerFunc(h.restoreSnapshotStatus)
+		SchemaObjectsSnapshotsRestoreStatusHandlerFunc(h.restoreBackupStatus)
 }

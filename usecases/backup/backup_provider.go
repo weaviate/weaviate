@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 )
 
 // TODO adjust or make configurable
@@ -29,39 +29,39 @@ const (
 	metaTimeout    = 5 * time.Second
 )
 
-type snapshotProvider struct {
-	snapshotter Snapshotter
+type backupProvider struct {
+	snapshotter Sourcer
 	storage     modulecapabilities.SnapshotStorage
 	className   string
 	snapshotID  string
 }
 
-func newSnapshotProvider(snapshotter Snapshotter, storage modulecapabilities.SnapshotStorage,
+func newBackupProvider(snapshotter Sourcer, storage modulecapabilities.SnapshotStorage,
 	className, snapshotID string,
-) *snapshotProvider {
-	return &snapshotProvider{snapshotter, storage, className, snapshotID}
+) *backupProvider {
+	return &backupProvider{snapshotter, storage, className, snapshotID}
 }
 
-func (sp *snapshotProvider) start(ctx context.Context) (*snapshots.Snapshot, error) {
-	snapshot, err := sp.initSnapshot()
+func (sp *backupProvider) start(ctx context.Context) (*backup.Snapshot, error) {
+	snapshot, err := sp.init()
 	if err != nil {
 		return nil, err
 	}
 	return snapshot, nil
 }
 
-func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snapshot) error {
+func (sp *backupProvider) backup(ctx context.Context, snapshot *backup.Snapshot) error {
 	var ctxCreate, ctxStore, ctxRelease context.Context
 	var cancelCreate, cancelStore, cancelRelease context.CancelFunc
 
 	ctxCreate, cancelCreate = context.WithTimeout(context.Background(), createTimeout)
 	defer cancelCreate()
-	snapshot, err := sp.snapshotter.CreateSnapshot(ctxCreate, snapshot)
+	snapshot, err := sp.snapshotter.CreateBackup(ctxCreate, snapshot)
 	if err != nil {
 		return sp.setMetaFailed(errors.Wrap(err, "create snapshot"))
 	}
 
-	if err := sp.setMetaStatus(snapshots.CreateTransferring); err != nil {
+	if err := sp.setMetaStatus(backup.CreateTransferring); err != nil {
 		return err
 	}
 
@@ -71,24 +71,24 @@ func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snap
 		return sp.setMetaFailed(errors.Wrap(err, "store snapshot"))
 	}
 
-	if err := sp.setMetaStatus(snapshots.CreateTransferred); err != nil {
+	if err := sp.setMetaStatus(backup.CreateTransferred); err != nil {
 		return err
 	}
 
 	ctxRelease, cancelRelease = context.WithTimeout(context.Background(), releaseTimeout)
 	defer cancelRelease()
-	if err := sp.snapshotter.ReleaseSnapshot(ctxRelease, sp.snapshotID); err != nil {
+	if err := sp.snapshotter.ReleaseBackup(ctxRelease, sp.snapshotID); err != nil {
 		return sp.setMetaFailed(errors.Wrap(err, "release snapshot"))
 	}
 
-	if err := sp.setMetaStatus(snapshots.CreateSuccess); err != nil {
+	if err := sp.setMetaStatus(backup.CreateSuccess); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (sp *snapshotProvider) setMetaFailed(err error) error {
+func (sp *backupProvider) setMetaFailed(err error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), metaTimeout)
 	defer cancel()
 
@@ -101,7 +101,7 @@ func (sp *snapshotProvider) setMetaFailed(err error) error {
 	return err
 }
 
-func (sp *snapshotProvider) setMetaStatus(status snapshots.CreateStatus) error {
+func (sp *backupProvider) setMetaStatus(status backup.CreateStatus) error {
 	ctx, cancel := context.WithTimeout(context.Background(), metaTimeout)
 	defer cancel()
 
@@ -111,7 +111,7 @@ func (sp *snapshotProvider) setMetaStatus(status snapshots.CreateStatus) error {
 	return nil
 }
 
-func (sp *snapshotProvider) initSnapshot() (*snapshots.Snapshot, error) {
+func (sp *backupProvider) init() (*backup.Snapshot, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), metaTimeout)
 	defer cancel()
 
