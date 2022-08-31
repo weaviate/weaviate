@@ -27,8 +27,7 @@ import (
 // ObjectsReferencesDeleteNoContentCode is the HTTP code returned for type ObjectsReferencesDeleteNoContent
 const ObjectsReferencesDeleteNoContentCode int = 204
 
-/*
-ObjectsReferencesDeleteNoContent Successfully deleted.
+/*ObjectsReferencesDeleteNoContent Successfully deleted.
 
 swagger:response objectsReferencesDeleteNoContent
 */
@@ -52,8 +51,7 @@ func (o *ObjectsReferencesDeleteNoContent) WriteResponse(rw http.ResponseWriter,
 // ObjectsReferencesDeleteUnauthorizedCode is the HTTP code returned for type ObjectsReferencesDeleteUnauthorized
 const ObjectsReferencesDeleteUnauthorizedCode int = 401
 
-/*
-ObjectsReferencesDeleteUnauthorized Unauthorized or invalid credentials.
+/*ObjectsReferencesDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsReferencesDeleteUnauthorized
 */
@@ -77,8 +75,7 @@ func (o *ObjectsReferencesDeleteUnauthorized) WriteResponse(rw http.ResponseWrit
 // ObjectsReferencesDeleteForbiddenCode is the HTTP code returned for type ObjectsReferencesDeleteForbidden
 const ObjectsReferencesDeleteForbiddenCode int = 403
 
-/*
-ObjectsReferencesDeleteForbidden Forbidden
+/*ObjectsReferencesDeleteForbidden Forbidden
 
 swagger:response objectsReferencesDeleteForbidden
 */
@@ -122,8 +119,7 @@ func (o *ObjectsReferencesDeleteForbidden) WriteResponse(rw http.ResponseWriter,
 // ObjectsReferencesDeleteNotFoundCode is the HTTP code returned for type ObjectsReferencesDeleteNotFound
 const ObjectsReferencesDeleteNotFoundCode int = 404
 
-/*
-ObjectsReferencesDeleteNotFound Successful query result but no resource was found.
+/*ObjectsReferencesDeleteNotFound Successful query result but no resource was found.
 
 swagger:response objectsReferencesDeleteNotFound
 */
@@ -167,8 +163,7 @@ func (o *ObjectsReferencesDeleteNotFound) WriteResponse(rw http.ResponseWriter, 
 // ObjectsReferencesDeleteInternalServerErrorCode is the HTTP code returned for type ObjectsReferencesDeleteInternalServerError
 const ObjectsReferencesDeleteInternalServerErrorCode int = 500
 
-/*
-ObjectsReferencesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ObjectsReferencesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsReferencesDeleteInternalServerError
 */

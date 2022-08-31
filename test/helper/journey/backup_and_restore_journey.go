@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/client/schema"
+	"github.com/semi-technologies/weaviate/client/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/test/helper/sample-schema/books"
@@ -52,33 +52,35 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 	})
 
 	t.Run("start backup process", func(t *testing.T) {
-		params := schema.NewSchemaObjectsSnapshotsCreateParams().
-			WithClassName(booksClass.Class).
+		params := backups.NewBackupsCreateParams().
 			WithStorageName(storage).
-			WithID(snapshotID)
-		resp, err := helper.Client(t).Schema.SchemaObjectsSnapshotsCreate(params, nil)
+			WithBody(&models.BackupCreateRequest{
+				ID:      snapshotID,
+				Include: []string{booksClass.Class},
+			})
+		resp, err := helper.Client(t).Backups.BackupsCreate(params, nil)
+
 		helper.AssertRequestOk(t, resp, err, func() {
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			require.Equal(t, models.SnapshotMetaStatusSTARTED, *meta.Status)
+			require.Equal(t, models.BackupCreateMetaStatusSTARTED, *meta.Status)
 		})
 	})
 
 	t.Run("verify that backup process is completed", func(t *testing.T) {
-		params := schema.NewSchemaObjectsSnapshotsCreateStatusParams().
-			WithClassName(booksClass.Class).
+		params := backups.NewBackupsCreateStatusParams().
 			WithStorageName(storage).
 			WithID(snapshotID)
 		for {
-			resp, err := helper.Client(t).Schema.SchemaObjectsSnapshotsCreateStatus(params, nil)
+			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
 			require.NotNil(t, resp)
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
 			switch *meta.Status {
-			case models.SnapshotMetaStatusSUCCESS:
+			case models.BackupCreateMetaStatusSUCCESS:
 				return
-			case models.SnapshotMetaStatusFAILED:
+			case models.BackupCreateMetaStatusFAILED:
 				t.Errorf("failed to create snapshot, got response: %+v", meta)
 				return
 			default:
@@ -105,33 +107,34 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 	})
 
 	t.Run("start restore process", func(t *testing.T) {
-		params := schema.NewSchemaObjectsSnapshotsRestoreParams().
-			WithClassName(booksClass.Class).
+		params := backups.NewBackupsRestoreParams().
 			WithStorageName(storage).
-			WithID(snapshotID)
-		resp, err := helper.Client(t).Schema.SchemaObjectsSnapshotsRestore(params, nil)
+			WithID(snapshotID).
+			WithBody(&models.BackupRestoreRequest{
+				Include: []string{booksClass.Class},
+			})
+		resp, err := helper.Client(t).Backups.BackupsRestore(params, nil)
 		helper.AssertRequestOk(t, resp, err, func() {
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			require.Equal(t, models.SnapshotMetaStatusSTARTED, *meta.Status)
+			require.Equal(t, models.BackupCreateMetaStatusSTARTED, *meta.Status)
 		})
 	})
 
 	t.Run("verify that restore process is completed", func(t *testing.T) {
-		params := schema.NewSchemaObjectsSnapshotsRestoreStatusParams().
-			WithClassName(booksClass.Class).
+		params := backups.NewBackupsRestoreStatusParams().
 			WithStorageName(storage).
 			WithID(snapshotID)
 		for {
-			resp, err := helper.Client(t).Schema.SchemaObjectsSnapshotsRestoreStatus(params, nil)
+			resp, err := helper.Client(t).Backups.BackupsRestoreStatus(params, nil)
 			require.Nil(t, err)
 			require.NotNil(t, resp)
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
 			switch *meta.Status {
-			case models.SnapshotRestoreMetaStatusSUCCESS:
+			case models.BackupRestoreMetaStatusSUCCESS:
 				return
-			case models.SnapshotRestoreMetaStatusFAILED:
+			case models.BackupRestoreMetaStatusFAILED:
 				t.Errorf("failed to create snapshot, got response: %+v", meta)
 				return
 			default:

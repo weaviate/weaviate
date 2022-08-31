@@ -66,8 +66,7 @@ func NewObjectsClassGetParamsWithHTTPClient(client *http.Client) *ObjectsClassGe
 	}
 }
 
-/*
-ObjectsClassGetParams contains all the parameters to send to the API endpoint
+/*ObjectsClassGetParams contains all the parameters to send to the API endpoint
 for the objects class get operation typically these are written to a http.Request
 */
 type ObjectsClassGetParams struct {

@@ -25,8 +25,7 @@ import (
 // GetWellKnownOpenidConfigurationOKCode is the HTTP code returned for type GetWellKnownOpenidConfigurationOK
 const GetWellKnownOpenidConfigurationOKCode int = 200
 
-/*
-GetWellKnownOpenidConfigurationOK Successful response, inspect body
+/*GetWellKnownOpenidConfigurationOK Successful response, inspect body
 
 swagger:response getWellKnownOpenidConfigurationOK
 */
@@ -70,8 +69,7 @@ func (o *GetWellKnownOpenidConfigurationOK) WriteResponse(rw http.ResponseWriter
 // GetWellKnownOpenidConfigurationNotFoundCode is the HTTP code returned for type GetWellKnownOpenidConfigurationNotFound
 const GetWellKnownOpenidConfigurationNotFoundCode int = 404
 
-/*
-GetWellKnownOpenidConfigurationNotFound Not found, no oidc provider present
+/*GetWellKnownOpenidConfigurationNotFound Not found, no oidc provider present
 
 swagger:response getWellKnownOpenidConfigurationNotFound
 */
