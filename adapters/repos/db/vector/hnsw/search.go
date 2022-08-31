@@ -407,9 +407,12 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		// that particular level, so instead we're keeping whatever entrypoint we
 		// had before (i.e. either from a previous level or even the main
 		// entrypoint)
+		//
+		// If we do, however, have results, any candidate that's not nil (not
+		// deleted), and not under maintenance is a viable candidate
 		for res.Len() > 0 {
 			cand := res.Pop()
-			if !h.nodeByID(cand.ID).isUnderMaintenance() {
+			if n := h.nodeByID(cand.ID); n != nil && !n.isUnderMaintenance() {
 				entryPointID = cand.ID
 				entryPointDistance = cand.Dist
 				break
