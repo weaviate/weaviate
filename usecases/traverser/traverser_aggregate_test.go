@@ -87,13 +87,13 @@ func Test_Traverser_Aggregate(t *testing.T) {
 						},
 						"number": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"sum": 200,
 							},
 						},
 						"int": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"sum": 100,
 							},
 						},
@@ -186,13 +186,13 @@ func Test_Traverser_Aggregate(t *testing.T) {
 						},
 						"number": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"sum": 200,
 							},
 						},
 						"int": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"sum": 100,
 							},
 						},
@@ -232,14 +232,14 @@ func Test_Traverser_Aggregate(t *testing.T) {
 						"number": {
 							Type:       aggregation.PropertyTypeNumerical,
 							SchemaType: string(schema.DataTypeNumber),
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"sum": 200,
 							},
 						},
 						"int": {
 							Type:       aggregation.PropertyTypeNumerical,
 							SchemaType: string(schema.DataTypeInt),
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"sum": 100,
 							},
 						},
