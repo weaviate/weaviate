@@ -17,9 +17,8 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/storagestate"
-
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 

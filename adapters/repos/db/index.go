@@ -195,6 +195,7 @@ type IndexConfig struct {
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
 	MaxImportGoroutinesFactor float64
+	NodeName                  string
 }
 
 func indexID(class schema.ClassName) string {

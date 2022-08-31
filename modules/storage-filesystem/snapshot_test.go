@@ -96,11 +96,11 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 
 		var expectedFilePath string
 		var info os.FileInfo
-		for _, filePath := range snapshot.Files {
-			expectedFilePath = module.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, filePath)
+		for _, file := range snapshot.Files {
+			expectedFilePath = module.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, file.Path)
 			info, err = os.Stat(expectedFilePath)
 			assert.Nil(t, err) // file exists
-			orgInfo, err := os.Stat(filePath)
+			orgInfo, err := os.Stat(file.Path)
 			assert.Nil(t, err) // file exists
 
 			assert.Equal(t, orgInfo.Size(), info.Size())
@@ -208,9 +208,13 @@ func createBackupInstance(t *testing.T, dirPath string) *backup.Snapshot {
 	startedAt := time.Now()
 
 	filePaths := createTestFiles(t, dirPath)
+	files := make([]backup.SnapshotFile, len(filePaths))
+	for i := range filePaths {
+		files[i] = backup.SnapshotFile{Path: filePaths[i]}
+	}
 
-	snap := backup.New("classname", "snapshot_id", startedAt)
-	snap.Files = filePaths
+	snap := backup.NewSnapshot("classname", "snapshot_id", startedAt)
+	snap.Files = files
 	snap.CompletedAt = time.Now()
 	return snap
 }

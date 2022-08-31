@@ -34,7 +34,9 @@ func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string)
 		WithStorageName(storageName).
 		WithID(snapshotID)
 	resp, err := Client(t).Schema.SchemaObjectsSnapshotsCreateStatus(params, nil)
-	require.Nil(t, err)
+	if err != nil {
+		t.Fatalf("expected nil err, got: %s", err.Error())
+	}
 
 	return resp.Payload
 }

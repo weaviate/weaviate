@@ -140,12 +140,12 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string)
 	}
 
 	// download files listed in snapshot
-	for _, srcRelPath := range snapshot.Files {
+	for _, file := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Wrapf(err, "store snapshot aborted")
 		}
-		objectName := g.makeObjectName(className, snapshotID, srcRelPath)
-		filePath := makeFilePath(g.dataPath, srcRelPath)
+		objectName := g.makeObjectName(className, snapshotID, file.Path)
+		filePath := makeFilePath(g.dataPath, file.Path)
 		if err := g.saveFile(ctx, bucket, snapshotID, objectName, filePath); err != nil {
 			return nil, errors.Wrap(err, "put file")
 		}
@@ -173,12 +173,12 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) erro
 	}
 
 	// save files
-	for _, srcRelPath := range snapshot.Files {
+	for _, file := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
 			return errors.Wrap(err, "store snapshot aborted")
 		}
-		objectName := g.makeObjectName(snapshot.ClassName, snapshot.ID, srcRelPath)
-		filePath := makeFilePath(g.dataPath, srcRelPath)
+		objectName := g.makeObjectName(snapshot.ClassName, snapshot.ID, file.Path)
+		filePath := makeFilePath(g.dataPath, file.Path)
 		content, err := os.ReadFile(filePath)
 		if err != nil {
 			return errors.Wrapf(err, "read file: %v", filePath)
@@ -305,7 +305,7 @@ func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*
 		return nil, errors.Wrap(err, "init snapshot")
 	}
 
-	snapshot := backup.New(className, snapshotID, time.Now())
+	snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
 	snapshot.Status = string(backup.CreateStarted)
 	b, err := json.Marshal(&snapshot)
 	if err != nil {
