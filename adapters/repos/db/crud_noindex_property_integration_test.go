@@ -111,6 +111,20 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
+	//Same as above, but with Object()
+	t.Run("all props are present when getting by id and class", func(t *testing.T) {
+		res, err := repo.Object(context.Background(), "ThingClassWithNoIndexProps", thingID,
+			search.SelectProperties{}, additional.Properties{})
+		expectedSchema := map[string]interface{}{
+			"stringProp":       "some value",
+			"hiddenStringProp": "some hidden value",
+			"id":               thingID,
+		}
+
+		require.Nil(t, err)
+		assert.Equal(t, expectedSchema, res.Schema)
+	})
+
 	t.Run("class search on the noindex prop errors", func(t *testing.T) {
 		_, err := repo.ClassSearch(context.Background(), traverser.GetParams{
 			ClassName: "ThingClassWithNoIndexProps",
