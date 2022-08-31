@@ -21,9 +21,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func getCount(result *graphqlhelper.GraphQLResult, className, property string) interface{} {
+func getResult(result *graphqlhelper.GraphQLResult, className, resultData, property string) interface{} {
 	meta := result.Get("Aggregate", className).AsSlice()[0].(map[string]interface{})[property]
-	return meta.(map[string]interface{})["count"]
+	return meta.(map[string]interface{})[resultData]
 }
 
 // run by setup_test.go
@@ -90,14 +90,14 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
-				assert.Equal(t, json.Number("4"), getCount(result, "ArrayClass", "meta"))
-				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "booleans"))
-				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "datesAsStrings"))
-				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "dates"))
-				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "numbers"))
-				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "strings"))
-				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "texts"))
-				assert.Equal(t, json.Number("6"), getCount(result, "ArrayClass", "ints"))
+				assert.Equal(t, json.Number("4"), getResult(result, "ArrayClass", "count", "meta"))
+				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "booleans"))
+				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "datesAsStrings"))
+				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "dates"))
+				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "numbers"))
+				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "strings"))
+				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "texts"))
+				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "ints"))
 			})
 		}
 	})
@@ -143,7 +143,7 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
-				assert.Equal(t, json.Number("2"), getCount(result, "ClassWithoutProperties", "meta"))
+				assert.Equal(t, json.Number("2"), getResult(result, "ClassWithoutProperties", "count", "meta"))
 			})
 		}
 	})
@@ -205,12 +205,65 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
 				// One city object (null island) has no entries for most properties (except population, isCapital and location)
-				assert.Equal(t, json.Number("5"), getCount(result, "City", "meta"))
-				assert.Equal(t, json.Number("4"), getCount(result, "City", "cityArea"))
-				assert.Equal(t, json.Number("5"), getCount(result, "City", "isCapital"))
-				assert.Equal(t, json.Number("5"), getCount(result, "City", "population"))
-				assert.Equal(t, json.Number("4"), getCount(result, "City", "cityRights"))
-				assert.Equal(t, json.Number("4"), getCount(result, "City", "history"))
+				assert.Equal(t, json.Number("5"), getResult(result, "City", "count", "meta"))
+				assert.Equal(t, json.Number("4"), getResult(result, "City", "count", "cityArea"))
+				assert.Equal(t, json.Number("5"), getResult(result, "City", "count", "isCapital"))
+				assert.Equal(t, json.Number("5"), getResult(result, "City", "count", "population"))
+				assert.Equal(t, json.Number("4"), getResult(result, "City", "count", "cityRights"))
+				assert.Equal(t, json.Number("4"), getResult(result, "City", "count", "history"))
+			})
+		}
+	})
+
+	t.Run("running Aggregate with empty filter", func(t *testing.T) {
+		types := `
+					minimum
+					maximum
+					median
+					mean
+					mode
+					sum
+					count
+					type`
+		query := `
+			{
+			  Aggregate {
+				ArrayClass(where: {operator: Equal, path: ["id"], valueString: "IDoNotExist"}) {
+				  numbers {
+					%s
+				  }
+				  ints {
+					%s
+				  }
+				}
+			  }
+			}
+		`
+		tests := []struct {
+			name       string
+			TypeString string
+		}{
+			{
+				name:       "numbers",
+				TypeString: "number[]",
+			},
+			{
+				name:       "ints",
+				TypeString: `int[]`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, types, types))
+				assert.Equal(t, nil, getResult(result, "ArrayClass", "minimum", tt.name))
+				assert.Equal(t, nil, getResult(result, "ArrayClass", "maximum", tt.name))
+				assert.Equal(t, nil, getResult(result, "ArrayClass", "median", tt.name))
+				assert.Equal(t, nil, getResult(result, "ArrayClass", "mean", tt.name))
+				assert.Equal(t, nil, getResult(result, "ArrayClass", "mode", tt.name))
+				assert.Equal(t, nil, getResult(result, "ArrayClass", "sum", tt.name))
+				assert.Equal(t, json.Number("0"), getResult(result, "ArrayClass", "count", tt.name))
+				assert.Equal(t, tt.TypeString, getResult(result, "ArrayClass", "type", tt.name))
 			})
 		}
 	})

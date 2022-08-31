@@ -380,7 +380,7 @@ func extractTextAggregation(source interface{}) (aggregation.Text, error) {
 	if property.Type == aggregation.PropertyTypeNumerical {
 		// in this case we can only use count
 		return aggregation.Text{
-			Count: int(property.NumericalAggregations["count"]),
+			Count: property.NumericalAggregations["count"].(int),
 		}, nil
 	}
 
@@ -439,7 +439,7 @@ func makeResolveNumericFieldAggregator(aggregator string) func(p graphql.Resolve
 	}
 }
 
-func extractNumericAggregation(source interface{}) (map[string]float64, error) {
+func extractNumericAggregation(source interface{}) (map[string]interface{}, error) {
 	property, ok := source.(aggregation.Property)
 	if !ok {
 		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
