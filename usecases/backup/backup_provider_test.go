@@ -16,7 +16,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -29,9 +29,9 @@ func TestSnapshotProvider_InitSnapshot(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
 		storage := &fakeStorage{}
 		storage.On("InitSnapshot", mock.Anything, className, snapshotID).Return(nil, errors.New("some kind of error"))
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
-		snapshot, err := sp.initSnapshot()
+		snapshot, err := sp.init()
 
 		assert.Nil(t, snapshot)
 		assert.NotNil(t, err)
@@ -39,13 +39,13 @@ func TestSnapshotProvider_InitSnapshot(t *testing.T) {
 	})
 
 	t.Run("successfully inits", func(t *testing.T) {
-		snap := snapshots.Snapshot{ClassName: className, ID: snapshotID}
+		snap := backup.Snapshot{ClassName: className, ID: snapshotID}
 		snapshotter := &fakeSnapshotter{}
 		storage := &fakeStorage{}
 		storage.On("InitSnapshot", mock.Anything, className, snapshotID).Return(&snap, nil)
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
-		snapshot, err := sp.initSnapshot()
+		snapshot, err := sp.init()
 
 		assert.NotNil(t, snapshot)
 		assert.Equal(t, className, snapshot.ClassName)
@@ -58,14 +58,14 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 	className := "DemoClass"
 	snapshotID := "SnapshotID"
 	ctx := context.Background()
-	snap := snapshots.Snapshot{ClassName: className, ID: snapshotID}
+	snap := backup.Snapshot{ClassName: className, ID: snapshotID}
 
 	t.Run("fails and set meta on create snapshot", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(nil, errors.New("snapshotter create error"))
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(nil, errors.New("snapshotter create error"))
 		storage := &fakeStorage{}
 		storage.On("SetMetaError", mock.Anything, className, snapshotID, mock.Anything).Return(nil)
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -76,10 +76,10 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails and do not set meta on create snapshot", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(nil, errors.New("snapshotter create error"))
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(nil, errors.New("snapshotter create error"))
 		storage := &fakeStorage{}
 		storage.On("SetMetaError", mock.Anything, className, snapshotID, mock.Anything).Return(errors.New("storage failed error"))
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -91,10 +91,10 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails to change status to transferring", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
 		storage := &fakeStorage{}
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(errors.New("storage transferring error"))
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(errors.New("storage transferring error"))
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -105,12 +105,12 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails and set meta on store snapshot", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
 		storage := &fakeStorage{}
 		storage.On("StoreSnapshot", mock.Anything, &snap).Return(errors.New("storage store error"))
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(nil)
 		storage.On("SetMetaError", mock.Anything, className, snapshotID, mock.Anything).Return(nil)
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -121,12 +121,12 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails and do not set meta on store snapshot", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
 		storage := &fakeStorage{}
 		storage.On("StoreSnapshot", mock.Anything, &snap).Return(errors.New("storage store error"))
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(nil)
 		storage.On("SetMetaError", mock.Anything, className, snapshotID, mock.Anything).Return(errors.New("storage failed error"))
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -138,12 +138,12 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails to change status to transferred", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
 		storage := &fakeStorage{}
 		storage.On("StoreSnapshot", mock.Anything, &snap).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferred)).Return(errors.New("storage transferred error"))
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferred)).Return(errors.New("storage transferred error"))
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -154,14 +154,14 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails and set meta on release snapshot", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
-		snapshotter.On("ReleaseSnapshot", mock.Anything, snapshotID).Return(errors.New("snapshotter release error"))
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("ReleaseBackup", mock.Anything, snapshotID).Return(errors.New("snapshotter release error"))
 		storage := &fakeStorage{}
 		storage.On("StoreSnapshot", mock.Anything, &snap).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferred)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferred)).Return(nil)
 		storage.On("SetMetaError", mock.Anything, className, snapshotID, mock.Anything).Return(nil)
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -172,14 +172,14 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails and do not set meta on release snapshot", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
-		snapshotter.On("ReleaseSnapshot", mock.Anything, snapshotID).Return(errors.New("snapshotter release error"))
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("ReleaseBackup", mock.Anything, snapshotID).Return(errors.New("snapshotter release error"))
 		storage := &fakeStorage{}
 		storage.On("StoreSnapshot", mock.Anything, &snap).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferred)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferred)).Return(nil)
 		storage.On("SetMetaError", mock.Anything, className, snapshotID, mock.Anything).Return(errors.New("storage failed error"))
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -191,14 +191,14 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("fails to change status to success", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
-		snapshotter.On("ReleaseSnapshot", mock.Anything, snapshotID).Return(nil)
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("ReleaseBackup", mock.Anything, snapshotID).Return(nil)
 		storage := &fakeStorage{}
 		storage.On("StoreSnapshot", mock.Anything, &snap).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferred)).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateSuccess)).Return(errors.New("storage success error"))
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferred)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateSuccess)).Return(errors.New("storage success error"))
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 
@@ -209,14 +209,14 @@ func TestSnapshotProvider_CreatesBackup(t *testing.T) {
 
 	t.Run("successfully creates backup", func(t *testing.T) {
 		snapshotter := &fakeSnapshotter{}
-		snapshotter.On("CreateSnapshot", mock.Anything, &snap).Return(&snap, nil)
-		snapshotter.On("ReleaseSnapshot", mock.Anything, snapshotID).Return(nil)
+		snapshotter.On("CreateBackup", mock.Anything, &snap).Return(&snap, nil)
+		snapshotter.On("ReleaseBackup", mock.Anything, snapshotID).Return(nil)
 		storage := &fakeStorage{}
 		storage.On("StoreSnapshot", mock.Anything, &snap).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferring)).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateTransferred)).Return(nil)
-		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(snapshots.CreateSuccess)).Return(nil)
-		sp := newSnapshotProvider(snapshotter, storage, className, snapshotID)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferring)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateTransferred)).Return(nil)
+		storage.On("SetMetaStatus", mock.Anything, className, snapshotID, string(backup.CreateSuccess)).Return(nil)
+		sp := newBackupProvider(snapshotter, storage, className, snapshotID)
 
 		err := sp.backup(ctx, &snap)
 

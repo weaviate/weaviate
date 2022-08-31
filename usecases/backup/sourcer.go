@@ -14,11 +14,12 @@ package backup
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 )
 
-type Snapshotter interface { // implemented by the index
-	// CreateSnapshot creates a snapshot which is metadata referencing files on disk.
+// Sources represents the source of artifacts used in the backup
+type Sourcer interface { // implemented by the index
+	// CreateBackup creates a snapshot which is metadata referencing files on disk.
 	// While the snapshot exists, the index makes sure that those files are never
 	// changed, for example by stopping compactions.
 	//
@@ -26,14 +27,14 @@ type Snapshotter interface { // implemented by the index
 	// reads+writes, as the index is built in an append-only-way.
 	//
 	// Snapshot() fails if another snapshot exists.
-	CreateSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) (*snapshots.Snapshot, error)
+	CreateBackup(ctx context.Context, snapshot *backup.Snapshot) (*backup.Snapshot, error)
 
-	// ReleaseSnapshot signals to the underlying index that the files have been
+	// ReleaseBackup signals to the underlying index that the files have been
 	// copied (or the operation aborted), and that it is safe for the index to
 	// change the files, such as start compactions.
-	ReleaseSnapshot(ctx context.Context, id string) error
+	ReleaseBackup(ctx context.Context, id string) error
 }
 
-type SnapshotterProvider interface {
-	Snapshotter(className string) Snapshotter
+type SourceFactory interface {
+	SourceFactory(className string) Sourcer
 }

@@ -17,15 +17,15 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 )
 
-func (m *StorageS3Module) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+func (m *StorageS3Module) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
 	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 
-func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 
@@ -37,7 +37,7 @@ func (m *StorageS3Module) SetMetaStatus(ctx context.Context, className, snapshot
 	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
 }
 
-func (m *StorageS3Module) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageS3Module) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return m.storageProvider.GetMeta(ctx, className, snapshotID)
 }
 
@@ -45,7 +45,7 @@ func (m *StorageS3Module) DestinationPath(className, snapshotID string) string {
 	return m.storageProvider.DestinationPath(className, snapshotID)
 }
 
-func (m *StorageS3Module) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageS3Module) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return m.storageProvider.InitSnapshot(ctx, className, snapshotID)
 }
 

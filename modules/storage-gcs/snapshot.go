@@ -16,15 +16,15 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 )
 
-func (m *StorageGCSModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+func (m *StorageGCSModule) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
 	return m.storageProvider.StoreSnapshot(ctx, snapshot)
 }
 
-func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
 }
 
@@ -36,7 +36,7 @@ func (m *StorageGCSModule) SetMetaError(ctx context.Context, className, snapshot
 	return m.storageProvider.SetMetaError(ctx, className, snapshotID, err)
 }
 
-func (m *StorageGCSModule) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageGCSModule) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return m.storageProvider.GetMeta(ctx, className, snapshotID)
 }
 
@@ -44,7 +44,7 @@ func (m *StorageGCSModule) DestinationPath(className, snapshotID string) string 
 	return m.storageProvider.DestinationPath(className, snapshotID)
 }
 
-func (m *StorageGCSModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageGCSModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return m.storageProvider.InitSnapshot(ctx, className, snapshotID)
 }
 

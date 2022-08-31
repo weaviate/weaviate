@@ -21,7 +21,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
 	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
@@ -96,7 +96,7 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
-			assert.Equal(t, meta.Status, string(snapshots.CreateStarted))
+			assert.Equal(t, meta.Status, string(backup.CreateStarted))
 			assert.Empty(t, meta.Error)
 		})
 	})

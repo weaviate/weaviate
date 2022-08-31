@@ -15,16 +15,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/stretchr/testify/mock"
 )
 
-type fakeSnapshotterProvider struct {
-	snapshotter Snapshotter
+type fakeSourceFactory struct {
+	snapshotter Sourcer
 }
 
-func (sp *fakeSnapshotterProvider) Snapshotter(className string) Snapshotter {
+func (sp *fakeSourceFactory) SourceFactory(className string) Sourcer {
 	return sp.snapshotter
 }
 
@@ -41,15 +41,15 @@ type fakeSnapshotter struct {
 	mock.Mock
 }
 
-func (s *fakeSnapshotter) CreateSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) (*snapshots.Snapshot, error) {
+func (s *fakeSnapshotter) CreateBackup(ctx context.Context, snapshot *backup.Snapshot) (*backup.Snapshot, error) {
 	args := s.Called(ctx, snapshot)
 	if args.Get(0) != nil {
-		return args.Get(0).(*snapshots.Snapshot), args.Error(1)
+		return args.Get(0).(*backup.Snapshot), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (s *fakeSnapshotter) ReleaseSnapshot(ctx context.Context, id string) error {
+func (s *fakeSnapshotter) ReleaseBackup(ctx context.Context, id string) error {
 	args := s.Called(ctx, id)
 	return args.Error(0)
 }
@@ -62,34 +62,34 @@ type fakeStorage struct {
 	restoreSnapshotSleep time.Duration
 }
 
-func (s *fakeStorage) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+func (s *fakeStorage) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
 	time.Sleep(s.storeSnapshotSleep)
 	args := s.Called(ctx, snapshot)
 	return args.Error(0)
 }
 
-func (s *fakeStorage) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (s *fakeStorage) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	time.Sleep(s.restoreSnapshotSleep)
 	args := s.Called(ctx, className, snapshotID)
 	if args.Get(0) != nil {
-		return args.Get(0).(*snapshots.Snapshot), args.Error(1)
+		return args.Get(0).(*backup.Snapshot), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (s *fakeStorage) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (s *fakeStorage) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	args := s.Called(ctx, className, snapshotID)
 	if args.Get(0) != nil {
-		return args.Get(0).(*snapshots.Snapshot), args.Error(1)
+		return args.Get(0).(*backup.Snapshot), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (s *fakeStorage) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (s *fakeStorage) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	time.Sleep(s.getMetaStatusSleep)
 	args := s.Called(ctx, className, snapshotID)
 	if args.Get(0) != nil {
-		return args.Get(0).(*snapshots.Snapshot), args.Error(1)
+		return args.Get(0).(*backup.Snapshot), args.Error(1)
 	}
 	return nil, args.Error(1)
 }

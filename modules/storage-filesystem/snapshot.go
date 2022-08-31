@@ -23,26 +23,26 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
-func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
 	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("filesystem", snapshot.ClassName))
 	defer timer.ObserveDuration()
 	if err := ctx.Err(); err != nil {
-		return snapshots.NewErrContextExpired(
+		return backup.NewErrContextExpired(
 			errors.Wrap(err, "store snapshot aborted"))
 	}
 
-	dstSnapshotPath, err := m.createSnapshotDir(snapshot)
+	dstSnapshotPath, err := m.createBackupDir(snapshot)
 	if err != nil {
 		return err
 	}
 
 	for _, srcRelPath := range snapshot.Files {
 		if err := ctx.Err(); err != nil {
-			return snapshots.NewErrContextExpired(
+			return backup.NewErrContextExpired(
 				errors.Wrap(err, "store snapshot aborted"))
 		}
 		if err := m.copyFile(dstSnapshotPath, m.dataPath, srcRelPath); err != nil {
@@ -65,7 +65,7 @@ func (m *StorageFileSystemModule) StoreSnapshot(ctx context.Context, snapshot *s
 	return nil
 }
 
-func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("filesystem", className))
 	defer timer.ObserveDuration()
 	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
@@ -99,7 +99,7 @@ func (m *StorageFileSystemModule) RestoreSnapshot(ctx context.Context, className
 	return snapshot, nil
 }
 
-func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, errors.Wrap(err, "load snapshot meta")
 	}
@@ -107,36 +107,36 @@ func (m *StorageFileSystemModule) loadSnapshotMeta(ctx context.Context, classNam
 	metaPath := m.makeMetaFilePath(className, snapshotID)
 
 	if _, err := os.Stat(metaPath); errors.Is(err, os.ErrNotExist) {
-		return nil, snapshots.NewErrNotFound(err)
+		return nil, backup.NewErrNotFound(err)
 	} else if err != nil {
-		return nil, snapshots.NewErrInternal(err)
+		return nil, backup.NewErrInternal(err)
 	}
 
 	metaData, err := os.ReadFile(metaPath)
 	if err != nil {
-		return nil, snapshots.NewErrInternal(
+		return nil, backup.NewErrInternal(
 			errors.Wrapf(err, "read snapshot meta file '%v'", metaPath))
 	}
 
-	var snapshot snapshots.Snapshot
+	var snapshot backup.Snapshot
 	if err := json.Unmarshal(metaData, &snapshot); err != nil {
-		return nil, snapshots.NewErrInternal(
+		return nil, backup.NewErrInternal(
 			errors.Wrap(err, "unmarshal snapshot meta"))
 	}
 
 	return &snapshot, nil
 }
 
-func (m *StorageFileSystemModule) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *StorageFileSystemModule) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return m.loadSnapshotMeta(ctx, className, snapshotID)
 }
 
-func (m *StorageFileSystemModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
-	snapshot := snapshots.New(className, snapshotID, time.Now())
-	snapshot.Status = string(snapshots.CreateStarted)
+func (m *StorageFileSystemModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
+	snapshot := backup.New(className, snapshotID, time.Now())
+	snapshot.Status = string(backup.CreateStarted)
 
 	if err := m.saveMeta(snapshot); err != nil {
-		return nil, snapshots.NewErrInternal(errors.Wrap(err, "init snapshot meta"))
+		return nil, backup.NewErrInternal(errors.Wrap(err, "init snapshot meta"))
 	}
 
 	return snapshot, nil
@@ -145,13 +145,13 @@ func (m *StorageFileSystemModule) InitSnapshot(ctx context.Context, className, s
 func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
 	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return snapshots.NewErrInternal(errors.Wrap(err, "set meta status"))
+		return backup.NewErrInternal(errors.Wrap(err, "set meta status"))
 	}
 
 	snapshot.Status = string(status)
 
 	if err := m.saveMeta(snapshot); err != nil {
-		return snapshots.NewErrInternal(errors.Wrap(err, "set meta status"))
+		return backup.NewErrInternal(errors.Wrap(err, "set meta status"))
 	}
 
 	return nil
@@ -160,14 +160,14 @@ func (m *StorageFileSystemModule) SetMetaStatus(ctx context.Context, className, 
 func (m *StorageFileSystemModule) SetMetaError(ctx context.Context, className, snapshotID string, snapErr error) error {
 	snapshot, err := m.loadSnapshotMeta(ctx, className, snapshotID)
 	if err != nil {
-		return snapshots.NewErrInternal(errors.Wrap(err, "set meta error"))
+		return backup.NewErrInternal(errors.Wrap(err, "set meta error"))
 	}
 
-	snapshot.Status = string(snapshots.CreateFailed)
+	snapshot.Status = string(backup.CreateFailed)
 	snapshot.Error = snapErr.Error()
 
 	if err := m.saveMeta(snapshot); err != nil {
-		return snapshots.NewErrInternal(errors.Wrap(err, "set meta error"))
+		return backup.NewErrInternal(errors.Wrap(err, "set meta error"))
 	}
 
 	return nil
@@ -181,7 +181,7 @@ func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snaps
 	if !filepath.IsAbs(snapshotsPath) {
 		return fmt.Errorf("relative snapshots path provided")
 	}
-	if err := m.createSnapshotsDir(snapshotsPath); err != nil {
+	if err := m.createBackupsDir(snapshotsPath); err != nil {
 		return errors.Wrap(err, "invalid snapshots path provided")
 	}
 	m.snapshotsPath = snapshotsPath
@@ -189,20 +189,20 @@ func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snaps
 	return nil
 }
 
-func (m *StorageFileSystemModule) createSnapshotsDir(snapshotsPath string) error {
+func (m *StorageFileSystemModule) createBackupsDir(snapshotsPath string) error {
 	if err := os.MkdirAll(snapshotsPath, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "create_snapshots_dir").
 			WithError(err).
 			Errorf("failed creating snapshots directory %v", snapshotsPath)
-		return snapshots.NewErrInternal(errors.Wrap(err, "make snapshot dir"))
+		return backup.NewErrInternal(errors.Wrap(err, "make snapshot dir"))
 	}
 	return nil
 }
 
-func (m *StorageFileSystemModule) createSnapshotDir(snapshot *snapshots.Snapshot) (snapshotPath string, err error) {
+func (m *StorageFileSystemModule) createBackupDir(snapshot *backup.Snapshot) (snapshotPath string, err error) {
 	snapshotPath = m.makeSnapshotDirPath(snapshot.ClassName, snapshot.ID)
-	return snapshotPath, m.createSnapshotsDir(snapshotPath)
+	return snapshotPath, m.createBackupsDir(snapshotPath)
 }
 
 func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelPath string) error {
@@ -215,7 +215,7 @@ func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelP
 			WithField("action", "copy_file").
 			WithError(err).
 			Errorf("failed opening source file")
-		return snapshots.NewErrInternal(
+		return backup.NewErrInternal(
 			errors.Wrapf(err, "open snapshot source file '%v'", srcRelPath))
 	}
 	defer src.Close()
@@ -225,7 +225,7 @@ func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelP
 			WithField("action", "copy_file").
 			WithError(err).
 			Errorf("failed creating destication dir for file")
-		return snapshots.NewErrInternal(
+		return backup.NewErrInternal(
 			errors.Wrapf(err, "create snapshot destination dir for file '%v'", srcRelPath))
 	}
 	dst, err := os.Create(dstAbsPath)
@@ -234,7 +234,7 @@ func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelP
 			WithField("action", "copy_file").
 			WithError(err).
 			Errorf("failed creating destication file")
-		return snapshots.NewErrInternal(
+		return backup.NewErrInternal(
 			errors.Wrapf(err, "create snapshot destination file '%v'", srcRelPath))
 	}
 	defer dst.Close()
@@ -245,14 +245,14 @@ func (m *StorageFileSystemModule) copyFile(dstSnapshotPath, srcBasePath, srcRelP
 			WithField("action", "copy_file").
 			WithError(err).
 			Errorf("failed copying snapshot file")
-		return snapshots.NewErrInternal(
+		return backup.NewErrInternal(
 			errors.Wrapf(err, "copy snapshot file '%v'", srcRelPath))
 	}
 
 	return nil
 }
 
-func (m *StorageFileSystemModule) saveMeta(snapshot *snapshots.Snapshot) error {
+func (m *StorageFileSystemModule) saveMeta(snapshot *backup.Snapshot) error {
 	content, err := json.Marshal(snapshot)
 	if err != nil {
 		m.logger.WithField("module", m.Name()).
@@ -261,7 +261,7 @@ func (m *StorageFileSystemModule) saveMeta(snapshot *snapshots.Snapshot) error {
 			WithField("snapshot_id", snapshot.ID).
 			WithError(err).
 			Errorf("failed creating meta file")
-		return snapshots.NewErrInternal(
+		return backup.NewErrInternal(
 			errors.Wrapf(err, "create meta file for snapshot '%v'", snapshot.ID))
 	}
 
@@ -275,7 +275,7 @@ func (m *StorageFileSystemModule) saveMeta(snapshot *snapshots.Snapshot) error {
 			WithField("snapshot_id", snapshot.ID).
 			WithError(err).
 			Errorf("failed creating meta file")
-		return snapshots.NewErrInternal(
+		return backup.NewErrInternal(
 			errors.Wrapf(err, "create meta file for snapshot '%v'", snapshot.ID))
 	}
 
@@ -286,7 +286,7 @@ func (m *StorageFileSystemModule) saveMeta(snapshot *snapshots.Snapshot) error {
 			WithField("snapshot_id", snapshot.ID).
 			WithError(err).
 			Errorf("failed creating meta file")
-		return snapshots.NewErrInternal(
+		return backup.NewErrInternal(
 			errors.Wrapf(err, "create meta file for snapshot %v", snapshot.ID))
 	}
 
