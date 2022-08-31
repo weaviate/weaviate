@@ -308,12 +308,12 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("3")
+		expected := json.Number("4")
 		assert.Equal(t, expected, count)
 	})
 
 	t.Run("int[]/number[] props", func(t *testing.T) {
-		isCapital := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["numbers"]
+		numbers := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["numbers"]
 		expected := map[string]interface{}{
 			"mean":    json.Number("1.6666666666666667"),
 			"count":   json.Number("6"),
@@ -322,7 +322,7 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 			"sum":     json.Number("10"),
 			"type":    "number[]",
 		}
-		assert.Equal(t, expected, isCapital)
+		assert.Equal(t, expected, numbers)
 	})
 
 	t.Run("string[]/text[] prop", func(t *testing.T) {

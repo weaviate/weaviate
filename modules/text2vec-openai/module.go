@@ -62,7 +62,7 @@ func (m *OpenAIModule) Name() string {
 }
 
 func (m *OpenAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Vec
+	return modulecapabilities.Text2MultiVec
 }
 
 func (m *OpenAIModule) Init(ctx context.Context,

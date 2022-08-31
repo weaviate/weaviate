@@ -107,15 +107,3 @@ func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Princip
 
 	return resp, nil
 }
-
-func (m *Manager) CreateSnapshotStatus(ctx context.Context, principal *models.Principal,
-	className, storageName, snapshotID string,
-) (*models.SnapshotMeta, error) {
-	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf(
-		"schema/%s/snapshots/%s/%s", className, storageName, snapshotID))
-	if err != nil {
-		return nil, err
-	}
-
-	return m.backups.CreateBackupStatus(ctx, className, storageName, snapshotID)
-}

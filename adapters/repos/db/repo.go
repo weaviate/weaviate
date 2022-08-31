@@ -73,6 +73,7 @@ type Config struct {
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
 	MaxImportGoroutinesFactor float64
+	NodeName                  string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

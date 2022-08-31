@@ -76,6 +76,13 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		require.NotEmpty(t, prop)
 		assert.Equal(t, "MyName", prop[0])
 	})
+
+	t.Run("extract non-existing text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "IDoNotExist")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.Empty(t, prop)
+	})
 }
 
 func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {

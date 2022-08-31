@@ -41,8 +41,8 @@ type fakeSnapshotter struct {
 	mock.Mock
 }
 
-func (s *fakeSnapshotter) CreateSnapshot(ctx context.Context, snapshot *snapshots.Snapshot, nodeName string) (*snapshots.Snapshot, error) {
-	args := s.Called(ctx, snapshot, nodeName)
+func (s *fakeSnapshotter) CreateSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) (*snapshots.Snapshot, error) {
+	args := s.Called(ctx, snapshot)
 	if args.Get(0) != nil {
 		return args.Get(0).(*snapshots.Snapshot), args.Error(1)
 	}

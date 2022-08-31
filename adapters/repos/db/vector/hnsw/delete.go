@@ -304,7 +304,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		if h.isOnlyNode(&vertex{id: neighbor}, deleteList) {
 			neighborNode.Lock()
 			// delete all existing connections before re-assigning
-			neighborNode.connections = map[int][]uint64{}
+			neighborNode.connections = make([][]uint64, neighborNode.level+1)
 			neighborNode.Unlock()
 
 			if err := h.commitLog.ClearLinks(neighbor); err != nil {
@@ -325,7 +325,9 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	neighborNode.markAsMaintenance()
 	neighborNode.Lock()
 	// delete all existing connections before re-assigning
-	neighborNode.connections = map[int][]uint64{}
+	for level := range neighborNode.connections {
+		neighborNode.connections[level] = neighborNode.connections[level][:0]
+	}
 	neighborNode.Unlock()
 	if err := h.commitLog.ClearLinks(neighbor); err != nil {
 		return false, err
@@ -341,7 +343,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	return true, nil
 }
 
-func connectionsPointTo(connections map[int][]uint64, needles helpers.AllowList) bool {
+func connectionsPointTo(connections [][]uint64, needles helpers.AllowList) bool {
 	for _, atLevel := range connections {
 		for _, pointer := range atLevel {
 			if needles.Contains(pointer) {

@@ -104,9 +104,10 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		path, relErr := filepath.Rel(b.rootDir, path)
-		if relErr != nil {
-			return relErr
+		path, err2 := filepath.Rel(b.rootDir, path)
+		// ignore .wal files because they are not immutable
+		if err2 != nil || filepath.Ext(path) == ".wal" {
+			return err2
 		}
 		files = append(files, path)
 		return nil

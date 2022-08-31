@@ -50,13 +50,13 @@ func (sp *snapshotProvider) start(ctx context.Context) (*snapshots.Snapshot, err
 	return snapshot, nil
 }
 
-func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snapshot, nodeName string) error {
+func (sp *snapshotProvider) backup(ctx context.Context, snapshot *snapshots.Snapshot) error {
 	var ctxCreate, ctxStore, ctxRelease context.Context
 	var cancelCreate, cancelStore, cancelRelease context.CancelFunc
 
 	ctxCreate, cancelCreate = context.WithTimeout(context.Background(), createTimeout)
 	defer cancelCreate()
-	snapshot, err := sp.snapshotter.CreateSnapshot(ctxCreate, snapshot, nodeName)
+	snapshot, err := sp.snapshotter.CreateSnapshot(ctxCreate, snapshot)
 	if err != nil {
 		return sp.setMetaFailed(errors.Wrap(err, "create snapshot"))
 	}

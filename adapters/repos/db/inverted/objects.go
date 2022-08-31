@@ -275,11 +275,18 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
-			asTime, ok := value.(time.Time)
-			if !ok {
-				return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
+			// dates can be either a date-string or directly a time object. Try to parse both
+			if asTime, okTime := value.(time.Time); okTime {
+				in[i] = asTime.UnixNano()
+			} else if asString, okString := value.(string); okString {
+				parsedTime, err := time.Parse(time.RFC3339Nano, asString)
+				if err != nil {
+					return nil, errors.Wrapf(err, "Time parsing")
+				}
+				in[i] = parsedTime.UnixNano()
+			} else {
+				return nil, fmt.Errorf("expected property %s to be a time-string or time object, but got %T", prop.Name, value)
 			}
-			in[i] = asTime.UnixNano()
 		}
 
 		var err error

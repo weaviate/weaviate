@@ -49,7 +49,7 @@ func aggregatesArrayClassWithGroupingAndNearObject(t *testing.T) {
 		},
 		{
 			name:     "dates",
-			property: "dates",
+			property: "datesAsStrings",
 			expected: map[string]string{
 				"2022-06-01T22:18:59.640162Z": "3",
 				"2022-06-02T22:18:59.640162Z": "2",

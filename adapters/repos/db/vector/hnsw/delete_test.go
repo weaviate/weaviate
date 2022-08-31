@@ -651,59 +651,59 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	index.nodes = make([]*vertex, 50)
 	index.nodes[0] = &vertex{
 		id: 0,
-		connections: map[int][]uint64{
-			0: {1, 2, 3, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{1, 2, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[1] = &vertex{
 		id: 1,
-		connections: map[int][]uint64{
-			0: {0, 2, 3, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{0, 2, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[2] = &vertex{
 		id: 2,
-		connections: map[int][]uint64{
-			0: {1, 0, 3, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{1, 0, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[3] = &vertex{
 		id: 3,
-		connections: map[int][]uint64{
-			0: {2, 1, 0, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{2, 1, 0, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[4] = &vertex{
 		id: 4,
-		connections: map[int][]uint64{
-			0: {3, 2, 1, 0, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{3, 2, 1, 0, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[5] = &vertex{
 		id: 5,
-		connections: map[int][]uint64{
-			0: {3, 4, 2, 1, 0, 6, 7, 8},
+		connections: [][]uint64{
+			{3, 4, 2, 1, 0, 6, 7, 8},
 		},
 	}
 	index.nodes[6] = &vertex{
 		id: 6,
-		connections: map[int][]uint64{
-			0: {4, 3, 1, 3, 5, 0, 7, 8},
-			1: {7},
+		connections: [][]uint64{
+			{4, 3, 1, 3, 5, 0, 7, 8},
+			{7},
 		},
 		level: 1,
 	}
 	index.nodes[7] = &vertex{
 		id: 7,
-		connections: map[int][]uint64{
-			0: {6, 4, 3, 5, 2, 1, 0, 8},
-			1: {6},
+		connections: [][]uint64{
+			{6, 4, 3, 5, 2, 1, 0, 8},
+			{6},
 		},
 		level: 1,
 	}
 	index.nodes[8] = &vertex{
 		id: 8,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			8: {7, 6, 4, 3, 5, 2, 1, 0},
 		},
 	}
@@ -798,20 +798,20 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	index.nodes = make([]*vertex, 50)
 	index.nodes[0] = &vertex{
 		id: 0,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			0: {1},
 		},
 	}
 	index.nodes[1] = &vertex{
 		id: 1,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			0: {0, 2},
 			1: {2},
 		},
 	}
 	index.nodes[2] = &vertex{
 		id: 2,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			0: {1},
 			1: {1},
 		},
@@ -889,9 +889,9 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 		return vectors[int(id)], nil
 	}
 
-	index, err := NewFromJSONDump(snapshotBefore, vecForID)
-	index.forbidFlat = true
+	index, err := NewFromJSONDumpMap(snapshotBefore, vecForID)
 	require.Nil(t, err)
+	index.forbidFlat = true
 
 	var control []uint64
 	t.Run("control search before delete with the respective allow list", func(t *testing.T) {

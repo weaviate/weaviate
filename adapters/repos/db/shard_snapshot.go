@@ -20,13 +20,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (s *Shard) createSnapshot(ctx context.Context,
-	snap *snapshots.Snapshot, nodeName string,
-) error {
+func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) error {
 	var g errgroup.Group
 
 	g.Go(func() error {
-		files, err := s.createStoreLevelSnapshot(ctx, nodeName)
+		files, err := s.createStoreLevelSnapshot(ctx)
 		if err != nil {
 			return err
 		}
@@ -37,7 +35,7 @@ func (s *Shard) createSnapshot(ctx context.Context,
 	})
 
 	g.Go(func() error {
-		files, err := s.createVectorIndexLevelSnapshot(ctx, nodeName)
+		files, err := s.createVectorIndexLevelSnapshot(ctx)
 		if err != nil {
 			return err
 		}
@@ -82,7 +80,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) createStoreLevelSnapshot(ctx context.Context, nodeName string) ([]snapshots.File, error) {
+func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]snapshots.File, error) {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -110,13 +108,18 @@ func (s *Shard) createStoreLevelSnapshot(ctx context.Context, nodeName string) (
 
 	files := make([]snapshots.File, len(paths))
 	for i, pth := range paths {
-		files[i] = s.buildSnapshotFile(pth, nodeName)
+		files[i] = snapshots.File{
+			Path:  pth,
+			Class: s.index.Config.ClassName.String(),
+			Node:  s.index.Config.NodeName,
+			Shard: s.name,
+		}
 	}
 
 	return files, nil
 }
 
-func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context, nodeName string) ([]snapshots.File, error) {
+func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]snapshots.File, error) {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -144,7 +147,12 @@ func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context, nodeName str
 
 	files := make([]snapshots.File, len(paths))
 	for i, pth := range paths {
-		files[i] = s.buildSnapshotFile(pth, nodeName)
+		files[i] = snapshots.File{
+			Path:  pth,
+			Class: s.index.Config.ClassName.String(),
+			Node:  s.index.Config.NodeName,
+			Shard: s.name,
+		}
 	}
 
 	return files, nil
@@ -186,13 +194,4 @@ func (s *Shard) readPropLengthTracker() ([]byte, error) {
 
 func (s *Shard) readShardVersion() ([]byte, error) {
 	return os.ReadFile(s.versioner.path)
-}
-
-func (s *Shard) buildSnapshotFile(pth, nodeName string) snapshots.File {
-	return snapshots.File{
-		Path:  pth,
-		Class: s.index.Config.ClassName.String(),
-		Shard: s.name,
-		Node:  nodeName,
-	}
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/schema/backups"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
@@ -43,7 +42,7 @@ type backupManager struct {
 
 func NewBackupManager(logger logrus.FieldLogger, snapshotters SnapshotterProvider, storages BackupStorageProvider,
 	shardingStateFunc shardingStateFunc,
-) backups.BackupManager {
+) *backupManager {
 	return &backupManager{
 		logger:            logger,
 		snapshotters:      snapshotters,
@@ -56,7 +55,7 @@ func NewBackupManager(logger logrus.FieldLogger, snapshotters SnapshotterProvide
 }
 
 // CreateBackup is called by the User
-func (bm *backupManager) CreateBackup(ctx context.Context, nodeName, className,
+func (bm *backupManager) CreateBackup(ctx context.Context, className,
 	storageName, snapshotID string,
 ) (*snapshots.CreateMeta, error) {
 	// snapshotter (index) exists
@@ -98,7 +97,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, nodeName, className,
 	}
 
 	go func(ctx context.Context, provider *snapshotProvider) {
-		if err := provider.backup(ctx, snapshot, nodeName); err != nil {
+		if err := provider.backup(ctx, snapshot); err != nil {
 			bm.logger.WithField("action", "create_backup").
 				Error(err)
 		}

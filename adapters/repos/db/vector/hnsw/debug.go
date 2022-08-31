@@ -84,6 +84,21 @@ type JSONDump struct {
 }
 
 type JSONDumpNode struct {
+	ID          uint64     `json:"id"`
+	Level       int        `json:"level"`
+	Connections [][]uint64 `json:"connections"`
+}
+
+type JSONDumpMap struct {
+	Labels              []string            `json:"labels"`
+	ID                  string              `json:"id"`
+	Entrypoint          uint64              `json:"entrypoint"`
+	CurrentMaximumLayer int                 `json:"currentMaximumLayer"`
+	Tombstones          map[uint64]struct{} `json:"tombstones"`
+	Nodes               []JSONDumpNodeMap   `json:"nodes"`
+}
+
+type JSONDumpNodeMap struct {
 	ID          uint64           `json:"id"`
 	Level       int              `json:"level"`
 	Connections map[int][]uint64 `json:"connections"`
@@ -119,6 +134,45 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 			id:          n.ID,
 			level:       n.Level,
 			connections: n.Connections,
+		}
+	}
+
+	return index, nil
+}
+
+func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
+	var dump JSONDumpMap
+	err := json.Unmarshal(dumpBytes, &dump)
+	if err != nil {
+		return nil, err
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    dump.ID,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      vecForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	index.currentMaximumLayer = dump.CurrentMaximumLayer
+	index.entryPointID = dump.Entrypoint
+	index.tombstones = dump.Tombstones
+
+	for _, n := range dump.Nodes {
+		index.nodes[n.ID] = &vertex{
+			id:          n.ID,
+			level:       n.Level,
+			connections: make([][]uint64, len(n.Connections)),
+		}
+		for level, conns := range n.Connections {
+			index.nodes[n.ID].connections[level] = conns
 		}
 	}
 
