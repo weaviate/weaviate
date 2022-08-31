@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -160,15 +161,14 @@ func TestSnapshot_ListFiles(t *testing.T) {
 			err := b.Put([]byte(fmt.Sprint(i)), []byte(fmt.Sprint(i)))
 			require.Nil(t, err)
 		}
+		b.FlushMemtable(ctx) // flush memtable to generate .db files
 	})
 
 	t.Run("assert expected bucket contents", func(t *testing.T) {
 		files, err := b.ListFiles(ctx)
 		assert.Nil(t, err)
 		assert.Len(t, files, 1)
-
-		expected := fmt.Sprintf("%s.wal", b.active.path)
-		assert.Equal(t, expected, files[0])
+		assert.Equal(t, filepath.Ext(files[0]), ".db")
 	})
 
 	err = b.Shutdown(context.Background())

@@ -86,16 +86,13 @@ func TestSnapshot_IndexLevel(t *testing.T) {
 			assert.Nil(t, err)
 
 			t.Run("assert snapshot file contents", func(t *testing.T) {
-				// should have 7 files:
-				//     - 6 files from lsm store:
-				//         - objects/segment-123.wal
+				// should have 4 files:
+				//     - 3 files from lsm store:
 				//         - objects/segment-123.db
-				//         - hash_property__id/segment-123.wal
 				//         - hash_property__id/segment-123.db
-				//         - property__id/segment-123.wal
 				//         - property__id/segment-123.db
 				//     - 1 file from vector index commitlogger
-				assert.Len(t, snap.Files, 7)
+				assert.Len(t, snap.Files, 4) // .wal are excluded
 			})
 
 			t.Run("assert shard metadata contents", func(t *testing.T) {
@@ -242,7 +239,7 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
-			assert.Len(t, files, 2)
+			assert.Len(t, files, 1)
 
 			// build regex to get very close approximation to the expected
 			// contents of the ListFiles result. the only thing we can't
@@ -260,17 +257,9 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 			isMatch, err := regexp.MatchString(re, files[0])
 			assert.Nil(t, err)
 			assert.True(t, isMatch)
-			isMatch, err = regexp.MatchString(re, files[1])
-			assert.True(t, isMatch)
 
-			// check that we have one of each: *.db, *.wal
-			if strings.HasSuffix(files[0], ".db") {
-				assert.True(t, strings.HasSuffix(files[0], ".db"))
-				assert.True(t, strings.HasSuffix(files[1], ".wal"))
-			} else {
-				assert.True(t, strings.HasSuffix(files[0], ".wal"))
-				assert.True(t, strings.HasSuffix(files[1], ".db"))
-			}
+			// check that we have one of each: *.db
+			assert.True(t, strings.HasSuffix(files[0], ".db"))
 		})
 
 		err = objBucket.ResumeCompaction(ctx)
