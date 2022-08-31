@@ -22,7 +22,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
@@ -78,7 +78,7 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
-			return nil, snapshots.ErrNotFound{}
+			return nil, backup.ErrNotFound{}
 		}
 		return nil, errors.Wrapf(err, "new reader: %v", objectName)
 	}
@@ -112,7 +112,7 @@ func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
 	return nil
 }
 
-func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("gcs", className))
 	defer timer.ObserveDuration()
 	bucket, err := g.findBucket(ctx)
@@ -134,7 +134,7 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string)
 	}
 
 	// Unmarshal content into snapshot struct
-	var snapshot snapshots.Snapshot
+	var snapshot backup.Snapshot
 	if err := json.Unmarshal(content, &snapshot); err != nil {
 		return nil, errors.Wrapf(err, "unmarshal snapshot: %v", objectName)
 	}
@@ -160,7 +160,7 @@ func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string)
 	return &snapshot, nil
 }
 
-func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
 	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("gcs", snapshot.ClassName))
 	defer timer.ObserveDuration()
 	bucket, err := g.findBucket(ctx)
@@ -169,7 +169,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	}
 
 	if bucket == nil {
-		return snapshots.NewErrNotFound(storage.ErrBucketNotExist)
+		return backup.NewErrNotFound(storage.ErrBucketNotExist)
 	}
 
 	// save files
@@ -198,7 +198,7 @@ func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) e
 	return nil
 }
 
-func (g *gcs) putMeta(ctx context.Context, bucket *storage.BucketHandle, snapshot *snapshots.Snapshot) error {
+func (g *gcs) putMeta(ctx context.Context, bucket *storage.BucketHandle, snapshot *backup.Snapshot) error {
 	content, err := json.Marshal(snapshot)
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal meta")
@@ -210,14 +210,14 @@ func (g *gcs) putMeta(ctx context.Context, bucket *storage.BucketHandle, snapsho
 	return nil
 }
 
-func (g *gcs) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (g *gcs) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	if bucket == nil {
-		return nil, snapshots.ErrNotFound{}
+		return nil, backup.ErrNotFound{}
 	}
 
 	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
@@ -226,7 +226,7 @@ func (g *gcs) GetMeta(ctx context.Context, className, snapshotID string) (*snaps
 		return nil, err
 	}
 
-	var snapshot snapshots.Snapshot
+	var snapshot backup.Snapshot
 	err = json.Unmarshal(contents, &snapshot)
 	if err != nil {
 		return nil, errors.Wrap(err, "get snapshot status")
@@ -247,13 +247,13 @@ func (g *gcs) SetMetaError(ctx context.Context, className, snapshotID string, sn
 		return errors.Wrap(err, "set snapshot status")
 	}
 
-	var snapshot snapshots.Snapshot
+	var snapshot backup.Snapshot
 	err = json.Unmarshal(contents, &snapshot)
 	if err != nil {
 		return errors.Wrap(err, "set meta error")
 	}
 
-	snapshot.Status = string(snapshots.CreateFailed)
+	snapshot.Status = string(backup.CreateFailed)
 	snapshot.Error = snapErr.Error()
 
 	if err := g.putMeta(ctx, bucket, &snapshot); err != nil {
@@ -275,13 +275,13 @@ func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status s
 		return errors.Wrap(err, "set meta status")
 	}
 
-	var snapshot snapshots.Snapshot
+	var snapshot backup.Snapshot
 	err = json.Unmarshal(contents, &snapshot)
 	if err != nil {
 		return errors.Wrap(err, "set meta status")
 	}
 
-	if status == string(snapshots.CreateSuccess) {
+	if status == string(backup.CreateSuccess) {
 		snapshot.CompletedAt = time.Now()
 	}
 
@@ -299,14 +299,14 @@ func (g *gcs) DestinationPath(className, snapshotID string) string {
 		g.makeObjectName(className, snapshotID, "snapshot.json"))
 }
 
-func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	bucket, err := g.findBucket(ctx)
-	if err != nil && !errors.Is(err, snapshots.ErrNotFound{}) {
+	if err != nil && !errors.Is(err, backup.ErrNotFound{}) {
 		return nil, errors.Wrap(err, "init snapshot")
 	}
 
-	snapshot := snapshots.New(className, snapshotID, time.Now())
-	snapshot.Status = string(snapshots.CreateStarted)
+	snapshot := backup.New(className, snapshotID, time.Now())
+	snapshot.Status = string(backup.CreateStarted)
 	b, err := json.Marshal(&snapshot)
 	if err != nil {
 		return nil, errors.Wrap(err, "init snapshot")

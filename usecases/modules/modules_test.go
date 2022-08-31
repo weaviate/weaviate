@@ -18,12 +18,12 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
-	"github.com/semi-technologies/weaviate/usecases/backup"
+	ubackup "github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -323,7 +323,7 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
-		provider, ok := interface{}(modulesProvider).(backup.BackupStorageProvider)
+		provider, ok := interface{}(modulesProvider).(ubackup.BackupStorageProvider)
 		assert.True(t, ok)
 
 		fmt.Printf("provider: %v\n", provider)
@@ -492,11 +492,11 @@ func (m *dummyStorageModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Storage
 }
 
-func (m *dummyStorageModuleWithAltNames) StoreSnapshot(ctx context.Context, snapshot *snapshots.Snapshot) error {
+func (m *dummyStorageModuleWithAltNames) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return nil, nil
 }
 
@@ -508,7 +508,7 @@ func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, class
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return nil, nil
 }
 
@@ -516,6 +516,6 @@ func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId s
 	return ""
 }
 
-func (m *dummyStorageModuleWithAltNames) InitSnapshot(ctx context.Context, className, snapshotID string) (*snapshots.Snapshot, error) {
+func (m *dummyStorageModuleWithAltNames) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
 	return nil, nil
 }

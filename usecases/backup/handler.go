@@ -20,8 +20,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
@@ -32,7 +32,7 @@ type authorizer interface {
 
 type schemaManger interface {
 	RestoreClass(context.Context, *models.Principal,
-		*models.Class, *snapshots.Snapshot,
+		*models.Class, *backup.Snapshot,
 	) error
 }
 
@@ -50,7 +50,7 @@ func NewManager(
 	logger logrus.FieldLogger,
 	authorizer authorizer,
 	schema schemaManger,
-	snapshotters SnapshotterProvider,
+	sourceFactory SourceFactory,
 	storages BackupStorageProvider,
 	shardingStateFunc shardingStateFunc,
 ) *Manager {
@@ -58,12 +58,12 @@ func NewManager(
 		logger:     logger,
 		authorizer: authorizer,
 		schema:     schema,
-		backups:    NewBackupManager(logger, snapshotters, storages, shardingStateFunc),
+		backups:    NewBackupManager(logger, sourceFactory, storages, shardingStateFunc),
 	}
 	return m
 }
 
-func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principal,
+func (m *Manager) CreateBackup(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (*models.SnapshotMeta, error) {
 	path := fmt.Sprintf("schema/%s/snapshots/%s/%s", className, storageName, ID)
@@ -71,7 +71,7 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
-	if err := validateSnapshotID(ID); err != nil {
+	if err := validateID(ID); err != nil {
 		return nil, err
 	}
 
@@ -88,7 +88,7 @@ func (m *Manager) CreateSnapshot(ctx context.Context, principal *models.Principa
 	}
 }
 
-func (m *Manager) CreateSnapshotStatus(ctx context.Context, principal *models.Principal,
+func (m *Manager) CreateBackupStatus(ctx context.Context, principal *models.Principal,
 	className, storageName, snapshotID string,
 ) (*models.SnapshotMeta, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf(
@@ -100,7 +100,7 @@ func (m *Manager) CreateSnapshotStatus(ctx context.Context, principal *models.Pr
 	return m.backups.CreateBackupStatus(ctx, className, storageName, snapshotID)
 }
 
-func (m *Manager) RestoreSnapshotStatus(ctx context.Context, principal *models.Principal,
+func (m *Manager) RestoreBackupStatus(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (status string, errorString string, path string, err error) {
 	snapshotUID := storageName + "-" + className + "-" + ID
@@ -132,7 +132,7 @@ func (m *Manager) RestoreSnapshotStatus(ctx context.Context, principal *models.P
 	return status, errorString, path, nil
 }
 
-func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Principal,
+func (m *Manager) RestoreBackup(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
 ) (*models.SnapshotRestoreMeta, error) {
 	snapshotUID := fmt.Sprintf("%s-%s-%s", storageName, className, ID)
@@ -194,7 +194,7 @@ func (m *Manager) RestoreSnapshot(ctx context.Context, principal *models.Princip
 	return returnData, nil
 }
 
-func validateSnapshotID(snapshotID string) error {
+func validateID(snapshotID string) error {
 	if snapshotID == "" {
 		return fmt.Errorf("missing snapshotID value")
 	}

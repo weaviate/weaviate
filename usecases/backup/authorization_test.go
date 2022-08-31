@@ -37,25 +37,25 @@ func Test_Authorization(t *testing.T) {
 
 	tests := []testCase{
 		{
-			methodName:       "CreateSnapshot",
+			methodName:       "CreateBackup",
 			additionalArgs:   []interface{}{"className", "storageName", "id"},
 			expectedVerb:     "add",
 			expectedResource: "schema/className/snapshots/storageName/id",
 		},
 		{
-			methodName:       "CreateSnapshotStatus",
+			methodName:       "CreateBackupStatus",
 			additionalArgs:   []interface{}{"className", "storageName", "id"},
 			expectedVerb:     "get",
 			expectedResource: "schema/className/snapshots/storageName/id",
 		},
 		{
-			methodName:       "RestoreSnapshot",
+			methodName:       "RestoreBackup",
 			additionalArgs:   []interface{}{"className", "storageName", "id"},
 			expectedVerb:     "restore",
 			expectedResource: "schema/className/snapshots/storageName/id/restore",
 		},
 		{
-			methodName:       "RestoreSnapshotStatus",
+			methodName:       "RestoreBackupStatus",
 			additionalArgs:   []interface{}{"className", "storageName", "id"},
 			expectedVerb:     "get",
 			expectedResource: "schema/className/snapshots/storageName/id/restore",
