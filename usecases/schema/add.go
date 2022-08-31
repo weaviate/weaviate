@@ -40,7 +40,7 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	return m.addClass(ctx, principal, class)
 }
 
-func (m *Manager) restoreClass(ctx context.Context, principal *models.Principal,
+func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
 	class *models.Class, snapshot *snapshots.Snapshot,
 ) error {
 	m.Lock()

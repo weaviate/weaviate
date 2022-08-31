@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package schema
+package backup
 
 import (
 	"context"
@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +27,7 @@ import (
 // A component-test like test suite that makes sure that every available UC is
 // potentially protected with the Authorization plugin
 
-func Test_Schema_Authorization(t *testing.T) {
+func Test_Authorization(t *testing.T) {
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -38,63 +37,28 @@ func Test_Schema_Authorization(t *testing.T) {
 
 	tests := []testCase{
 		{
-			methodName:       "GetSchema",
-			expectedVerb:     "list",
-			expectedResource: "schema/*",
+			methodName:       "CreateSnapshot",
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			expectedVerb:     "add",
+			expectedResource: "schema/className/snapshots/storageName/id",
 		},
 		{
-			methodName:       "GetClass",
-			additionalArgs:   []interface{}{"classname"},
-			expectedVerb:     "list",
-			expectedResource: "schema/*",
+			methodName:       "CreateSnapshotStatus",
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			expectedVerb:     "get",
+			expectedResource: "schema/className/snapshots/storageName/id",
 		},
 		{
-			methodName:       "GetShardsStatus",
-			additionalArgs:   []interface{}{"className"},
-			expectedVerb:     "list",
-			expectedResource: "schema/className/shards",
+			methodName:       "RestoreSnapshot",
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			expectedVerb:     "restore",
+			expectedResource: "schema/className/snapshots/storageName/id/restore",
 		},
 		{
-			methodName:       "AddClass",
-			additionalArgs:   []interface{}{&models.Class{}},
-			expectedVerb:     "create",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "UpdateClass",
-			additionalArgs:   []interface{}{"somename", &models.Class{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "UpdateObject",
-			additionalArgs:   []interface{}{"somename", &models.Class{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "DeleteClass",
-			additionalArgs:   []interface{}{"somename"},
-			expectedVerb:     "delete",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "AddClassProperty",
-			additionalArgs:   []interface{}{"somename", &models.Property{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "DeleteClassProperty",
-			additionalArgs:   []interface{}{"somename", "someprop"},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "UpdateShardStatus",
-			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
-			expectedVerb:     "update",
-			expectedResource: "schema/className/shards/shardName",
+			methodName:       "RestoreSnapshotStatus",
+			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			expectedVerb:     "get",
+			expectedResource: "schema/className/snapshots/storageName/id/restore",
 		},
 	}
 
@@ -110,7 +74,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback",
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "Lock", "Unlock",
 				"TryLock", // introduced by sync.Mutex in go 1.18
-				"ShardingState", "TxManager", "RestoreClass":
+				"ShardingState", "TxManager":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing
@@ -126,12 +90,8 @@ func Test_Schema_Authorization(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
-				manager, err := NewManager(&NilMigrator{}, newFakeRepo(),
-					logger, authorizer, config.Config{},
-					dummyParseVectorConfig, &fakeVectorizerValidator{},
-					dummyValidateInvertedConfig, &fakeModuleConfig{},
-					&fakeClusterState{}, &fakeTxClient{})
-				require.Nil(t, err)
+				manager := NewManager(logger, authorizer, nil, nil, nil, nil)
+				require.NotNil(t, manager)
 
 				var args []interface{}
 				if test.methodName == "GetSchema" {

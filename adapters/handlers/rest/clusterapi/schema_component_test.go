@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
@@ -164,35 +163,11 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterState, client, &fakeBackupManager{},
+		&fakeModuleConfig{}, clusterState, client,
 	)
 	if err != nil {
 		panic(err.Error())
 	}
 
 	return sm
-}
-
-type fakeBackupManager struct{}
-
-func (f *fakeBackupManager) CreateBackup(ctx context.Context,
-	className, storageName, snapshotID string,
-) (*snapshots.CreateMeta, error) {
-	return nil, nil
-}
-
-func (f *fakeBackupManager) RestoreBackup(ctx context.Context,
-	className, storageName, snapshotID string,
-) (*snapshots.RestoreMeta, *snapshots.Snapshot, error) {
-	return nil, nil, nil
-}
-
-func (f *fakeBackupManager) CreateBackupStatus(ctx context.Context,
-	className, storageName, snapshotID string,
-) (*models.SnapshotMeta, error) {
-	return nil, nil
-}
-
-func (f *fakeBackupManager) DestinationPath(storageName, className, snapshotID string) (string, error) {
-	return "a fake backup path", nil
 }
