@@ -68,8 +68,7 @@ func NewClassificationsPostParamsWithHTTPClient(client *http.Client) *Classifica
 	}
 }
 
-/*
-ClassificationsPostParams contains all the parameters to send to the API endpoint
+/*ClassificationsPostParams contains all the parameters to send to the API endpoint
 for the classifications post operation typically these are written to a http.Request
 */
 type ClassificationsPostParams struct {

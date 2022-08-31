@@ -75,8 +75,7 @@ func NewSchemaObjectsShardsGetOK() *SchemaObjectsShardsGetOK {
 	return &SchemaObjectsShardsGetOK{}
 }
 
-/*
-SchemaObjectsShardsGetOK handles this case with default header values.
+/*SchemaObjectsShardsGetOK handles this case with default header values.
 
 Found the status of the shards, returned as body
 */
@@ -107,8 +106,7 @@ func NewSchemaObjectsShardsGetUnauthorized() *SchemaObjectsShardsGetUnauthorized
 	return &SchemaObjectsShardsGetUnauthorized{}
 }
 
-/*
-SchemaObjectsShardsGetUnauthorized handles this case with default header values.
+/*SchemaObjectsShardsGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,8 +127,7 @@ func NewSchemaObjectsShardsGetForbidden() *SchemaObjectsShardsGetForbidden {
 	return &SchemaObjectsShardsGetForbidden{}
 }
 
-/*
-SchemaObjectsShardsGetForbidden handles this case with default header values.
+/*SchemaObjectsShardsGetForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -163,8 +160,7 @@ func NewSchemaObjectsShardsGetNotFound() *SchemaObjectsShardsGetNotFound {
 	return &SchemaObjectsShardsGetNotFound{}
 }
 
-/*
-SchemaObjectsShardsGetNotFound handles this case with default header values.
+/*SchemaObjectsShardsGetNotFound handles this case with default header values.
 
 This class does not exist
 */
@@ -197,8 +193,7 @@ func NewSchemaObjectsShardsGetInternalServerError() *SchemaObjectsShardsGetInter
 	return &SchemaObjectsShardsGetInternalServerError{}
 }
 
-/*
-SchemaObjectsShardsGetInternalServerError handles this case with default header values.
+/*SchemaObjectsShardsGetInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

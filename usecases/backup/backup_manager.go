@@ -112,7 +112,7 @@ func (bm *backupManager) CreateBackup(ctx context.Context, className,
 
 func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	className, storageName, snapshotID string,
-) (*models.SnapshotMeta, error) {
+) (*models.BackupCreateMeta, error) {
 	// snapshotter (index) exists
 	if snapshotter := bm.source.SourceFactory(className); snapshotter == nil {
 		return nil, backup.NewErrNotFound(
@@ -137,7 +137,7 @@ func (bm *backupManager) CreateBackupStatus(ctx context.Context,
 	status := string(meta.Status)
 
 	// TODO: populate Error field if snapshot failed
-	return &models.SnapshotMeta{
+	return &models.BackupCreateMeta{
 		ID:          snapshotID,
 		Path:        storage.DestinationPath(className, snapshotID),
 		Status:      &status,

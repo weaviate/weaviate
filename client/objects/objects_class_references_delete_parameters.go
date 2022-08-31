@@ -68,8 +68,7 @@ func NewObjectsClassReferencesDeleteParamsWithHTTPClient(client *http.Client) *O
 	}
 }
 
-/*
-ObjectsClassReferencesDeleteParams contains all the parameters to send to the API endpoint
+/*ObjectsClassReferencesDeleteParams contains all the parameters to send to the API endpoint
 for the objects class references delete operation typically these are written to a http.Request
 */
 type ObjectsClassReferencesDeleteParams struct {

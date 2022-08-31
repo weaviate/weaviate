@@ -27,8 +27,7 @@ import (
 // SchemaObjectsShardsUpdateOKCode is the HTTP code returned for type SchemaObjectsShardsUpdateOK
 const SchemaObjectsShardsUpdateOKCode int = 200
 
-/*
-SchemaObjectsShardsUpdateOK Shard status was updated successfully
+/*SchemaObjectsShardsUpdateOK Shard status was updated successfully
 
 swagger:response schemaObjectsShardsUpdateOK
 */
@@ -72,8 +71,7 @@ func (o *SchemaObjectsShardsUpdateOK) WriteResponse(rw http.ResponseWriter, prod
 // SchemaObjectsShardsUpdateUnauthorizedCode is the HTTP code returned for type SchemaObjectsShardsUpdateUnauthorized
 const SchemaObjectsShardsUpdateUnauthorizedCode int = 401
 
-/*
-SchemaObjectsShardsUpdateUnauthorized Unauthorized or invalid credentials.
+/*SchemaObjectsShardsUpdateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsShardsUpdateUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *SchemaObjectsShardsUpdateUnauthorized) WriteResponse(rw http.ResponseWr
 // SchemaObjectsShardsUpdateForbiddenCode is the HTTP code returned for type SchemaObjectsShardsUpdateForbidden
 const SchemaObjectsShardsUpdateForbiddenCode int = 403
 
-/*
-SchemaObjectsShardsUpdateForbidden Forbidden
+/*SchemaObjectsShardsUpdateForbidden Forbidden
 
 swagger:response schemaObjectsShardsUpdateForbidden
 */
@@ -142,8 +139,7 @@ func (o *SchemaObjectsShardsUpdateForbidden) WriteResponse(rw http.ResponseWrite
 // SchemaObjectsShardsUpdateNotFoundCode is the HTTP code returned for type SchemaObjectsShardsUpdateNotFound
 const SchemaObjectsShardsUpdateNotFoundCode int = 404
 
-/*
-SchemaObjectsShardsUpdateNotFound Shard to be updated does not exist
+/*SchemaObjectsShardsUpdateNotFound Shard to be updated does not exist
 
 swagger:response schemaObjectsShardsUpdateNotFound
 */
@@ -187,8 +183,7 @@ func (o *SchemaObjectsShardsUpdateNotFound) WriteResponse(rw http.ResponseWriter
 // SchemaObjectsShardsUpdateUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsShardsUpdateUnprocessableEntity
 const SchemaObjectsShardsUpdateUnprocessableEntityCode int = 422
 
-/*
-SchemaObjectsShardsUpdateUnprocessableEntity Invalid update attempt
+/*SchemaObjectsShardsUpdateUnprocessableEntity Invalid update attempt
 
 swagger:response schemaObjectsShardsUpdateUnprocessableEntity
 */
@@ -232,8 +227,7 @@ func (o *SchemaObjectsShardsUpdateUnprocessableEntity) WriteResponse(rw http.Res
 // SchemaObjectsShardsUpdateInternalServerErrorCode is the HTTP code returned for type SchemaObjectsShardsUpdateInternalServerError
 const SchemaObjectsShardsUpdateInternalServerErrorCode int = 500
 
-/*
-SchemaObjectsShardsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*SchemaObjectsShardsUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsShardsUpdateInternalServerError
 */
