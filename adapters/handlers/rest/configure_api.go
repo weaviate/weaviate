@@ -50,6 +50,7 @@ import (
 	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
+	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -449,6 +450,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "text2vec-openai").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modhuggingface.Name]; ok {
+		appState.Modules.Register(modhuggingface.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modhuggingface.Name).
 			Debug("enabled module")
 	}
 

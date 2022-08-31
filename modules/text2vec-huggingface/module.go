@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modopenai
+package modhuggingface
 
 import (
 	"context"
@@ -20,18 +20,20 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/additional"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/additional/projector"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/clients"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/vectorizer"
+	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/additional"
+	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/additional/projector"
+	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/clients"
+	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
-func New() *OpenAIModule {
-	return &OpenAIModule{}
+const Name = "text2vec-huggingface"
+
+func New() *HuggingFaceModule {
+	return &HuggingFaceModule{}
 }
 
-type OpenAIModule struct {
+type HuggingFaceModule struct {
 	vectorizer                   textVectorizer
 	metaProvider                 metaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -46,7 +48,6 @@ type textVectorizer interface {
 		settings vectorizer.ClassSettings) error
 	Texts(ctx context.Context, input []string,
 		settings vectorizer.ClassSettings) ([]float32, error)
-	// TODO all of these should be moved out of here, gh-1470
 
 	MoveTo(source, target []float32, weight float32) ([]float32, error)
 	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
@@ -57,15 +58,15 @@ type metaProvider interface {
 	MetaInfo() (map[string]interface{}, error)
 }
 
-func (m *OpenAIModule) Name() string {
-	return "text2vec-openai"
+func (m *HuggingFaceModule) Name() string {
+	return Name
 }
 
-func (m *OpenAIModule) Type() modulecapabilities.ModuleType {
+func (m *HuggingFaceModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2MultiVec
 }
 
-func (m *OpenAIModule) Init(ctx context.Context,
+func (m *HuggingFaceModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
@@ -81,7 +82,7 @@ func (m *OpenAIModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *OpenAIModule) InitExtension(modules []modulecapabilities.Module) error {
+func (m *HuggingFaceModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
@@ -99,10 +100,10 @@ func (m *OpenAIModule) InitExtension(modules []modulecapabilities.Module) error 
 	return nil
 }
 
-func (m *OpenAIModule) initVectorizer(ctx context.Context,
+func (m *HuggingFaceModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("OPENAI_APIKEY")
+	apiKey := os.Getenv("HUGGINGFACE_APIKEY")
 	client := clients.New(apiKey, logger)
 
 	m.vectorizer = vectorizer.New(client)
@@ -111,29 +112,29 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context,
 	return nil
 }
 
-func (m *OpenAIModule) initAdditionalPropertiesProvider() error {
+func (m *HuggingFaceModule) initAdditionalPropertiesProvider() error {
 	projector := projector.New()
 	m.additionalPropertiesProvider = additional.New(projector)
 	return nil
 }
 
-func (m *OpenAIModule) RootHandler() http.Handler {
+func (m *HuggingFaceModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *OpenAIModule) VectorizeObject(ctx context.Context,
+func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }
 
-func (m *OpenAIModule) MetaInfo() (map[string]interface{}, error) {
+func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
-func (m *OpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *HuggingFaceModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
