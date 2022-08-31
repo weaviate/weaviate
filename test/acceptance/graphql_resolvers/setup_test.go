@@ -46,6 +46,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (multi shard)", addTestDataMultiShard)
 	t.Run("import test data (date field class)", addDateFieldClass)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
+	t.Run("import test data (class without properties)", addTestDataNoProperties)
 
 	// explore tests
 	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
@@ -76,6 +77,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("aggregates on date fields", aggregatesOnDateFields)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
+	t.Run("aggregate sanity checks", runningAggregateArrayClassSanityCheck)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -88,6 +90,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "RansomNote")
 	deleteObjectClass(t, "MultiShard")
 	deleteObjectClass(t, "HasDateField")
+	deleteObjectClass(t, "ClassWithoutProperties")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -399,7 +402,7 @@ func addTestSchema(t *testing.T) {
 				DataType: []string{"boolean[]"},
 			},
 			{
-				Name:     "dates",
+				Name:     "datesAsStrings",
 				DataType: []string{"date[]"},
 			},
 		},
@@ -480,6 +483,15 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "name",
 				DataType: []string{"string"},
+			},
+		},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class: "ClassWithoutProperties",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
 			},
 		},
 	})
@@ -887,11 +899,30 @@ func addTestDataCVC(t *testing.T) {
 	assertGetObjectEventually(t, cvc3)
 }
 
+func addTestDataNoProperties(t *testing.T) {
+	var (
+		EmptyID1 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a"
+		EmptyID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
+	)
+	createObject(t, &models.Object{
+		Class: "ClassWithoutProperties",
+		ID:    EmptyID1,
+	})
+	assertGetObjectEventually(t, EmptyID1)
+
+	createObject(t, &models.Object{
+		Class: "ClassWithoutProperties",
+		ID:    EmptyID2,
+	})
+	assertGetObjectEventually(t, EmptyID2)
+}
+
 func addTestDataArrayClasses(t *testing.T) {
 	var (
 		arrayClassID1 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a"
 		arrayClassID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
 		arrayClassID3 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534c"
+		arrayClassID4 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534d"
 	)
 	createObject(t, &models.Object{
 		Class: "ArrayClass",
@@ -902,10 +933,15 @@ func addTestDataArrayClasses(t *testing.T) {
 			"numbers":  []float64{1.0, 2.0, 3.0},
 			"ints":     []int{1, 2, 3},
 			"booleans": []bool{true, true},
-			"dates": []string{
+			"datesAsStrings": []string{
 				"2022-06-01T22:18:59.640162Z",
 				"2022-06-02T22:18:59.640162Z",
 				"2022-06-03T22:18:59.640162Z",
+			},
+			"dates": []time.Time{
+				time.Date(1234, 5, 6, 7, 8, 9, 10, time.UTC),
+				time.Date(1235, 6, 7, 8, 9, 10, 11, time.UTC),
+				time.Date(1236, 7, 8, 9, 10, 11, 12, time.UTC),
 			},
 		},
 	})
@@ -920,9 +956,13 @@ func addTestDataArrayClasses(t *testing.T) {
 			"numbers":  []float64{1.0, 2.0},
 			"ints":     []int{1, 2},
 			"booleans": []bool{false, false},
-			"dates": []string{
+			"datesAsStrings": []string{
 				"2022-06-01T22:18:59.640162Z",
 				"2022-06-02T22:18:59.640162Z",
+			},
+			"dates": []time.Time{
+				time.Date(1235, 6, 7, 8, 9, 10, 11, time.UTC),
+				time.Date(2012, 7, 8, 9, 10, 11, 12, time.UTC),
 			},
 		},
 	})
@@ -937,12 +977,22 @@ func addTestDataArrayClasses(t *testing.T) {
 			"numbers":  []float64{1.0},
 			"ints":     []int{1.0},
 			"booleans": []bool{true, false},
-			"dates": []string{
+			"datesAsStrings": []string{
 				"2022-06-01T22:18:59.640162Z",
+			},
+			"dates": []time.Time{
+				time.Date(467, 6, 7, 8, 9, 10, 11, time.UTC),
 			},
 		},
 	})
 	assertGetObjectEventually(t, arrayClassID3)
+
+	// object without properties
+	createObject(t, &models.Object{
+		Class: "ArrayClass",
+		ID:    arrayClassID4,
+	})
+	assertGetObjectEventually(t, arrayClassID4)
 }
 
 func addTestDataRansomNotes(t *testing.T) {

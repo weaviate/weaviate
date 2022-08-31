@@ -362,3 +362,66 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		assert.Equal(t, id2, repoCalledWithObjects[1].UUID, "the user-specified uuid was used")
 	})
 }
+
+func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
+	var (
+		vectorRepo *fakeVectorRepo
+		manager    *BatchManager
+	)
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "TestClass",
+					VectorIndexConfig: hnsw.UserConfig{},
+
+					Properties: []*models.Property{
+						{
+							Name:     "strings",
+							DataType: []string{"string[]"},
+						},
+					},
+				},
+			},
+		},
+	}
+	reset := func() {
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		config := &config.WeaviateConfig{}
+		locks := &fakeLocks{}
+		schemaManager := &fakeSchemaManager{
+			GetSchemaResponse: schema,
+		}
+		logger, _ := test.NewNullLogger()
+		authorizer := &fakeAuthorizer{}
+		vectorizer := &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
+		manager = NewBatchManager(vectorRepo, vecProvider, locks,
+			schemaManager, config, logger, authorizer, nil)
+	}
+	reset()
+	objects := []*models.Object{
+		{
+			ID:    strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6"),
+			Class: "TestClass",
+		},
+		{
+			ID:    strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff3"),
+			Class: "TestClass",
+			Properties: map[string]interface{}{
+				"name": "testName",
+			},
+		},
+	}
+	require.Nil(t, objects[0].Properties)
+	require.NotNil(t, objects[1].Properties)
+
+	ctx := context.Background()
+	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{})
+	assert.Nil(t, err)
+	require.Len(t, addedObjects, 2)
+	require.NotNil(t, addedObjects[0].Object.Properties)
+	require.NotNil(t, addedObjects[1].Object.Properties)
+}

@@ -63,7 +63,11 @@ func parseAndExtractValueProp(data []byte, propName string, valueFn func(value [
 	}
 
 	val, t, _, err := jsonparser.Get(propsBytes, propName)
+	// Some objects can have nil as value for the property, in this case skip the object
 	if err != nil {
+		if err.Error() == "Key path not found" {
+			return nil
+		}
 		return err
 	}
 
