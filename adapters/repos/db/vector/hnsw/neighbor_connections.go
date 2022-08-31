@@ -194,7 +194,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	if len(currentConnections) < maximumConnections {
 		// we can simply append
 		// updatedConnections = append(currentConnections, n.node.id)
-		neighbor.appendConnectionAtLevelNoLock(level, n.node.id)
+		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
 		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
 			return err
 		}
@@ -241,7 +241,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
-			neighbor.appendConnectionAtLevelNoLock(level, id)
+			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
 			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
 				return err
 			}

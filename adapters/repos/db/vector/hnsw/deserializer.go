@@ -153,8 +153,9 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make(map[int][]uint64)}
+		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make([][]uint64, level+1)}
 	} else {
+		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -200,8 +201,10 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make(map[int][]uint64)}
+		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
 	}
+
+	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
 
 	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
 	return nil
@@ -240,8 +243,10 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
+		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
 	}
+
+	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
 	res.Nodes[int(source)].connections[int(level)] = targets
 
 	if keepReplaceInfo {
@@ -291,8 +296,11 @@ func (c *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
+		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
 	}
+
+	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
+
 	res.Nodes[int(source)].connections[int(level)] = append(
 		res.Nodes[int(source)].connections[int(level)], targets...)
 
@@ -339,7 +347,7 @@ func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	res.Nodes[id].connections = map[int][]uint64{}
+	res.Nodes[id].connections = make([][]uint64, len(res.Nodes[id].connections))
 	return nil
 }
 
@@ -384,13 +392,14 @@ func (c *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// it
 		res.Nodes[id] = &vertex{
 			id:          id,
-			connections: map[int][]uint64{},
+			connections: make([][]uint64, level+1),
 		}
 	}
 
 	if res.Nodes[id].connections == nil {
-		res.Nodes[id].connections = map[int][]uint64{}
+		res.Nodes[id].connections = make([][]uint64, level+1)
 	} else {
+		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
 		res.Nodes[id].connections[int(level)] = []uint64{}
 	}
 
@@ -469,4 +478,16 @@ func (c *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 	}
 
 	return values, nil
+}
+
+// If the connections array is to small to contain the current target-levelit
+// will be grown. Otherwise, nothing happens.
+func maybeGrowConnectionsForLevel(connsPtr *[][]uint64, level uint16) {
+	conns := *connsPtr
+	if len(conns) <= int(level) {
+		// we need to grow the connections slice
+		newConns := make([][]uint64, level+1)
+		copy(newConns, conns)
+		*connsPtr = newConns
+	}
 }
