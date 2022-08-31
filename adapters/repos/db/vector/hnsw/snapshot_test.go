@@ -178,7 +178,7 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("insert vector into index", func(t *testing.T) {
-		first := &vertex{level: 0, id: 0, connections: make(map[int][]uint64)}
+		first := &vertex{level: 0, id: 0, connections: make([][]uint64, 1)}
 		err := idx.insert(first, []float32{1, 2, 3})
 		require.Nil(t, err)
 	})

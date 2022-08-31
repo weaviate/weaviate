@@ -367,58 +367,6 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	return entryPointID, nil
 }
 
-type vertex struct {
-	id uint64
-	sync.Mutex
-	level       int
-	connections map[int][]uint64 // map[level][]connectedId
-	maintenance bool
-}
-
-func (v *vertex) markAsMaintenance() {
-	v.Lock()
-	defer v.Unlock()
-
-	v.maintenance = true
-}
-
-func (v *vertex) unmarkAsMaintenance() {
-	v.Lock()
-	defer v.Unlock()
-
-	v.maintenance = false
-}
-
-func (v *vertex) isUnderMaintenance() bool {
-	v.Lock()
-	defer v.Unlock()
-
-	return v.maintenance
-}
-
-func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
-	return v.connections[level]
-}
-
-func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
-	v.Lock()
-	defer v.Unlock()
-
-	v.connections[level] = connections
-}
-
-// func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
-// 	v.connections[level] = connections
-// }
-
-func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64) {
-	v.connections[level] = append(v.connections[level], connection)
-}
-
-func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
-	v.connections[level] = v.connections[level][:0]
-}
-
 func min(a, b int) int {
 	if a < b {
 		return a
