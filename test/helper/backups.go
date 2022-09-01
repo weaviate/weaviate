@@ -14,26 +14,27 @@ package helper
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/schema"
+	"github.com/semi-technologies/weaviate/client/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/require"
 )
 
 func CreateBackup(t *testing.T, className, storageName, snapshotID string) {
-	params := schema.NewSchemaObjectsSnapshotsCreateParams().
-		WithClassName(className).
+	params := backups.NewBackupsCreateParams().
 		WithStorageName(storageName).
-		WithID(snapshotID)
-	resp, err := Client(t).Schema.SchemaObjectsSnapshotsCreate(params, nil)
+		WithBody(&models.BackupCreateRequest{
+			ID:      snapshotID,
+			Include: []string{className},
+		})
+	resp, err := Client(t).Backups.BackupsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.SnapshotMeta {
-	params := schema.NewSchemaObjectsSnapshotsCreateStatusParams().
-		WithClassName(className).
+func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupCreateMeta {
+	params := backups.NewBackupsCreateStatusParams().
 		WithStorageName(storageName).
 		WithID(snapshotID)
-	resp, err := Client(t).Schema.SchemaObjectsSnapshotsCreateStatus(params, nil)
+	resp, err := Client(t).Backups.BackupsCreateStatus(params, nil)
 	if err != nil {
 		t.Fatalf("expected nil err, got: %s", err.Error())
 	}
@@ -42,20 +43,21 @@ func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string)
 }
 
 func RestoreBackup(t *testing.T, className, storageName, snapshotID string) {
-	params := schema.NewSchemaObjectsSnapshotsRestoreParams().
-		WithClassName(className).
+	params := backups.NewBackupsRestoreParams().
 		WithStorageName(storageName).
-		WithID(snapshotID)
-	resp, err := Client(t).Schema.SchemaObjectsSnapshotsRestore(params, nil)
+		WithID(snapshotID).
+		WithBody(&models.BackupRestoreRequest{
+			Include: []string{className},
+		})
+	resp, err := Client(t).Backups.BackupsRestore(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func RestoreBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.SnapshotRestoreMeta {
-	params := schema.NewSchemaObjectsSnapshotsRestoreStatusParams().
-		WithClassName(className).
+func RestoreBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupRestoreMeta {
+	params := backups.NewBackupsRestoreStatusParams().
 		WithStorageName(storageName).
 		WithID(snapshotID)
-	resp, err := Client(t).Schema.SchemaObjectsSnapshotsRestoreStatus(params, nil)
+	resp, err := Client(t).Backups.BackupsRestoreStatus(params, nil)
 	require.Nil(t, err)
 
 	return resp.Payload

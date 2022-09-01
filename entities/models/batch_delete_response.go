@@ -192,7 +192,7 @@ type BatchDeleteResponseResults struct {
 	// How many objects were matched by the filter.
 	Matches int64 `json:"matches"`
 
-	// With output set to "minimal" only objects with error occurred will the be described. Successfully deleted objects would be ommitted. Output set to "verbose" will list all of the objets with their respective statuses.
+	// With output set to "minimal" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to "verbose" will list all of the objets with their respective statuses.
 	Objects []*BatchDeleteResponseResultsObjectsItems0 `json:"objects"`
 
 	// How many objects were successfully deleted in this round.

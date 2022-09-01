@@ -65,7 +65,7 @@ func NewManager(
 
 func (m *Manager) CreateBackup(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
-) (*models.SnapshotMeta, error) {
+) (*models.BackupCreateMeta, error) {
 	path := fmt.Sprintf("schema/%s/snapshots/%s/%s", className, storageName, ID)
 	if err := m.authorizer.Authorize(principal, "add", path); err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (m *Manager) CreateBackup(ctx context.Context, principal *models.Principal,
 		return nil, err
 	} else {
 		status := string(meta.Status)
-		return &models.SnapshotMeta{
+		return &models.BackupCreateMeta{
 			ID:          ID,
 			StorageName: storageName,
 			Status:      &status,
@@ -90,7 +90,7 @@ func (m *Manager) CreateBackup(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) CreateBackupStatus(ctx context.Context, principal *models.Principal,
 	className, storageName, snapshotID string,
-) (*models.SnapshotMeta, error) {
+) (*models.BackupCreateMeta, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf(
 		"schema/%s/snapshots/%s/%s", className, storageName, snapshotID))
 	if err != nil {
@@ -134,9 +134,9 @@ func (m *Manager) RestoreBackupStatus(ctx context.Context, principal *models.Pri
 
 func (m *Manager) RestoreBackup(ctx context.Context, principal *models.Principal,
 	className, storageName, ID string,
-) (*models.SnapshotRestoreMeta, error) {
+) (*models.BackupRestoreMeta, error) {
 	snapshotUID := fmt.Sprintf("%s-%s-%s", storageName, className, ID)
-	m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSTARTED)
+	m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusSTARTED)
 	m.RestoreError.Store(snapshotUID, nil)
 	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
 	if err := m.authorizer.Authorize(principal, "restore", path); err != nil {
@@ -146,31 +146,31 @@ func (m *Manager) RestoreBackup(ctx context.Context, principal *models.Principal
 	go func(ctx context.Context, className, snapshotId string) {
 		timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreDurations.WithLabelValues(storageName, className))
 		defer timer.ObserveDuration()
-		m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusTRANSFERRING)
+		m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusTRANSFERRING)
 		if meta, snapshot, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
 			if meta != nil {
 				m.RestoreStatus.Store(snapshotUID, string(meta.Status))
 			} else {
-				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+				m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusFAILED)
 			}
 			m.RestoreError.Store(snapshotUID, err)
 			return
 		} else {
 			classM := models.Class{}
 			if err := json.Unmarshal([]byte(snapshot.Schema), &classM); err != nil {
-				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+				m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusFAILED)
 				m.RestoreError.Store(snapshotUID, err)
 				return
 			}
 
 			err := m.schema.RestoreClass(ctx, principal, &classM, snapshot)
 			if err != nil {
-				m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusFAILED)
+				m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusFAILED)
 				m.RestoreError.Store(snapshotUID, err)
 				return
 			}
 
-			m.RestoreStatus.Store(snapshotUID, models.SnapshotRestoreMetaStatusSUCCESS)
+			m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusSUCCESS)
 
 		}
 	}(context.Background(), className, ID)
@@ -185,7 +185,7 @@ func (m *Manager) RestoreBackup(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	returnData := &models.SnapshotRestoreMeta{
+	returnData := &models.BackupRestoreMeta{
 		ID:          ID,
 		StorageName: storageName,
 		Status:      &status,

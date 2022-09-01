@@ -25,24 +25,24 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SnapshotRestoreMeta The definition of a snapshot metadata
+// BackupRestoreMeta The definition of a backup restore metadata
 //
-// swagger:model SnapshotRestoreMeta
-type SnapshotRestoreMeta struct {
+// swagger:model BackupRestoreMeta
+type BackupRestoreMeta struct {
 
-	// The class name of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
-	ClassName string `json:"className,omitempty"`
+	// The list of classes for which the backup restore process was started
+	Classes []string `json:"classes"`
 
 	// error message if restoration failed
 	Error string `json:"error,omitempty"`
 
-	// The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// destination path of snapshot files proper to selected storage
+	// destination path of backup files proper to selected storage
 	Path string `json:"path,omitempty"`
 
-	// phase of snapshot restoration process
+	// phase of backup restoration process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]
 	Status *string `json:"status,omitempty"`
 
@@ -50,8 +50,8 @@ type SnapshotRestoreMeta struct {
 	StorageName string `json:"storageName,omitempty"`
 }
 
-// Validate validates this snapshot restore meta
-func (m *SnapshotRestoreMeta) Validate(formats strfmt.Registry) error {
+// Validate validates this backup restore meta
+func (m *BackupRestoreMeta) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateStatus(formats); err != nil {
@@ -64,7 +64,7 @@ func (m *SnapshotRestoreMeta) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var snapshotRestoreMetaTypeStatusPropEnum []interface{}
+var backupRestoreMetaTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -72,37 +72,37 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		snapshotRestoreMetaTypeStatusPropEnum = append(snapshotRestoreMetaTypeStatusPropEnum, v)
+		backupRestoreMetaTypeStatusPropEnum = append(backupRestoreMetaTypeStatusPropEnum, v)
 	}
 }
 
 const (
 
-	// SnapshotRestoreMetaStatusSTARTED captures enum value "STARTED"
-	SnapshotRestoreMetaStatusSTARTED string = "STARTED"
+	// BackupRestoreMetaStatusSTARTED captures enum value "STARTED"
+	BackupRestoreMetaStatusSTARTED string = "STARTED"
 
-	// SnapshotRestoreMetaStatusTRANSFERRING captures enum value "TRANSFERRING"
-	SnapshotRestoreMetaStatusTRANSFERRING string = "TRANSFERRING"
+	// BackupRestoreMetaStatusTRANSFERRING captures enum value "TRANSFERRING"
+	BackupRestoreMetaStatusTRANSFERRING string = "TRANSFERRING"
 
-	// SnapshotRestoreMetaStatusTRANSFERRED captures enum value "TRANSFERRED"
-	SnapshotRestoreMetaStatusTRANSFERRED string = "TRANSFERRED"
+	// BackupRestoreMetaStatusTRANSFERRED captures enum value "TRANSFERRED"
+	BackupRestoreMetaStatusTRANSFERRED string = "TRANSFERRED"
 
-	// SnapshotRestoreMetaStatusSUCCESS captures enum value "SUCCESS"
-	SnapshotRestoreMetaStatusSUCCESS string = "SUCCESS"
+	// BackupRestoreMetaStatusSUCCESS captures enum value "SUCCESS"
+	BackupRestoreMetaStatusSUCCESS string = "SUCCESS"
 
-	// SnapshotRestoreMetaStatusFAILED captures enum value "FAILED"
-	SnapshotRestoreMetaStatusFAILED string = "FAILED"
+	// BackupRestoreMetaStatusFAILED captures enum value "FAILED"
+	BackupRestoreMetaStatusFAILED string = "FAILED"
 )
 
 // prop value enum
-func (m *SnapshotRestoreMeta) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, snapshotRestoreMetaTypeStatusPropEnum, true); err != nil {
+func (m *BackupRestoreMeta) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, backupRestoreMetaTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *SnapshotRestoreMeta) validateStatus(formats strfmt.Registry) error {
+func (m *BackupRestoreMeta) validateStatus(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Status) { // not required
 		return nil
@@ -117,7 +117,7 @@ func (m *SnapshotRestoreMeta) validateStatus(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *SnapshotRestoreMeta) MarshalBinary() ([]byte, error) {
+func (m *BackupRestoreMeta) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -125,8 +125,8 @@ func (m *SnapshotRestoreMeta) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SnapshotRestoreMeta) UnmarshalBinary(b []byte) error {
-	var res SnapshotRestoreMeta
+func (m *BackupRestoreMeta) UnmarshalBinary(b []byte) error {
+	var res BackupRestoreMeta
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
