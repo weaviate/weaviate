@@ -69,7 +69,8 @@ func NewMetaGetOK() *MetaGetOK {
 	return &MetaGetOK{}
 }
 
-/*MetaGetOK handles this case with default header values.
+/*
+MetaGetOK handles this case with default header values.
 
 Successful response.
 */
@@ -102,7 +103,8 @@ func NewMetaGetUnauthorized() *MetaGetUnauthorized {
 	return &MetaGetUnauthorized{}
 }
 
-/*MetaGetUnauthorized handles this case with default header values.
+/*
+MetaGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -123,7 +125,8 @@ func NewMetaGetForbidden() *MetaGetForbidden {
 	return &MetaGetForbidden{}
 }
 
-/*MetaGetForbidden handles this case with default header values.
+/*
+MetaGetForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -156,7 +159,8 @@ func NewMetaGetInternalServerError() *MetaGetInternalServerError {
 	return &MetaGetInternalServerError{}
 }
 
-/*MetaGetInternalServerError handles this case with default header values.
+/*
+MetaGetInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

@@ -42,10 +42,10 @@ func NewBackupsRestore(ctx *middleware.Context, handler BackupsRestoreHandler) *
 	return &BackupsRestore{Context: ctx, Handler: handler}
 }
 
-/*BackupsRestore swagger:route POST /backups/{storageName}/{id}/restore backups backupsRestore
+/*
+BackupsRestore swagger:route POST /backups/{storageName}/{id}/restore backups backupsRestore
 
 Starts a process of restoring a backup for a set of classes
-
 */
 type BackupsRestore struct {
 	Context *middleware.Context

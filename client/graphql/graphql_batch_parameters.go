@@ -68,7 +68,8 @@ func NewGraphqlBatchParamsWithHTTPClient(client *http.Client) *GraphqlBatchParam
 	}
 }
 
-/*GraphqlBatchParams contains all the parameters to send to the API endpoint
+/*
+GraphqlBatchParams contains all the parameters to send to the API endpoint
 for the graphql batch operation typically these are written to a http.Request
 */
 type GraphqlBatchParams struct {

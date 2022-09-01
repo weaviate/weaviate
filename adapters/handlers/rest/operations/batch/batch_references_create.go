@@ -42,12 +42,12 @@ func NewBatchReferencesCreate(ctx *middleware.Context, handler BatchReferencesCr
 	return &BatchReferencesCreate{Context: ctx, Handler: handler}
 }
 
-/*BatchReferencesCreate swagger:route POST /batch/references batch references batchReferencesCreate
+/*
+BatchReferencesCreate swagger:route POST /batch/references batch references batchReferencesCreate
 
 Creates new Cross-References between arbitrary classes in bulk.
 
 Register cross-references between any class items (objects or objects) in bulk.
-
 */
 type BatchReferencesCreate struct {
 	Context *middleware.Context
