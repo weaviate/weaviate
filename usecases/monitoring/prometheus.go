@@ -34,6 +34,7 @@ type PrometheusMetrics struct {
 	VectorIndexTombstoneCleanupThreads  *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount    *prometheus.CounterVec
 	VectorIndexOperations               *prometheus.GaugeVec
+	VectorIndexDimensionOperations      *prometheus.CounterVec
 	VectorIndexDurations                *prometheus.HistogramVec
 	VectorIndexSize                     *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations     *prometheus.HistogramVec
@@ -151,6 +152,10 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 		VectorIndexOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_operations",
 			Help: "Total number of mutating operations on the vector index",
+		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexDimensionOperations: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_dimensions_total",
+			Help: "Total number of mutating operations multiplied with dimensions on the vector index",
 		}, []string{"operation", "class_name", "shard_name"}),
 		VectorIndexSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_size",

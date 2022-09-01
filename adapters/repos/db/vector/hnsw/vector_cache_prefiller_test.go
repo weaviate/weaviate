@@ -90,6 +90,10 @@ func (f *fakeCache) delete(ctx context.Context, id uint64) {
 	panic("not implemented")
 }
 
+func (f *fakeCache) dimensions(id uint64) int {
+	return 0
+}
+
 func (f *fakeCache) preload(id uint64, vec []float32) {
 	panic("not implemented")
 }
