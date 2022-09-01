@@ -98,7 +98,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 ) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
-		NumericalAggregations: map[string]float64{},
+		NumericalAggregations: map[string]interface{}{},
 	}
 
 	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
@@ -127,7 +127,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 ) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
-		NumericalAggregations: map[string]float64{},
+		NumericalAggregations: map[string]interface{}{},
 	}
 
 	b := ua.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name.String()))
@@ -290,7 +290,7 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 ) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
-		NumericalAggregations: map[string]float64{},
+		NumericalAggregations: map[string]interface{}{},
 	}
 
 	b := ua.store.Bucket(helpers.ObjectsBucketLSM)

@@ -24,7 +24,19 @@ func addNumericalAggregations(prop *aggregation.Property,
 	aggs []aggregation.Aggregator, agg *numericalAggregator,
 ) {
 	if prop.NumericalAggregations == nil {
-		prop.NumericalAggregations = map[string]float64{}
+		prop.NumericalAggregations = map[string]interface{}{}
+	}
+
+	// if there are no elements to aggregate over because a filter does not match anything, calculating mean etc. makes
+	// no sense. Non-existent entries evaluate to nil with an interface{} map
+	if agg.count == 0 {
+		for _, entry := range aggs {
+			if entry == aggregation.CountAggregator {
+				prop.NumericalAggregations["count"] = agg.count
+				break
+			}
+		}
+		return
 	}
 
 	for _, aProp := range aggs {

@@ -59,7 +59,7 @@ func (sc *ShardCombiner) combineGrouped(results []*aggregation.Result) *aggregat
 					// set the dummy rounds prop which is used as a counter for means,
 					// etc.
 					if shardGroup.Properties[propName].NumericalAggregations != nil {
-						shardGroup.Properties[propName].NumericalAggregations["_rounds"] = 1
+						shardGroup.Properties[propName].NumericalAggregations["_rounds"] = 1.
 					}
 				}
 				combined.Groups = append(combined.Groups, shardGroup)
@@ -96,7 +96,7 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 		switch prop.Type {
 		case aggregation.PropertyTypeNumerical:
 			if combinedProp.NumericalAggregations == nil {
-				combinedProp.NumericalAggregations = map[string]float64{}
+				combinedProp.NumericalAggregations = map[string]interface{}{}
 			}
 			combinedProp.NumericalAggregations = sc.mergeNumericalProp(
 				combinedProp.NumericalAggregations, prop.NumericalAggregations)
@@ -112,51 +112,53 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 	}
 }
 
-func (sc ShardCombiner) mergeNumericalProp(combined, source map[string]float64) map[string]float64 {
+func (sc ShardCombiner) mergeNumericalProp(combined, source map[string]interface{}) map[string]interface{} {
 	if len(source) == 0 {
 		return combined
 	}
 
 	for propType, value := range source {
 		switch propType {
-		case "mean":
-			combined["mean"] = combined["mean"] + value
-		case "mode":
-			combined["mode"] = combined["mode"] + value
-		case "median":
-			combined["median"] = combined["median"] + value
-		case "count":
-			combined["count"] = combined["count"] + value
+		case "mean", "mode", "median", "count", "sum":
+			if val, ok := combined[propType]; ok {
+				combined[propType] = val.(float64) + value.(float64)
+			} else {
+				combined[propType] = value
+			}
 		case "minimum":
-			if _, ok := combined["minimum"]; !ok || value < combined["minimum"] {
+			if _, ok := combined["minimum"]; !ok || value.(float64) < combined["minimum"].(float64) {
 				combined["minimum"] = value
 			}
 		case "maximum":
-			if value > combined["maximum"] {
+			if _, ok := combined["maximum"]; !ok || value.(float64) > combined["maximum"].(float64) {
 				combined["maximum"] = value
 			}
-		case "sum":
-			combined["sum"] = combined["sum"] + value
-
 		default:
 			panic("unkwnon prop type: " + propType)
 		}
 	}
 
-	combined["_rounds"]++
+	valMean, ok := combined["_rounds"]
+	if ok {
+		val := valMean.(float64)
+		val++
+		combined["_rounds"] = val
+	} else {
+		combined["_rounds"] = 1.
+	}
 
 	return combined
 }
 
-func (sc ShardCombiner) finalizeNumerical(combined map[string]float64) map[string]float64 {
+func (sc ShardCombiner) finalizeNumerical(combined map[string]interface{}) map[string]interface{} {
 	if _, ok := combined["mean"]; ok {
-		combined["mean"] = combined["mean"] / combined["_rounds"]
+		combined["mean"] = combined["mean"].(float64) / combined["_rounds"].(float64)
 	}
 	if _, ok := combined["mode"]; ok {
-		combined["mode"] = combined["mode"] / combined["_rounds"]
+		combined["mode"] = combined["mode"].(float64) / combined["_rounds"].(float64)
 	}
 	if _, ok := combined["median"]; ok {
-		combined["median"] = combined["median"] / combined["_rounds"]
+		combined["median"] = combined["median"].(float64) / combined["_rounds"].(float64)
 	}
 	delete(combined, "_rounds")
 	return combined
