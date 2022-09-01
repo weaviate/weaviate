@@ -322,6 +322,23 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	// Note: this data would fit the "Set" type better, but since the "Map" type
+	// is currently optimized better, it is more efficient to use a Map here.
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.DimensionsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly

@@ -249,6 +249,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "store field length values for props")
 	}
 
+	err = s.extendDimensionTrackerLSM(len(object.Vector), status.docID)
+	if err != nil {
+		return errors.Wrap(err, "track dimensions")
+	}
+
 	return nil
 }
 
@@ -308,6 +313,8 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
+
+	// TODO: remove previous dim count
 
 	return nil
 }

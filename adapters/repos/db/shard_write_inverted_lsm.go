@@ -161,3 +161,26 @@ func (s *Shard) addPropLengths(props []inverted.Property) error {
 
 	return nil
 }
+
+func (s *Shard) extendDimensionTrackerLSM(
+	count int, docID uint64,
+) error {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("no bucket dimensions")
+	}
+
+	// 8 bytes for dim count (row key), 8 bytes for doc id (map key), 0 bytes for
+	// map value
+	buf := make([]byte, 16)
+
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(count))
+	binary.LittleEndian.PutUint64(buf[8:16], docID)
+
+	pair := lsmkv.MapPair{
+		Key:   buf[8:16],
+		Value: buf[16:16],
+	}
+
+	return b.MapSet(buf[0:8], pair)
+}
