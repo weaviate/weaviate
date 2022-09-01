@@ -87,7 +87,8 @@ func NewObjectsListOK() *ObjectsListOK {
 	return &ObjectsListOK{}
 }
 
-/*ObjectsListOK handles this case with default header values.
+/*
+ObjectsListOK handles this case with default header values.
 
 Successful response.
 */
@@ -120,7 +121,8 @@ func NewObjectsListBadRequest() *ObjectsListBadRequest {
 	return &ObjectsListBadRequest{}
 }
 
-/*ObjectsListBadRequest handles this case with default header values.
+/*
+ObjectsListBadRequest handles this case with default header values.
 
 Malformed request.
 */
@@ -153,7 +155,8 @@ func NewObjectsListUnauthorized() *ObjectsListUnauthorized {
 	return &ObjectsListUnauthorized{}
 }
 
-/*ObjectsListUnauthorized handles this case with default header values.
+/*
+ObjectsListUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -174,7 +177,8 @@ func NewObjectsListForbidden() *ObjectsListForbidden {
 	return &ObjectsListForbidden{}
 }
 
-/*ObjectsListForbidden handles this case with default header values.
+/*
+ObjectsListForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -207,7 +211,8 @@ func NewObjectsListNotFound() *ObjectsListNotFound {
 	return &ObjectsListNotFound{}
 }
 
-/*ObjectsListNotFound handles this case with default header values.
+/*
+ObjectsListNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -228,7 +233,8 @@ func NewObjectsListUnprocessableEntity() *ObjectsListUnprocessableEntity {
 	return &ObjectsListUnprocessableEntity{}
 }
 
-/*ObjectsListUnprocessableEntity handles this case with default header values.
+/*
+ObjectsListUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -261,7 +267,8 @@ func NewObjectsListInternalServerError() *ObjectsListInternalServerError {
 	return &ObjectsListInternalServerError{}
 }
 
-/*ObjectsListInternalServerError handles this case with default header values.
+/*
+ObjectsListInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

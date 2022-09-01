@@ -25,7 +25,8 @@ import (
 // WeaviateWellknownLivenessOKCode is the HTTP code returned for type WeaviateWellknownLivenessOK
 const WeaviateWellknownLivenessOKCode int = 200
 
-/*WeaviateWellknownLivenessOK The application is able to respond to HTTP requests
+/*
+WeaviateWellknownLivenessOK The application is able to respond to HTTP requests
 
 swagger:response weaviateWellknownLivenessOK
 */

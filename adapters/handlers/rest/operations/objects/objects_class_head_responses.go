@@ -27,7 +27,8 @@ import (
 // ObjectsClassHeadNoContentCode is the HTTP code returned for type ObjectsClassHeadNoContent
 const ObjectsClassHeadNoContentCode int = 204
 
-/*ObjectsClassHeadNoContent Object exists.
+/*
+ObjectsClassHeadNoContent Object exists.
 
 swagger:response objectsClassHeadNoContent
 */
@@ -51,7 +52,8 @@ func (o *ObjectsClassHeadNoContent) WriteResponse(rw http.ResponseWriter, produc
 // ObjectsClassHeadUnauthorizedCode is the HTTP code returned for type ObjectsClassHeadUnauthorized
 const ObjectsClassHeadUnauthorizedCode int = 401
 
-/*ObjectsClassHeadUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsClassHeadUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassHeadUnauthorized
 */
@@ -75,7 +77,8 @@ func (o *ObjectsClassHeadUnauthorized) WriteResponse(rw http.ResponseWriter, pro
 // ObjectsClassHeadForbiddenCode is the HTTP code returned for type ObjectsClassHeadForbidden
 const ObjectsClassHeadForbiddenCode int = 403
 
-/*ObjectsClassHeadForbidden Forbidden
+/*
+ObjectsClassHeadForbidden Forbidden
 
 swagger:response objectsClassHeadForbidden
 */
@@ -119,7 +122,8 @@ func (o *ObjectsClassHeadForbidden) WriteResponse(rw http.ResponseWriter, produc
 // ObjectsClassHeadNotFoundCode is the HTTP code returned for type ObjectsClassHeadNotFound
 const ObjectsClassHeadNotFoundCode int = 404
 
-/*ObjectsClassHeadNotFound Object doesn't exist.
+/*
+ObjectsClassHeadNotFound Object doesn't exist.
 
 swagger:response objectsClassHeadNotFound
 */
@@ -143,7 +147,8 @@ func (o *ObjectsClassHeadNotFound) WriteResponse(rw http.ResponseWriter, produce
 // ObjectsClassHeadInternalServerErrorCode is the HTTP code returned for type ObjectsClassHeadInternalServerError
 const ObjectsClassHeadInternalServerErrorCode int = 500
 
-/*ObjectsClassHeadInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsClassHeadInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsClassHeadInternalServerError
 */

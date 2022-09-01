@@ -66,7 +66,8 @@ func NewClassificationsGetParamsWithHTTPClient(client *http.Client) *Classificat
 	}
 }
 
-/*ClassificationsGetParams contains all the parameters to send to the API endpoint
+/*
+ClassificationsGetParams contains all the parameters to send to the API endpoint
 for the classifications get operation typically these are written to a http.Request
 */
 type ClassificationsGetParams struct {

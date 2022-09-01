@@ -42,12 +42,12 @@ func NewObjectsReferencesCreate(ctx *middleware.Context, handler ObjectsReferenc
 	return &ObjectsReferencesCreate{Context: ctx, Handler: handler}
 }
 
-/*ObjectsReferencesCreate swagger:route POST /objects/{id}/references/{propertyName} objects objectsReferencesCreate
+/*
+ObjectsReferencesCreate swagger:route POST /objects/{id}/references/{propertyName} objects objectsReferencesCreate
 
 Add a single reference to a class-property.
 
 Add a single reference to a class-property.
-
 */
 type ObjectsReferencesCreate struct {
 	Context *middleware.Context

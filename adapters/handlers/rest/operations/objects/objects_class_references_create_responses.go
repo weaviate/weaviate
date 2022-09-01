@@ -27,7 +27,8 @@ import (
 // ObjectsClassReferencesCreateOKCode is the HTTP code returned for type ObjectsClassReferencesCreateOK
 const ObjectsClassReferencesCreateOKCode int = 200
 
-/*ObjectsClassReferencesCreateOK Successfully added the reference.
+/*
+ObjectsClassReferencesCreateOK Successfully added the reference.
 
 swagger:response objectsClassReferencesCreateOK
 */
@@ -51,7 +52,8 @@ func (o *ObjectsClassReferencesCreateOK) WriteResponse(rw http.ResponseWriter, p
 // ObjectsClassReferencesCreateUnauthorizedCode is the HTTP code returned for type ObjectsClassReferencesCreateUnauthorized
 const ObjectsClassReferencesCreateUnauthorizedCode int = 401
 
-/*ObjectsClassReferencesCreateUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsClassReferencesCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassReferencesCreateUnauthorized
 */
@@ -75,7 +77,8 @@ func (o *ObjectsClassReferencesCreateUnauthorized) WriteResponse(rw http.Respons
 // ObjectsClassReferencesCreateForbiddenCode is the HTTP code returned for type ObjectsClassReferencesCreateForbidden
 const ObjectsClassReferencesCreateForbiddenCode int = 403
 
-/*ObjectsClassReferencesCreateForbidden Forbidden
+/*
+ObjectsClassReferencesCreateForbidden Forbidden
 
 swagger:response objectsClassReferencesCreateForbidden
 */
@@ -119,7 +122,8 @@ func (o *ObjectsClassReferencesCreateForbidden) WriteResponse(rw http.ResponseWr
 // ObjectsClassReferencesCreateNotFoundCode is the HTTP code returned for type ObjectsClassReferencesCreateNotFound
 const ObjectsClassReferencesCreateNotFoundCode int = 404
 
-/*ObjectsClassReferencesCreateNotFound Source object doesn't exist.
+/*
+ObjectsClassReferencesCreateNotFound Source object doesn't exist.
 
 swagger:response objectsClassReferencesCreateNotFound
 */
@@ -143,7 +147,8 @@ func (o *ObjectsClassReferencesCreateNotFound) WriteResponse(rw http.ResponseWri
 // ObjectsClassReferencesCreateUnprocessableEntityCode is the HTTP code returned for type ObjectsClassReferencesCreateUnprocessableEntity
 const ObjectsClassReferencesCreateUnprocessableEntityCode int = 422
 
-/*ObjectsClassReferencesCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+/*
+ObjectsClassReferencesCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 
 swagger:response objectsClassReferencesCreateUnprocessableEntity
 */
@@ -187,7 +192,8 @@ func (o *ObjectsClassReferencesCreateUnprocessableEntity) WriteResponse(rw http.
 // ObjectsClassReferencesCreateInternalServerErrorCode is the HTTP code returned for type ObjectsClassReferencesCreateInternalServerError
 const ObjectsClassReferencesCreateInternalServerErrorCode int = 500
 
-/*ObjectsClassReferencesCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsClassReferencesCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsClassReferencesCreateInternalServerError
 */

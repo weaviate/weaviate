@@ -69,7 +69,8 @@ func NewSchemaDumpOK() *SchemaDumpOK {
 	return &SchemaDumpOK{}
 }
 
-/*SchemaDumpOK handles this case with default header values.
+/*
+SchemaDumpOK handles this case with default header values.
 
 Successfully dumped the database schema.
 */
@@ -102,7 +103,8 @@ func NewSchemaDumpUnauthorized() *SchemaDumpUnauthorized {
 	return &SchemaDumpUnauthorized{}
 }
 
-/*SchemaDumpUnauthorized handles this case with default header values.
+/*
+SchemaDumpUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -123,7 +125,8 @@ func NewSchemaDumpForbidden() *SchemaDumpForbidden {
 	return &SchemaDumpForbidden{}
 }
 
-/*SchemaDumpForbidden handles this case with default header values.
+/*
+SchemaDumpForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -156,7 +159,8 @@ func NewSchemaDumpInternalServerError() *SchemaDumpInternalServerError {
 	return &SchemaDumpInternalServerError{}
 }
 
-/*SchemaDumpInternalServerError handles this case with default header values.
+/*
+SchemaDumpInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

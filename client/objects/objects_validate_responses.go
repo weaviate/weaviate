@@ -75,7 +75,8 @@ func NewObjectsValidateOK() *ObjectsValidateOK {
 	return &ObjectsValidateOK{}
 }
 
-/*ObjectsValidateOK handles this case with default header values.
+/*
+ObjectsValidateOK handles this case with default header values.
 
 Successfully validated.
 */
@@ -96,7 +97,8 @@ func NewObjectsValidateUnauthorized() *ObjectsValidateUnauthorized {
 	return &ObjectsValidateUnauthorized{}
 }
 
-/*ObjectsValidateUnauthorized handles this case with default header values.
+/*
+ObjectsValidateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -117,7 +119,8 @@ func NewObjectsValidateForbidden() *ObjectsValidateForbidden {
 	return &ObjectsValidateForbidden{}
 }
 
-/*ObjectsValidateForbidden handles this case with default header values.
+/*
+ObjectsValidateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -150,7 +153,8 @@ func NewObjectsValidateUnprocessableEntity() *ObjectsValidateUnprocessableEntity
 	return &ObjectsValidateUnprocessableEntity{}
 }
 
-/*ObjectsValidateUnprocessableEntity handles this case with default header values.
+/*
+ObjectsValidateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -183,7 +187,8 @@ func NewObjectsValidateInternalServerError() *ObjectsValidateInternalServerError
 	return &ObjectsValidateInternalServerError{}
 }
 
-/*ObjectsValidateInternalServerError handles this case with default header values.
+/*
+ObjectsValidateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
