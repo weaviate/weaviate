@@ -278,7 +278,14 @@ func (m *StorageFileSystemModule) saveMeta(snapshot *backup.Snapshot) error {
 			errors.Wrapf(err, "create meta file for snapshot '%v'", snapshot.ID))
 	}
 
-	if err := os.WriteFile(metaFile, content, os.ModePerm); err != nil {
+	// We first need to write to a temporary file because there might be a status request
+	// during the write operation which will try to read the snapshot.json file
+	// and if this request will occur during the WriteFile operation then this
+	// status request may encounter an empty file (because it's being overwritten)
+	// In order to solve this problem we first save a new snapshot.json file to a temporary
+	// file, and then rename it, that way we always have a snapshot.json file present
+	tmpMetaFile := fmt.Sprintf("%s%s", metaFile, ".tmp")
+	if err := os.WriteFile(tmpMetaFile, content, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "save_meta").
 			WithField("snapshot_classname", snapshot.ClassName).
@@ -286,7 +293,18 @@ func (m *StorageFileSystemModule) saveMeta(snapshot *backup.Snapshot) error {
 			WithError(err).
 			Errorf("failed creating meta file")
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "create meta file for snapshot %v", snapshot.ID))
+			errors.Wrapf(err, "create temporary meta file for snapshot %v", snapshot.ID))
+	}
+
+	if os.Rename(tmpMetaFile, metaFile); err != nil {
+		m.logger.WithField("module", m.Name()).
+			WithField("action", "rename_meta").
+			WithField("snapshot_classname", snapshot.ClassName).
+			WithField("snapshot_id", snapshot.ID).
+			WithError(err).
+			Errorf("failed to rename meta file")
+		return backup.NewErrInternal(
+			errors.Wrapf(err, "rename temporary meta file for snapshot %v", snapshot.ID))
 	}
 
 	return nil
