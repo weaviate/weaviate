@@ -12,9 +12,9 @@
 package rest
 
 import (
-	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/entities/backup"
@@ -45,100 +45,106 @@ type backupHandlers struct {
 	manager *ubak.Manager
 }
 
-func (s *backupHandlers) createBackup(params schema.SchemaObjectsSnapshotsCreateParams,
+func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	// TODO: update s.manager.CreateBackup to receive list of classes
 	meta, err := s.manager.CreateBackup(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.StorageName, params.ID)
+		params.Body.Include[0], params.StorageName, params.Body.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsCreateForbidden().
+			return backups.NewBackupsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrUnprocessable:
-			return schema.NewSchemaObjectsSnapshotsCreateUnprocessableEntity().
+			return backups.NewBackupsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaObjectsSnapshotsCreateInternalServerError().
+			return backups.NewBackupsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.NewSchemaObjectsSnapshotsCreateOK().WithPayload(meta)
+	return backups.NewBackupsCreateOK().WithPayload(meta)
 }
 
-func (s *backupHandlers) createBackupStatus(params schema.SchemaObjectsSnapshotsCreateStatusParams,
+func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	// TODO: update s.manager.CreateBackupStatus to fetch the target classes internally
 	status, err := s.manager.CreateBackupStatus(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.StorageName, params.ID)
+		"", params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsCreateStatusForbidden().
+			return backups.NewBackupsCreateStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrNotFound:
-			return schema.NewSchemaObjectsSnapshotsCreateStatusNotFound().
+			return backups.NewBackupsCreateStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaObjectsSnapshotsCreateStatusInternalServerError().
+			return backups.NewBackupsCreateStatusInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	return schema.NewSchemaObjectsSnapshotsCreateStatusOK().WithPayload(status)
+	return backups.NewBackupsCreateStatusOK().WithPayload(status)
 }
 
-func (s *backupHandlers) restoreBackup(params schema.SchemaObjectsSnapshotsRestoreParams,
+func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	// TODO: update s.manager.RestoreBackup to receive list of classes
 	meta, err := s.manager.RestoreBackup(params.HTTPRequest.Context(), principal,
-		params.ClassName, params.StorageName, params.ID)
+		params.Body.Include[0], params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
+			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrNotFound:
-			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
+			return backups.NewBackupsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrUnprocessable:
-			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
+			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaObjectsSnapshotsRestoreInternalServerError().
+			return backups.NewBackupsRestoreInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.NewSchemaObjectsSnapshotsRestoreOK().WithPayload(meta)
+	return backups.NewBackupsRestoreOK().WithPayload(meta)
 }
 
-func (s *backupHandlers) restoreBackupStatus(params schema.SchemaObjectsSnapshotsRestoreStatusParams,
+func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, restoreError, path, err := s.manager.RestoreBackupStatus(params.HTTPRequest.Context(), principal, params.ClassName, params.StorageName, params.ID)
+	// TODO: update s.manager.RestoreBackupStatus to fetch the target classes internally
+	status, restoreError, path, err := s.manager.RestoreBackupStatus(
+		params.HTTPRequest.Context(), principal, "", params.StorageName, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewSchemaObjectsSnapshotsRestoreForbidden().
+			return backups.NewBackupsRestoreForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrNotFound:
-			return schema.NewSchemaObjectsSnapshotsRestoreNotFound().
+			return backups.NewBackupsRestoreNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrUnprocessable:
-			return schema.NewSchemaObjectsSnapshotsRestoreUnprocessableEntity().
+			return backups.NewBackupsRestoreUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewSchemaObjectsSnapshotsRestoreInternalServerError().
+			return backups.NewBackupsRestoreInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return schema.
-		NewSchemaObjectsSnapshotsRestoreStatusOK().
-		WithPayload(&models.SnapshotRestoreMeta{
-			Status:      &status,
-			ClassName:   params.ClassName,
+	return backups.NewBackupsRestoreStatusOK().
+		WithPayload(&models.BackupRestoreMeta{
+			Status: &status,
+			// TODO: fetch the target classes internally
+			//       and pass them back up here to set
+			Classes:     []string{},
 			Error:       restoreError,
 			ID:          params.ID,
 			Path:        path,
@@ -156,12 +162,12 @@ func setupBackupHandlers(api *operations.WeaviateAPI, schemaManger *schemaUC.Man
 		appState.Modules, shardingStateFunc)
 
 	h := &backupHandlers{backupManager}
-	api.SchemaSchemaObjectsSnapshotsCreateHandler = schema.
-		SchemaObjectsSnapshotsCreateHandlerFunc(h.createBackup)
-	api.SchemaSchemaObjectsSnapshotsCreateStatusHandler = schema.
-		SchemaObjectsSnapshotsCreateStatusHandlerFunc(h.createBackupStatus)
-	api.SchemaSchemaObjectsSnapshotsRestoreHandler = schema.
-		SchemaObjectsSnapshotsRestoreHandlerFunc(h.restoreBackup)
-	api.SchemaSchemaObjectsSnapshotsRestoreStatusHandler = schema.
-		SchemaObjectsSnapshotsRestoreStatusHandlerFunc(h.restoreBackupStatus)
+	api.BackupsBackupsCreateHandler = backups.
+		BackupsCreateHandlerFunc(h.createBackup)
+	api.BackupsBackupsCreateStatusHandler = backups.
+		BackupsCreateStatusHandlerFunc(h.createBackupStatus)
+	api.BackupsBackupsRestoreHandler = backups.
+		BackupsRestoreHandlerFunc(h.restoreBackup)
+	api.BackupsBackupsRestoreStatusHandler = backups.
+		BackupsRestoreStatusHandlerFunc(h.restoreBackupStatus)
 }

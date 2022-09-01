@@ -78,7 +78,7 @@ func NewBatchReferencesCreateOK() *BatchReferencesCreateOK {
 /*
 BatchReferencesCreateOK handles this case with default header values.
 
-Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
+Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
 */
 type BatchReferencesCreateOK struct {
 	Payload []*models.BatchReferenceResponse

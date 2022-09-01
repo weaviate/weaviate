@@ -25,21 +25,24 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SnapshotMeta The definition of a snapshot metadata
+// BackupCreateMeta The definition of a backup create metadata
 //
-// swagger:model SnapshotMeta
-type SnapshotMeta struct {
+// swagger:model BackupCreateMeta
+type BackupCreateMeta struct {
+
+	// The list of classes for which the backup creation process was started
+	Classes []string `json:"classes"`
 
 	// error message if creation failed
 	Error string `json:"error,omitempty"`
 
-	// The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
+	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// destination path of snapshot files proper to selected storage
+	// destination path of backup files proper to selected storage
 	Path string `json:"path,omitempty"`
 
-	// phase of snapshot creation process
+	// phase of backup creation process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]
 	Status *string `json:"status,omitempty"`
 
@@ -47,8 +50,8 @@ type SnapshotMeta struct {
 	StorageName string `json:"storageName,omitempty"`
 }
 
-// Validate validates this snapshot meta
-func (m *SnapshotMeta) Validate(formats strfmt.Registry) error {
+// Validate validates this backup create meta
+func (m *BackupCreateMeta) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateStatus(formats); err != nil {
@@ -61,7 +64,7 @@ func (m *SnapshotMeta) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var snapshotMetaTypeStatusPropEnum []interface{}
+var backupCreateMetaTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -69,37 +72,37 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		snapshotMetaTypeStatusPropEnum = append(snapshotMetaTypeStatusPropEnum, v)
+		backupCreateMetaTypeStatusPropEnum = append(backupCreateMetaTypeStatusPropEnum, v)
 	}
 }
 
 const (
 
-	// SnapshotMetaStatusSTARTED captures enum value "STARTED"
-	SnapshotMetaStatusSTARTED string = "STARTED"
+	// BackupCreateMetaStatusSTARTED captures enum value "STARTED"
+	BackupCreateMetaStatusSTARTED string = "STARTED"
 
-	// SnapshotMetaStatusTRANSFERRING captures enum value "TRANSFERRING"
-	SnapshotMetaStatusTRANSFERRING string = "TRANSFERRING"
+	// BackupCreateMetaStatusTRANSFERRING captures enum value "TRANSFERRING"
+	BackupCreateMetaStatusTRANSFERRING string = "TRANSFERRING"
 
-	// SnapshotMetaStatusTRANSFERRED captures enum value "TRANSFERRED"
-	SnapshotMetaStatusTRANSFERRED string = "TRANSFERRED"
+	// BackupCreateMetaStatusTRANSFERRED captures enum value "TRANSFERRED"
+	BackupCreateMetaStatusTRANSFERRED string = "TRANSFERRED"
 
-	// SnapshotMetaStatusSUCCESS captures enum value "SUCCESS"
-	SnapshotMetaStatusSUCCESS string = "SUCCESS"
+	// BackupCreateMetaStatusSUCCESS captures enum value "SUCCESS"
+	BackupCreateMetaStatusSUCCESS string = "SUCCESS"
 
-	// SnapshotMetaStatusFAILED captures enum value "FAILED"
-	SnapshotMetaStatusFAILED string = "FAILED"
+	// BackupCreateMetaStatusFAILED captures enum value "FAILED"
+	BackupCreateMetaStatusFAILED string = "FAILED"
 )
 
 // prop value enum
-func (m *SnapshotMeta) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, snapshotMetaTypeStatusPropEnum, true); err != nil {
+func (m *BackupCreateMeta) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, backupCreateMetaTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *SnapshotMeta) validateStatus(formats strfmt.Registry) error {
+func (m *BackupCreateMeta) validateStatus(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Status) { // not required
 		return nil
@@ -114,7 +117,7 @@ func (m *SnapshotMeta) validateStatus(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *SnapshotMeta) MarshalBinary() ([]byte, error) {
+func (m *BackupCreateMeta) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -122,8 +125,8 @@ func (m *SnapshotMeta) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SnapshotMeta) UnmarshalBinary(b []byte) error {
-	var res SnapshotMeta
+func (m *BackupCreateMeta) UnmarshalBinary(b []byte) error {
+	var res BackupCreateMeta
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

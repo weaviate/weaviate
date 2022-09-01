@@ -59,7 +59,7 @@ type Classification struct {
 	// Enum: [running completed failed]
 	Status string `json:"status,omitempty"`
 
-	// which algorythim to use for classifications
+	// which algorithm to use for classifications
 	Type string `json:"type,omitempty"`
 }
 

@@ -28,7 +28,7 @@ import (
 const BatchReferencesCreateOKCode int = 200
 
 /*
-BatchReferencesCreateOK Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
+BatchReferencesCreateOK Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
 
 swagger:response batchReferencesCreateOK
 */
