@@ -19,6 +19,8 @@ import (
 )
 
 func Test_BackupJourney(t *testing.T) {
+	t.Skip("to be enabled after finishing WEAVIATE-278")
+
 	t.Run("storage-filesystem", func(t *testing.T) {
 		journey.BackupJourneyTests(t, os.Getenv(weaviateEndpoint),
 			"filesystem", "FileSystemClass", "filesystem-snapshot-1")
