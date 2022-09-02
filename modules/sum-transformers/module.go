@@ -69,7 +69,7 @@ func (m *SUMModule) initAdditional(ctx context.Context,
 		return errors.Wrap(err, "init remote sum module")
 	}
 
-	// m.sum = client
+	m.sum = client
 
 	tokenProvider := sumadditionalsummary.New(m.sum)
 	m.additionalPropertiesProvider = sumadditional.New(tokenProvider)
