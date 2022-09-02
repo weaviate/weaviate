@@ -12,6 +12,8 @@
 package summary
 
 import (
+	"log"
+
 	"github.com/graphql-go/graphql/language/ast"
 )
 
@@ -30,6 +32,7 @@ func (p *SummaryProvider) parseSummaryArguments(args []*ast.Argument) *Params {
 
 		default:
 			// ignore what we don't recognize
+			log.Printf("Igonore not recognized value: %v", arg.Name.Value)
 		}
 	}
 
