@@ -76,13 +76,15 @@ func (s *Shard) initProperties() error {
 		})
 	}
 
-	eg.Go(func() error {
-		if err := s.addDimensionsProperty(context.TODO()); err != nil {
-			return errors.Wrap(err, "init id property")
-		}
+	if featureFlag {
+		eg.Go(func() error {
+			if err := s.addDimensionsProperty(context.TODO()); err != nil {
+				return errors.Wrap(err, "init id property")
+			}
 
-		return nil
-	})
+			return nil
+		})
+	}
 
 	return eg.Wait()
 }

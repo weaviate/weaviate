@@ -249,9 +249,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "store field length values for props")
 	}
 
-	err = s.extendDimensionTrackerLSM(len(object.Vector), status.docID)
-	if err != nil {
-		return errors.Wrap(err, "track dimensions")
+	if featureFlag {
+		err = s.extendDimensionTrackerLSM(len(object.Vector), status.docID)
+		if err != nil {
+			return errors.Wrap(err, "track dimensions")
+		}
 	}
 
 	return nil
