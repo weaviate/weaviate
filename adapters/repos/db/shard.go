@@ -205,6 +205,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
+	s.initDimensionTracking()
+
 	return s, nil
 }
 
