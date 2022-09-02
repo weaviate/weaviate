@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	sumadditional "github.com/semi-technologies/weaviate/modules/sum-transformers/additional"
 	sumadditionalsummary "github.com/semi-technologies/weaviate/modules/sum-transformers/additional/summary"
-	"github.com/semi-technologies/weaviate/modules/sum-transformers/clients"
+	"github.com/semi-technologies/weaviate/modules/sum-transformers/client"
 	"github.com/semi-technologies/weaviate/modules/sum-transformers/ent"
 	"github.com/sirupsen/logrus"
 )
@@ -64,12 +64,12 @@ func (m *SUMModule) initAdditional(ctx context.Context,
 		return errors.Errorf("required variable SUM_INFERENCE_API is not set")
 	}
 
-	client := clients.New(uri, logger)
+	client := client.New(uri, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote sum module")
 	}
 
-	m.sum = client
+	// m.sum = client
 
 	tokenProvider := sumadditionalsummary.New(m.sum)
 	m.additionalPropertiesProvider = sumadditional.New(tokenProvider)
