@@ -8,8 +8,13 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
+var featureFlag = false // TODO
+
 func (s *Shard) initDimensionTracking() {
-	// TODO: check feature flag and disable if not set
+	// TODO: check real feature flag and disable if not set
+	if !featureFlag {
+		return
+	}
 
 	// TODO cancel
 
