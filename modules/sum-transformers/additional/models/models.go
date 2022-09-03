@@ -10,10 +10,3 @@
 //
 
 package models
-
-// Summary used in sum module to represent
-// the summary to a given content
-type Summary struct {
-	Property string `json:"property,omitempty"`
-	Result   string `json:"result,omitempty"`
-}
