@@ -16,7 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/pkg/errors"
@@ -53,8 +53,8 @@ func New(origin string, logger logrus.FieldLogger) *client {
 	}
 }
 
-func (v *client) GetSummary(ctx context.Context, property,
-	text string) ([]ent.SummaryResult, error) {
+func (v *client) GetSummary(ctx context.Context, property, text string,
+) ([]ent.SummaryResult, error) {
 	body, err := json.Marshal(sumInput{
 		Text: text,
 	})
@@ -74,7 +74,7 @@ func (v *client) GetSummary(ctx context.Context, property,
 	}
 	defer res.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(res.Body)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}

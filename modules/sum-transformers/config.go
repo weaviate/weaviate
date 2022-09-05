@@ -24,13 +24,14 @@ func (m *SUMModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (m *SUMModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+func (m *SUMModule) PropertyConfigDefaults(dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
 func (m *SUMModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	return nil
 }
 
