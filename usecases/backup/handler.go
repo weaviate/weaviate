@@ -215,7 +215,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		status := RestoreStatus{
 			Path:      destPath,
 			StartedAt: time.Now().UTC(),
-			Status:    backup.Started,
+			Status:    backup.Transferring,
 			Err:       nil,
 		}
 		defer func() {
