@@ -16,30 +16,23 @@ import (
 
 	"github.com/semi-technologies/weaviate/client/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/stretchr/testify/require"
 )
 
-func CreateBackup(t *testing.T, className, storageName, snapshotID string) {
+func CreateBackup(t *testing.T, className, storageName, snapshotID string) (*backups.BackupsCreateOK, error) {
 	params := backups.NewBackupsCreateParams().
 		WithStorageName(storageName).
 		WithBody(&models.BackupCreateRequest{
 			ID:      snapshotID,
 			Include: []string{className},
 		})
-	resp, err := Client(t).Backups.BackupsCreate(params, nil)
-	AssertRequestOk(t, resp, err, nil)
+	return Client(t).Backups.BackupsCreate(params, nil)
 }
 
-func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupCreateStatusResponse {
+func CreateBackupStatus(t *testing.T, storageName, snapshotID string) (*backups.BackupsCreateStatusOK, error) {
 	params := backups.NewBackupsCreateStatusParams().
 		WithStorageName(storageName).
 		WithID(snapshotID)
-	resp, err := Client(t).Backups.BackupsCreateStatus(params, nil)
-	if err != nil {
-		t.Fatalf("expected nil err, got: %s", err.Error())
-	}
-
-	return resp.Payload
+	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
 func RestoreBackup(t *testing.T, className, storageName, snapshotID string) {
@@ -53,12 +46,9 @@ func RestoreBackup(t *testing.T, className, storageName, snapshotID string) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func RestoreBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupRestoreStatusResponse {
+func RestoreBackupStatus(t *testing.T, className, storageName, snapshotID string) (*backups.BackupsRestoreStatusOK, error) {
 	params := backups.NewBackupsRestoreStatusParams().
 		WithStorageName(storageName).
 		WithID(snapshotID)
-	resp, err := Client(t).Backups.BackupsRestoreStatus(params, nil)
-	require.Nil(t, err)
-
-	return resp.Payload
+	return Client(t).Backups.BackupsRestoreStatus(params, nil)
 }

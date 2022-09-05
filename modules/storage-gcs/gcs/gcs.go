@@ -121,7 +121,7 @@ func (g *gcs) GetObject(ctx context.Context, snapshotID, key string) ([]byte, er
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	contents, err := g.getObject(ctx, bucket, "", objectName)
+	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))

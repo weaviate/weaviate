@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
@@ -89,18 +90,18 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
 	}
-	d.DocIDCounterPath = fpath
+	d.DocIDCounterPath = path.Base(fpath)
 
 	fpath = s.propLengths.FileName()
 	if d.PropLengthTracker, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard prop-lengths %s: %w", fpath, err)
 	}
-	d.PropLengthTrackerPath = fpath
+	d.PropLengthTrackerPath = path.Base(fpath)
 
 	fpath = s.versioner.path
 	if d.Version, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard version %s: %w", fpath, err)
 	}
-	d.ShardVersionPath = fpath
+	d.ShardVersionPath = path.Base(fpath)
 	return nil
 }
