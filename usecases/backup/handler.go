@@ -152,7 +152,6 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	} else {
 		status := string(meta.Status)
 		return &models.BackupCreateMeta{
-			Classes:     classes,
 			ID:          req.ID,
 			StorageName: req.StorageType,
 			Status:      &status,
@@ -203,9 +202,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	}
 	status := string(backup.Started)
 	// TODO use request to filter out excluded classes
-	classes := meta.List()
 	returnData := &models.BackupRestoreMeta{
-		Classes:     classes,
 		ID:          req.ID,          // TODO remove since it's included in the path
 		StorageName: req.StorageType, // TODO remove since it's included in the path
 		Status:      &status,
