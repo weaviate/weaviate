@@ -25,6 +25,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Version of backup structure
+const Version = "1.0"
+
 // TODO
 // 1. maybe add node to the base path when initializing storage model
 // the base path = "bucket/node/backupid" or somthing like that

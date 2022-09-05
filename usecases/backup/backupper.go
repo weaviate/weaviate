@@ -104,6 +104,7 @@ func (b *backupper) Backup(ctx context.Context,
 			StartedAt:     time.Now().UTC(),
 			ID:            id,
 			Classes:       make([]backup.ClassDescriptor, 0, len(classes)),
+			Version:       Version,
 			ServerVersion: config.ServerVersion,
 		}
 		if err := provider.all(context.Background(), classes, &result); err != nil {

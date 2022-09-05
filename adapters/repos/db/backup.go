@@ -51,7 +51,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	go func() {
 		for _, c := range classes {
-			desc := backup.ClassDescriptor{Name: c, Node: db.config.NodeName}
+			desc := backup.ClassDescriptor{Name: c}
 			idx := db.GetIndex(schema.ClassName(c))
 			if idx == nil {
 				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
