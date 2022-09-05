@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
@@ -56,7 +55,7 @@ type Index struct {
 	remote                *sharding.RemoteIndex
 	stopwords             *stopwords.Detector
 
-	snapshotState     backup.State
+	snapshotState     BackupState
 	snapshotStateLock sync.RWMutex
 
 	invertedIndexConfig     schema.InvertedIndexConfig

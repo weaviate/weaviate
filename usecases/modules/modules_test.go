@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
@@ -492,30 +491,30 @@ func (m *dummyStorageModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Storage
 }
 
-func (m *dummyStorageModuleWithAltNames) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
-	return nil
-}
-
-func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return nil, nil
-}
-
-func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	return nil
-}
-
-func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
-	return nil
-}
-
-func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return nil, nil
-}
-
-func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId string) string {
+func (m *dummyStorageModuleWithAltNames) DestinationPath(snapshotID string) string {
 	return ""
 }
 
-func (m *dummyStorageModuleWithAltNames) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
+func (m *dummyStorageModuleWithAltNames) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
 	return nil, nil
+}
+
+func (m *dummyStorageModuleWithAltNames) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) SourceDataPath() string {
+	return ""
+}
+
+func (m *dummyStorageModuleWithAltNames) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+	return nil
+}
+
+func (m *dummyStorageModuleWithAltNames) Initialize(ctx context.Context, snapshotID string) error {
+	return nil
 }

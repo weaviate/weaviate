@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -64,8 +65,8 @@ func (m *StorageFileSystemModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *StorageFileSystemModule) DestinationPath(className, snapshotID string) string {
-	return m.makeSnapshotDirPath(className, snapshotID)
+func (m *StorageFileSystemModule) DestinationPath(snapshotID string) string {
+	return path.Join(m.makeSnapshotDirPath(snapshotID), "snapshot.json")
 }
 
 func (m *StorageFileSystemModule) RootHandler() http.Handler {
@@ -79,17 +80,8 @@ func (m *StorageFileSystemModule) MetaInfo() (map[string]interface{}, error) {
 	return metaInfo, nil
 }
 
-func (m *StorageFileSystemModule) makeSnapshotDirPath(className, id string) string {
-	return filepath.Join(m.snapshotsPath, className, id)
-}
-
-func (m *StorageFileSystemModule) makeSnapshotFilePath(className, id, relPath string) string {
-	return filepath.Join(m.makeSnapshotDirPath(className, id), relPath)
-}
-
-func (m *StorageFileSystemModule) makeMetaFilePath(className, id string) string {
-	dir := m.makeSnapshotDirPath(className, id)
-	return filepath.Join(dir, "snapshot.json")
+func (m *StorageFileSystemModule) makeSnapshotDirPath(id string) string {
+	return filepath.Join(m.snapshotsPath, id)
 }
 
 // verify we implement the modules.Module interface

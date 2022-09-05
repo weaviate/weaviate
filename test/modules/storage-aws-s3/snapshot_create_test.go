@@ -13,9 +13,9 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,6 +28,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TODO: test remaining methods
 
 func Test_S3Storage_SnapshotCreate(t *testing.T) {
 	ctx := context.Background()
@@ -51,14 +53,15 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 	defer cancel()
 
 	testdataMainDir := "./testData"
-	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	// testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
 	defer moduleshelper.RemoveDir(t, testdataMainDir)
 
 	className := "SnapshotClass"
-	snapshotID := "snapshot_id"
+	backupID := "backup_id"
 	bucketName := "bucket"
 	region := "eu-west-1"
 	endpoint := os.Getenv(envMinioEndpoint)
+	metadataFilename := "snapshot.json"
 
 	t.Run("setup env", func(t *testing.T) {
 		require.Nil(t, os.Setenv(envAwsRegion, region))
@@ -77,57 +80,51 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, path)
 		require.Nil(t, err)
 
-		snapshot, err := s3.InitSnapshot(testCtx, className, snapshotID)
-		require.Nil(t, err)
+		meta, err := s3.GetObject(testCtx, backupID, metadataFilename)
+		assert.Nil(t, meta)
+		assert.NotNil(t, err)
+		assert.IsType(t, backup.ErrNotFound{}, err)
 
-		err = s3.StoreSnapshot(testCtx, snapshot)
+		err = s3.Initialize(testCtx, backupID)
 		assert.Nil(t, err)
 
-		dest := s3.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		desc := &backup.BackupDescriptor{
+			StartedAt:   time.Now(),
+			CompletedAt: time.Time{},
+			ID:          backupID,
+			Classes: []backup.ClassDescriptor{
+				{
+					Name: className,
+				},
+			},
+			Status: string(backup.Started),
+		}
+
+		b, err := json.Marshal(desc)
+		require.Nil(t, err)
+
+		err = s3.PutObject(testCtx, backupID, metadataFilename, b)
+		require.Nil(t, err)
+
+		dest := s3.DestinationPath(backupID)
+		expected := fmt.Sprintf("s3://%s/%s/snapshot.json", bucketName, backupID)
 		assert.Equal(t, expected, dest)
 
 		t.Run("assert snapshot meta contents", func(t *testing.T) {
-			meta, err := s3.GetMeta(testCtx, className, snapshotID)
+			obj, err := s3.GetObject(testCtx, backupID, metadataFilename)
+			require.Nil(t, err)
+
+			var meta backup.BackupDescriptor
+			err = json.Unmarshal(obj, &meta)
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
-			assert.Equal(t, meta.Status, string(backup.CreateStarted))
+			assert.Equal(t, meta.Status, string(backup.Started))
 			assert.Empty(t, meta.Error)
+			assert.Len(t, meta.Classes, 1)
+			assert.Equal(t, meta.Classes[0].Name, className)
+			assert.Nil(t, meta.Classes[0].Error)
 		})
-	})
-
-	t.Run("restores snapshot data from S3", func(t *testing.T) {
-		s3Config := s3.NewConfig(endpoint, "bucket", "", false)
-		logger, _ := test.NewNullLogger()
-		path, _ := os.Getwd()
-		s3, err := s3.New(s3Config, logger, path)
-		require.Nil(t, err)
-
-		// List all files in testDir
-		files, _ := os.ReadDir(testDir)
-
-		// Remove the files, ready for restore
-		for _, f := range files {
-			require.Nil(t, os.Remove(filepath.Join(testDir, f.Name())))
-			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
-		}
-
-		// Use the previous test snapshot to test the restore function
-		_, err = s3.RestoreSnapshot(testCtx, className, snapshotID)
-		require.Nil(t, err)
-
-		assert.DirExists(t, path)
-
-		// Check that every file in the snapshot exists in testDir
-		for _, filePath := range files {
-			expectedFilePath := filepath.Join(testDir, filePath.Name())
-			assert.FileExists(t, expectedFilePath)
-		}
-
-		dest := s3.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("s3://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
-		assert.Equal(t, expected, dest)
 	})
 }
 
@@ -141,7 +138,7 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 
 	moduleshelper.CreateTestFiles(t, testDir)
 
-	className := "SnapshotClass"
+	key := "moduleLevelGetMetaStatus"
 	snapshotID := "snapshot_id"
 	bucketName := "bucket"
 	region := "eu-west-1"
@@ -159,22 +156,11 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 	s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 	logger, _ := test.NewNullLogger()
 
-	t.Run("store snapshot in s3", func(t *testing.T) {
-		s3, err := s3.New(s3Config, logger, testDir)
-		require.Nil(t, err)
-
-		snapshot, err := s3.InitSnapshot(testCtx, className, snapshotID)
-		require.Nil(t, err)
-
-		err = s3.StoreSnapshot(testCtx, snapshot)
-		assert.Nil(t, err)
-	})
-
 	t.Run("set snapshot status", func(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, testDir)
 		require.Nil(t, err)
 
-		err = s3.SetMetaStatus(testCtx, className, snapshotID, "STARTED")
+		err = s3.PutObject(testCtx, snapshotID, key, []byte("hello"))
 		assert.Nil(t, err)
 	})
 
@@ -182,8 +168,8 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, testDir)
 		require.Nil(t, err)
 
-		meta, err := s3.GetMeta(testCtx, className, snapshotID)
+		meta, err := s3.GetObject(testCtx, snapshotID, key)
 		assert.Nil(t, err)
-		assert.Equal(t, "STARTED", meta.Status)
+		assert.Equal(t, []byte("hello"), meta)
 	})
 }

@@ -20,8 +20,7 @@ import (
 
 type fakeSchemaManger struct{}
 
-func (f *fakeSchemaManger) RestoreClass(context.Context, *models.Principal,
-	*models.Class, *backup.Snapshot,
+func (f *fakeSchemaManger) RestoreClass(context.Context, *models.Principal, *backup.ClassDescriptor,
 ) error {
 	return nil
 }

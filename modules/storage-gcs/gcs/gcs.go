@@ -13,17 +13,13 @@ package gcs
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path"
-	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
@@ -78,7 +74,7 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	reader, err := obj.NewReader(ctx)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
-			return nil, backup.ErrNotFound{}
+			return nil, err
 		}
 		return nil, errors.Wrapf(err, "new reader: %v", objectName)
 	}
@@ -90,253 +86,9 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	return content, nil
 }
 
-func (g *gcs) saveFile(ctx context.Context, bucket *storage.BucketHandle,
-	snapshotID, objectName, targetPath string,
-) error {
-	// Get the file from the bucket
-	content, err := g.getObject(ctx, bucket, snapshotID, objectName)
-	if err != nil {
-		return errors.Wrapf(err, "get object: %v", objectName)
-	}
-
-	destDir := path.Dir(targetPath)
-	if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
-		return errors.Wrapf(err,
-			"save file: failed to make destination dir for file '%s'", targetPath)
-	}
-
-	// Write it to disk
-	if err := os.WriteFile(targetPath, content, 0o644); err != nil {
-		return errors.Wrapf(err, "write file: %v", targetPath)
-	}
-	return nil
-}
-
-func (g *gcs) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("gcs", className))
-	defer timer.ObserveDuration()
-	bucket, err := g.findBucket(ctx)
-	if err != nil || bucket == nil {
-		return nil, errors.Wrap(err, "snapshot bucket does not exist")
-	}
-
-	// Download metadata for snapshot
-	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
-	reader, err := bucket.Object(objectName).NewReader(ctx)
-	if err != nil {
-		return nil, errors.Wrapf(err, "new reader: %v", objectName)
-	}
-
-	// Fetch content
-	content, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, errors.Wrapf(err, "read object: %v", objectName)
-	}
-
-	// Unmarshal content into snapshot struct
-	var snapshot backup.Snapshot
-	if err := json.Unmarshal(content, &snapshot); err != nil {
-		return nil, errors.Wrapf(err, "unmarshal snapshot: %v", objectName)
-	}
-
-	// download files listed in snapshot
-	for _, file := range snapshot.Files {
-		if err := ctx.Err(); err != nil {
-			return nil, errors.Wrapf(err, "store snapshot aborted")
-		}
-		objectName := g.makeObjectName(className, snapshotID, file.Path)
-		filePath := makeFilePath(g.dataPath, file.Path)
-		if err := g.saveFile(ctx, bucket, snapshotID, objectName, filePath); err != nil {
-			return nil, errors.Wrap(err, "put file")
-		}
-
-		// Get size of file
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			return nil, errors.Errorf("Unable to get size of file %v", filePath)
-		}
-		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("gcs", className).Add(float64(fileInfo.Size()))
-	}
-	return &snapshot, nil
-}
-
-func (g *gcs) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
-	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("gcs", snapshot.ClassName))
-	defer timer.ObserveDuration()
-	bucket, err := g.findBucket(ctx)
-	if err != nil {
-		return err
-	}
-
-	if bucket == nil {
-		return backup.NewErrNotFound(storage.ErrBucketNotExist)
-	}
-
-	// save files
-	for _, file := range snapshot.Files {
-		if err := ctx.Err(); err != nil {
-			return errors.Wrap(err, "store snapshot aborted")
-		}
-		objectName := g.makeObjectName(snapshot.ClassName, snapshot.ID, file.Path)
-		filePath := makeFilePath(g.dataPath, file.Path)
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return errors.Wrapf(err, "read file: %v", filePath)
-		}
-
-		if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
-			return errors.Wrap(err, "put file")
-		}
-
-		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("gcs", snapshot.ClassName).Add(float64(len(content)))
-	}
-
-	if err := g.putMeta(ctx, bucket, snapshot); err != nil {
-		return errors.Wrap(err, "store snapshot")
-	}
-
-	return nil
-}
-
-func (g *gcs) putMeta(ctx context.Context, bucket *storage.BucketHandle, snapshot *backup.Snapshot) error {
-	content, err := json.Marshal(snapshot)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal meta")
-	}
-	objectName := g.makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
-	if err := g.putFile(ctx, bucket, snapshot.ID, objectName, content); err != nil {
-		return errors.Wrap(err, "failed to store meta")
-	}
-	return nil
-}
-
-func (g *gcs) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	bucket, err := g.findBucket(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if bucket == nil {
-		return nil, backup.ErrNotFound{}
-	}
-
-	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
-	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
-	if err != nil {
-		return nil, err
-	}
-
-	var snapshot backup.Snapshot
-	err = json.Unmarshal(contents, &snapshot)
-	if err != nil {
-		return nil, errors.Wrap(err, "get snapshot status")
-	}
-
-	return &snapshot, nil
-}
-
-func (g *gcs) SetMetaError(ctx context.Context, className, snapshotID string, snapErr error) error {
-	bucket, err := g.findBucket(ctx)
-	if err != nil {
-		return errors.Wrap(err, "set snapshot error")
-	}
-
-	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
-	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
-	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
-	}
-
-	var snapshot backup.Snapshot
-	err = json.Unmarshal(contents, &snapshot)
-	if err != nil {
-		return errors.Wrap(err, "set meta error")
-	}
-
-	snapshot.Status = string(backup.CreateFailed)
-	snapshot.Error = snapErr.Error()
-
-	if err := g.putMeta(ctx, bucket, &snapshot); err != nil {
-		return errors.Wrap(err, "set meta error")
-	}
-
-	return nil
-}
-
-func (g *gcs) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	bucket, err := g.findBucket(ctx)
-	if err != nil {
-		return errors.Wrap(err, "set meta status")
-	}
-
-	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
-	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
-	if err != nil {
-		return errors.Wrap(err, "set meta status")
-	}
-
-	var snapshot backup.Snapshot
-	err = json.Unmarshal(contents, &snapshot)
-	if err != nil {
-		return errors.Wrap(err, "set meta status")
-	}
-
-	if status == string(backup.CreateSuccess) {
-		snapshot.CompletedAt = time.Now()
-	}
-
-	snapshot.Status = status
-
-	if err := g.putMeta(ctx, bucket, &snapshot); err != nil {
-		return errors.Wrap(err, "set meta status")
-	}
-
-	return nil
-}
-
-func (g *gcs) DestinationPath(className, snapshotID string) string {
+func (g *gcs) DestinationPath(snapshotID string) string {
 	return "gs://" + path.Join(g.config.BucketName(),
-		g.makeObjectName(className, snapshotID, "snapshot.json"))
-}
-
-func (g *gcs) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	bucket, err := g.findBucket(ctx)
-	if err != nil && !errors.Is(err, backup.ErrNotFound{}) {
-		return nil, errors.Wrap(err, "init snapshot")
-	}
-
-	snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
-	snapshot.Status = string(backup.CreateStarted)
-	b, err := json.Marshal(&snapshot)
-	if err != nil {
-		return nil, errors.Wrap(err, "init snapshot")
-	}
-
-	objectName := g.makeObjectName(className, snapshotID, "snapshot.json")
-
-	if err := g.putFile(ctx, bucket, snapshot.ID, objectName, b); err != nil {
-		return nil, errors.Wrap(err, "init snapshot")
-	}
-
-	return snapshot, nil
-}
-
-func (g *gcs) putFile(ctx context.Context, bucket *storage.BucketHandle,
-	snapshotID, objectName string, content []byte,
-) error {
-	obj := bucket.Object(objectName)
-	writer := obj.NewWriter(ctx)
-	writer.ContentType = "application/octet-stream"
-	writer.Metadata = map[string]string{
-		"snapshot-id": snapshotID,
-	}
-	if _, err := writer.Write(content); err != nil {
-		return errors.Wrapf(err, "write file: %v", objectName)
-	}
-	if err := writer.Close(); err != nil {
-		return errors.Wrapf(err, "close writer for file: %v", objectName)
-	}
-	return nil
+		g.makeObjectName(snapshotID, "snapshot.json"))
 }
 
 func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
@@ -354,6 +106,102 @@ func (g *gcs) makeObjectName(parts ...string) string {
 	return path.Join(g.config.SnapshotRoot(), base)
 }
 
-func makeFilePath(parts ...string) string {
-	return path.Join(parts...)
+func (g *gcs) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+	objectName := g.makeObjectName(snapshotID, key)
+
+	if err := ctx.Err(); err != nil {
+		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", objectName))
+	}
+
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		if errors.Is(err, storage.ErrBucketNotExist) {
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
+		}
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
+	}
+
+	contents, err := g.getObject(ctx, bucket, "", objectName)
+	if err != nil {
+		if errors.Is(err, storage.ErrObjectNotExist) {
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
+		}
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
+	}
+
+	return contents, nil
+}
+
+func (g *gcs) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+	srcPath = path.Join(g.dataPath, srcPath)
+	contents, err := os.ReadFile(srcPath)
+	if err != nil {
+		return errors.Wrapf(err, "read file '%s'", srcPath)
+	}
+
+	return g.PutObject(ctx, snapshotID, key, contents)
+}
+
+func (g *gcs) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		return errors.Wrap(err, "find bucket")
+	}
+
+	objectName := g.makeObjectName(snapshotID, key)
+	obj := bucket.Object(objectName)
+	writer := obj.NewWriter(ctx)
+	writer.ContentType = "application/octet-stream"
+	writer.Metadata = map[string]string{
+		"snapshot-id": snapshotID,
+	}
+	if _, err := writer.Write(byes); err != nil {
+		return errors.Wrapf(err, "write file: %v", objectName)
+	}
+	if err := writer.Close(); err != nil {
+		return errors.Wrapf(err, "close writer for file: %v", objectName)
+	}
+	return nil
+}
+
+func (g *gcs) Initialize(ctx context.Context, snapshotID string) error {
+	key := "access-check"
+
+	if err := g.PutObject(ctx, snapshotID, key, []byte("")); err != nil {
+		return errors.Wrap(err, "failed to access-check gcs storage module")
+	}
+
+	bucket, err := g.findBucket(ctx)
+	if err != nil {
+		return errors.Wrap(err, "find bucket")
+	}
+
+	objectName := g.makeObjectName(snapshotID, key)
+	if err := bucket.Object(objectName).Delete(ctx); err != nil {
+		return errors.Wrap(err, "failed to remove access-check gcs storage module")
+	}
+
+	return nil
+}
+
+func (g *gcs) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+	obj, err := g.GetObject(ctx, snapshotID, key)
+	if err != nil {
+		return errors.Wrapf(err, "get object '%s'", key)
+	}
+
+	dir := path.Dir(destPath)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return errors.Wrapf(err, "make dir '%s'", dir)
+	}
+
+	if err := os.WriteFile(destPath, obj, os.ModePerm); err != nil {
+		return errors.Wrapf(err, "write file '%s'", destPath)
+	}
+
+	return nil
+}
+
+func (g *gcs) SourceDataPath() string {
+	return g.dataPath
 }
