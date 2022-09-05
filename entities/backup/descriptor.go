@@ -18,6 +18,7 @@ import (
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
 	Name  string   `json:"name"`
+	Node  string   `json:"node"`
 	Files []string `json:"files"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath"`
@@ -32,7 +33,6 @@ type ShardDescriptor struct {
 type ClassDescriptor struct {
 	Name          string            `json:"name"` // DB class name, also selected by user
 	Shards        []ShardDescriptor `json:"shards"`
-	Node          string            `json:"node"`
 	ShardingState []byte            `json:"shardingState"`
 	Schema        []byte            `json:"schema"`
 	Error         error             `json:"-"`
@@ -44,7 +44,8 @@ type BackupDescriptor struct {
 	CompletedAt   time.Time         `json:"completedAt"`
 	ID            string            `json:"id"` // User created backup id
 	Classes       []ClassDescriptor `json:"classes"`
-	Status        string            `json:"status"` // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED"
+	Status        string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED"
+	Version       string            `json:"version"` //
 	ServerVersion string            `json:"serverVersion"`
 	Error         string            `json:"error"`
 }
