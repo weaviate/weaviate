@@ -237,19 +237,20 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 			Status:    backup.Transferring,
 			Err:       nil,
 		}
+		err := m.restorer.restoreAll(context.Background(), pr, meta, store)
+		if err != nil {
+			m.logger.WithField("action", "restore").WithField("backup_id", meta.ID).Error(err)
+		}
 		defer func() {
 			status.CompletedAt = time.Now().UTC()
 			if err == nil {
 				status.Status = backup.Success
 			} else {
 				status.Err = err
+				status.Status = backup.Failed
 			}
 			m.RestoreStatus.Store(basePath(req.StorageType, req.ID), status)
 		}()
-		err := m.restorer.restoreAll(context.Background(), pr, meta, store)
-		if err != nil {
-			m.logger.WithField("action", "restore").WithField("backup_id", meta.ID).Error(err)
-		}
 	}()
 
 	return returnData, nil
