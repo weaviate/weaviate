@@ -54,7 +54,8 @@ func New(origin string, logger logrus.FieldLogger) *client {
 }
 
 func (v *client) GetSummary(ctx context.Context, property,
-	text string) ([]ent.SummaryResult, error) {
+	text string,
+) ([]ent.SummaryResult, error) {
 	body, err := json.Marshal(sumInput{
 		Text: text,
 	})

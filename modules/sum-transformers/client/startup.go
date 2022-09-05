@@ -20,7 +20,8 @@ import (
 )
 
 func (c *client) WaitForStartup(initCtx context.Context,
-	interval time.Duration) error {
+	interval time.Duration,
+) error {
 	t := time.NewTicker(interval)
 	expired := initCtx.Done()
 	var lastErr error
