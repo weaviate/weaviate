@@ -43,6 +43,21 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	return nil
 }
 
+// ListBackupable returns a list of all classes which can be backed up.
+//
+// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
+func (db *DB) ListBackupable() []string {
+	cs := make([]string, 0, len(db.indices))
+	for _, idx := range db.indices {
+		cls := string(idx.Config.ClassName)
+		if n := db.schemaGetter.ShardingState(cls).CountPhysicalShards(); n > 1 {
+			continue
+		}
+		cs = append(cs, cls)
+	}
+	return cs
+}
+
 // BackupDescriptors returns a channel of class descriptors.
 // Class descriptor records everything needed to restore a class
 // If an error happens a descriptor with an error will be written to the channel just before closing it.

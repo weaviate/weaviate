@@ -57,3 +57,62 @@ func (d *BackupDescriptor) List() []string {
 	}
 	return lst
 }
+
+func (d *BackupDescriptor) Include(classes []string) {
+	if len(classes) == 0 {
+		return
+	}
+	imap := make(map[string]struct{}, len(classes))
+	for _, cls := range classes {
+		imap[cls] = struct{}{}
+	}
+	pred := func(s string) bool {
+		_, ok := imap[s]
+		return ok
+	}
+	d.Filter(pred)
+}
+
+func (d *BackupDescriptor) AllExists(classes []string) string {
+	if len(classes) == 0 {
+		return ""
+	}
+	emap := make(map[string]struct{}, len(classes))
+	for _, cls := range classes {
+		emap[cls] = struct{}{}
+	}
+	for _, dest := range d.Classes {
+		delete(emap, dest.Name)
+	}
+	first := ""
+	for k := range emap {
+		first = k
+		break
+	}
+	return first
+}
+
+func (d *BackupDescriptor) Exclude(classes []string) {
+	if len(classes) == 0 {
+		return
+	}
+	imap := make(map[string]struct{}, len(classes))
+	for _, cls := range classes {
+		imap[cls] = struct{}{}
+	}
+	pred := func(s string) bool {
+		_, ok := imap[s]
+		return !ok
+	}
+	d.Filter(pred)
+}
+
+func (d *BackupDescriptor) Filter(pred func(s string) bool) {
+	cs := make([]ClassDescriptor, 0, len(d.Classes))
+	for _, dest := range d.Classes {
+		if pred(dest.Name) {
+			cs = append(cs, dest)
+		}
+	}
+	d.Classes = cs
+}

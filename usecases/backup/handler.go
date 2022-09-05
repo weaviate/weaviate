@@ -110,18 +110,25 @@ type BackupRequest struct {
 
 func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (*models.BackupCreateResponse, error) {
-	// TODO get list of all classes
-	// TODO filter classes or get and exclude classes
-	classes := req.Include
-	// TODO what is the right path for authorization
 	path := fmt.Sprintf("backups/%s/%s", req.StorageType, req.ID)
 	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
 
 	if err := validateID(req.ID); err != nil {
-		return nil, err
+		return nil, backup.NewErrUnprocessable(err)
 	}
+	if len(req.Include) > 0 && len(req.Exclude) > 0 {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("invalid include and exclude"))
+	}
+	classes := req.Include
+	if len(classes) == 0 {
+		classes = m.backupper.sourcer.ListBackupable()
+	}
+	if classes = filter_classes(classes, req.Exclude); len(classes) == 0 {
+		backup.NewErrUnprocessable(fmt.Errorf("empty class list"))
+	}
+
 	if err := m.backupper.sourcer.Backupable(ctx, classes); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
@@ -182,6 +189,10 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
+	if len(req.Include) > 0 && len(req.Exclude) > 0 {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("invalid include and exclude"))
+	}
+
 	store, err := m.objectStore(req.StorageType)
 	if err != nil {
 		err = fmt.Errorf("find storage provider %s", req.StorageType)
@@ -201,8 +212,16 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
 		return nil, backup.NewErrNotFound(err)
 	}
+	if len(req.Include) > 0 {
+		if first := meta.AllExists(req.Exclude); first != "" {
+			return nil, backup.NewErrUnprocessable(fmt.Errorf("class %s doesn't exist", first))
+		}
+		meta.Include(req.Include)
+	} else {
+		meta.Exclude(req.Exclude)
+	}
+
 	status := string(backup.Started)
-	// TODO use request to filter out excluded classes
 	classes := meta.List()
 	returnData := &models.BackupRestoreResponse{
 		Classes:     classes,
@@ -281,4 +300,23 @@ func (m *Manager) objectStore(storageName string) (objectStore, error) {
 // basePath of the backup
 func basePath(storageType, backupID string) string {
 	return fmt.Sprintf("%s/%s", storageType, backupID)
+}
+
+// exclude_classes return classes excluding excludes
+// this is and in-place operation
+func filter_classes(classes, excludes []string) []string {
+	if len(excludes) == 0 {
+		return classes
+	}
+	cs := classes[:0]
+	xmap := make(map[string]struct{}, len(excludes))
+	for _, c := range excludes {
+		xmap[c] = struct{}{}
+	}
+	for _, c := range classes {
+		if _, ok := xmap[c]; !ok {
+			cs = append(cs, c)
+		}
+	}
+	return cs
 }
