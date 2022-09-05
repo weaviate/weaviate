@@ -27,7 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const Name = "sum-transformers"
+const name = "sum-transformers"
 
 func New() *SUMModule {
 	return &SUMModule{}
@@ -44,7 +44,7 @@ type sumClient interface {
 }
 
 func (m *SUMModule) Name() string {
-	return Name
+	return name
 }
 
 func (m *SUMModule) Type() modulecapabilities.ModuleType {
