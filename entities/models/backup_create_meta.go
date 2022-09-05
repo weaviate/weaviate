@@ -30,9 +30,6 @@ import (
 // swagger:model BackupCreateMeta
 type BackupCreateMeta struct {
 
-	// The list of classes for which the backup creation process was started
-	Classes []string `json:"classes"`
-
 	// error message if creation failed
 	Error string `json:"error,omitempty"`
 

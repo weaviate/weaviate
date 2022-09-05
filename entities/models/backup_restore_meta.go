@@ -30,9 +30,6 @@ import (
 // swagger:model BackupRestoreMeta
 type BackupRestoreMeta struct {
 
-	// The list of classes for which the backup restore process was started
-	Classes []string `json:"classes"`
-
 	// error message if restoration failed
 	Error string `json:"error,omitempty"`
 

@@ -649,13 +649,6 @@
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "classes": {
-          "description": "The list of classes for which the backup creation process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "storageName": {
           "description": "Storage name e.g. filesystem, gcs, s3.",
           "type": "string"
@@ -682,13 +675,6 @@
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
-        },
-        "classes": {
-          "description": "The list of classes for which the backup restore process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         },
         "storageName": {
           "description": "Storage name e.g. filesystem, gcs, s3.",
