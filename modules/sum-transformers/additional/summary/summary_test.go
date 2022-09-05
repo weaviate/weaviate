@@ -98,7 +98,6 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.Equal(t, "this is the summary", answerAdditional[0].Result)
 		assert.Equal(t, "content", answerAdditional[0].Property)
 	})
-
 }
 
 type fakeSUMClient struct{}
@@ -110,5 +109,6 @@ func (c *fakeSUMClient) GetSummary(ctx context.Context, property, text string) (
 func (c *fakeSUMClient) getSummary(property string) []ent.SummaryResult {
 	return []ent.SummaryResult{{
 		Property: property,
-		Result:   "this is the summary"}}
+		Result:   "this is the summary",
+	}}
 }

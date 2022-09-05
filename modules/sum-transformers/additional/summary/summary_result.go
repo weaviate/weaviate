@@ -22,7 +22,8 @@ import (
 )
 
 func (p *SummaryProvider) findSummary(ctx context.Context,
-	in []search.Result, params *Params) ([]search.Result, error) {
+	in []search.Result, params *Params,
+) ([]search.Result, error) {
 	if len(in) == 0 {
 		return nil, nil
 	} else {
