@@ -48,6 +48,7 @@ import (
 	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
 	modstgfs "github.com/semi-technologies/weaviate/modules/storage-filesystem"
 	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
+	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
@@ -411,6 +412,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "qna-transformers").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules["sum-transformers"]; ok {
+		appState.Modules.Register(modsum.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "sum-transformers").
 			Debug("enabled module")
 	}
 

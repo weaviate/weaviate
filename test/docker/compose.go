@@ -30,6 +30,8 @@ const (
 	envTestText2vecContextionaryImage = "TEST_TEXT2VEC_CONTEXTIONARY_IMAGE"
 	// envTestQnATransformersImage adds ability to pass a custom image to module tests
 	envTestQnATransformersImage = "TEST_QNA_TRANSFORMERS_IMAGE"
+	// envTestSUMTransformersImage adds ability to pass a custom image to module tests
+	envTestSUMTransformersImage = "TEST_SUM_TRANSFORMERS_IMAGE"
 )
 
 const (
@@ -52,6 +54,7 @@ type Compose struct {
 	withContextionary       bool
 	withQnATransformers     bool
 	withWeaviate            bool
+	withSUMTransformers     bool
 }
 
 func New() *Compose {
@@ -109,6 +112,12 @@ func (d *Compose) WithStorageGCS(bucket string) *Compose {
 	d.withStorageGCSBucket = bucket
 	d.withGCS = true
 	d.enableModules = append(d.enableModules, StorageGCS)
+	return d
+}
+
+func (d *Compose) WithSUMTransformers() *Compose {
+	d.withSUMTransformers = true
+	d.enableModules = append(d.enableModules, SUMTransformers)
 	return d
 }
 
@@ -186,6 +195,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startQnATransformers(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", QnATransformers)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withSUMTransformers {
+		image := os.Getenv(envTestSUMTransformersImage)
+		container, err := startSUMTransformers(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", SUMTransformers)
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v
