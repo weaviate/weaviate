@@ -24,6 +24,9 @@ fi
 if [[ "$*" == *--qna* ]]; then
   ADDITIONAL_SERVICES+=('qna-transformers')
 fi
+if [[ "$*" == *--sum* ]]; then
+  ADDITIONAL_SERVICES+=('sum-transformers')
+fi
 if [[ "$*" == *--image* ]]; then
   ADDITIONAL_SERVICES+=('i2v-neural')
 fi

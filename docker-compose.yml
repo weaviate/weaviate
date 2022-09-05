@@ -63,6 +63,10 @@ services:
     image: semitechnologies/ner-transformers:latest
     ports:
       - "8003:8080"
+  sum-transformers:
+    image: semitechnologies/sum-transformers:facebook-bart-large-cnn-1.0.0
+    ports:
+      - "8008:8080"
   text-spellcheck:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
     ports:
