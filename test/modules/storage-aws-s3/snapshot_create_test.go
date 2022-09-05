@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -42,6 +43,7 @@ func Test_S3Storage_SnapshotCreate(t *testing.T) {
 
 	t.Run("store snapshot", moduleLevelStoreSnapshot)
 	t.Run("get meta status", moduleLevelGetMetaStatus)
+	t.Run("copy files", moduleLevelCopyFiles)
 
 	if err := compose.Terminate(ctx); err != nil {
 		t.Fatalf("failed to terminte test containers: %s", err.Error())
@@ -171,5 +173,65 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 		meta, err := s3.GetObject(testCtx, snapshotID, key)
 		assert.Nil(t, err)
 		assert.Equal(t, []byte("hello"), meta)
+	})
+}
+
+func moduleLevelCopyFiles(t *testing.T) {
+	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	testdataMainDir := "./testData"
+	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	defer moduleshelper.RemoveDir(t, testdataMainDir)
+
+	fpaths := moduleshelper.CreateTestFiles(t, testDir)
+	fpath := fpaths[0]
+	expectedContents, err := os.ReadFile(fpath)
+	require.Nil(t, err)
+	require.NotNil(t, expectedContents)
+
+	key := "moduleLevelCopyFiles"
+	snapshotID := "snapshot_id"
+	bucketName := "bucket"
+	region := "eu-west-1"
+	endpoint := os.Getenv(envMinioEndpoint)
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv(envAwsRegion, region))
+		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
+		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
+		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
+
+		createBucket(testCtx, t, endpoint, region, bucketName)
+	})
+
+	s3Config := s3.NewConfig(endpoint, bucketName, "", false)
+	logger, _ := test.NewNullLogger()
+	s3, err := s3.New(s3Config, logger, testDir)
+	require.Nil(t, err)
+
+	t.Run("verify source data path", func(t *testing.T) {
+		assert.Equal(t, testDir, s3.SourceDataPath())
+	})
+
+	t.Run("copy file to storage", func(t *testing.T) {
+		srcPath, _ := filepath.Rel(testDir, fpath)
+		err = s3.PutFile(testCtx, snapshotID, key, srcPath)
+		require.Nil(t, err)
+
+		contents, err := s3.GetObject(testCtx, snapshotID, key)
+		require.Nil(t, err)
+		assert.Equal(t, expectedContents, contents)
+	})
+
+	t.Run("fetch file from storage", func(t *testing.T) {
+		destPath := testDir + "/file_0.copy.db"
+
+		err := s3.WriteToFile(testCtx, snapshotID, key, destPath)
+		require.Nil(t, err)
+
+		contents, err := os.ReadFile(destPath)
+		require.Nil(t, err)
+		assert.Equal(t, expectedContents, contents)
 	})
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -42,6 +43,7 @@ func Test_GCSStorage_SnapshotCreate(t *testing.T) {
 
 	t.Run("store snapshot", moduleLevelStoreSnapshot)
 	t.Run("get meta status", moduleLevelGetMetaStatus)
+	t.Run("copy files", moduleLevelCopyFiles)
 
 	if err := compose.Terminate(ctx); err != nil {
 		t.Fatalf("failed to terminte test containers: %s", err.Error())
@@ -179,5 +181,65 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 		meta, err := gcs.GetObject(testCtx, snapshotID, key)
 		assert.Nil(t, err)
 		assert.Equal(t, []byte("hello"), meta)
+	})
+}
+
+func moduleLevelCopyFiles(t *testing.T) {
+	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	testdataMainDir := "./testData"
+	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	defer moduleshelper.RemoveDir(t, testdataMainDir)
+
+	fpaths := moduleshelper.CreateTestFiles(t, testDir)
+	fpath := fpaths[0]
+	expectedContents, err := os.ReadFile(fpath)
+	require.Nil(t, err)
+	require.NotNil(t, expectedContents)
+
+	snapshotID := "snapshot_id"
+	key := "moduleLevelGetMetaStatus"
+	endpoint := os.Getenv(envGCSEndpoint)
+	bucketName := "weaviate-snapshots"
+	projectID := "project-id"
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGCSCredentials, ""))
+		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
+		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
+
+		createBucket(testCtx, t, projectID, bucketName)
+	})
+
+	gcsConfig := gcs.NewConfig(bucketName, "")
+	gcs, err := gcs.New(testCtx, gcsConfig, testDir)
+	require.Nil(t, err)
+
+	t.Run("verify source data path", func(t *testing.T) {
+		assert.Equal(t, testDir, gcs.SourceDataPath())
+	})
+
+	t.Run("copy file to storage", func(t *testing.T) {
+		srcPath, _ := filepath.Rel(testDir, fpath)
+		err = gcs.PutFile(testCtx, snapshotID, key, srcPath)
+		require.Nil(t, err)
+
+		contents, err := gcs.GetObject(testCtx, snapshotID, key)
+		require.Nil(t, err)
+		assert.Equal(t, expectedContents, contents)
+	})
+
+	t.Run("fetch file from storage", func(t *testing.T) {
+		destPath := testDir + "/file_0.copy.db"
+
+		err := gcs.WriteToFile(testCtx, snapshotID, key, destPath)
+		require.Nil(t, err)
+
+		contents, err := os.ReadFile(destPath)
+		require.Nil(t, err)
+		assert.Equal(t, expectedContents, contents)
 	})
 }
