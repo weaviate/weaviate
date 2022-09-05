@@ -201,7 +201,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
 		return nil, backup.NewErrNotFound(err)
 	}
-	status := string(models.BackupRestoreMetaStatusTRANSFERRING)
+	status := string(backup.Started)
 	// TODO use request to filter out excluded classes
 	classes := meta.List()
 	returnData := &models.BackupRestoreMeta{
