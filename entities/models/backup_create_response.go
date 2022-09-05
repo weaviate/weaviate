@@ -25,10 +25,13 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// BackupCreateMeta The definition of a backup create metadata
+// BackupCreateResponse The definition of a backup create response body
 //
-// swagger:model BackupCreateMeta
-type BackupCreateMeta struct {
+// swagger:model BackupCreateResponse
+type BackupCreateResponse struct {
+
+	// The list of classes for which the backup creation process was started
+	Classes []string `json:"classes"`
 
 	// error message if creation failed
 	Error string `json:"error,omitempty"`
@@ -47,8 +50,8 @@ type BackupCreateMeta struct {
 	StorageName string `json:"storageName,omitempty"`
 }
 
-// Validate validates this backup create meta
-func (m *BackupCreateMeta) Validate(formats strfmt.Registry) error {
+// Validate validates this backup create response
+func (m *BackupCreateResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateStatus(formats); err != nil {
@@ -61,7 +64,7 @@ func (m *BackupCreateMeta) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var backupCreateMetaTypeStatusPropEnum []interface{}
+var backupCreateResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -69,37 +72,37 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		backupCreateMetaTypeStatusPropEnum = append(backupCreateMetaTypeStatusPropEnum, v)
+		backupCreateResponseTypeStatusPropEnum = append(backupCreateResponseTypeStatusPropEnum, v)
 	}
 }
 
 const (
 
-	// BackupCreateMetaStatusSTARTED captures enum value "STARTED"
-	BackupCreateMetaStatusSTARTED string = "STARTED"
+	// BackupCreateResponseStatusSTARTED captures enum value "STARTED"
+	BackupCreateResponseStatusSTARTED string = "STARTED"
 
-	// BackupCreateMetaStatusTRANSFERRING captures enum value "TRANSFERRING"
-	BackupCreateMetaStatusTRANSFERRING string = "TRANSFERRING"
+	// BackupCreateResponseStatusTRANSFERRING captures enum value "TRANSFERRING"
+	BackupCreateResponseStatusTRANSFERRING string = "TRANSFERRING"
 
-	// BackupCreateMetaStatusTRANSFERRED captures enum value "TRANSFERRED"
-	BackupCreateMetaStatusTRANSFERRED string = "TRANSFERRED"
+	// BackupCreateResponseStatusTRANSFERRED captures enum value "TRANSFERRED"
+	BackupCreateResponseStatusTRANSFERRED string = "TRANSFERRED"
 
-	// BackupCreateMetaStatusSUCCESS captures enum value "SUCCESS"
-	BackupCreateMetaStatusSUCCESS string = "SUCCESS"
+	// BackupCreateResponseStatusSUCCESS captures enum value "SUCCESS"
+	BackupCreateResponseStatusSUCCESS string = "SUCCESS"
 
-	// BackupCreateMetaStatusFAILED captures enum value "FAILED"
-	BackupCreateMetaStatusFAILED string = "FAILED"
+	// BackupCreateResponseStatusFAILED captures enum value "FAILED"
+	BackupCreateResponseStatusFAILED string = "FAILED"
 )
 
 // prop value enum
-func (m *BackupCreateMeta) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, backupCreateMetaTypeStatusPropEnum, true); err != nil {
+func (m *BackupCreateResponse) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, backupCreateResponseTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *BackupCreateMeta) validateStatus(formats strfmt.Registry) error {
+func (m *BackupCreateResponse) validateStatus(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Status) { // not required
 		return nil
@@ -114,7 +117,7 @@ func (m *BackupCreateMeta) validateStatus(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *BackupCreateMeta) MarshalBinary() ([]byte, error) {
+func (m *BackupCreateResponse) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -122,8 +125,8 @@ func (m *BackupCreateMeta) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *BackupCreateMeta) UnmarshalBinary(b []byte) error {
-	var res BackupCreateMeta
+func (m *BackupCreateResponse) UnmarshalBinary(b []byte) error {
+	var res BackupCreateResponse
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

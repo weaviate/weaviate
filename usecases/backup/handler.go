@@ -109,7 +109,7 @@ type BackupRequest struct {
 }
 
 func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
-) (*models.BackupCreateMeta, error) {
+) (*models.BackupCreateResponse, error) {
 	// TODO get list of all classes
 	// TODO filter classes or get and exclude classes
 	classes := req.Include
@@ -151,7 +151,8 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 		return nil, err
 	} else {
 		status := string(meta.Status)
-		return &models.BackupCreateMeta{
+		return &models.BackupCreateResponse{
+			Classes:     classes,
 			ID:          req.ID,
 			StorageName: req.StorageType,
 			Status:      &status,
@@ -162,7 +163,7 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 
 func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
 	storageName, backupID string,
-) (*models.BackupCreateMeta, error) {
+) (*models.BackupCreateStatusResponse, error) {
 	path := fmt.Sprintf("backups/%s/%s", storageName, backupID)
 	err := m.authorizer.Authorize(principal, "get", path)
 	if err != nil {
@@ -176,7 +177,7 @@ func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
-) (*models.BackupRestoreMeta, error) {
+) (*models.BackupRestoreResponse, error) {
 	path := fmt.Sprintf("backups/%s/%s/restore", req.StorageType, req.ID)
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
@@ -202,7 +203,9 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	}
 	status := string(backup.Started)
 	// TODO use request to filter out excluded classes
-	returnData := &models.BackupRestoreMeta{
+	classes := meta.List()
+	returnData := &models.BackupRestoreResponse{
+		Classes:     classes,
 		ID:          req.ID,          // TODO remove since it's included in the path
 		StorageName: req.StorageType, // TODO remove since it's included in the path
 		Status:      &status,

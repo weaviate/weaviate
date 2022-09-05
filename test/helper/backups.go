@@ -30,7 +30,7 @@ func CreateBackup(t *testing.T, className, storageName, snapshotID string) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupCreateMeta {
+func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupCreateStatusResponse {
 	params := backups.NewBackupsCreateStatusParams().
 		WithStorageName(storageName).
 		WithID(snapshotID)
@@ -53,7 +53,7 @@ func RestoreBackup(t *testing.T, className, storageName, snapshotID string) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func RestoreBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupRestoreMeta {
+func RestoreBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupRestoreStatusResponse {
 	params := backups.NewBackupsRestoreStatusParams().
 		WithStorageName(storageName).
 		WithID(snapshotID)
