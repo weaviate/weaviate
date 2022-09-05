@@ -37,7 +37,7 @@ type BackupsRestoreOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.BackupRestoreMeta `json:"body,omitempty"`
+	Payload *models.BackupRestoreResponse `json:"body,omitempty"`
 }
 
 // NewBackupsRestoreOK creates BackupsRestoreOK with default headers values
@@ -47,13 +47,13 @@ func NewBackupsRestoreOK() *BackupsRestoreOK {
 }
 
 // WithPayload adds the payload to the backups restore o k response
-func (o *BackupsRestoreOK) WithPayload(payload *models.BackupRestoreMeta) *BackupsRestoreOK {
+func (o *BackupsRestoreOK) WithPayload(payload *models.BackupRestoreResponse) *BackupsRestoreOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the backups restore o k response
-func (o *BackupsRestoreOK) SetPayload(payload *models.BackupRestoreMeta) {
+func (o *BackupsRestoreOK) SetPayload(payload *models.BackupRestoreResponse) {
 	o.Payload = payload
 }
 
