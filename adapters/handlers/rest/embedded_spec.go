@@ -2457,13 +2457,6 @@ func init() {
     "BackupCreateMeta": {
       "description": "The definition of a backup create metadata",
       "properties": {
-        "classes": {
-          "description": "The list of classes for which the backup creation process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -2524,13 +2517,6 @@ func init() {
     "BackupRestoreMeta": {
       "description": "The definition of a backup restore metadata",
       "properties": {
-        "classes": {
-          "description": "The list of classes for which the backup restore process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"
@@ -6404,13 +6390,6 @@ func init() {
     "BackupCreateMeta": {
       "description": "The definition of a backup create metadata",
       "properties": {
-        "classes": {
-          "description": "The list of classes for which the backup creation process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -6471,13 +6450,6 @@ func init() {
     "BackupRestoreMeta": {
       "description": "The definition of a backup restore metadata",
       "properties": {
-        "classes": {
-          "description": "The list of classes for which the backup restore process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"
