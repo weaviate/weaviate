@@ -96,10 +96,9 @@ func (b *backupper) Backup(ctx context.Context,
 		err := fmt.Errorf("backup %s already in progress", prevID)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	defer b.lastBackup.reset()
-
-	provider := newUploader(b.sourcer, store, id, b.lastBackup.set) // TODO no class name
-	go func(provider *uploader) {
+	go func() {
+		defer b.lastBackup.reset()
+		provider := newUploader(b.sourcer, store, id, b.lastBackup.set)
 		result := backup.BackupDescriptor{
 			StartedAt:     time.Now().UTC(),
 			ID:            id,
@@ -112,7 +111,7 @@ func (b *backupper) Backup(ctx context.Context,
 				Error(err)
 		}
 		result.CompletedAt = time.Now().UTC()
-	}(provider)
+	}()
 
 	return &backup.CreateMeta{
 		Path:   store.DestinationPath(id),

@@ -256,6 +256,7 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 	}
 	return istatus.(RestoreStatus), nil
 }
+
 func validateID(snapshotID string) error {
 	if snapshotID == "" {
 		return fmt.Errorf("missing snapshotID value")
