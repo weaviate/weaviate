@@ -111,6 +111,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 			WithStorageName(storage).
 			WithID(snapshotID).
 			WithBody(&models.BackupRestoreRequest{
+				ID:      snapshotID,
 				Include: []string{booksClass.Class},
 			})
 		resp, err := helper.Client(t).Backups.BackupsRestore(params, nil)
