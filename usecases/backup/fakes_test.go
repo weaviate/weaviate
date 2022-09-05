@@ -42,6 +42,11 @@ func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
 	return args.Error(0)
 }
 
+func (s *fakeSourcer) ListBackupable() []string {
+	args := s.Called()
+	return args.Get(0).([]string)
+}
+
 func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string,
 ) <-chan backup.ClassDescriptor {
 	return nil

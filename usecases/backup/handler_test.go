@@ -13,9 +13,11 @@ package backup
 
 import (
 	"context"
+	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/stretchr/testify/assert"
 )
 
 type fakeSchemaManger struct{}
@@ -29,4 +31,22 @@ type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
 	return nil
+}
+
+func TestFilerClasses(t *testing.T) {
+	tests := []struct {
+		in  []string
+		xs  []string
+		out []string
+	}{
+		{in: []string{}, xs: []string{}, out: []string{}},
+		{in: []string{"a"}, xs: []string{}, out: []string{"a"}},
+		{in: []string{"a"}, xs: []string{"a"}, out: []string{}},
+		{in: []string{"1", "2", "3", "4"}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
+		{in: []string{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
+	}
+	for _, tc := range tests {
+		got := filter_classes(tc.in, tc.xs)
+		assert.Equal(t, tc.out, got)
+	}
 }
