@@ -81,20 +81,20 @@ BackupsCreateStatusOK handles this case with default header values.
 Backup creation status successfully returned
 */
 type BackupsCreateStatusOK struct {
-	Payload *models.BackupCreateMeta
+	Payload *models.BackupCreateStatusResponse
 }
 
 func (o *BackupsCreateStatusOK) Error() string {
 	return fmt.Sprintf("[GET /backups/{storageName}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
 }
 
-func (o *BackupsCreateStatusOK) GetPayload() *models.BackupCreateMeta {
+func (o *BackupsCreateStatusOK) GetPayload() *models.BackupCreateStatusResponse {
 	return o.Payload
 }
 
 func (o *BackupsCreateStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.BackupCreateMeta)
+	o.Payload = new(models.BackupCreateStatusResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

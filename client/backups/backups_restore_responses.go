@@ -87,20 +87,20 @@ BackupsRestoreOK handles this case with default header values.
 Backup restoration process successfully started.
 */
 type BackupsRestoreOK struct {
-	Payload *models.BackupRestoreMeta
+	Payload *models.BackupRestoreResponse
 }
 
 func (o *BackupsRestoreOK) Error() string {
 	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreOK  %+v", 200, o.Payload)
 }
 
-func (o *BackupsRestoreOK) GetPayload() *models.BackupRestoreMeta {
+func (o *BackupsRestoreOK) GetPayload() *models.BackupRestoreResponse {
 	return o.Payload
 }
 
 func (o *BackupsRestoreOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.BackupRestoreMeta)
+	o.Payload = new(models.BackupRestoreResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

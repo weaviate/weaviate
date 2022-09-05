@@ -83,7 +83,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	req := ubak.BackupRequest{
-		ID:          params.Body.ID,
+		ID:          params.ID,
 		StorageType: params.StorageName,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
@@ -135,7 +135,7 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		}
 	}
 	sstatus := string(status.Status)
-	payload := models.BackupRestoreMeta{
+	payload := models.BackupRestoreStatusResponse{
 		Status:      &sstatus,
 		ID:          params.ID,
 		Path:        status.Path,

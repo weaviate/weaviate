@@ -32,9 +32,6 @@ type BackupRestoreRequest struct {
 	// List of classes to exclude from the backup restoration process
 	Exclude []string `json:"exclude"`
 
-	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
-	ID string `json:"id,omitempty"`
-
 	// List of classes to include in the backup restoration process
 	Include []string `json:"include"`
 }

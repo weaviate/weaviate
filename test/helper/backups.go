@@ -40,7 +40,6 @@ func RestoreBackup(t *testing.T, className, storageName, snapshotID string) {
 		WithStorageName(storageName).
 		WithID(snapshotID).
 		WithBody(&models.BackupRestoreRequest{
-			ID:      snapshotID,
 			Include: []string{className},
 		})
 	resp, err := Client(t).Backups.BackupsRestore(params, nil)

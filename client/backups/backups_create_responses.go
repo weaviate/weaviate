@@ -81,20 +81,20 @@ BackupsCreateOK handles this case with default header values.
 Backup create process successfully started.
 */
 type BackupsCreateOK struct {
-	Payload *models.BackupCreateMeta
+	Payload *models.BackupCreateResponse
 }
 
 func (o *BackupsCreateOK) Error() string {
 	return fmt.Sprintf("[POST /backups/{storageName}][%d] backupsCreateOK  %+v", 200, o.Payload)
 }
 
-func (o *BackupsCreateOK) GetPayload() *models.BackupCreateMeta {
+func (o *BackupsCreateOK) GetPayload() *models.BackupCreateResponse {
 	return o.Payload
 }
 
 func (o *BackupsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.BackupCreateMeta)
+	o.Payload = new(models.BackupCreateResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
