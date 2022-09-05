@@ -37,7 +37,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 	}
-	meta, err := s.manager.CreateBackup(params.HTTPRequest.Context(), principal, &req)
+	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

@@ -108,14 +108,14 @@ type BackupRequest struct {
 	Exclude []string
 }
 
-func (m *Manager) CreateBackup(ctx context.Context, pr *models.Principal, req *BackupRequest,
+func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (*models.BackupCreateMeta, error) {
 	// TODO get list of all classes
 	// TODO filter classes or get and exclude classes
 	classes := req.Include
 	// TODO what is the right path for authorization
 	path := fmt.Sprintf("backups/%s/%s", req.StorageType, req.ID)
-	if err := m.authorizer.Authorize(pr, "create", path); err != nil {
+	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
 
@@ -173,33 +173,12 @@ func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
 	return m.backupper.Status(ctx, storageName, backupID)
 }
 
-func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, storageName, ID string,
-) (_ RestoreStatus, err error) {
-	ppath := fmt.Sprintf("backups/%s/%s", storageName, ID)
-	if err := m.authorizer.Authorize(principal, "restore", ppath); err != nil {
-		return RestoreStatus{}, err
-	}
-	if st := m.restorer.status(); st.ID == ID {
-		return RestoreStatus{
-			Path:      st.path,
-			StartedAt: st.Starttime,
-			Status:    st.Status,
-		}, nil
-	}
-	ref := basePath(storageName, ID)
-	istatus, ok := m.RestoreStatus.Load(ref)
-	if !ok {
-		return RestoreStatus{}, errors.Errorf("status not found: %s", ref)
-	}
-	return istatus.(RestoreStatus), nil
-}
-
 // TODO validate meta data file
 
 func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (*models.BackupRestoreMeta, error) {
-	path := fmt.Sprintf("backups/%s/%s", req.StorageType, req.ID)
+	path := fmt.Sprintf("backups/%s/%s/restore", req.StorageType, req.ID)
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
@@ -257,14 +236,26 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	return returnData, nil
 }
 
-func (m *Manager) objectStore(storageName string) (objectStore, error) {
-	caps, err := m.storages.BackupStorage(storageName)
-	if err != nil {
-		return objectStore{}, err
+func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, storageName, ID string,
+) (_ RestoreStatus, err error) {
+	ppath := fmt.Sprintf("backups/%s/%s/restore", storageName, ID)
+	if err := m.authorizer.Authorize(principal, "get", ppath); err != nil {
+		return RestoreStatus{}, err
 	}
-	return objectStore{caps}, nil
+	if st := m.restorer.status(); st.ID == ID {
+		return RestoreStatus{
+			Path:      st.path,
+			StartedAt: st.Starttime,
+			Status:    st.Status,
+		}, nil
+	}
+	ref := basePath(storageName, ID)
+	istatus, ok := m.RestoreStatus.Load(ref)
+	if !ok {
+		return RestoreStatus{}, errors.Errorf("status not found: %s", ref)
+	}
+	return istatus.(RestoreStatus), nil
 }
-
 func validateID(snapshotID string) error {
 	if snapshotID == "" {
 		return fmt.Errorf("missing snapshotID value")
@@ -276,6 +267,14 @@ func validateID(snapshotID string) error {
 	}
 
 	return nil
+}
+
+func (m *Manager) objectStore(storageName string) (objectStore, error) {
+	caps, err := m.storages.BackupStorage(storageName)
+	if err != nil {
+		return objectStore{}, err
+	}
+	return objectStore{caps}, nil
 }
 
 // basePath of the backup

@@ -28,6 +28,7 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Authorization(t *testing.T) {
+	req := &BackupRequest{ID: "123", StorageType: "s3"}
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -37,28 +38,28 @@ func Test_Authorization(t *testing.T) {
 
 	tests := []testCase{
 		{
-			methodName:       "CreateBackup",
-			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			methodName:       "Backup",
+			additionalArgs:   []interface{}{req},
 			expectedVerb:     "add",
-			expectedResource: "schema/className/snapshots/storageName/id",
+			expectedResource: "backups/s3/123",
 		},
 		{
-			methodName:       "CreateBackupStatus",
-			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			methodName:       "BackupStatus",
+			additionalArgs:   []interface{}{"s3", "123"},
 			expectedVerb:     "get",
-			expectedResource: "schema/className/snapshots/storageName/id",
+			expectedResource: "backups/s3/123",
 		},
 		{
-			methodName:       "RestoreBackup",
-			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			methodName:       "Restore",
+			additionalArgs:   []interface{}{req},
 			expectedVerb:     "restore",
-			expectedResource: "schema/className/snapshots/storageName/id/restore",
+			expectedResource: "backups/s3/123/restore",
 		},
 		{
-			methodName:       "RestoreBackupStatus",
-			additionalArgs:   []interface{}{"className", "storageName", "id"},
+			methodName:       "RestorationStatus",
+			additionalArgs:   []interface{}{"s3", "123"},
 			expectedVerb:     "get",
-			expectedResource: "schema/className/snapshots/storageName/id/restore",
+			expectedResource: "backups/s3/123/restore",
 		},
 	}
 
@@ -70,16 +71,6 @@ func Test_Authorization(t *testing.T) {
 		}
 
 		for _, method := range allExportedMethods(&Manager{}) {
-			switch method {
-			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback",
-				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "Lock", "Unlock",
-				"TryLock", // introduced by sync.Mutex in go 1.18
-				"ShardingState", "TxManager":
-				// don't require auth on methods which are exported because other
-				// packages need to call them for maintenance and other regular jobs,
-				// but aren't user facing
-				continue
-			}
 			assert.Contains(t, testedMethods, method)
 		}
 	})
@@ -93,13 +84,7 @@ func Test_Authorization(t *testing.T) {
 				manager := NewManager(logger, authorizer, nil, nil, nil)
 				require.NotNil(t, manager)
 
-				var args []interface{}
-				if test.methodName == "GetSchema" {
-					// no context on this method
-					args = append([]interface{}{principal}, test.additionalArgs...)
-				} else {
-					args = append([]interface{}{context.Background(), principal}, test.additionalArgs...)
-				}
+				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
 
 				require.Len(t, authorizer.calls, 1, "authorizer must be called")
