@@ -26,7 +26,7 @@ import (
 const (
 	Name              = "storage-filesystem"
 	AltName1          = "filesystem"
-	snapshotsPathName = "STORAGE_FS_SNAPSHOTS_PATH"
+	snapshotsPathName = "STORAGE_FS_PATH"
 )
 
 type StorageFileSystemModule struct {

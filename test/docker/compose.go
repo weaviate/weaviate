@@ -166,7 +166,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 	}
 	if d.withStorageFilesystem {
-		envSettings["STORAGE_FS_SNAPSHOTS_PATH"] = "/tmp/snapshots"
+		envSettings["STORAGE_FS_PATH"] = "/tmp/snapshots"
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
