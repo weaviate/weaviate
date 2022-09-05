@@ -1,5 +1,7 @@
 name: golangci-lint
-on: push
+on: 
+  push:
+  fork:
 jobs:
   golangci:
     name: lint
