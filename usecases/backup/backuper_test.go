@@ -39,7 +39,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 	t.Run("fails when snapshot is not valid", func(t *testing.T) {
 		bm := createManager(nil, nil, nil)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          "A*:",
 			Include:     []string{className},
@@ -48,7 +48,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
 
-		meta, err = bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err = bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          "",
 			Include:     []string{className},
@@ -67,7 +67,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		bm := createManager(sourcer, nil, nil)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          snapshotID,
 			Include:     classes,
@@ -88,7 +88,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		bm := createManager(sourcer, nil, nil)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          snapshotID,
 			Include:     classes,
@@ -109,7 +109,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storageError := errors.New("I do not exist")
 		bm := createManager(sourcer, nil, storageError)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          snapshotID,
 			Include:     classes,
@@ -133,7 +133,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, errors.New("can not be read"))
 		bm := createManager(sourcer, storage, nil)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          snapshotID,
 			Include:     classes,
@@ -159,7 +159,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		bm := createManager(sourcer, storage, nil)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          snapshotID,
 			Include:     classes,
@@ -193,7 +193,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		wg.Add(2)
 
 		go func() {
-			meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+			meta, err := bm.Backup(ctx, nil, &BackupRequest{
 				StorageType: storageName,
 				ID:          snapshotID,
 				Include:     classes,
@@ -208,7 +208,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		}()
 		go func() {
 			time.Sleep(25 * time.Microsecond)
-			meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+			meta, err := bm.Backup(ctx, nil, &BackupRequest{
 				StorageType: storageName,
 				ID:          snapshotID2,
 				Include:     classes,
@@ -236,7 +236,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("Initialize", ctx, snapshotID).Return(errors.New("init meta failed"))
 		bm := createManager(sourcer, storage, nil)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          snapshotID,
 			Include:     classes,
@@ -264,7 +264,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
 		bm := createManager(sourcer, storage, nil)
 
-		meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
 			StorageType: storageName,
 			ID:          snapshotID,
 			Include:     classes,
@@ -298,7 +298,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		wg.Add(2)
 
 		go func() {
-			meta, err := bm.CreateBackup(ctx, nil, &BackupRequest{
+			meta, err := bm.Backup(ctx, nil, &BackupRequest{
 				StorageType: storageName,
 				ID:          snapshotID,
 				Include:     classes,
