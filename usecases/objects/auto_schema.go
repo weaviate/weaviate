@@ -190,18 +190,14 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 								if beacon, ok := v.(string); ok {
 									ref, err := crossref.Parse(beacon)
 									if err == nil {
-										if ref.Class != "" {
-											res, err := m.vectorRepo.Object(context.Background(), ref.Class, ref.TargetID,
-												search.SelectProperties{}, additional.Properties{})
-											if err == nil && res != nil {
-												dataType = append(dataType, schema.DataType(res.ClassName))
-											}
-										} else {
+										if ref.Class == "" {
 											res, err := m.vectorRepo.ObjectByID(context.Background(), ref.TargetID,
 												search.SelectProperties{}, additional.Properties{})
 											if err == nil && res != nil {
 												dataType = append(dataType, schema.DataType(res.ClassName))
 											}
+										} else {
+											dataType = append(dataType, schema.DataType(ref.Class))
 										}
 									}
 								}
