@@ -16,36 +16,35 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 )
 
-func (m *StorageGCSModule) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
-	return m.storageProvider.StoreSnapshot(ctx, snapshot)
+func (m *StorageGCSModule) DestinationPath(snapshotID string) string {
+	return m.storageProvider.DestinationPath(snapshotID)
 }
 
-func (m *StorageGCSModule) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
+func (m *StorageGCSModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+	return m.storageProvider.GetObject(ctx, snapshotID, key)
 }
 
-func (m *StorageGCSModule) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
+func (m *StorageGCSModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+	return m.storageProvider.PutFile(ctx, snapshotID, key, srcPath)
 }
 
-func (m *StorageGCSModule) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
-	return m.storageProvider.SetMetaError(ctx, className, snapshotID, err)
+func (m *StorageGCSModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+	return m.storageProvider.PutObject(ctx, snapshotID, key, byes)
 }
 
-func (m *StorageGCSModule) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return m.storageProvider.GetMeta(ctx, className, snapshotID)
+func (m *StorageGCSModule) Initialize(ctx context.Context, snapshotID string) error {
+	return m.storageProvider.Initialize(ctx, snapshotID)
 }
 
-func (m *StorageGCSModule) DestinationPath(className, snapshotID string) string {
-	return m.storageProvider.DestinationPath(className, snapshotID)
+func (m *StorageGCSModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+	return m.storageProvider.WriteToFile(ctx, snapshotID, key, destPath)
 }
 
-func (m *StorageGCSModule) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return m.storageProvider.InitSnapshot(ctx, className, snapshotID)
+func (m *StorageGCSModule) SourceDataPath() string {
+	return m.storageProvider.SourceDataPath()
 }
 
 func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {

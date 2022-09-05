@@ -13,185 +13,253 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/sirupsen/logrus"
 )
+
+// TODO
+// 1. maybe add node to the base path when initializing storage model
+// the base path = "bucket/node/backupid" or somthing like that
+// 4. error handling need to be implmented properly.
+// Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
+
+type BackupStorageProvider interface {
+	BackupStorage(storageName string) (modulecapabilities.SnapshotStorage, error)
+}
 
 type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 type schemaManger interface {
-	RestoreClass(context.Context, *models.Principal,
-		*models.Class, *backup.Snapshot,
+	RestoreClass(ctx context.Context,
+		principal *models.Principal,
+		d *backup.ClassDescriptor,
 	) error
 }
 
+type RestoreStatus struct {
+	Path        string
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Status      backup.Status
+	Err         error
+}
+
 type Manager struct {
-	logger        logrus.FieldLogger
-	authorizer    authorizer
-	schema        schemaManger
-	backups       *backupManager
+	logger     logrus.FieldLogger
+	authorizer authorizer
+	backupper  *backupper
+	restorer   *restorer
+	storages   BackupStorageProvider
+
+	// TODO: keeping status in memory after restore has been done
+	// is not a proper solution for communicating status to the user.
+	// On app crash or restart this data will be lost
+	// This should be regarded as workaround and should be fixed asap
 	RestoreStatus sync.Map
-	RestoreError  sync.Map
-	sync.Mutex
 }
 
 func NewManager(
 	logger logrus.FieldLogger,
 	authorizer authorizer,
 	schema schemaManger,
-	sourceFactory SourceFactory,
+	sourcer Sourcer,
 	storages BackupStorageProvider,
-	shardingStateFunc shardingStateFunc,
 ) *Manager {
 	m := &Manager{
 		logger:     logger,
 		authorizer: authorizer,
-		schema:     schema,
-		backups:    NewBackupManager(logger, sourceFactory, storages, shardingStateFunc),
+		storages:   storages,
+		backupper: newBackupper(logger,
+			sourcer,
+			storages),
+		restorer: newRestorer(logger,
+			sourcer,
+			storages,
+			schema,
+		),
 	}
 	return m
 }
 
-func (m *Manager) CreateBackup(ctx context.Context, principal *models.Principal,
-	className, storageName, ID string,
+type BackupRequest struct {
+	// StorageType specify on which storage to store backups (gcs, s3, ..)
+	StorageType string
+	// ID is the backup ID
+	ID string
+
+	// Include is list of class which need to be backed up
+	// The same class cannot appear in both Include and Exclude in the same request
+	Include []string
+	// Exclude means include all classes but those specified in Exclude
+	// The same class cannot appear in both Include and Exclude in the same request
+	Exclude []string
+}
+
+func (m *Manager) CreateBackup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (*models.BackupCreateMeta, error) {
-	path := fmt.Sprintf("schema/%s/snapshots/%s/%s", className, storageName, ID)
-	if err := m.authorizer.Authorize(principal, "add", path); err != nil {
+	// TODO get list of all classes
+	// TODO filter classes or get and exclude classes
+	classes := req.Include
+	// TODO what is the right path for authorization
+	path := fmt.Sprintf("backups/%s/%s", req.StorageType, req.ID)
+	if err := m.authorizer.Authorize(pr, "create", path); err != nil {
 		return nil, err
 	}
 
-	if err := validateID(ID); err != nil {
+	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
+	if err := m.backupper.sourcer.Backupable(ctx, classes); err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
 
-	if meta, err := m.backups.CreateBackup(ctx, className, storageName, ID); err != nil {
+	store, err := m.objectStore(req.StorageType)
+	if err != nil {
+		err = fmt.Errorf("find storage provider %s", req.StorageType)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	destPath := store.DestinationPath(req.ID)
+	// there is no snapshot with given id on the storage, regardless of its state (valid or corrupted)
+	_, err = store.Meta(ctx, req.ID)
+	if err == nil {
+		err = fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	if _, ok := err.(backup.ErrNotFound); !ok {
+		err = fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	if err := store.Initialize(ctx, req.ID); err != nil {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+	}
+	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
 		return nil, err
 	} else {
 		status := string(meta.Status)
 		return &models.BackupCreateMeta{
-			ID:          ID,
-			StorageName: storageName,
+			Classes:     classes,
+			ID:          req.ID,
+			StorageName: req.StorageType,
 			Status:      &status,
 			Path:        meta.Path,
 		}, nil
 	}
 }
 
-func (m *Manager) CreateBackupStatus(ctx context.Context, principal *models.Principal,
-	className, storageName, snapshotID string,
+func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
+	storageName, backupID string,
 ) (*models.BackupCreateMeta, error) {
-	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf(
-		"schema/%s/snapshots/%s/%s", className, storageName, snapshotID))
+	path := fmt.Sprintf("backups/%s/%s", storageName, backupID)
+	err := m.authorizer.Authorize(principal, "get", path)
 	if err != nil {
 		return nil, err
 	}
 
-	return m.backups.CreateBackupStatus(ctx, className, storageName, snapshotID)
+	return m.backupper.Status(ctx, storageName, backupID)
 }
 
-func (m *Manager) RestoreBackupStatus(ctx context.Context, principal *models.Principal,
-	className, storageName, ID string,
-) (status string, errorString string, path string, err error) {
-	snapshotUID := storageName + "-" + className + "-" + ID
-	path = fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
-	if err := m.authorizer.Authorize(principal, "get", path); err != nil {
-		return "", "", "", err
+func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, storageName, ID string,
+) (_ RestoreStatus, err error) {
+	ppath := fmt.Sprintf("backups/%s/%s", storageName, ID)
+	if err := m.authorizer.Authorize(principal, "restore", ppath); err != nil {
+		return RestoreStatus{}, err
 	}
-
-	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
+	if st := m.restorer.status(); st.ID == ID {
+		return RestoreStatus{
+			Path:      st.path,
+			StartedAt: st.Starttime,
+			Status:    st.Status,
+		}, nil
+	}
+	ref := basePath(storageName, ID)
+	istatus, ok := m.RestoreStatus.Load(ref)
 	if !ok {
-		return "", "", "", errors.Errorf("snapshot status not found for %s", snapshotUID)
+		return RestoreStatus{}, errors.Errorf("status not found: %s", ref)
 	}
-	status = statusInterface.(string)
-	errInterface, ok := m.RestoreError.Load(snapshotUID)
-	if !ok {
-		return "", "", "", errors.Errorf("snapshot status not found for %s", snapshotUID)
-	}
-
-	if errInterface != nil {
-		restoreError := errInterface.(error)
-		errorString = restoreError.Error()
-	}
-
-	path, err = m.backups.DestinationPath(storageName, className, ID)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	return status, errorString, path, nil
+	return istatus.(RestoreStatus), nil
 }
 
-func (m *Manager) RestoreBackup(ctx context.Context, principal *models.Principal,
-	className, storageName, ID string,
+// TODO validate meta data file
+
+func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
+	req *BackupRequest,
 ) (*models.BackupRestoreMeta, error) {
-	snapshotUID := fmt.Sprintf("%s-%s-%s", storageName, className, ID)
-	m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusSTARTED)
-	m.RestoreError.Store(snapshotUID, nil)
-	path := fmt.Sprintf("schema/%s/snapshots/%s/%s/restore", className, storageName, ID)
-	if err := m.authorizer.Authorize(principal, "restore", path); err != nil {
+	path := fmt.Sprintf("backups/%s/%s", req.StorageType, req.ID)
+	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
-
-	go func(ctx context.Context, className, snapshotId string) {
-		timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreDurations.WithLabelValues(storageName, className))
-		defer timer.ObserveDuration()
-		m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusTRANSFERRING)
-		if meta, snapshot, err := m.backups.RestoreBackup(context.Background(), className, storageName, ID); err != nil {
-			if meta != nil {
-				m.RestoreStatus.Store(snapshotUID, string(meta.Status))
-			} else {
-				m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusFAILED)
-			}
-			m.RestoreError.Store(snapshotUID, err)
-			return
-		} else {
-			classM := models.Class{}
-			if err := json.Unmarshal([]byte(snapshot.Schema), &classM); err != nil {
-				m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusFAILED)
-				m.RestoreError.Store(snapshotUID, err)
-				return
-			}
-
-			err := m.schema.RestoreClass(ctx, principal, &classM, snapshot)
-			if err != nil {
-				m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusFAILED)
-				m.RestoreError.Store(snapshotUID, err)
-				return
-			}
-
-			m.RestoreStatus.Store(snapshotUID, models.BackupRestoreMetaStatusSUCCESS)
-
-		}
-	}(context.Background(), className, ID)
-
-	statusInterface, ok := m.RestoreStatus.Load(snapshotUID)
-	if !ok {
-		return nil, errors.Errorf("snapshot  not found for %s", snapshotUID)
-	}
-	status := statusInterface.(string)
-
-	path, err := m.backups.DestinationPath(storageName, className, ID)
+	store, err := m.objectStore(req.StorageType)
 	if err != nil {
-		return nil, err
+		err = fmt.Errorf("find storage provider %s", req.StorageType)
+		return nil, backup.NewErrUnprocessable(err)
 	}
+	destPath := store.DestinationPath(req.ID)
+
+	meta, err := store.Meta(ctx, req.ID)
+	if err != nil {
+		err = fmt.Errorf("find backup %s: %w", destPath, err)
+		if _, ok := err.(backup.ErrNotFound); ok {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	if meta.Status != string(backup.Success) {
+		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
+		return nil, backup.NewErrNotFound(err)
+	}
+	status := string(models.BackupRestoreMetaStatusTRANSFERRING)
+	// TODO use request to filter out excluded classes
+	classes := meta.List()
 	returnData := &models.BackupRestoreMeta{
-		ID:          ID,
-		StorageName: storageName,
+		Classes:     classes,
+		ID:          req.ID,          // TODO remove since it's included in the path
+		StorageName: req.StorageType, // TODO remove since it's included in the path
 		Status:      &status,
 		Path:        path,
 	}
+	go func() {
+		status := RestoreStatus{
+			Path:      destPath,
+			StartedAt: time.Now().UTC(),
+			Status:    backup.Transferring,
+			Err:       nil,
+		}
+		defer func() {
+			status.CompletedAt = time.Now().UTC()
+			if err == nil {
+				status.Status = backup.Success
+			} else {
+				status.Err = err
+			}
+			m.RestoreStatus.Store(basePath(req.StorageType, req.ID), status)
+		}()
+		err := m.restorer.restoreAll(context.Background(), pr, meta, store)
+		if err != nil {
+			m.logger.WithField("action", "restore").WithField("backup_id", meta.ID).Error(err)
+		}
+	}()
+
 	return returnData, nil
+}
+
+func (m *Manager) objectStore(storageName string) (objectStore, error) {
+	caps, err := m.storages.BackupStorage(storageName)
+	if err != nil {
+		return objectStore{}, err
+	}
+	return objectStore{caps}, nil
 }
 
 func validateID(snapshotID string) error {
@@ -205,4 +273,9 @@ func validateID(snapshotID string) error {
 	}
 
 	return nil
+}
+
+// basePath of the backup
+func basePath(storageType, backupID string) string {
+	return fmt.Sprintf("%s/%s", storageType, backupID)
 }

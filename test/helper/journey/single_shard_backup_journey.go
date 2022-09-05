@@ -57,14 +57,14 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 
 			status := helper.CreateBackupStatus(t, className, storage, snapshotID)
 			require.NotNil(t, status)
-			if *status.Status == string(backup.CreateSuccess) {
+			if *status.Status == string(backup.Success) {
 				break
 			}
 		}
 
 		createStatus := helper.CreateBackupStatus(t, className, storage, snapshotID)
 		require.NotNil(t, createStatus)
-		require.Equal(t, *createStatus.Status, string(backup.CreateSuccess))
+		require.Equal(t, *createStatus.Status, string(backup.Success))
 	}
 
 	// remove the class so we can restore it
@@ -83,7 +83,7 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 
 			status := helper.RestoreBackupStatus(t, className, storage, snapshotID)
 			require.NotNil(t, status)
-			if *status.Status == string(backup.CreateSuccess) {
+			if *status.Status == string(backup.Success) {
 				break
 			}
 
@@ -92,7 +92,7 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 
 		restoreStatus := helper.RestoreBackupStatus(t, className, storage, snapshotID)
 		require.NotNil(t, restoreStatus)
-		require.Equal(t, *restoreStatus.Status, string(backup.CreateSuccess))
+		require.Equal(t, *restoreStatus.Status, string(backup.Success))
 	}
 
 	// assert class exists again it its entirety

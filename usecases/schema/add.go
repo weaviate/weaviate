@@ -41,8 +41,22 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
-	class *models.Class, snapshot *backup.Snapshot,
+	d *backup.ClassDescriptor,
 ) error {
+	// get schema and sharding state
+	class := &models.Class{}
+	if err := json.Unmarshal(d.Schema, &class); err != nil {
+		return fmt.Errorf("marshal class schema: %w", err)
+	}
+	var shardingState *sharding.State
+	if d.ShardingState != nil {
+		shardingState = &sharding.State{}
+		err := json.Unmarshal(d.ShardingState, shardingState)
+		if err != nil {
+			return fmt.Errorf("marshal sharding state: %w", err)
+		}
+	}
+
 	m.Lock()
 	defer m.Unlock()
 	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreClassDurations.WithLabelValues(class.Class))
@@ -72,27 +86,17 @@ func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	shardStateB := snapshot.ShardingState
-	var shardState *sharding.State
-	if shardStateB != nil {
-		shardState = &sharding.State{}
-		err := json.Unmarshal(shardStateB, shardState)
-		if err != nil {
-			return errors.Wrap(err, "failed to unmarshal sharding state")
-		}
-	}
-
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
-	m.state.ShardingState[class.Class] = shardState
+	m.state.ShardingState[class.Class] = shardingState
 	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
 	err = m.saveSchema(ctx)
 	if err != nil {
 		return err
 	}
 
-	out := m.migrator.AddClass(ctx, class, shardState)
+	out := m.migrator.AddClass(ctx, class, shardingState)
 	return out
 }
 

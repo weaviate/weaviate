@@ -17,36 +17,35 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
 )
 
-func (m *StorageS3Module) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
-	return m.storageProvider.StoreSnapshot(ctx, snapshot)
+func (m *StorageS3Module) DestinationPath(snapshotID string) string {
+	return m.storageProvider.DestinationPath(snapshotID)
 }
 
-func (m *StorageS3Module) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return m.storageProvider.RestoreSnapshot(ctx, className, snapshotID)
+func (m *StorageS3Module) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+	return m.storageProvider.GetObject(ctx, snapshotID, key)
 }
 
-func (m *StorageS3Module) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
-	return m.storageProvider.SetMetaError(ctx, className, snapshotID, err)
+func (m *StorageS3Module) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+	return m.storageProvider.PutFile(ctx, snapshotID, key, srcPath)
 }
 
-func (m *StorageS3Module) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	return m.storageProvider.SetMetaStatus(ctx, className, snapshotID, status)
+func (m *StorageS3Module) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+	return m.storageProvider.PutObject(ctx, snapshotID, key, byes)
 }
 
-func (m *StorageS3Module) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return m.storageProvider.GetMeta(ctx, className, snapshotID)
+func (m *StorageS3Module) Initialize(ctx context.Context, snapshotID string) error {
+	return m.storageProvider.Initialize(ctx, snapshotID)
 }
 
-func (m *StorageS3Module) DestinationPath(className, snapshotID string) string {
-	return m.storageProvider.DestinationPath(className, snapshotID)
+func (m *StorageS3Module) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+	return m.storageProvider.WriteToFile(ctx, snapshotID, key, destPath)
 }
 
-func (m *StorageS3Module) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return m.storageProvider.InitSnapshot(ctx, className, snapshotID)
+func (m *StorageS3Module) SourceDataPath() string {
+	return m.storageProvider.SourceDataPath()
 }
 
 func (m *StorageS3Module) initSnapshotStorage(ctx context.Context) error {

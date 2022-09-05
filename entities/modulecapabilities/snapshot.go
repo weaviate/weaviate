@@ -13,17 +13,26 @@ package modulecapabilities
 
 import (
 	"context"
-
-	"github.com/semi-technologies/weaviate/entities/backup"
 )
 
 type SnapshotStorage interface {
-	StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error
-	RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error)
+	DestinationPath(snapshotID string) string // TODO: might be change it to something like DestDir because meta.json is now specified by the user
 
-	InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error)
-	GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error)
-	SetMetaStatus(ctx context.Context, className, snapshotID, status string) error
-	SetMetaError(ctx context.Context, className, snapshotID string, err error) error
-	DestinationPath(className, snapshotID string) string
+	// GetObject giving snapshotID and key
+	GetObject(ctx context.Context, snapshotID, key string) ([]byte, error)
+
+	// WriteToFile writes an object in the specified file with path destPath
+	// The file will be created if it doesn't exist
+	// The file will be overwritten if it exists
+	WriteToFile(ctx context.Context, snapshotID, key, destPath string) error
+
+	// SourceDataPath is data path of all source files
+	SourceDataPath() string
+
+	// PutFile reads a file from srcPath and uploads it to the destination folder
+	PutFile(ctx context.Context, snapshotID, key, srcPath string) error
+	// PutObject writes bytes to the object with key key
+	PutObject(ctx context.Context, snapshotID, key string, byes []byte) error
+	// Initialize initializes storage provider and make sure that app have access rights to write into the object store.
+	Initialize(ctx context.Context, snapshotID string) error
 }

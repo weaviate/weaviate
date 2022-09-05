@@ -13,16 +13,10 @@ package modstgfs
 
 import (
 	"context"
-	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
-	"time"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,7 +28,6 @@ var (
 func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 	snapshotsRelativePath := filepath.Join(snapshotsMainDir, "some", "nested", "dir") // ./snapshots/some/nested/dir
 	snapshotsAbsolutePath, _ := filepath.Abs(snapshotsRelativePath)
-	testDir := makeTestDir(t, testdataMainDir)
 	defer removeDir(t, testdataMainDir)
 	defer removeDir(t, snapshotsMainDir)
 
@@ -81,115 +74,6 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 		_, err = os.Stat(snapshotsAbsolutePath)
 		assert.Nil(t, err) // dir exists
 	})
-
-	t.Run("copies snapshot data", func(t *testing.T) {
-		snapshot := createBackupInstance(t, testDir)
-		ctxSnapshot := context.Background()
-
-		module := New()
-		module.initSnapshotStorage(ctx, snapshotsAbsolutePath)
-		module.logger, _ = test.NewNullLogger()
-		module.dataPath, _ = os.Getwd()
-		err := module.StoreSnapshot(ctxSnapshot, snapshot)
-
-		assert.Nil(t, err)
-
-		var expectedFilePath string
-		var info os.FileInfo
-		for _, file := range snapshot.Files {
-			expectedFilePath = module.makeSnapshotFilePath(snapshot.ClassName, snapshot.ID, file.Path)
-			info, err = os.Stat(expectedFilePath)
-			assert.Nil(t, err) // file exists
-			orgInfo, err := os.Stat(file.Path)
-			assert.Nil(t, err) // file exists
-
-			assert.Equal(t, orgInfo.Size(), info.Size())
-		}
-
-		expectedFilePath = module.makeMetaFilePath(snapshot.ClassName, snapshot.ID)
-		info, err = os.Stat(expectedFilePath)
-		assert.Nil(t, err) // file exists
-		assert.Greater(t, info.Size(), int64(0))
-	})
-
-	t.Run("restores snapshot data", func(t *testing.T) {
-		ctxSnapshot := context.Background()
-		module := New()
-		module.initSnapshotStorage(ctx, snapshotsAbsolutePath)
-		module.logger, _ = test.NewNullLogger()
-		module.dataPath, _ = os.Getwd()
-
-		// List all files in testDir
-		files, _ := os.ReadDir(testDir)
-
-		// Remove the files, ready for restore
-		for _, f := range files {
-			os.Remove(filepath.Join(testDir, f.Name()))
-			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
-		}
-
-		// Use the previous test snapshot to test the restore function
-
-		_, err := module.RestoreSnapshot(ctxSnapshot, "classname", "snapshot_id")
-
-		assert.Nil(t, err)
-
-		assert.DirExists(t, module.dataPath)
-
-		// Check that every file in the snapshot exists in testDir
-		for _, filePath := range files {
-			expectedFilePath := filepath.Join(testDir, filePath.Name())
-			assert.FileExists(t, expectedFilePath)
-		}
-	})
-}
-
-func TestSnapshotStorage_MetaStatus(t *testing.T) {
-	var testClass string
-	var testId string
-	testDir := makeTestDir(t, testdataMainDir)
-	snapshotsRelativePath := filepath.Join(snapshotsMainDir, "some", "nested", "dir") // ./snapshots/some/nested/dir
-	snapshotsAbsolutePath, _ := filepath.Abs(snapshotsRelativePath)
-	defer removeDir(t, testdataMainDir)
-	defer removeDir(t, snapshotsMainDir)
-
-	t.Run("store snapshot", func(t *testing.T) {
-		snapshot := createBackupInstance(t, testDir)
-		testClass = snapshot.ClassName
-		testId = snapshot.ID
-		ctxSnapshot := context.Background()
-
-		module := New()
-		module.initSnapshotStorage(context.Background(), snapshotsAbsolutePath)
-		module.logger, _ = test.NewNullLogger()
-		module.dataPath, _ = os.Getwd()
-		err := module.StoreSnapshot(ctxSnapshot, snapshot)
-		assert.Nil(t, err)
-	})
-
-	t.Run("set snapshot status", func(t *testing.T) {
-		module := New()
-		module.snapshotsPath = snapshotsAbsolutePath
-
-		err := module.SetMetaStatus(context.Background(), testClass, testId, string(backup.CreateStarted))
-		assert.Nil(t, err)
-	})
-
-	t.Run("get snapshot status", func(t *testing.T) {
-		module := New()
-		module.snapshotsPath = snapshotsAbsolutePath
-
-		meta, err := module.GetMeta(context.Background(), testClass, testId)
-		assert.Nil(t, err)
-		assert.Equal(t, string(backup.CreateStarted), meta.Status)
-	})
-}
-
-func makeTestDir(t *testing.T, basePath string) string {
-	rand.Seed(time.Now().UnixNano())
-	dirPath := filepath.Join(basePath, strconv.Itoa(rand.Intn(10000000)))
-	makeDir(t, dirPath)
-	return dirPath
 }
 
 func makeDir(t *testing.T, dirPath string) {
@@ -202,37 +86,4 @@ func removeDir(t *testing.T, dirPath string) {
 	if err := os.RemoveAll(dirPath); err != nil {
 		t.Errorf("failed to remove test dir '%s': %s", dirPath, err)
 	}
-}
-
-func createBackupInstance(t *testing.T, dirPath string) *backup.Snapshot {
-	startedAt := time.Now()
-
-	filePaths := createTestFiles(t, dirPath)
-	files := make([]backup.SnapshotFile, len(filePaths))
-	for i := range filePaths {
-		files[i] = backup.SnapshotFile{Path: filePaths[i]}
-	}
-
-	snap := backup.NewSnapshot("classname", "snapshot_id", startedAt)
-	snap.Files = files
-	snap.CompletedAt = time.Now()
-	return snap
-}
-
-func createTestFiles(t *testing.T, dirPath string) []string {
-	count := 5
-	filePaths := make([]string, count)
-	var fileName string
-
-	for i := 0; i < count; i += 1 {
-		fileName = fmt.Sprintf("file_%d.db", i)
-		filePaths[i] = filepath.Join(dirPath, fileName)
-		file, err := os.Create(filePaths[i])
-		if err != nil {
-			t.Fatalf("failed to create test file '%s': %s", fileName, err)
-		}
-		fmt.Fprintf(file, "This is content of db file named %s", fileName)
-		file.Close()
-	}
-	return filePaths
 }

@@ -13,73 +13,116 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"golang.org/x/sync/errgroup"
 )
 
-// CreateBackup creates a new active backup for all state in this index across
-// all its shards. It is safe to copy any file referenced in the snapshot, as the
-// active state in the snapshot guarantees that those files cannot be modified.
+type BackupState struct {
+	SnapshotID string
+	InProgress bool
+}
+
+// Backupable returns whether all given class can be backed up.
 //
-// There can only be one active snapshot at a time, and creating a snapshot will
-// fail on any Index that already has an active snapshot.
-//
-// Make sure to call ReleaseBackup for this snapshot's ID once you have finished
-// copying the files to make sure background and maintenance processes can resume.
-func (i *Index) CreateBackup(ctx context.Context, snap *backup.Snapshot) (*backup.Snapshot, error) {
-	if err := i.initSnapshot(snap.ID); err != nil {
-		return nil, err
+// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
+func (db *DB) Backupable(ctx context.Context, classes []string) error {
+	for _, c := range classes {
+		idx := db.GetIndex(schema.ClassName(c))
+		if idx == nil {
+			return fmt.Errorf("class %v doesn't exist", c)
+		}
+		if n := db.schemaGetter.ShardingState(c).CountPhysicalShards(); n > 1 {
+			return fmt.Errorf("class %v has %d physical shards", c, n)
+		}
 	}
+	return nil
+}
 
-	var g errgroup.Group
-
-	for _, shard := range i.Shards {
-		s := shard
-		g.Go(func() error {
-			if err := s.createBackup(ctx, snap); err != nil {
-				return err
+// BackupDescriptors returns a channel of class descriptors.
+// Class descriptor records everything needed to restore a class
+// If an error happens a descriptor with an error will be written to the channel just before closing it.
+func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
+) <-chan backup.ClassDescriptor {
+	ds := make(chan backup.ClassDescriptor, len(classes))
+	go func() {
+		for _, c := range classes {
+			desc := backup.ClassDescriptor{Name: c, Node: db.config.NodeName}
+			idx := db.GetIndex(schema.ClassName(c))
+			if idx == nil {
+				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
+			} else if err := idx.descriptor(ctx, bakid, &desc); err != nil {
+				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
+			} else {
+				desc.Error = ctx.Err()
 			}
-			return nil
-		})
+
+			ds <- desc
+			if desc.Error != nil {
+				break
+			}
+		}
+		close(ds)
+	}()
+	return ds
+}
+
+// ReleaseBackup release resources acquired by the index during backup
+func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
+	idx := db.GetIndex(schema.ClassName(class))
+	if idx != nil {
+		return idx.ReleaseBackup(ctx, bakID)
+	}
+	return nil
+}
+
+func (db *DB) ClassExists(name string) bool {
+	return db.GetIndex(schema.ClassName(name)) != nil
+}
+
+// descriptor record everything needed to restore a class
+func (i *Index) descriptor(ctx context.Context, backupid string, desc *backup.ClassDescriptor) (err error) {
+	if err := i.initSnapshot(backupid); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			i.resetSnapshotOnFailedCreate(ctx, err)
+		}
+	}()
+	for _, s := range i.Shards {
+		if err = s.beginBackup(ctx); err != nil {
+			return fmt.Errorf("pause compaction and flush: %w", err)
+		}
+		var ddesc backup.ShardDescriptor
+		if err := s.listBackupFiles(ctx, &ddesc); err != nil {
+			return fmt.Errorf("list shard %v files: %w", s.name, err)
+		}
+
+		desc.Shards = append(desc.Shards, ddesc)
 	}
 
-	if err := g.Wait(); err != nil {
-		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
-		return nil, err
+	if desc.ShardingState, err = i.marshalShardingState(); err != nil {
+		return fmt.Errorf("marshal sharding state %w", err)
 	}
-
-	shardingState, err := i.marshalShardingState()
-	if err != nil {
-		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
-		return nil, errors.Wrap(err, "create snapshot")
+	if desc.Schema, err = i.marshalSchema(); err != nil {
+		return fmt.Errorf("marshal schema %w", err)
 	}
-
-	schema, err := i.marshalSchema()
-	if err != nil {
-		err = i.resetSnapshotOnFailedCreate(ctx, snap, err)
-		return nil, errors.Wrap(err, "create snapshot")
-	}
-
-	snap.ShardingState = shardingState
-	snap.Schema = schema
-	snap.ServerVersion = config.ServerVersion
-
-	return snap, nil
+	return nil
 }
 
 // ReleaseBackup marks the specified snapshot as inactive and restarts all
 // async background and maintenance processes. It errors if the snapshot does not exist
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
+	defer i.resetSnapshotState()
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err
 	}
-
-	defer i.resetSnapshotState()
 	return nil
 }
 
@@ -94,7 +137,7 @@ func (i *Index) initSnapshot(id string) error {
 				"try again later", i.snapshotState.SnapshotID)
 	}
 
-	i.snapshotState = backup.State{
+	i.snapshotState = BackupState{
 		SnapshotID: id,
 		InProgress: true,
 	}
@@ -102,7 +145,7 @@ func (i *Index) initSnapshot(id string) error {
 	return nil
 }
 
-func (i *Index) resetSnapshotOnFailedCreate(ctx context.Context, snap *backup.Snapshot, err error) error {
+func (i *Index) resetSnapshotOnFailedCreate(ctx context.Context, err error) error {
 	defer i.resetSnapshotState()
 
 	ec := errorcompounder.ErrorCompounder{}
@@ -114,7 +157,7 @@ func (i *Index) resetSnapshotOnFailedCreate(ctx context.Context, snap *backup.Sn
 func (i *Index) resetSnapshotState() {
 	i.snapshotStateLock.Lock()
 	defer i.snapshotStateLock.Unlock()
-	i.snapshotState = backup.State{InProgress: false}
+	i.snapshotState = BackupState{InProgress: false}
 }
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {

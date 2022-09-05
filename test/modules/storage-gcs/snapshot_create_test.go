@@ -13,9 +13,9 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -30,6 +30,7 @@ import (
 	"google.golang.org/api/option"
 )
 
+// TODO: test remaining methods
 func Test_GCSStorage_SnapshotCreate(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithGCS().Start(ctx)
@@ -52,17 +53,15 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 	defer cancel()
 
 	testdataMainDir := "./testData"
-	testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
+	// testDir := moduleshelper.MakeTestDir(t, testdataMainDir)
 	defer moduleshelper.RemoveDir(t, testdataMainDir)
 
-	path, err := os.Getwd()
-	require.Nil(t, err)
-
-	className := "SnapshotClass"
-	snapshotID := "snapshot_id"
+	className := "BackupClass"
+	backupID := "backup_id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	bucketName := "weaviate-snapshots"
 	projectID := "project-id"
+	metadataFilename := "snapshot.json"
 
 	t.Run("setup env", func(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
@@ -81,52 +80,51 @@ func moduleLevelStoreSnapshot(t *testing.T) {
 		gcs, err := gcs.New(testCtx, gcsConfig, path)
 		require.Nil(t, err)
 
-		snapshot, err := gcs.InitSnapshot(testCtx, className, snapshotID)
+		meta, err := gcs.GetObject(testCtx, backupID, metadataFilename)
+		assert.Nil(t, meta)
+		assert.NotNil(t, err)
+		assert.IsType(t, backup.ErrNotFound{}, err)
+
+		err = gcs.Initialize(testCtx, backupID)
+		assert.Nil(t, err)
+
+		desc := &backup.BackupDescriptor{
+			StartedAt:   time.Now(),
+			CompletedAt: time.Time{},
+			ID:          backupID,
+			Classes: []backup.ClassDescriptor{
+				{
+					Name: className,
+				},
+			},
+			Status: string(backup.Started),
+		}
+
+		b, err := json.Marshal(desc)
 		require.Nil(t, err)
 
-		err = gcs.StoreSnapshot(testCtx, snapshot)
+		err = gcs.PutObject(testCtx, backupID, metadataFilename, b)
 		require.Nil(t, err)
 
-		dest := gcs.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
+		dest := gcs.DestinationPath(backupID)
+		expected := fmt.Sprintf("gs://%s/%s/snapshot.json", bucketName, backupID)
 		assert.Equal(t, expected, dest)
 
 		t.Run("assert snapshot meta contents", func(t *testing.T) {
-			meta, err := gcs.GetMeta(testCtx, className, snapshotID)
+			obj, err := gcs.GetObject(testCtx, backupID, metadataFilename)
+			require.Nil(t, err)
+
+			var meta backup.BackupDescriptor
+			err = json.Unmarshal(obj, &meta)
 			require.Nil(t, err)
 			assert.NotEmpty(t, meta.StartedAt)
 			assert.Empty(t, meta.CompletedAt)
-			assert.Equal(t, meta.Status, string(backup.CreateStarted))
+			assert.Equal(t, meta.Status, string(backup.Started))
 			assert.Empty(t, meta.Error)
+			assert.Len(t, meta.Classes, 1)
+			assert.Equal(t, meta.Classes[0].Name, className)
+			assert.Nil(t, meta.Classes[0].Error)
 		})
-	})
-
-	t.Run("restore snapshot in gcs", func(t *testing.T) {
-		gcsConfig := gcs.NewConfig(bucketName, "")
-		gcs, err := gcs.New(testCtx, gcsConfig, path)
-		require.Nil(t, err)
-
-		// List all files in testDir
-		files, _ := os.ReadDir(testDir)
-
-		// Remove the files, ready for restore
-		for _, f := range files {
-			require.Nil(t, os.Remove(filepath.Join(testDir, f.Name())))
-			assert.NoFileExists(t, filepath.Join(testDir, f.Name()))
-		}
-
-		_, err = gcs.RestoreSnapshot(testCtx, "SnapshotClass", "snapshot_id")
-		assert.Nil(t, err)
-
-		// Check that every file in the snapshot exists in testDir
-		for _, filePath := range files {
-			expectedFilePath := filepath.Join(testDir, filePath.Name())
-			assert.FileExists(t, expectedFilePath)
-		}
-
-		dest := gcs.DestinationPath(className, snapshotID)
-		expected := fmt.Sprintf("gs://%s/%s/%s/snapshot.json", bucketName, className, snapshotID)
-		assert.Equal(t, expected, dest)
 	})
 }
 
@@ -140,8 +138,9 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 
 	moduleshelper.CreateTestFiles(t, testDir)
 
-	className := "SnapshotClass"
 	snapshotID := "snapshot_id"
+	key := "moduleLevelGetMetaStatus"
+
 	endpoint := os.Getenv(envGCSEndpoint)
 	bucketName := "weaviate-snapshots"
 	projectID := "project-id"
@@ -158,17 +157,6 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 
 	gcsConfig := gcs.NewConfig(bucketName, "")
 
-	t.Run("store snapshot in gcs", func(t *testing.T) {
-		gcs, err := gcs.New(testCtx, gcsConfig, testDir)
-		require.Nil(t, err)
-
-		snapshot, err := gcs.InitSnapshot(testCtx, className, snapshotID)
-		require.Nil(t, err)
-
-		err = gcs.StoreSnapshot(testCtx, snapshot)
-		assert.Nil(t, err)
-	})
-
 	t.Run("set snapshot status", func(t *testing.T) {
 		client, err := storage.NewClient(testCtx, option.WithoutAuthentication())
 		require.Nil(t, err)
@@ -180,7 +168,7 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 		gcs, err := gcs.New(testCtx, gcsConfig, testDir)
 		require.Nil(t, err)
 
-		err = gcs.SetMetaStatus(testCtx, className, snapshotID, "STARTED")
+		err = gcs.PutObject(testCtx, snapshotID, key, []byte("hello"))
 		assert.Nil(t, err)
 	})
 
@@ -188,8 +176,8 @@ func moduleLevelGetMetaStatus(t *testing.T) {
 		gcs, err := gcs.New(testCtx, gcsConfig, testDir)
 		require.Nil(t, err)
 
-		meta, err := gcs.GetMeta(testCtx, className, snapshotID)
-		require.Nil(t, err)
-		assert.Equal(t, "STARTED", meta.Status)
+		meta, err := gcs.GetObject(testCtx, snapshotID, key)
+		assert.Nil(t, err)
+		assert.Equal(t, []byte("hello"), meta)
 	})
 }

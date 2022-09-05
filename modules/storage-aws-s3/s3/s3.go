@@ -14,19 +14,15 @@ package s3
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"os"
 	"path"
-	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -69,195 +65,98 @@ func (s *s3) makeObjectName(parts ...string) string {
 	return path.Join(s.config.SnapshotRoot(), base)
 }
 
-func makeFilePath(parts ...string) string {
-	return path.Join(parts...)
+func (s *s3) DestinationPath(snapshotID string) string {
+	return "s3://" + path.Join(s.config.BucketName(),
+		s.makeObjectName(snapshotID, "snapshot.json"))
 }
 
-func (s *s3) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
-	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotStoreDurations.WithLabelValues("s3", snapshot.ClassName))
-	defer timer.ObserveDuration()
-	bucketName, err := s.findBucket(ctx)
+func (s *s3) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+	objectName := s.makeObjectName(snapshotID, key)
+
+	if err := ctx.Err(); err != nil {
+		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", objectName))
+	}
+
+	obj, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
 	if err != nil {
-		return backup.NewErrInternal(errors.Wrap(err, "store snapshot"))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	// save files
-	putOptions := minio.PutObjectOptions{ContentType: "application/octet-stream"}
-	for _, file := range snapshot.Files {
-		if err := ctx.Err(); err != nil {
-			return backup.NewErrContextExpired(
-				errors.Wrap(err, "store snapshot aborted"))
+	contents, err := io.ReadAll(obj)
+	if err != nil {
+		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
 		}
-
-		objectName := s.makeObjectName(snapshot.ClassName, snapshot.ID, file.Path)
-		filePath := makeFilePath(s.dataPath, file.Path)
-
-		_, err := s.client.FPutObject(ctx, bucketName, objectName, filePath, putOptions)
-		if err != nil {
-			return backup.NewErrInternal(
-				errors.Wrapf(err, "put file '%s'", objectName))
-		}
-
-		// Get size of file
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			return errors.Errorf("Unable to get size of file %v", filePath)
-		}
-		monitoring.GetMetrics().SnapshotStoreDataTransferred.WithLabelValues("s3", snapshot.ClassName).Add(float64(fileInfo.Size()))
-
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	return s.putMeta(ctx, snapshot)
+	return contents, nil
 }
 
-func (s *s3) putMeta(ctx context.Context, snapshot *backup.Snapshot) error {
-	content, err := json.Marshal(snapshot)
-	if err != nil {
-		return backup.NewErrInternal(errors.Wrap(err, "save meta"))
-	}
-	objectName := s.makeObjectName(snapshot.ClassName, snapshot.ID, "snapshot.json")
-	reader := bytes.NewReader(content)
-	_, err = s.client.PutObject(ctx, s.config.BucketName(), objectName, reader, reader.Size(),
-		minio.PutObjectOptions{ContentType: "application/octet-stream"})
+func (s *s3) PutFile(ctx context.Context, snapshotID, key string, srcPath string) error {
+	objectName := s.makeObjectName(snapshotID, key)
+	srcPath = path.Join(s.dataPath, srcPath)
+	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
+
+	_, err := s.client.FPutObject(ctx, s.config.BucketName(), objectName, srcPath, opt)
 	if err != nil {
 		return backup.NewErrInternal(
 			errors.Wrapf(err, "put file '%s'", objectName))
 	}
+
 	return nil
 }
 
-func (s *s3) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreFromStorageDurations.WithLabelValues("s3", className))
-	defer timer.ObserveDuration()
-	bucketName, err := s.findBucket(ctx)
+func (s *s3) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+	objectName := s.makeObjectName(snapshotID, key)
+	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
+	reader := bytes.NewReader(byes)
+	objectSize := int64(len(byes))
+
+	_, err := s.client.PutObject(ctx, s.config.BucketName(), objectName, reader, objectSize, opt)
 	if err != nil {
-		return nil, errors.Wrap(err, "restore snapshot")
+		return backup.NewErrInternal(
+			errors.Wrapf(err, "put object '%s'", objectName))
 	}
 
-	// Load the metadata from the backup into a snapshot struct
-	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
-	if err != nil {
-		return nil, errors.Wrap(err, "restore snapshot")
-	}
-
-	// Restore the files
-	for _, file := range snapshot.Files {
-		if err := ctx.Err(); err != nil {
-			return nil, errors.Wrapf(err, "restore snapshot aborted")
-		}
-
-		// Get the correct paths for the backup file and the active file
-		objectName := s.makeObjectName(className, snapshotID, file.Path)
-		filePath := makeFilePath(s.dataPath, file.Path)
-
-		// Download the backup file from the bucket
-		err := s.client.FGetObject(ctx, bucketName, objectName, filePath, minio.GetObjectOptions{})
-		if err != nil {
-			return nil, errors.Wrapf(err, "Unable to restore file %s, system might be in a corrupted state", filePath)
-		}
-		// Get size of file
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			return nil, errors.Errorf("Unable to get size of file %v", filePath)
-		}
-		monitoring.GetMetrics().SnapshotRestoreDataTransferred.WithLabelValues("s3", className).Add(float64(fileInfo.Size()))
-
-	}
-	return snapshot, nil
+	return nil
 }
 
-func (s *s3) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
-	if err != nil {
-		return nil, err
+func (s *s3) Initialize(ctx context.Context, snapshotID string) error {
+	key := "access-check"
+
+	if err := s.PutObject(ctx, snapshotID, key, []byte("")); err != nil {
+		return errors.Wrap(err, "failed to access-check s3 storage module")
 	}
 
-	return snapshot, nil
+	objectName := s.makeObjectName(snapshotID, key)
+	opt := minio.RemoveObjectOptions{}
+	if err := s.client.RemoveObject(ctx, s.config.BucketName(), objectName, opt); err != nil {
+		return errors.Wrap(err, "failed to remove access-check s3 storage module")
+	}
+
+	return nil
 }
 
-func (s *s3) SetMetaError(ctx context.Context, className, snapshotID string, snapErr error) error {
-	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
+func (s *s3) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+	// TODO use s.client.FGetObject() because it is more efficient than GetObject
+	obj, err := s.GetObject(ctx, snapshotID, key)
 	if err != nil {
-		return errors.Wrap(err, "set snapshot error")
+		return errors.Wrapf(err, "get object '%s'", key)
 	}
 
-	snapshot.Status = string(backup.CreateFailed)
-	snapshot.Error = snapErr.Error()
+	dir := path.Dir(destPath)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return errors.Wrapf(err, "make dir '%s'", dir)
+	}
 
-	return s.putMeta(ctx, snapshot)
+	if err := os.WriteFile(destPath, obj, os.ModePerm); err != nil {
+		return errors.Wrapf(err, "write file '%s'", destPath)
+	}
+
+	return nil
 }
 
-func (s *s3) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	snapshot, err := s.getSnapshotFromBucket(ctx, className, snapshotID)
-	if err != nil {
-		return errors.Wrap(err, "set snapshot status")
-	}
-
-	if status == string(backup.CreateSuccess) {
-		snapshot.CompletedAt = time.Now()
-	}
-
-	snapshot.Status = status
-
-	return s.putMeta(ctx, snapshot)
-}
-
-func (s *s3) findBucket(ctx context.Context) (string, error) {
-	bucketName := s.config.BucketName()
-	bucketExists, err := s.client.BucketExists(ctx, bucketName)
-	if err != nil {
-		return "", errors.Wrap(err, "find bucket")
-	}
-
-	if !bucketExists {
-		return "", errors.Errorf("find bucket: bucket '%s' does not exist", bucketName)
-	}
-
-	return bucketName, nil
-}
-
-func (s *s3) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	if _, err := s.findBucket(ctx); err != nil {
-		return nil, errors.Wrap(err, "init snapshot")
-	}
-
-	snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
-	snapshot.Status = string(backup.CreateStarted)
-
-	if err := s.putMeta(ctx, snapshot); err != nil {
-		return nil, errors.Wrap(err, "init snapshot")
-	}
-
-	return snapshot, nil
-}
-
-func (s *s3) DestinationPath(className, snapshotID string) string {
-	return "s3://" + path.Join(s.config.BucketName(),
-		s.makeObjectName(className, snapshotID, "snapshot.json"))
-}
-
-func (s *s3) getSnapshotFromBucket(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	objectName := s.makeObjectName(className, snapshotID, "snapshot.json")
-	obj, err := s.client.GetObject(ctx, s.config.BucketName(), objectName, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, backup.NewErrInternal(
-			errors.Wrapf(err, "get file '%s'", objectName))
-	}
-
-	data, err := io.ReadAll(obj)
-	s3Err, ok := err.(minio.ErrorResponse)
-	if err != nil && ok && s3Err.StatusCode == http.StatusNotFound {
-		return nil, backup.ErrNotFound{}
-	} else if err != nil {
-		return nil, backup.NewErrInternal(
-			errors.Wrapf(err, "read file '%s'", objectName))
-	}
-
-	var snapshot backup.Snapshot
-	err = json.Unmarshal(data, &snapshot)
-	if err != nil {
-		return nil, errors.Wrapf(err, "unmarshal meta")
-	}
-
-	return &snapshot, nil
+func (s *s3) SourceDataPath() string {
+	return s.dataPath
 }
