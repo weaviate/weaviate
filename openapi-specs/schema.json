@@ -642,7 +642,7 @@
         }
       }
     },
-    "BackupCreateMeta": {
+    "BackupCreateStatusResponse": {
       "description": "The definition of a backup create metadata",
       "properties": {
         "id": {
@@ -669,7 +669,7 @@
         }
       }
     },
-    "BackupRestoreMeta": {
+    "BackupRestoreStatusResponse": {
       "description": "The definition of a backup restore metadata",
       "properties": {
         "id": {
@@ -723,13 +723,43 @@
         }
       }
     },
-    "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of classes",
+    "BackupCreateResponse": {
+      "description": "The definition of a backup create response body",
       "properties": {
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
+        "classes": {
+          "description": "The list of classes for which the backup creation process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "storageName": {
+          "description": "Storage name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected storage",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
+        }
+      }
+    },
+    "BackupRestoreRequest": {
+      "description": "Request body for restoring a backup for a set of classes",
+      "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
           "type": "object"
@@ -747,6 +777,40 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "BackupRestoreResponse": {
+      "description": "The definition of a backup restore response body",
+      "properties": {
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "classes": {
+          "description": "The list of classes for which the backup restoration process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "storageName": {
+          "description": "Storage name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected storage",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
         }
       }
     },
@@ -3322,7 +3386,7 @@
           "200": {
             "description": "Backup create process successfully started.",
             "schema": {
-              "$ref": "#/definitions/BackupCreateMeta"
+              "$ref": "#/definitions/BackupCreateResponse"
             }
           },
           "401": {
@@ -3375,7 +3439,7 @@
           "200": {
             "description": "Backup creation status successfully returned",
             "schema": {
-              "$ref": "#/definitions/BackupCreateMeta"
+              "$ref": "#/definitions/BackupCreateStatusResponse"
             }
           },
           "401": {
@@ -3436,7 +3500,7 @@
           "200": {
             "description": "Backup restoration process successfully started.",
             "schema": {
-              "$ref": "#/definitions/BackupRestoreMeta"
+              "$ref": "#/definitions/BackupRestoreResponse"
             }
           },
           "401": {
@@ -3493,7 +3557,7 @@
           "200": {
             "description": "Backup restoration status successfully returned",
             "schema": {
-              "$ref": "#/definitions/BackupRestoreMeta"
+              "$ref": "#/definitions/BackupRestoreStatusResponse"
             }
           },
           "401": {

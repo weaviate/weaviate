@@ -37,7 +37,7 @@ type BackupsCreateStatusOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.BackupCreateMeta `json:"body,omitempty"`
+	Payload *models.BackupCreateStatusResponse `json:"body,omitempty"`
 }
 
 // NewBackupsCreateStatusOK creates BackupsCreateStatusOK with default headers values
@@ -47,13 +47,13 @@ func NewBackupsCreateStatusOK() *BackupsCreateStatusOK {
 }
 
 // WithPayload adds the payload to the backups create status o k response
-func (o *BackupsCreateStatusOK) WithPayload(payload *models.BackupCreateMeta) *BackupsCreateStatusOK {
+func (o *BackupsCreateStatusOK) WithPayload(payload *models.BackupCreateStatusResponse) *BackupsCreateStatusOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the backups create status o k response
-func (o *BackupsCreateStatusOK) SetPayload(payload *models.BackupCreateMeta) {
+func (o *BackupsCreateStatusOK) SetPayload(payload *models.BackupCreateStatusResponse) {
 	o.Payload = payload
 }
 

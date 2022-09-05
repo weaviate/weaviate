@@ -25,10 +25,10 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// BackupRestoreMeta The definition of a backup restore metadata
+// BackupRestoreStatusResponse The definition of a backup restore metadata
 //
-// swagger:model BackupRestoreMeta
-type BackupRestoreMeta struct {
+// swagger:model BackupRestoreStatusResponse
+type BackupRestoreStatusResponse struct {
 
 	// error message if restoration failed
 	Error string `json:"error,omitempty"`
@@ -47,8 +47,8 @@ type BackupRestoreMeta struct {
 	StorageName string `json:"storageName,omitempty"`
 }
 
-// Validate validates this backup restore meta
-func (m *BackupRestoreMeta) Validate(formats strfmt.Registry) error {
+// Validate validates this backup restore status response
+func (m *BackupRestoreStatusResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateStatus(formats); err != nil {
@@ -61,7 +61,7 @@ func (m *BackupRestoreMeta) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var backupRestoreMetaTypeStatusPropEnum []interface{}
+var backupRestoreStatusResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -69,37 +69,37 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		backupRestoreMetaTypeStatusPropEnum = append(backupRestoreMetaTypeStatusPropEnum, v)
+		backupRestoreStatusResponseTypeStatusPropEnum = append(backupRestoreStatusResponseTypeStatusPropEnum, v)
 	}
 }
 
 const (
 
-	// BackupRestoreMetaStatusSTARTED captures enum value "STARTED"
-	BackupRestoreMetaStatusSTARTED string = "STARTED"
+	// BackupRestoreStatusResponseStatusSTARTED captures enum value "STARTED"
+	BackupRestoreStatusResponseStatusSTARTED string = "STARTED"
 
-	// BackupRestoreMetaStatusTRANSFERRING captures enum value "TRANSFERRING"
-	BackupRestoreMetaStatusTRANSFERRING string = "TRANSFERRING"
+	// BackupRestoreStatusResponseStatusTRANSFERRING captures enum value "TRANSFERRING"
+	BackupRestoreStatusResponseStatusTRANSFERRING string = "TRANSFERRING"
 
-	// BackupRestoreMetaStatusTRANSFERRED captures enum value "TRANSFERRED"
-	BackupRestoreMetaStatusTRANSFERRED string = "TRANSFERRED"
+	// BackupRestoreStatusResponseStatusTRANSFERRED captures enum value "TRANSFERRED"
+	BackupRestoreStatusResponseStatusTRANSFERRED string = "TRANSFERRED"
 
-	// BackupRestoreMetaStatusSUCCESS captures enum value "SUCCESS"
-	BackupRestoreMetaStatusSUCCESS string = "SUCCESS"
+	// BackupRestoreStatusResponseStatusSUCCESS captures enum value "SUCCESS"
+	BackupRestoreStatusResponseStatusSUCCESS string = "SUCCESS"
 
-	// BackupRestoreMetaStatusFAILED captures enum value "FAILED"
-	BackupRestoreMetaStatusFAILED string = "FAILED"
+	// BackupRestoreStatusResponseStatusFAILED captures enum value "FAILED"
+	BackupRestoreStatusResponseStatusFAILED string = "FAILED"
 )
 
 // prop value enum
-func (m *BackupRestoreMeta) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, backupRestoreMetaTypeStatusPropEnum, true); err != nil {
+func (m *BackupRestoreStatusResponse) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, backupRestoreStatusResponseTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *BackupRestoreMeta) validateStatus(formats strfmt.Registry) error {
+func (m *BackupRestoreStatusResponse) validateStatus(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Status) { // not required
 		return nil
@@ -114,7 +114,7 @@ func (m *BackupRestoreMeta) validateStatus(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *BackupRestoreMeta) MarshalBinary() ([]byte, error) {
+func (m *BackupRestoreStatusResponse) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -122,8 +122,8 @@ func (m *BackupRestoreMeta) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *BackupRestoreMeta) UnmarshalBinary(b []byte) error {
-	var res BackupRestoreMeta
+func (m *BackupRestoreStatusResponse) UnmarshalBinary(b []byte) error {
+	var res BackupRestoreStatusResponse
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

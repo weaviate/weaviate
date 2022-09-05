@@ -63,7 +63,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 		helper.AssertRequestOk(t, resp, err, func() {
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			require.Equal(t, models.BackupCreateMetaStatusSTARTED, *meta.Status)
+			require.Equal(t, models.BackupCreateStatusResponseStatusSTARTED, *meta.Status)
 		})
 	})
 
@@ -78,9 +78,9 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
 			switch *meta.Status {
-			case models.BackupCreateMetaStatusSUCCESS:
+			case models.BackupCreateStatusResponseStatusSUCCESS:
 				return
-			case models.BackupCreateMetaStatusFAILED:
+			case models.BackupCreateStatusResponseStatusFAILED:
 				t.Errorf("failed to create snapshot, got response: %+v", meta)
 				return
 			default:
@@ -117,7 +117,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 		helper.AssertRequestOk(t, resp, err, func() {
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			require.Equal(t, models.BackupCreateMetaStatusSTARTED, *meta.Status)
+			require.Equal(t, models.BackupCreateStatusResponseStatusSTARTED, *meta.Status)
 		})
 	})
 
@@ -132,9 +132,9 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
 			switch *meta.Status {
-			case models.BackupRestoreMetaStatusSUCCESS:
+			case models.BackupRestoreStatusResponseStatusSUCCESS:
 				return
-			case models.BackupRestoreMetaStatusFAILED:
+			case models.BackupRestoreStatusResponseStatusFAILED:
 				t.Errorf("failed to create snapshot, got response: %+v", meta)
 				return
 			default:

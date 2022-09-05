@@ -123,14 +123,14 @@ func (b *backupper) Backup(ctx context.Context,
 // If the backup is still active the status is immediately returned
 // If not it fetches the metadata file to get the status
 func (b *backupper) Status(ctx context.Context, storageName, bakID string,
-) (*models.BackupCreateMeta, error) {
+) (*models.BackupCreateStatusResponse, error) {
 	// check if backup is still active
 	st := b.lastBackup.get()
 	if st.ID == bakID {
 		status := string(st.Status)
 		// TODO: do we need to remove models.BackupCreateMeta{classes, storagename, ID}
 		// classes are returned as part of createBackup
-		return &models.BackupCreateMeta{
+		return &models.BackupCreateStatusResponse{
 			ID:          bakID,
 			Path:        st.path,
 			Status:      &status,
@@ -153,7 +153,7 @@ func (b *backupper) Status(ctx context.Context, storageName, bakID string,
 	status := string(meta.Status)
 
 	// TODO: populate Error field if snapshot failed
-	return &models.BackupCreateMeta{
+	return &models.BackupCreateStatusResponse{
 		ID:          bakID,
 		Path:        store.DestinationPath(bakID),
 		Status:      &status,
