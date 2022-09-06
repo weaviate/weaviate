@@ -20,70 +20,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var (
-	testdataMainDir  = "./testData"
-	snapshotsMainDir = "./snapshots"
-)
-
 func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
-	snapshotsRelativePath := filepath.Join(snapshotsMainDir, "some", "nested", "dir") // ./snapshots/some/nested/dir
-	snapshotsAbsolutePath, _ := filepath.Abs(snapshotsRelativePath)
-	defer removeDir(t, testdataMainDir)
-	defer removeDir(t, snapshotsMainDir)
+	backupRelativePath := filepath.Join("./backups", "some", "nested", "dir")
+	backupAbsolutePath := t.TempDir()
 
 	ctx := context.Background()
-	removeDir(t, snapshotsMainDir) // just in case
 
-	t.Run("fails init storage module with empty snapshots path", func(t *testing.T) {
+	t.Run("fails init fs module with empty backup path", func(t *testing.T) {
 		module := New()
 		err := module.initSnapshotStorage(ctx, "")
 
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "empty snapshots path provided")
+		assert.Contains(t, err.Error(), "empty backup path provided")
 	})
 
-	t.Run("fails init storage module with relative snapshots path", func(t *testing.T) {
+	t.Run("fails init fs module with relative backup path", func(t *testing.T) {
 		module := New()
-		err := module.initSnapshotStorage(ctx, snapshotsRelativePath)
+		err := module.initSnapshotStorage(ctx, backupRelativePath)
 
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "relative snapshots path provided")
+		assert.Contains(t, err.Error(), "relative backup path provided")
 	})
 
-	t.Run("inits storage module with absolute snapshots path if dir does not exist", func(t *testing.T) {
-		defer removeDir(t, snapshotsMainDir)
-
+	t.Run("inits storage module with absolute backup path", func(t *testing.T) {
 		module := New()
-		err := module.initSnapshotStorage(ctx, snapshotsAbsolutePath)
+		err := module.initSnapshotStorage(ctx, backupAbsolutePath)
 
 		assert.Nil(t, err)
 
-		_, err = os.Stat(snapshotsAbsolutePath)
-		assert.Nil(t, err) // dir exists
-	})
-
-	t.Run("inits storage module with absolute snapshots path if dir already exists", func(t *testing.T) {
-		makeDir(t, snapshotsRelativePath)
-		defer removeDir(t, snapshotsMainDir)
-
-		module := New()
-		err := module.initSnapshotStorage(ctx, snapshotsAbsolutePath)
-
+		_, err = os.Stat(backupAbsolutePath)
 		assert.Nil(t, err)
-
-		_, err = os.Stat(snapshotsAbsolutePath)
-		assert.Nil(t, err) // dir exists
 	})
-}
-
-func makeDir(t *testing.T, dirPath string) {
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		t.Fatalf("failed to make test dir '%s': %s", dirPath, err)
-	}
-}
-
-func removeDir(t *testing.T, dirPath string) {
-	if err := os.RemoveAll(dirPath); err != nil {
-		t.Errorf("failed to remove test dir '%s': %s", dirPath, err)
-	}
 }
