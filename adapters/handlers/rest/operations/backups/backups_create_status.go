@@ -42,7 +42,7 @@ func NewBackupsCreateStatus(ctx *middleware.Context, handler BackupsCreateStatus
 	return &BackupsCreateStatus{Context: ctx, Handler: handler}
 }
 
-/*BackupsCreateStatus swagger:route GET /backups/{storageName}/{id} backups backupsCreateStatus
+/*BackupsCreateStatus swagger:route GET /backups/{backend}/{id} backups backupsCreateStatus
 
 Returns status of backup creation attempt for a set of classes
 

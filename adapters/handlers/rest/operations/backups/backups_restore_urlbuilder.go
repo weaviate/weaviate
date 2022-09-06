@@ -25,8 +25,8 @@ import (
 
 // BackupsRestoreURL generates an URL for the backups restore operation
 type BackupsRestoreURL struct {
-	ID          string
-	StorageName string
+	Backend string
+	ID      string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,20 +52,20 @@ func (o *BackupsRestoreURL) SetBasePath(bp string) {
 func (o *BackupsRestoreURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/backups/{storageName}/{id}/restore"
+	var _path = "/backups/{backend}/{id}/restore"
+
+	backend := o.Backend
+	if backend != "" {
+		_path = strings.Replace(_path, "{backend}", backend, -1)
+	} else {
+		return nil, errors.New("backend is required on BackupsRestoreURL")
+	}
 
 	id := o.ID
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
 		return nil, errors.New("id is required on BackupsRestoreURL")
-	}
-
-	storageName := o.StorageName
-	if storageName != "" {
-		_path = strings.Replace(_path, "{storageName}", storageName, -1)
-	} else {
-		return nil, errors.New("storageName is required on BackupsRestoreURL")
 	}
 
 	_basePath := o._basePath

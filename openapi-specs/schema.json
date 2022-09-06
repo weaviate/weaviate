@@ -649,12 +649,12 @@
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "error": {
@@ -676,12 +676,12 @@
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backup backend",
           "type": "string"
         },
         "error": {
@@ -737,12 +737,12 @@
             "type": "string"
           }
         },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "error": {
@@ -794,12 +794,12 @@
             "type": "string"
           }
         },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "error": {
@@ -3357,7 +3357,7 @@
         }
       }
     },
-    "/backups/{storageName}": {
+    "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "operationId": "backups.create",
@@ -3367,11 +3367,11 @@
         "tags": ["backups"],
         "parameters": [
           {
-            "name": "storageName",
+            "name": "backend",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3."
+            "description": "Backup backend name e.g. filesystem, gcs, s3."
           },
           {
             "in": "body",
@@ -3413,7 +3413,7 @@
         }
       }
     },
-    "/backups/{storageName}/{id}": {
+    "/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "operationId": "backups.create.status",
@@ -3421,11 +3421,11 @@
         "tags": ["backups"],
         "parameters": [
           {
-            "name": "storageName",
+            "name": "backend",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3."
+            "description": "Backup backend name e.g. filesystem, gcs, s3."
           },
           {
             "name": "id",
@@ -3472,7 +3472,7 @@
         }
       }
     },
-    "/backups/{storageName}/{id}/restore": {
+    "/backups/{backend}/{id}/restore": {
       "post": {
         "description": "Starts a process of restoring a backup for a set of classes",
         "operationId": "backups.restore",
@@ -3480,11 +3480,11 @@
         "tags": ["backups"],
         "parameters": [
           {
-            "name": "storageName",
+            "name": "backend",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3."
+            "description": "Backup backend name e.g. filesystem, gcs, s3."
           },
           {
             "name": "id",
@@ -3545,11 +3545,11 @@
         "tags": ["backups"],
         "parameters": [
           {
-            "name": "storageName",
+            "name": "backend",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3."
+            "description": "Backup backend name e.g. filesystem, gcs, s3."
           },
           {
             "name": "id",

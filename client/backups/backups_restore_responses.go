@@ -90,7 +90,7 @@ type BackupsRestoreOK struct {
 }
 
 func (o *BackupsRestoreOK) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsRestoreOK) GetPayload() *models.BackupRestoreResponse {
@@ -122,7 +122,7 @@ type BackupsRestoreUnauthorized struct {
 }
 
 func (o *BackupsRestoreUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreUnauthorized ", 401)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreUnauthorized ", 401)
 }
 
 func (o *BackupsRestoreUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -144,7 +144,7 @@ type BackupsRestoreForbidden struct {
 }
 
 func (o *BackupsRestoreForbidden) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsRestoreForbidden) GetPayload() *models.ErrorResponse {
@@ -177,7 +177,7 @@ type BackupsRestoreNotFound struct {
 }
 
 func (o *BackupsRestoreNotFound) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsRestoreNotFound) GetPayload() *models.ErrorResponse {
@@ -210,7 +210,7 @@ type BackupsRestoreUnprocessableEntity struct {
 }
 
 func (o *BackupsRestoreUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsRestoreUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -243,7 +243,7 @@ type BackupsRestoreInternalServerError struct {
 }
 
 func (o *BackupsRestoreInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsRestoreInternalServerError) GetPayload() *models.ErrorResponse {

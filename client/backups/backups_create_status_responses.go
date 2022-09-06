@@ -90,7 +90,7 @@ type BackupsCreateStatusOK struct {
 }
 
 func (o *BackupsCreateStatusOK) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsCreateStatusOK) GetPayload() *models.BackupCreateStatusResponse {
@@ -122,7 +122,7 @@ type BackupsCreateStatusUnauthorized struct {
 }
 
 func (o *BackupsCreateStatusUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnauthorized ", 401)
 }
 
 func (o *BackupsCreateStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -144,7 +144,7 @@ type BackupsCreateStatusForbidden struct {
 }
 
 func (o *BackupsCreateStatusForbidden) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsCreateStatusForbidden) GetPayload() *models.ErrorResponse {
@@ -177,7 +177,7 @@ type BackupsCreateStatusNotFound struct {
 }
 
 func (o *BackupsCreateStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsCreateStatusNotFound) GetPayload() *models.ErrorResponse {
@@ -210,7 +210,7 @@ type BackupsCreateStatusUnprocessableEntity struct {
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -243,7 +243,7 @@ type BackupsCreateStatusInternalServerError struct {
 }
 
 func (o *BackupsCreateStatusInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}][%d] backupsCreateStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsCreateStatusInternalServerError) GetPayload() *models.ErrorResponse {

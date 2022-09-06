@@ -637,19 +637,19 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/backups/{storageName}"] = backups.NewBackupsCreate(o.context, o.BackupsBackupsCreateHandler)
+	o.handlers["POST"]["/backups/{backend}"] = backups.NewBackupsCreate(o.context, o.BackupsBackupsCreateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/backups/{storageName}/{id}"] = backups.NewBackupsCreateStatus(o.context, o.BackupsBackupsCreateStatusHandler)
+	o.handlers["GET"]["/backups/{backend}/{id}"] = backups.NewBackupsCreateStatus(o.context, o.BackupsBackupsCreateStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/backups/{storageName}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
+	o.handlers["POST"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/backups/{storageName}/{id}/restore"] = backups.NewBackupsRestoreStatus(o.context, o.BackupsBackupsRestoreStatusHandler)
+	o.handlers["GET"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestoreStatus(o.context, o.BackupsBackupsRestoreStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
