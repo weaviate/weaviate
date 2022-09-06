@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_S3Storage_BackupCreate(t *testing.T) {
+func Test_S3Storage_Backup(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithMinIO().Start(ctx)
 	if err != nil {
@@ -49,10 +49,10 @@ func Test_S3Storage_BackupCreate(t *testing.T) {
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T) {
-	testDir := t.TempDir()
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
 	bucketName := "bucket"
@@ -72,11 +72,11 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	t.Run("store backup meta in s3", func(t *testing.T) {
 		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, testDir)
+		s3, err := s3.New(s3Config, logger, dataDir)
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err = s3.Initialize(testCtx, backupID)
+			err := s3.Initialize(testCtx, backupID)
 			assert.Nil(t, err)
 		})
 
@@ -130,10 +130,10 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 }
 
 func moduleLevelCopyObjects(t *testing.T) {
-	testDir := t.TempDir()
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 	bucketName := "bucket"
@@ -152,11 +152,11 @@ func moduleLevelCopyObjects(t *testing.T) {
 	t.Run("copy objects", func(t *testing.T) {
 		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, testDir)
+		s3, err := s3.New(s3Config, logger, dataDir)
 		require.Nil(t, err)
 
 		t.Run("put object to backet", func(t *testing.T) {
-			err = s3.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := s3.PutObject(testCtx, backupID, key, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
@@ -169,10 +169,10 @@ func moduleLevelCopyObjects(t *testing.T) {
 }
 
 func moduleLevelCopyFiles(t *testing.T) {
-	testDir := t.TempDir()
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
 	bucketName := "bucket"
@@ -189,7 +189,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	})
 
 	t.Run("copy files", func(t *testing.T) {
-		fpaths := moduleshelper.CreateTestFiles(t, testDir)
+		fpaths := moduleshelper.CreateTestFiles(t, dataDir)
 		fpath := fpaths[0]
 		expectedContents, err := os.ReadFile(fpath)
 		require.Nil(t, err)
@@ -197,16 +197,16 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
 		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, testDir)
+		s3, err := s3.New(s3Config, logger, dataDir)
 		require.Nil(t, err)
 
 		t.Run("verify source data path", func(t *testing.T) {
-			assert.Equal(t, testDir, s3.SourceDataPath())
+			assert.Equal(t, dataDir, s3.SourceDataPath())
 		})
 
 		t.Run("copy file to storage", func(t *testing.T) {
-			srcPath, _ := filepath.Rel(testDir, fpath)
-			err = s3.PutFile(testCtx, backupID, key, srcPath)
+			srcPath, _ := filepath.Rel(dataDir, fpath)
+			err := s3.PutFile(testCtx, backupID, key, srcPath)
 			require.Nil(t, err)
 
 			contents, err := s3.GetObject(testCtx, backupID, key)
@@ -215,7 +215,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		})
 
 		t.Run("fetch file from storage", func(t *testing.T) {
-			destPath := testDir + "/file_0.copy.db"
+			destPath := dataDir + "/file_0.copy.db"
 
 			err := s3.WriteToFile(testCtx, backupID, key, destPath)
 			require.Nil(t, err)

@@ -14,12 +14,9 @@ package moduleshelper
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/semi-technologies/weaviate/test/helper"
 	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
@@ -59,23 +56,4 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 		file.Close()
 	}
 	return filePaths
-}
-
-func MakeTestDir(t *testing.T, basePath string) string {
-	rand.Seed(time.Now().UnixNano())
-	dirPath := filepath.Join(basePath, strconv.Itoa(rand.Intn(10000000)))
-	makeDir(t, dirPath)
-	return dirPath
-}
-
-func RemoveDir(t *testing.T, dirPath string) {
-	if err := os.RemoveAll(dirPath); err != nil {
-		t.Errorf("failed to remove test dir '%s': %s", dirPath, err)
-	}
-}
-
-func makeDir(t *testing.T, dirPath string) {
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		t.Fatalf("failed to make test dir '%s': %s", dirPath, err)
-	}
 }
