@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -141,7 +140,8 @@ func (b *backupper) Status(ctx context.Context, storageName, bakID string,
 	// The backup might have been already created.
 	store, err := b.objectStore(storageName)
 	if err != nil {
-		return nil, backup.NewErrUnprocessable(errors.Wrapf(err, "find storage by name %s", storageName))
+		err = fmt.Errorf("no backup provider %q, did you enable the right module?", storageName)
+		return nil, backup.NewErrUnprocessable(err)
 	}
 
 	meta, err := store.Meta(ctx, bakID)
