@@ -49,7 +49,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 ) (err error) {
 	backupID := desc.ID
 	// make sure there is no active restore
-	dst := store.DestinationPath(backupID)
+	dst := store.HomeDir(backupID)
 	if prevID := r.lastStatus.renew(backupID, time.Now(), dst); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return err
@@ -90,6 +90,16 @@ func (r *restorer) restoreOne(ctx context.Context,
 		return fmt.Errorf("restore schema: %w", err)
 	}
 	return nil
+}
+
+// AnyExists check if any class of cs exists in DB
+func (r *restorer) AnyExists(cs []string) string {
+	for _, cls := range cs {
+		if r.sourcer.ClassExists(cls) {
+			return cls
+		}
+	}
+	return ""
 }
 
 func (r *restorer) status() reqStat {

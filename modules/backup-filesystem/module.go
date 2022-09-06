@@ -65,8 +65,8 @@ func (m *BackupFileSystemModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *BackupFileSystemModule) DestinationPath(snapshotID string) string {
-	return path.Join(m.makeSnapshotDirPath(snapshotID), "snapshot.json")
+func (m *BackupFileSystemModule) HomeDir(snapshotID string) string {
+	return path.Join(m.makeSnapshotDirPath(snapshotID))
 }
 
 func (m *BackupFileSystemModule) RootHandler() http.Handler {

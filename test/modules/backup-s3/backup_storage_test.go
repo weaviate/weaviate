@@ -106,8 +106,8 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = s3.PutObject(testCtx, backupID, metadataFilename, b)
 			require.Nil(t, err)
 
-			dest := s3.DestinationPath(backupID)
-			expected := fmt.Sprintf("s3://%s/%s/snapshot.json", bucketName, backupID)
+			dest := s3.HomeDir(backupID)
+			expected := fmt.Sprintf("s3://%s/%s", bucketName, backupID)
 			assert.Equal(t, expected, dest)
 		})
 

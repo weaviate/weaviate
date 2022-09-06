@@ -20,8 +20,8 @@ import (
 	"github.com/semi-technologies/weaviate/modules/backup-s3/s3"
 )
 
-func (m *BackupS3Module) DestinationPath(snapshotID string) string {
-	return m.storageProvider.DestinationPath(snapshotID)
+func (m *BackupS3Module) HomeDir(snapshotID string) string {
+	return m.storageProvider.HomeDir(snapshotID)
 }
 
 func (m *BackupS3Module) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {

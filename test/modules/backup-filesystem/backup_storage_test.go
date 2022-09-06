@@ -89,8 +89,8 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = fs.PutObject(testCtx, backupID, metadataFilename, b)
 			require.Nil(t, err)
 
-			dest := fs.DestinationPath(backupID)
-			expected := fmt.Sprintf("%s/%s/snapshot.json", backupDir, backupID)
+			dest := fs.HomeDir(backupID)
+			expected := fmt.Sprintf("%s/%s", backupDir, backupID)
 			assert.Equal(t, expected, dest)
 		})
 	})

@@ -92,7 +92,7 @@ func (b *backupper) Backup(ctx context.Context,
 	store objectStore, id string, classes []string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
-	if prevID := b.lastBackup.renew(id, time.Now(), store.DestinationPath(id)); prevID != "" {
+	if prevID := b.lastBackup.renew(id, time.Now(), store.HomeDir(id)); prevID != "" {
 		err := fmt.Errorf("backup %s already in progress", prevID)
 		return nil, backup.NewErrUnprocessable(err)
 	}
@@ -114,7 +114,7 @@ func (b *backupper) Backup(ctx context.Context,
 	}()
 
 	return &backup.CreateMeta{
-		Path:   store.DestinationPath(id),
+		Path:   store.HomeDir(id),
 		Status: backup.Started,
 	}, nil
 }
@@ -155,7 +155,7 @@ func (b *backupper) Status(ctx context.Context, storageName, bakID string,
 	// TODO: populate Error field if snapshot failed
 	return &models.BackupCreateStatusResponse{
 		ID:          bakID,
-		Path:        store.DestinationPath(bakID),
+		Path:        store.HomeDir(bakID),
 		Status:      &status,
 		StorageName: storageName,
 	}, nil

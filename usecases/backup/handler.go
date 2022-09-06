@@ -160,18 +160,24 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		return nil, err
 	}
+	cs := meta.List()
+	if cls := m.restorer.AnyExists(cs); cls != "" {
+		err := fmt.Errorf("cannot restore class %q because it already exists", cls)
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	status := string(backup.Started)
+	destPath := store.HomeDir(req.ID)
 	returnData := &models.BackupRestoreResponse{
-		Classes:     meta.List(),
+		Classes:     cs,
 		ID:          req.ID,
 		StorageName: req.StorageType,
 		Status:      &status,
-		Path:        path,
+		Path:        destPath,
 	}
 	go func() {
 		var err error
 		status := RestoreStatus{
-			Path:      store.DestinationPath(req.ID),
+			Path:      destPath,
 			StartedAt: time.Now().UTC(),
 			Status:    backup.Transferring,
 			Err:       nil,
@@ -246,7 +252,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, 
 	if err := m.backupper.sourcer.Backupable(ctx, classes); err != nil {
 		return nil, err
 	}
-	destPath := store.DestinationPath(req.ID)
+	destPath := store.HomeDir(req.ID)
 	// there is no snapshot with given id on the storage, regardless of its state (valid or corrupted)
 	_, err := store.Meta(ctx, req.ID)
 	if err == nil {
@@ -265,7 +271,7 @@ func (m *Manager) validateRestoreRequst(ctx context.Context, store objectStore, 
 		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	destPath := store.DestinationPath(req.ID)
+	destPath := store.HomeDir(req.ID)
 	meta, err := store.Meta(ctx, req.ID)
 	if err != nil {
 		err = fmt.Errorf("find backup %s: %w", destPath, err)
