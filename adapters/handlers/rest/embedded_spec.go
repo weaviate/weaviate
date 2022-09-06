@@ -236,6 +236,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -4214,6 +4220,12 @@ func init() {
           },
           "404": {
             "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
