@@ -66,7 +66,7 @@ func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err := m.validateCanAddClass(ctx, principal, class)
+	err := m.validateCanAddClass(ctx, principal, class, true)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err := m.validateCanAddClass(ctx, principal, class)
+	err := m.validateCanAddClass(ctx, principal, class, false)
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,10 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 	}
 }
 
-func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, class *models.Class) error {
+func (m *Manager) validateCanAddClass(
+	ctx context.Context, principal *models.Principal, class *models.Class,
+	relaxCrossRefValidation bool,
+) error {
 	if err := m.validateClassNameUniqueness(class.Class); err != nil {
 		return err
 	}
@@ -236,7 +239,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class, existingPropertyNames, principal); err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, principal, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[property.Name] = true
@@ -254,7 +257,11 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	return nil
 }
 
-func (m *Manager) validateProperty(property *models.Property, class *models.Class, existingPropertyNames map[string]bool, principal *models.Principal) error {
+func (m *Manager) validateProperty(
+	property *models.Property, class *models.Class,
+	existingPropertyNames map[string]bool, principal *models.Principal,
+	relaxCrossRefValidation bool,
+) error {
 	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
 		return err
 	}
@@ -273,7 +280,8 @@ func (m *Manager) validateProperty(property *models.Property, class *models.Clas
 		return err
 	}
 
-	propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
+	propertyDataType, err := (&schema).FindPropertyDataTypeWithRefs(property.DataType,
+		relaxCrossRefValidation)
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
