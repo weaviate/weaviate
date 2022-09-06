@@ -160,6 +160,29 @@ func TestRestoreRequestValidation(t *testing.T) {
 			t.Errorf("must return an error resulting list of classes is empty: %v", err)
 		}
 	}
+	{ //  one class exists already in DB
+		storage := &fakeStorage{}
+		sourcer := &fakeSourcer{}
+		sourcer.On("ClassExists", cls).Return(true)
+		bytes := marshalMeta(
+			backup.BackupDescriptor{
+				Status:  string(backup.Success),
+				Classes: []backup.ClassDescriptor{{Name: cls}},
+			},
+		)
+		storage.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		storage.On("DestinationPath", mock.Anything).Return(path)
+		m2 := createManager(sourcer, storage, nil)
+		_, err = m2.Restore(ctx, nil, &BackupRequest{ID: id})
+		if err == nil || !strings.Contains(err.Error(), cls) {
+			t.Errorf("must return an error if a class exits already: %v", err)
+		}
+		uerr := backup.ErrUnprocessable{}
+		if !errors.As(err, &uerr) {
+			t.Errorf("error want=%v got=%v", uerr, err)
+		}
+
+	}
 }
 
 func marshalMeta(m backup.BackupDescriptor) []byte {

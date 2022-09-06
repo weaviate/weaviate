@@ -160,9 +160,14 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	if err != nil {
 		return nil, err
 	}
+	cs := meta.List()
+	if cls := m.restorer.AnyExists(cs); cls != "" {
+		err := fmt.Errorf("cannot restore class %q because it already exists", cls)
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	status := string(backup.Started)
 	returnData := &models.BackupRestoreResponse{
-		Classes:     meta.List(),
+		Classes:     cs,
 		ID:          req.ID,
 		StorageName: req.StorageType,
 		Status:      &status,

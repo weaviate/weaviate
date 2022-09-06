@@ -92,6 +92,16 @@ func (r *restorer) restoreOne(ctx context.Context,
 	return nil
 }
 
+// AnyExists check if any class of cs exists in DB
+func (r *restorer) AnyExists(cs []string) string {
+	for _, cls := range cs {
+		if r.sourcer.ClassExists(cls) {
+			return cls
+		}
+	}
+	return ""
+}
+
 func (r *restorer) status() reqStat {
 	return r.lastStatus.get()
 }
