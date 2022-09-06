@@ -12,15 +12,33 @@
 package test
 
 import (
-	"os"
+	"context"
 	"testing"
+	"time"
 
+	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/test/helper/journey"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_BackupJourney(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().
+		WithStorageFilesystem().
+		WithText2VecContextionary().
+		WithWeaviate().
+		Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminte test containers: %s", err.Error())
+		}
+	}()
+
 	t.Run("storage-filesystem", func(t *testing.T) {
-		journey.BackupJourneyTests(t, os.Getenv(weaviateEndpoint),
+		journey.BackupJourneyTests(t, compose.GetWeaviate().URI(),
 			"filesystem", "FileSystemClass", "filesystem-snapshot-1")
 	})
 }
