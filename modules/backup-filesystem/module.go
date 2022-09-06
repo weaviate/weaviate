@@ -58,8 +58,8 @@ func (m *BackupFileSystemModule) Init(ctx context.Context,
 	m.logger = params.GetLogger()
 	m.dataPath = params.GetStorageProvider().DataPath()
 	backupsPath := os.Getenv(backupsPathName)
-	if err := m.initSnapshotStorage(ctx, backupsPath); err != nil {
-		return errors.Wrap(err, "init snapshot storage")
+	if err := m.initBackupBackend(ctx, backupsPath); err != nil {
+		return errors.Wrap(err, "init backup backend")
 	}
 
 	return nil
@@ -87,6 +87,6 @@ func (m *BackupFileSystemModule) makeSnapshotDirPath(id string) string {
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.BackupStorage(New())
+	_ = modulecapabilities.BackupBackend(New())
 	_ = modulecapabilities.MetaProvider(New())
 )

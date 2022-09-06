@@ -21,48 +21,48 @@ import (
 )
 
 func (m *BackupS3Module) HomeDir(snapshotID string) string {
-	return m.storageProvider.HomeDir(snapshotID)
+	return m.backendProvider.HomeDir(snapshotID)
 }
 
 func (m *BackupS3Module) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	return m.storageProvider.GetObject(ctx, snapshotID, key)
+	return m.backendProvider.GetObject(ctx, snapshotID, key)
 }
 
 func (m *BackupS3Module) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
-	return m.storageProvider.PutFile(ctx, snapshotID, key, srcPath)
+	return m.backendProvider.PutFile(ctx, snapshotID, key, srcPath)
 }
 
 func (m *BackupS3Module) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
-	return m.storageProvider.PutObject(ctx, snapshotID, key, byes)
+	return m.backendProvider.PutObject(ctx, snapshotID, key, byes)
 }
 
 func (m *BackupS3Module) Initialize(ctx context.Context, snapshotID string) error {
-	return m.storageProvider.Initialize(ctx, snapshotID)
+	return m.backendProvider.Initialize(ctx, snapshotID)
 }
 
 func (m *BackupS3Module) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
-	return m.storageProvider.WriteToFile(ctx, snapshotID, key, destPath)
+	return m.backendProvider.WriteToFile(ctx, snapshotID, key, destPath)
 }
 
 func (m *BackupS3Module) SourceDataPath() string {
-	return m.storageProvider.SourceDataPath()
+	return m.backendProvider.SourceDataPath()
 }
 
-func (m *BackupS3Module) initSnapshotStorage(ctx context.Context) error {
+func (m *BackupS3Module) initBackupBackend(ctx context.Context) error {
 	bucketName := os.Getenv(s3Bucket)
 	if bucketName == "" {
-		return errors.Errorf("snapshot init: '%s' must be set", s3Bucket)
+		return errors.Errorf("backup init: '%s' must be set", s3Bucket)
 	}
 
 	endpoint := os.Getenv(s3Endpoint)
 	pathName := os.Getenv(s3Path)
 	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) == "true"
 	config := s3.NewConfig(endpoint, bucketName, pathName, useSSL)
-	storageProvider, err := s3.New(config, m.logger, m.dataPath)
+	backendProvider, err := s3.New(config, m.logger, m.dataPath)
 	if err != nil {
-		return errors.Wrap(err, "initialize AWS S3 module")
+		return errors.Wrap(err, "initialize S3 backup module")
 	}
 	m.config = config
-	m.storageProvider = storageProvider
+	m.backendProvider = backendProvider
 	return nil
 }

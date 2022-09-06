@@ -95,18 +95,18 @@ func (m *BackupFileSystemModule) SourceDataPath() string {
 	return m.dataPath
 }
 
-func (m *BackupFileSystemModule) initSnapshotStorage(ctx context.Context, snapshotsPath string) error {
-	if snapshotsPath == "" {
+func (m *BackupFileSystemModule) initBackupBackend(ctx context.Context, backupsPath string) error {
+	if backupsPath == "" {
 		return fmt.Errorf("empty backup path provided")
 	}
-	snapshotsPath = filepath.Clean(snapshotsPath)
-	if !filepath.IsAbs(snapshotsPath) {
+	backupsPath = filepath.Clean(backupsPath)
+	if !filepath.IsAbs(backupsPath) {
 		return fmt.Errorf("relative backup path provided")
 	}
-	if err := m.createBackupsDir(snapshotsPath); err != nil {
+	if err := m.createBackupsDir(backupsPath); err != nil {
 		return errors.Wrap(err, "invalid backup path provided")
 	}
-	m.snapshotsPath = snapshotsPath
+	m.snapshotsPath = backupsPath
 
 	return nil
 }

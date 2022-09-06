@@ -29,13 +29,13 @@ import (
 const Version = "1.0"
 
 // TODO
-// 1. maybe add node to the base path when initializing storage model
+// 1. maybe add node to the base path when initializing backup module
 // the base path = "bucket/node/backupid" or somthing like that
-// 4. error handling need to be implmented properly.
+// 2. error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
 
-type BackupStorageProvider interface {
-	BackupStorage(storageName string) (modulecapabilities.BackupStorage, error)
+type BackupBackendProvider interface {
+	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
 }
 
 type authorizer interface {
@@ -62,7 +62,7 @@ type Manager struct {
 	authorizer authorizer
 	backupper  *backupper
 	restorer   *restorer
-	storages   BackupStorageProvider
+	backends   BackupBackendProvider
 
 	// TODO: keeping status in memory after restore has been done
 	// is not a proper solution for communicating status to the user.
@@ -76,18 +76,18 @@ func NewManager(
 	authorizer authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
-	storages BackupStorageProvider,
+	backends BackupBackendProvider,
 ) *Manager {
 	m := &Manager{
 		logger:     logger,
 		authorizer: authorizer,
-		storages:   storages,
+		backends:   backends,
 		backupper: newBackupper(logger,
 			sourcer,
-			storages),
+			backends),
 		restorer: newRestorer(logger,
 			sourcer,
-			storages,
+			backends,
 			schema,
 		),
 	}
@@ -202,20 +202,20 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 }
 
 func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
-	storageName, backupID string,
+	backend, backupID string,
 ) (*models.BackupCreateStatusResponse, error) {
-	path := fmt.Sprintf("backups/%s/%s", storageName, backupID)
+	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
 	err := m.authorizer.Authorize(principal, "get", path)
 	if err != nil {
 		return nil, err
 	}
 
-	return m.backupper.Status(ctx, storageName, backupID)
+	return m.backupper.Status(ctx, backend, backupID)
 }
 
-func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, storageName, ID string,
+func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
 ) (_ RestoreStatus, err error) {
-	ppath := fmt.Sprintf("backups/%s/%s/restore", storageName, ID)
+	ppath := fmt.Sprintf("backups/%s/%s/restore", backend, ID)
 	if err := m.authorizer.Authorize(principal, "get", ppath); err != nil {
 		return RestoreStatus{}, err
 	}
@@ -226,7 +226,7 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 			Status:    st.Status,
 		}, nil
 	}
-	ref := basePath(storageName, ID)
+	ref := basePath(backend, ID)
 	istatus, ok := m.restoreStatusMap.Load(ref)
 	if !ok {
 		err := errors.Errorf("status not found: %s", ref)
@@ -254,7 +254,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, 
 		return nil, err
 	}
 	destPath := store.HomeDir(req.ID)
-	// there is no snapshot with given id on the storage, regardless of its state (valid or corrupted)
+	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
 	_, err := store.Meta(ctx, req.ID)
 	if err == nil {
 		err = fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
@@ -317,8 +317,8 @@ func validateID(snapshotID string) error {
 	return nil
 }
 
-func (m *Manager) objectStore(storageName string) (objectStore, error) {
-	caps, err := m.storages.BackupStorage(storageName)
+func (m *Manager) objectStore(backend string) (objectStore, error) {
+	caps, err := m.backends.BackupBackend(backend)
 	if err != nil {
 		return objectStore{}, err
 	}
@@ -326,8 +326,8 @@ func (m *Manager) objectStore(storageName string) (objectStore, error) {
 }
 
 // basePath of the backup
-func basePath(storageType, backupID string) string {
-	return fmt.Sprintf("%s/%s", storageType, backupID)
+func basePath(backendType, backupID string) string {
+	return fmt.Sprintf("%s/%s", backendType, backupID)
 }
 
 func filterClasses(classes, excludes []string) []string {

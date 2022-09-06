@@ -41,7 +41,7 @@ const (
 
 type BackupS3Module struct {
 	logger          logrus.FieldLogger
-	storageProvider modulecapabilities.BackupStorage
+	backendProvider modulecapabilities.BackupBackend
 	config          s3.Config
 	dataPath        string
 }
@@ -68,8 +68,8 @@ func (m *BackupS3Module) Init(ctx context.Context,
 	m.logger = params.GetLogger()
 	m.dataPath = params.GetStorageProvider().DataPath()
 
-	if err := m.initSnapshotStorage(ctx); err != nil {
-		return errors.Wrap(err, "init snapshot storage")
+	if err := m.initBackupBackend(ctx); err != nil {
+		return errors.Wrap(err, "init backup backend")
 	}
 
 	return nil
@@ -94,6 +94,6 @@ func (m *BackupS3Module) MetaInfo() (map[string]interface{}, error) {
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.BackupStorage(New())
+	_ = modulecapabilities.BackupBackend(New())
 	_ = modulecapabilities.MetaProvider(New())
 )

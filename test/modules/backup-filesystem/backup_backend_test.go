@@ -29,7 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_FilesystemStorage_Backup(t *testing.T) {
+func Test_FilesystemBackend_Backup(t *testing.T) {
 	t.Run("store backup meta", moduleLevelStoreBackupMeta)
 	t.Run("copy objects", moduleLevelCopyObjects)
 	t.Run("copy files", moduleLevelCopyFiles)
@@ -70,7 +70,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			assert.IsType(t, backup.ErrNotFound{}, err)
 		})
 
-		t.Run("put backup meta on storage", func(t *testing.T) {
+		t.Run("put backup meta on backend", func(t *testing.T) {
 			desc := &backup.BackupDescriptor{
 				StartedAt:   time.Now(),
 				CompletedAt: time.Time{},
@@ -163,7 +163,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, dataDir, fs.SourceDataPath())
 		})
 
-		t.Run("copy file to storage", func(t *testing.T) {
+		t.Run("copy file to backend", func(t *testing.T) {
 			srcPath, _ := filepath.Rel(dataDir, fpath)
 			err := fs.PutFile(testCtx, backupID, key, srcPath)
 			require.Nil(t, err)
@@ -173,7 +173,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, expectedContents, contents)
 		})
 
-		t.Run("fetch file from storage", func(t *testing.T) {
+		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
 			err := fs.WriteToFile(testCtx, backupID, key, destPath)

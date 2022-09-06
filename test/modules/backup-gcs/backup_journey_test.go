@@ -47,7 +47,7 @@ func Test_BackupJourney(t *testing.T) {
 	})
 
 	compose, err := docker.New().
-		WithStorageGCS(gcsBackupJourneyBucketName).
+		WithBackendGCS(gcsBackupJourneyBucketName).
 		WithText2VecContextionary().
 		WithWeaviate().
 		Start(ctx)

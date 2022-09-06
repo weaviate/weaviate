@@ -73,16 +73,16 @@ func (s *backupStat) set(st backup.Status) {
 type backupper struct {
 	logger     logrus.FieldLogger
 	sourcer    Sourcer
-	storages   BackupStorageProvider
+	backends   BackupBackendProvider
 	lastBackup backupStat
 }
 
-func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, storages BackupStorageProvider,
+func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		logger:   logger,
 		sourcer:  sourcer,
-		storages: storages,
+		backends: backends,
 	}
 }
 
@@ -127,7 +127,7 @@ func (b *backupper) Status(ctx context.Context, backend, bakID string,
 	st := b.lastBackup.get()
 	if st.ID == bakID {
 		status := string(st.Status)
-		// TODO: do we need to remove models.BackupCreateMeta{classes, storagename, ID}
+		// TODO: do we need to remove models.BackupCreateMeta{classes, backend, ID}
 		// classes are returned as part of createBackup
 		return &models.BackupCreateStatusResponse{
 			ID:      bakID,
@@ -161,8 +161,8 @@ func (b *backupper) Status(ctx context.Context, backend, bakID string,
 	}, nil
 }
 
-func (b *backupper) objectStore(storageName string) (objectStore, error) {
-	caps, err := b.storages.BackupStorage(storageName)
+func (b *backupper) objectStore(backend string) (objectStore, error) {
+	caps, err := b.backends.BackupBackend(backend)
 	if err != nil {
 		return objectStore{}, err
 	}
