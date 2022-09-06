@@ -55,7 +55,7 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["STORAGE_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, "9000")
+	envSettings["BACKUP_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, "9000")
 	envSettings["AWS_ACCESS_KEY_ID"] = "aws_access_key"
 	envSettings["AWS_SECRET_KEY"] = "aws_secret_key"
 	return &DockerContainer{MinIO, endpoint, container, envSettings}, nil

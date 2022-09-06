@@ -15,7 +15,7 @@ import (
 	"context"
 )
 
-type SnapshotStorage interface {
+type BackupStorage interface {
 	// HomeDir is the home directory of all backup files
 	HomeDir(snapshotID string) string
 

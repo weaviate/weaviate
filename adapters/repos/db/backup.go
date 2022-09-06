@@ -23,7 +23,7 @@ import (
 )
 
 type BackupState struct {
-	SnapshotID string
+	BackupID   string
 	InProgress bool
 }
 
@@ -101,12 +101,12 @@ func (db *DB) ClassExists(name string) bool {
 
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupid string, desc *backup.ClassDescriptor) (err error) {
-	if err := i.initSnapshot(backupid); err != nil {
+	if err := i.initBackup(backupid); err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
-			i.resetSnapshotOnFailedCreate(ctx, err)
+			i.resetBackupOnFailedCreate(ctx, err)
 		}
 	}()
 	for _, s := range i.Shards {
@@ -130,38 +130,38 @@ func (i *Index) descriptor(ctx context.Context, backupid string, desc *backup.Cl
 	return nil
 }
 
-// ReleaseBackup marks the specified snapshot as inactive and restarts all
-// async background and maintenance processes. It errors if the snapshot does not exist
+// ReleaseBackup marks the specified backup as inactive and restarts all
+// async background and maintenance processes. It errors if the backup does not exist
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
-	defer i.resetSnapshotState()
+	defer i.resetBackupState()
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (i *Index) initSnapshot(id string) error {
-	i.snapshotStateLock.Lock()
-	defer i.snapshotStateLock.Unlock()
+func (i *Index) initBackup(id string) error {
+	i.backupStateLock.Lock()
+	defer i.backupStateLock.Unlock()
 
-	if i.snapshotState.InProgress {
+	if i.backupState.InProgress {
 		return errors.Errorf(
-			"cannot create new snapshot, snapshot ‘%s’ is not yet released, this "+
+			"cannot create new backup, backup ‘%s’ is not yet released, this "+
 				"means its contents have not yet been fully copied to its destination, "+
-				"try again later", i.snapshotState.SnapshotID)
+				"try again later", i.backupState.BackupID)
 	}
 
-	i.snapshotState = BackupState{
-		SnapshotID: id,
+	i.backupState = BackupState{
+		BackupID:   id,
 		InProgress: true,
 	}
 
 	return nil
 }
 
-func (i *Index) resetSnapshotOnFailedCreate(ctx context.Context, err error) error {
-	defer i.resetSnapshotState()
+func (i *Index) resetBackupOnFailedCreate(ctx context.Context, err error) error {
+	defer i.resetBackupState()
 
 	ec := errorcompounder.ErrorCompounder{}
 	ec.Add(err)
@@ -169,10 +169,10 @@ func (i *Index) resetSnapshotOnFailedCreate(ctx context.Context, err error) erro
 	return ec.ToError()
 }
 
-func (i *Index) resetSnapshotState() {
-	i.snapshotStateLock.Lock()
-	defer i.snapshotStateLock.Unlock()
-	i.snapshotState = BackupState{InProgress: false}
+func (i *Index) resetBackupState() {
+	i.backupStateLock.Lock()
+	defer i.backupStateLock.Unlock()
+	i.backupState = BackupState{InProgress: false}
 }
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) error {

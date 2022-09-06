@@ -16,44 +16,44 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
+	"github.com/semi-technologies/weaviate/modules/backup-gcs/gcs"
 )
 
-func (m *StorageGCSModule) HomeDir(snapshotID string) string {
+func (m *BackupGCSModule) HomeDir(snapshotID string) string {
 	return m.storageProvider.HomeDir(snapshotID)
 }
 
-func (m *StorageGCSModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+func (m *BackupGCSModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
 	return m.storageProvider.GetObject(ctx, snapshotID, key)
 }
 
-func (m *StorageGCSModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (m *BackupGCSModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
 	return m.storageProvider.PutFile(ctx, snapshotID, key, srcPath)
 }
 
-func (m *StorageGCSModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+func (m *BackupGCSModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
 	return m.storageProvider.PutObject(ctx, snapshotID, key, byes)
 }
 
-func (m *StorageGCSModule) Initialize(ctx context.Context, snapshotID string) error {
+func (m *BackupGCSModule) Initialize(ctx context.Context, snapshotID string) error {
 	return m.storageProvider.Initialize(ctx, snapshotID)
 }
 
-func (m *StorageGCSModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+func (m *BackupGCSModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
 	return m.storageProvider.WriteToFile(ctx, snapshotID, key, destPath)
 }
 
-func (m *StorageGCSModule) SourceDataPath() string {
+func (m *BackupGCSModule) SourceDataPath() string {
 	return m.storageProvider.SourceDataPath()
 }
 
-func (m *StorageGCSModule) initSnapshotStorage(ctx context.Context) error {
+func (m *BackupGCSModule) initSnapshotStorage(ctx context.Context) error {
 	bucketName := os.Getenv(gcsBucket)
 	if bucketName == "" {
 		return errors.Errorf("snapshot init: '%s' must be set", gcsBucket)
 	}
 
-	config := gcs.NewConfig(bucketName, os.Getenv(gcsSnapshotRoot))
+	config := gcs.NewConfig(bucketName, os.Getenv(gcsPath))
 	storageProvider, err := gcs.New(ctx, config, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")

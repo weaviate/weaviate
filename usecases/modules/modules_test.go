@@ -302,7 +302,7 @@ func TestModulesProvider(t *testing.T) {
 	})
 
 	t.Run("should register module with alt names", func(t *testing.T) {
-		module := &dummyStorageModuleWithAltNames{}
+		module := &dummyBackupModuleWithAltNames{}
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
@@ -318,7 +318,7 @@ func TestModulesProvider(t *testing.T) {
 	})
 
 	t.Run("should provide backup storage", func(t *testing.T) {
-		module := &dummyStorageModuleWithAltNames{}
+		module := &dummyBackupModuleWithAltNames{}
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
@@ -469,52 +469,52 @@ func getFakeSchemaGetter() schemaGetter {
 	return &fakeSchemaGetter{schema: sch}
 }
 
-type dummyStorageModuleWithAltNames struct{}
+type dummyBackupModuleWithAltNames struct{}
 
-func (m *dummyStorageModuleWithAltNames) Name() string {
+func (m *dummyBackupModuleWithAltNames) Name() string {
 	return "SomeStorage"
 }
 
-func (m *dummyStorageModuleWithAltNames) AltNames() []string {
+func (m *dummyBackupModuleWithAltNames) AltNames() []string {
 	return []string{"AltStorageName", "YetAnotherStorageName"}
 }
 
-func (m *dummyStorageModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
+func (m *dummyBackupModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) RootHandler() http.Handler {
+func (m *dummyBackupModuleWithAltNames) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Storage
+func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Backup
 }
 
-func (m *dummyStorageModuleWithAltNames) HomeDir(snapshotID string) string {
+func (m *dummyBackupModuleWithAltNames) HomeDir(snapshotID string) string {
 	return ""
 }
 
-func (m *dummyStorageModuleWithAltNames) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
 	return nil, nil
 }
 
-func (m *dummyStorageModuleWithAltNames) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) SourceDataPath() string {
+func (m *dummyBackupModuleWithAltNames) SourceDataPath() string {
 	return ""
 }
 
-func (m *dummyStorageModuleWithAltNames) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) Initialize(ctx context.Context, snapshotID string) error {
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, snapshotID string) error {
 	return nil
 }

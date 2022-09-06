@@ -16,7 +16,7 @@ const DEFAULT_ENDPOINT = "s3.amazonaws.com"
 type Config interface {
 	Endpoint() string
 	BucketName() string
-	SnapshotRoot() string
+	BackupPath() string
 	UseSSL() bool
 }
 
@@ -26,13 +26,13 @@ type config struct {
 	useSSL   bool
 
 	// this is an optional value, allowing for
-	// the snapshot to be stored in a specific
+	// the backup to be stored in a specific
 	// directory inside the provided bucket
-	snapshotRoot string
+	backupPath string
 }
 
-func NewConfig(endpoint, bucket, root string, useSSL bool) Config {
-	return &config{endpoint, bucket, useSSL, root}
+func NewConfig(endpoint, bucket, path string, useSSL bool) Config {
+	return &config{endpoint, bucket, useSSL, path}
 }
 
 func (c *config) Endpoint() string {
@@ -46,8 +46,8 @@ func (c *config) BucketName() string {
 	return c.bucket
 }
 
-func (c *config) SnapshotRoot() string {
-	return c.snapshotRoot
+func (c *config) BackupPath() string {
+	return c.backupPath
 }
 
 func (c *config) UseSSL() bool {

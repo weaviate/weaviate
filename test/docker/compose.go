@@ -16,8 +16,8 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
-	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
+	modstggcs "github.com/semi-technologies/weaviate/modules/backup-gcs"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/backup-s3"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -35,9 +35,9 @@ const (
 )
 
 const (
-	StorageFileSystem = "storage-filesystem"
-	StorageAWSS3      = "storage-aws-s3"
-	StorageGCS        = "storage-gcs"
+	BackupFileSystem = "backup-filesystem"
+	BackupS3         = "backup-s3"
+	BackupGCS        = "backup-gcs"
 )
 
 type Compose struct {
@@ -46,8 +46,8 @@ type Compose struct {
 	withMinIO               bool
 	withGCS                 bool
 	withStorageFilesystem   bool
-	withStorageAWSS3        bool
-	withStorageAWSS3Bucket  string
+	withStorageS3           bool
+	withStorageS3Bucket     string
 	withStorageGCS          bool
 	withStorageGCSBucket    string
 	withTransformers        bool
@@ -95,15 +95,15 @@ func (d *Compose) WithQnATransformers() *Compose {
 
 func (d *Compose) WithStorageFilesystem() *Compose {
 	d.withStorageFilesystem = true
-	d.enableModules = append(d.enableModules, StorageFileSystem)
+	d.enableModules = append(d.enableModules, BackupFileSystem)
 	return d
 }
 
-func (d *Compose) WithStorageAWSS3(bucket string) *Compose {
-	d.withStorageAWSS3 = true
-	d.withStorageAWSS3Bucket = bucket
+func (d *Compose) WithStorageS3(bucket string) *Compose {
+	d.withStorageS3 = true
+	d.withStorageS3Bucket = bucket
 	d.withMinIO = true
-	d.enableModules = append(d.enableModules, StorageAWSS3)
+	d.enableModules = append(d.enableModules, BackupS3)
 	return d
 }
 
@@ -111,7 +111,7 @@ func (d *Compose) WithStorageGCS(bucket string) *Compose {
 	d.withStorageGCS = true
 	d.withStorageGCSBucket = bucket
 	d.withGCS = true
-	d.enableModules = append(d.enableModules, StorageGCS)
+	d.enableModules = append(d.enableModules, BackupGCS)
 	return d
 }
 
@@ -145,11 +145,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
-		if d.withStorageAWSS3 {
+		if d.withStorageS3 {
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}
-			envSettings["STORAGE_S3_BUCKET"] = d.withStorageAWSS3Bucket
+			envSettings["BACKUP_S3_BUCKET"] = d.withStorageS3Bucket
 		}
 	}
 	if d.withGCS {
@@ -162,11 +162,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}
-			envSettings["STORAGE_GCS_BUCKET"] = d.withStorageGCSBucket
+			envSettings["BACKUP_GCS_BUCKET"] = d.withStorageGCSBucket
 		}
 	}
 	if d.withStorageFilesystem {
-		envSettings["STORAGE_FS_SNAPSHOTS_PATH"] = "/tmp/snapshots"
+		envSettings["BACKUP_FILESYSTEM_PATH"] = "/tmp/backups"
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
