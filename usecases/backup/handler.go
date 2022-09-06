@@ -231,15 +231,12 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		Path:        path,
 	}
 	go func() {
+		var err error
 		status := RestoreStatus{
 			Path:      destPath,
 			StartedAt: time.Now().UTC(),
 			Status:    backup.Transferring,
 			Err:       nil,
-		}
-		err := m.restorer.restoreAll(context.Background(), pr, meta, store)
-		if err != nil {
-			m.logger.WithField("action", "restore").WithField("backup_id", meta.ID).Error(err)
 		}
 		defer func() {
 			status.CompletedAt = time.Now().UTC()
@@ -251,6 +248,10 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 			}
 			m.RestoreStatus.Store(basePath(req.StorageType, req.ID), status)
 		}()
+		err = m.restorer.restoreAll(context.Background(), pr, meta, store)
+		if err != nil {
+			m.logger.WithField("action", "restore").WithField("backup_id", meta.ID).Error(err)
+		}
 	}()
 
 	return returnData, nil
