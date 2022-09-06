@@ -70,16 +70,16 @@ func (s *objectStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor
 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
-	sourcer    Sourcer
-	backend    objectStore
-	snapshotID string
-	setStatus  func(st backup.Status)
+	sourcer   Sourcer
+	backend   objectStore
+	backupID  string
+	setStatus func(st backup.Status)
 }
 
 func newUploader(sourcer Sourcer, backend objectStore,
-	snapshotID string, setstaus func(st backup.Status),
+	backupID string, setstaus func(st backup.Status),
 ) *uploader {
-	return &uploader{sourcer, backend, snapshotID, setstaus}
+	return &uploader{sourcer, backend, backupID, setstaus}
 }
 
 // all uploads all files in addition to the metadata file
@@ -150,19 +150,19 @@ type fileWriter struct {
 	backend    objectStore
 	tempDir    string
 	destDir    string
-	snapshotID string
+	backupID   string
 	movedFiles []string // files successfully moved to destination folder
 	// setStatus  func(st backup.RestoreStatus) //TODO
 }
 
 func newFileWriter(sourcer Sourcer, backend objectStore,
-	snapshotID string,
+	backupID string,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
 		sourcer:    sourcer,
 		backend:    backend,
-		snapshotID: snapshotID,
+		backupID:   backupID,
 		destDir:    destDir,
 		tempDir:    path.Join(destDir, TempDirectory),
 		movedFiles: make([]string, 0, 64),
@@ -204,7 +204,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 			if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
 				return fmt.Errorf("create folder %s: %w", destDir, err)
 			}
-			if err := fw.backend.WriteToFile(ctx, fw.snapshotID, key, destPath); err != nil {
+			if err := fw.backend.WriteToFile(ctx, fw.backupID, key, destPath); err != nil {
 				return fmt.Errorf("write file %s: %w", destPath, err)
 			}
 		}

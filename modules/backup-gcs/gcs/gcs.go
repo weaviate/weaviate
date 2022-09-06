@@ -67,7 +67,7 @@ func New(ctx context.Context, config Config, dataPath string) (*gcs, error) {
 }
 
 func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
-	snapshotID, objectName string,
+	backupID, objectName string,
 ) ([]byte, error) {
 	// Create bucket reader
 	obj := bucket.Object(objectName)
@@ -86,9 +86,9 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	return content, nil
 }
 
-func (g *gcs) HomeDir(snapshotID string) string {
+func (g *gcs) HomeDir(backupID string) string {
 	return "gs://" + path.Join(g.config.BucketName(),
-		g.makeObjectName(snapshotID))
+		g.makeObjectName(backupID))
 }
 
 func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
@@ -106,8 +106,8 @@ func (g *gcs) makeObjectName(parts ...string) string {
 	return path.Join(g.config.BackupPath(), base)
 }
 
-func (g *gcs) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	objectName := g.makeObjectName(snapshotID, key)
+func (g *gcs) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	objectName := g.makeObjectName(backupID, key)
 
 	if err := ctx.Err(); err != nil {
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", objectName))
@@ -121,7 +121,7 @@ func (g *gcs) GetObject(ctx context.Context, snapshotID, key string) ([]byte, er
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	contents, err := g.getObject(ctx, bucket, snapshotID, objectName)
+	contents, err := g.getObject(ctx, bucket, backupID, objectName)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
@@ -132,28 +132,28 @@ func (g *gcs) GetObject(ctx context.Context, snapshotID, key string) ([]byte, er
 	return contents, nil
 }
 
-func (g *gcs) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (g *gcs) PutFile(ctx context.Context, backupID, key, srcPath string) error {
 	srcPath = path.Join(g.dataPath, srcPath)
 	contents, err := os.ReadFile(srcPath)
 	if err != nil {
 		return errors.Wrapf(err, "read file '%s'", srcPath)
 	}
 
-	return g.PutObject(ctx, snapshotID, key, contents)
+	return g.PutObject(ctx, backupID, key, contents)
 }
 
-func (g *gcs) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+func (g *gcs) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return errors.Wrap(err, "find bucket")
 	}
 
-	objectName := g.makeObjectName(snapshotID, key)
+	objectName := g.makeObjectName(backupID, key)
 	obj := bucket.Object(objectName)
 	writer := obj.NewWriter(ctx)
 	writer.ContentType = "application/octet-stream"
 	writer.Metadata = map[string]string{
-		"snapshot-id": snapshotID,
+		"backup-id": backupID,
 	}
 	if _, err := writer.Write(byes); err != nil {
 		return errors.Wrapf(err, "write file: %v", objectName)
@@ -164,10 +164,10 @@ func (g *gcs) PutObject(ctx context.Context, snapshotID, key string, byes []byte
 	return nil
 }
 
-func (g *gcs) Initialize(ctx context.Context, snapshotID string) error {
+func (g *gcs) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
-	if err := g.PutObject(ctx, snapshotID, key, []byte("")); err != nil {
+	if err := g.PutObject(ctx, backupID, key, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check gcs backup module")
 	}
 
@@ -176,7 +176,7 @@ func (g *gcs) Initialize(ctx context.Context, snapshotID string) error {
 		return errors.Wrap(err, "find bucket")
 	}
 
-	objectName := g.makeObjectName(snapshotID, key)
+	objectName := g.makeObjectName(backupID, key)
 	if err := bucket.Object(objectName).Delete(ctx); err != nil {
 		return errors.Wrap(err, "failed to remove access-check gcs backup module")
 	}
@@ -184,8 +184,8 @@ func (g *gcs) Initialize(ctx context.Context, snapshotID string) error {
 	return nil
 }
 
-func (g *gcs) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
-	obj, err := g.GetObject(ctx, snapshotID, key)
+func (g *gcs) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	obj, err := g.GetObject(ctx, backupID, key)
 	if err != nil {
 		return errors.Wrapf(err, "get object '%s'", key)
 	}

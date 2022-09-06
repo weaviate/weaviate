@@ -152,7 +152,7 @@ func (b *backupper) Status(ctx context.Context, backend, bakID string,
 
 	status := string(meta.Status)
 
-	// TODO: populate Error field if snapshot failed
+	// TODO: populate Error field if backup failed
 	return &models.BackupCreateStatusResponse{
 		ID:      bakID,
 		Path:    store.HomeDir(bakID),

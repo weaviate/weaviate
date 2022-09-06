@@ -20,28 +20,28 @@ import (
 	"github.com/semi-technologies/weaviate/modules/backup-s3/s3"
 )
 
-func (m *BackupS3Module) HomeDir(snapshotID string) string {
-	return m.backendProvider.HomeDir(snapshotID)
+func (m *BackupS3Module) HomeDir(backupID string) string {
+	return m.backendProvider.HomeDir(backupID)
 }
 
-func (m *BackupS3Module) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	return m.backendProvider.GetObject(ctx, snapshotID, key)
+func (m *BackupS3Module) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	return m.backendProvider.GetObject(ctx, backupID, key)
 }
 
-func (m *BackupS3Module) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
-	return m.backendProvider.PutFile(ctx, snapshotID, key, srcPath)
+func (m *BackupS3Module) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+	return m.backendProvider.PutFile(ctx, backupID, key, srcPath)
 }
 
-func (m *BackupS3Module) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
-	return m.backendProvider.PutObject(ctx, snapshotID, key, byes)
+func (m *BackupS3Module) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	return m.backendProvider.PutObject(ctx, backupID, key, byes)
 }
 
-func (m *BackupS3Module) Initialize(ctx context.Context, snapshotID string) error {
-	return m.backendProvider.Initialize(ctx, snapshotID)
+func (m *BackupS3Module) Initialize(ctx context.Context, backupID string) error {
+	return m.backendProvider.Initialize(ctx, backupID)
 }
 
-func (m *BackupS3Module) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
-	return m.backendProvider.WriteToFile(ctx, snapshotID, key, destPath)
+func (m *BackupS3Module) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	return m.backendProvider.WriteToFile(ctx, backupID, key, destPath)
 }
 
 func (m *BackupS3Module) SourceDataPath() string {

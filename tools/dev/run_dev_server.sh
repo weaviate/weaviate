@@ -36,7 +36,7 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      BACKUP_FILESYSTEM_PATH="${PWD}/snapshots" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_HOSTNAME="node1" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -51,7 +51,7 @@ case $CONFIG in
   second-node)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node2" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/snapshots-node2" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-node2" \
       CLUSTER_HOSTNAME="node2" \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \

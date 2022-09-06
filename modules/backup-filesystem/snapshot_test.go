@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
+func TestBackend_StoreBackup(t *testing.T) {
 	backupRelativePath := filepath.Join("./backups", "some", "nested", "dir")
 	backupAbsolutePath := t.TempDir()
 

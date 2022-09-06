@@ -33,7 +33,7 @@ const (
 	// the backup to be stored in a specific
 	// directory inside the provided bucket.
 	//
-	// if left unset, the snapshot files will
+	// if left unset, the backup files will
 	// be stored directly in the root of the
 	// bucket.
 	s3Path = "BACKUP_S3_PATH"

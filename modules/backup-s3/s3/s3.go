@@ -65,13 +65,13 @@ func (s *s3) makeObjectName(parts ...string) string {
 	return path.Join(s.config.BackupPath(), base)
 }
 
-func (s *s3) HomeDir(snapshotID string) string {
+func (s *s3) HomeDir(backupID string) string {
 	return "s3://" + path.Join(s.config.BucketName(),
-		s.makeObjectName(snapshotID))
+		s.makeObjectName(backupID))
 }
 
-func (s *s3) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	objectName := s.makeObjectName(snapshotID, key)
+func (s *s3) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	objectName := s.makeObjectName(backupID, key)
 
 	if err := ctx.Err(); err != nil {
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", objectName))
@@ -93,8 +93,8 @@ func (s *s3) GetObject(ctx context.Context, snapshotID, key string) ([]byte, err
 	return contents, nil
 }
 
-func (s *s3) PutFile(ctx context.Context, snapshotID, key string, srcPath string) error {
-	objectName := s.makeObjectName(snapshotID, key)
+func (s *s3) PutFile(ctx context.Context, backupID, key string, srcPath string) error {
+	objectName := s.makeObjectName(backupID, key)
 	srcPath = path.Join(s.dataPath, srcPath)
 	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 
@@ -107,8 +107,8 @@ func (s *s3) PutFile(ctx context.Context, snapshotID, key string, srcPath string
 	return nil
 }
 
-func (s *s3) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
-	objectName := s.makeObjectName(snapshotID, key)
+func (s *s3) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	objectName := s.makeObjectName(backupID, key)
 	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	reader := bytes.NewReader(byes)
 	objectSize := int64(len(byes))
@@ -122,14 +122,14 @@ func (s *s3) PutObject(ctx context.Context, snapshotID, key string, byes []byte)
 	return nil
 }
 
-func (s *s3) Initialize(ctx context.Context, snapshotID string) error {
+func (s *s3) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
-	if err := s.PutObject(ctx, snapshotID, key, []byte("")); err != nil {
+	if err := s.PutObject(ctx, backupID, key, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 
-	objectName := s.makeObjectName(snapshotID, key)
+	objectName := s.makeObjectName(backupID, key)
 	opt := minio.RemoveObjectOptions{}
 	if err := s.client.RemoveObject(ctx, s.config.BucketName(), objectName, opt); err != nil {
 		return errors.Wrap(err, "failed to remove access-check s3 backup module")
@@ -138,9 +138,9 @@ func (s *s3) Initialize(ctx context.Context, snapshotID string) error {
 	return nil
 }
 
-func (s *s3) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+func (s *s3) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
 	// TODO use s.client.FGetObject() because it is more efficient than GetObject
-	obj, err := s.GetObject(ctx, snapshotID, key)
+	obj, err := s.GetObject(ctx, backupID, key)
 	if err != nil {
 		return errors.Wrapf(err, "get object '%s'", key)
 	}
