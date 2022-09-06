@@ -19,8 +19,8 @@ import (
 	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
 )
 
-func (m *StorageGCSModule) DestinationPath(snapshotID string) string {
-	return m.storageProvider.DestinationPath(snapshotID)
+func (m *StorageGCSModule) HomeDir(snapshotID string) string {
+	return m.storageProvider.HomeDir(snapshotID)
 }
 
 func (m *StorageGCSModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {

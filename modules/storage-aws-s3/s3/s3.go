@@ -65,9 +65,9 @@ func (s *s3) makeObjectName(parts ...string) string {
 	return path.Join(s.config.SnapshotRoot(), base)
 }
 
-func (s *s3) DestinationPath(snapshotID string) string {
+func (s *s3) HomeDir(snapshotID string) string {
 	return "s3://" + path.Join(s.config.BucketName(),
-		s.makeObjectName(snapshotID, "snapshot.json"))
+		s.makeObjectName(snapshotID))
 }
 
 func (s *s3) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {

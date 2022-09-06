@@ -65,8 +65,8 @@ func (m *StorageFileSystemModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *StorageFileSystemModule) DestinationPath(snapshotID string) string {
-	return path.Join(m.makeSnapshotDirPath(snapshotID), "snapshot.json")
+func (m *StorageFileSystemModule) HomeDir(snapshotID string) string {
+	return path.Join(m.makeSnapshotDirPath(snapshotID))
 }
 
 func (m *StorageFileSystemModule) RootHandler() http.Handler {

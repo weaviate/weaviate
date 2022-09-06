@@ -16,7 +16,8 @@ import (
 )
 
 type SnapshotStorage interface {
-	DestinationPath(snapshotID string) string // TODO: might be change it to something like DestDir because meta.json is now specified by the user
+	// HomeDir is the home directory of all backup files
+	HomeDir(snapshotID string) string
 
 	// GetObject giving snapshotID and key
 	GetObject(ctx context.Context, snapshotID, key string) ([]byte, error)

@@ -61,7 +61,7 @@ type fakeStorage struct {
 	mock.Mock
 }
 
-func (s *fakeStorage) DestinationPath(snapshotID string) string {
+func (s *fakeStorage) HomeDir(snapshotID string) string {
 	args := s.Called(snapshotID)
 	return args.String(0)
 }

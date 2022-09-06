@@ -491,7 +491,7 @@ func (m *dummyStorageModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Storage
 }
 
-func (m *dummyStorageModuleWithAltNames) DestinationPath(snapshotID string) string {
+func (m *dummyStorageModuleWithAltNames) HomeDir(snapshotID string) string {
 	return ""
 }
 
