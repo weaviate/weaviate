@@ -213,8 +213,10 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrNotFound(err)
 	}
 	if len(req.Include) > 0 {
-		if first := meta.AllExists(req.Exclude); first != "" {
-			return nil, backup.NewErrUnprocessable(fmt.Errorf("class %s doesn't exist", first))
+		if first := meta.AllExists(req.Include); first != "" {
+			cs := meta.List()
+			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
+			return nil, backup.NewErrUnprocessable(err)
 		}
 		meta.Include(req.Include)
 	} else {
