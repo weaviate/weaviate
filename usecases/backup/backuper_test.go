@@ -27,6 +27,46 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+func TestBackupRequestValidation(t *testing.T) {
+	var (
+		cls         = "MyClass"
+		storageType = "s3"
+		m           = createManager(nil, nil, nil)
+		ctx         = context.Background()
+	)
+	_, err := m.Backup(ctx, nil, &BackupRequest{
+		StorageType: storageType,
+		ID:          "A*:",
+		Include:     []string{cls},
+	})
+	if err == nil {
+		t.Errorf("must return an error for an invalid id")
+	}
+	_, err = m.Backup(ctx, nil, &BackupRequest{
+		StorageType: storageType,
+		ID:          "1234",
+		Include:     []string{cls},
+		Exclude:     []string{cls},
+	})
+	if err == nil {
+		t.Errorf("must return an error for non empty include and exclude")
+	}
+	// return one class and exclude it in the request
+	sourcer := &fakeSourcer{}
+	sourcer.On("ListBackupable").Return([]string{cls})
+
+	m2 := createManager(sourcer, nil, nil)
+	_, err = m2.Backup(ctx, nil, &BackupRequest{
+		StorageType: storageType,
+		ID:          "1234",
+		Include:     []string{},
+		Exclude:     []string{cls},
+	})
+	if err == nil {
+		t.Errorf("must return an error if the resulting list of classes is empty")
+	}
+}
+
 func TestBackupManager_CreateBackup(t *testing.T) {
 	className := "DemoClass"
 	className2 := "DemoClass2"
@@ -35,29 +75,6 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 	snapshotID2 := "snapshot-id2"
 	ctx := context.Background()
 	path := "dst/path"
-
-	t.Run("fails when snapshot is not valid", func(t *testing.T) {
-		bm := createManager(nil, nil, nil)
-
-		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          "A*:",
-			Include:     []string{className},
-		})
-
-		assert.Nil(t, meta)
-		assert.NotNil(t, err)
-
-		meta, err = bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          "",
-			Include:     []string{className},
-		})
-
-		assert.Nil(t, meta)
-		assert.NotNil(t, err)
-	})
-
 	t.Run("fails when index does not exist", func(t *testing.T) {
 		classes := []string{className}
 
@@ -117,7 +134,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("find storage provider %s", storageName))
+		assert.Contains(t, err.Error(), storageName)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 

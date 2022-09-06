@@ -114,40 +114,14 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
-
-	if err := validateID(req.ID); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("invalid include and exclude"))
-	}
-	classes := req.Include
-	if len(classes) == 0 {
-		classes = m.backupper.sourcer.ListBackupable()
-	}
-	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
-		backup.NewErrUnprocessable(fmt.Errorf("empty class list"))
-	}
-
-	if err := m.backupper.sourcer.Backupable(ctx, classes); err != nil {
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
 	store, err := m.objectStore(req.StorageType)
 	if err != nil {
-		err = fmt.Errorf("find storage provider %s", req.StorageType)
+		err = fmt.Errorf("no backup provider %q, did you enable the right module?", req.StorageType)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	destPath := store.DestinationPath(req.ID)
-	// there is no snapshot with given id on the storage, regardless of its state (valid or corrupted)
-	_, err = store.Meta(ctx, req.ID)
-	if err == nil {
-		err = fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	if _, ok := err.(backup.ErrNotFound); !ok {
-		err = fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+	classes, err := m.validateBackupRequest(ctx, store, req)
+	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
@@ -168,18 +142,6 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	}
 }
 
-func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
-	storageName, backupID string,
-) (*models.BackupCreateStatusResponse, error) {
-	path := fmt.Sprintf("backups/%s/%s", storageName, backupID)
-	err := m.authorizer.Authorize(principal, "get", path)
-	if err != nil {
-		return nil, err
-	}
-
-	return m.backupper.Status(ctx, storageName, backupID)
-}
-
 // TODO validate meta data file
 
 func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
@@ -189,53 +151,27 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
-	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("invalid include and exclude"))
-	}
-
 	store, err := m.objectStore(req.StorageType)
 	if err != nil {
-		err = fmt.Errorf("find storage provider %s", req.StorageType)
+		err = fmt.Errorf("no backup provider %q, did you enable the right module?", req.StorageType)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	destPath := store.DestinationPath(req.ID)
-
-	meta, err := store.Meta(ctx, req.ID)
+	meta, err := m.validateRestoreRequst(ctx, store, req)
 	if err != nil {
-		err = fmt.Errorf("find backup %s: %w", destPath, err)
-		if _, ok := err.(backup.ErrNotFound); ok {
-			return nil, backup.NewErrNotFound(err)
-		}
-		return nil, backup.NewErrUnprocessable(err)
+		return nil, err
 	}
-	if meta.Status != string(backup.Success) {
-		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
-		return nil, backup.NewErrNotFound(err)
-	}
-	if len(req.Include) > 0 {
-		if first := meta.AllExists(req.Include); first != "" {
-			cs := meta.List()
-			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
-			return nil, backup.NewErrUnprocessable(err)
-		}
-		meta.Include(req.Include)
-	} else {
-		meta.Exclude(req.Exclude)
-	}
-
 	status := string(backup.Started)
-	classes := meta.List()
 	returnData := &models.BackupRestoreResponse{
-		Classes:     classes,
-		ID:          req.ID,          // TODO remove since it's included in the path
-		StorageName: req.StorageType, // TODO remove since it's included in the path
+		Classes:     meta.List(),
+		ID:          req.ID,
+		StorageName: req.StorageType,
 		Status:      &status,
 		Path:        path,
 	}
 	go func() {
 		var err error
 		status := RestoreStatus{
-			Path:      destPath,
+			Path:      store.DestinationPath(req.ID),
 			StartedAt: time.Now().UTC(),
 			Status:    backup.Transferring,
 			Err:       nil,
@@ -259,6 +195,18 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	return returnData, nil
 }
 
+func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
+	storageName, backupID string,
+) (*models.BackupCreateStatusResponse, error) {
+	path := fmt.Sprintf("backups/%s/%s", storageName, backupID)
+	err := m.authorizer.Authorize(principal, "get", path)
+	if err != nil {
+		return nil, err
+	}
+
+	return m.backupper.Status(ctx, storageName, backupID)
+}
+
 func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, storageName, ID string,
 ) (_ RestoreStatus, err error) {
 	ppath := fmt.Sprintf("backups/%s/%s/restore", storageName, ID)
@@ -278,6 +226,75 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 		return RestoreStatus{}, errors.Errorf("status not found: %s", ref)
 	}
 	return istatus.(RestoreStatus), nil
+}
+
+func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, req *BackupRequest) ([]string, error) {
+	if err := validateID(req.ID); err != nil {
+		return nil, err
+	}
+	if len(req.Include) > 0 && len(req.Exclude) > 0 {
+		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
+	}
+	classes := req.Include
+	if len(classes) == 0 {
+		classes = m.backupper.sourcer.ListBackupable()
+	}
+	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
+		return nil, fmt.Errorf("empty class list: please choose from : %v", classes)
+	}
+
+	if err := m.backupper.sourcer.Backupable(ctx, classes); err != nil {
+		return nil, err
+	}
+	destPath := store.DestinationPath(req.ID)
+	// there is no snapshot with given id on the storage, regardless of its state (valid or corrupted)
+	_, err := store.Meta(ctx, req.ID)
+	if err == nil {
+		err = fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	if _, ok := err.(backup.ErrNotFound); !ok {
+		err = fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	return classes, nil
+}
+
+func (m *Manager) validateRestoreRequst(ctx context.Context, store objectStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+	if len(req.Include) > 0 && len(req.Exclude) > 0 {
+		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	destPath := store.DestinationPath(req.ID)
+	meta, err := store.Meta(ctx, req.ID)
+	if err != nil {
+		err = fmt.Errorf("find backup %s: %w", destPath, err)
+		nerr := backup.ErrNotFound{}
+		if errors.As(err, &nerr) {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	if meta.Status != string(backup.Success) {
+		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
+		return nil, backup.NewErrNotFound(err)
+	}
+	classes := meta.List()
+	if len(req.Include) > 0 {
+		if first := meta.AllExists(req.Include); first != "" {
+			cs := meta.List()
+			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
+			return nil, backup.NewErrUnprocessable(err)
+		}
+		meta.Include(req.Include)
+	} else {
+		meta.Exclude(req.Exclude)
+	}
+	if len(meta.Classes) == 0 {
+		err = fmt.Errorf("empty class list: please choose from : %v", classes)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	return meta, nil
 }
 
 func validateID(snapshotID string) error {
