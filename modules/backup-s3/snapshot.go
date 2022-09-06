@@ -55,9 +55,9 @@ func (m *BackupS3Module) initSnapshotStorage(ctx context.Context) error {
 	}
 
 	endpoint := os.Getenv(s3Endpoint)
-	rootName := os.Getenv(s3SnapshotRoot)
+	pathName := os.Getenv(s3Path)
 	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) == "true"
-	config := s3.NewConfig(endpoint, bucketName, rootName, useSSL)
+	config := s3.NewConfig(endpoint, bucketName, pathName, useSSL)
 	storageProvider, err := s3.New(config, m.logger, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "initialize AWS S3 module")

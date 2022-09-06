@@ -36,7 +36,7 @@ const (
 	// if left unset, the snapshot files will
 	// be stored directly in the root of the
 	// bucket.
-	s3SnapshotRoot = "BACKUP_S3_PATH"
+	s3Path = "BACKUP_S3_PATH"
 )
 
 type BackupS3Module struct {
@@ -84,7 +84,7 @@ func (m *BackupS3Module) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["endpoint"] = m.config.Endpoint()
 	metaInfo["bucketName"] = m.config.BucketName()
-	if root := m.config.SnapshotRoot(); root != "" {
+	if root := m.config.BackupPath(); root != "" {
 		metaInfo["rootName"] = root
 	}
 	metaInfo["useSSL"] = m.config.UseSSL()

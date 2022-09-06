@@ -34,7 +34,7 @@ const (
 	// if left unset, the snapshot files will
 	// be stored directly in the root of the
 	// bucket.
-	gcsSnapshotRoot = "BACKUP_GCS_PATH"
+	gcsPath = "BACKUP_GCS_PATH"
 )
 
 type BackupGCSModule struct {
@@ -81,7 +81,7 @@ func (m *BackupGCSModule) RootHandler() http.Handler {
 func (m *BackupGCSModule) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["bucketName"] = m.config.BucketName()
-	if root := m.config.SnapshotRoot(); root != "" {
+	if root := m.config.BackupPath(); root != "" {
 		metaInfo["rootName"] = root
 	}
 	return metaInfo, nil

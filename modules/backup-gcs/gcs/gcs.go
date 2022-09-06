@@ -103,7 +103,7 @@ func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
 
 func (g *gcs) makeObjectName(parts ...string) string {
 	base := path.Join(parts...)
-	return path.Join(g.config.SnapshotRoot(), base)
+	return path.Join(g.config.BackupPath(), base)
 }
 
 func (g *gcs) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
