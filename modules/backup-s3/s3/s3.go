@@ -126,13 +126,13 @@ func (s *s3) Initialize(ctx context.Context, snapshotID string) error {
 	key := "access-check"
 
 	if err := s.PutObject(ctx, snapshotID, key, []byte("")); err != nil {
-		return errors.Wrap(err, "failed to access-check s3 storage module")
+		return errors.Wrap(err, "failed to access-check s3 backup module")
 	}
 
 	objectName := s.makeObjectName(snapshotID, key)
 	opt := minio.RemoveObjectOptions{}
 	if err := s.client.RemoveObject(ctx, s.config.BucketName(), objectName, opt); err != nil {
-		return errors.Wrap(err, "failed to remove access-check s3 storage module")
+		return errors.Wrap(err, "failed to remove access-check s3 backup module")
 	}
 
 	return nil

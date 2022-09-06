@@ -24,20 +24,20 @@ import (
 type restorer struct {
 	logger     logrus.FieldLogger
 	sourcer    Sourcer
-	storages   BackupStorageProvider
+	backends   BackupBackendProvider
 	schema     schemaManger
 	lastStatus backupStat
 }
 
 func newRestorer(logger logrus.FieldLogger,
 	sourcer Sourcer,
-	storages BackupStorageProvider,
+	backends BackupBackendProvider,
 	schema schemaManger,
 ) *restorer {
 	return &restorer{
 		logger:   logger,
 		sourcer:  sourcer,
-		storages: storages,
+		backends: backends,
 		schema:   schema,
 	}
 }

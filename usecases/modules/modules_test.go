@@ -306,9 +306,9 @@ func TestModulesProvider(t *testing.T) {
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
-		modByName := modulesProvider.GetByName("SomeStorage")
-		modByAltName1 := modulesProvider.GetByName("AltStorageName")
-		modByAltName2 := modulesProvider.GetByName("YetAnotherStorageName")
+		modByName := modulesProvider.GetByName("SomeBackend")
+		modByAltName1 := modulesProvider.GetByName("AltBackendName")
+		modByAltName2 := modulesProvider.GetByName("YetAnotherBackendName")
 		modMissing := modulesProvider.GetByName("DoesNotExist")
 
 		assert.NotNil(t, modByName)
@@ -317,22 +317,22 @@ func TestModulesProvider(t *testing.T) {
 		assert.Nil(t, modMissing)
 	})
 
-	t.Run("should provide backup storage", func(t *testing.T) {
+	t.Run("should provide backup backend", func(t *testing.T) {
 		module := &dummyBackupModuleWithAltNames{}
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
-		provider, ok := interface{}(modulesProvider).(ubackup.BackupStorageProvider)
+		provider, ok := interface{}(modulesProvider).(ubackup.BackupBackendProvider)
 		assert.True(t, ok)
 
 		fmt.Printf("provider: %v\n", provider)
 
-		storageByName, err1 := provider.BackupStorage("SomeStorage")
-		storageByAltName, err2 := provider.BackupStorage("YetAnotherStorageName")
+		backendByName, err1 := provider.BackupBackend("SomeBackend")
+		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName")
 
-		assert.NotNil(t, storageByName)
+		assert.NotNil(t, backendByName)
 		assert.Nil(t, err1)
-		assert.NotNil(t, storageByAltName)
+		assert.NotNil(t, backendByAltName)
 		assert.Nil(t, err2)
 	})
 }
@@ -472,11 +472,11 @@ func getFakeSchemaGetter() schemaGetter {
 type dummyBackupModuleWithAltNames struct{}
 
 func (m *dummyBackupModuleWithAltNames) Name() string {
-	return "SomeStorage"
+	return "SomeBackend"
 }
 
 func (m *dummyBackupModuleWithAltNames) AltNames() []string {
-	return []string{"AltStorageName", "YetAnotherStorageName"}
+	return []string{"AltBackendName", "YetAnotherBackendName"}
 }
 
 func (m *dummyBackupModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {

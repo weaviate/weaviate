@@ -31,17 +31,17 @@ import (
 func TestBackStatus(t *testing.T) {
 	t.Parallel()
 	var (
-		storageType = "s3"
+		backendName = "s3"
 		id          = "1234"
 		ctx         = context.Background()
 		starTime    = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
 		path        = "bucket/backups/123"
 		rawstatus   = string(backup.Transferring)
 		want        = &models.BackupCreateStatusResponse{
-			ID:          id,
-			Path:        path,
-			Status:      &rawstatus,
-			StorageName: storageType,
+			ID:      id,
+			Path:    path,
+			Status:  &rawstatus,
+			Backend: backendName,
 		}
 	)
 
@@ -53,22 +53,22 @@ func TestBackStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			path:      path,
 		}
-		st, err := m.BackupStatus(ctx, nil, storageType, id)
+		st, err := m.BackupStatus(ctx, nil, backendName, id)
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
 	})
 
-	t.Run("get storage provider", func(t *testing.T) {
+	t.Run("get backup provider", func(t *testing.T) {
 		m := createManager(nil, nil, ErrAny)
-		_, err := m.BackupStatus(ctx, nil, storageType, id)
+		_, err := m.BackupStatus(ctx, nil, backendName, id)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("metdata not found", func(t *testing.T) {
-		storage := &fakeStorage{}
-		storage.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
-		m := createManager(nil, storage, nil)
-		_, err := m.BackupStatus(ctx, nil, storageType, id)
+		backend := &fakeBackend{}
+		backend.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
+		m := createManager(nil, backend, nil)
+		_, err := m.BackupStatus(ctx, nil, backendName, id)
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
 		if !errors.As(err, &nerr) {
@@ -77,12 +77,12 @@ func TestBackStatus(t *testing.T) {
 	})
 
 	t.Run("read status from metdata", func(t *testing.T) {
-		storage := &fakeStorage{}
+		backend := &fakeBackend{}
 		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Transferring)})
-		storage.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
-		storage.On("HomeDir", mock.Anything).Return(path)
-		m := createManager(nil, storage, nil)
-		got, err := m.BackupStatus(ctx, nil, storageType, id)
+		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m := createManager(nil, backend, nil)
+		got, err := m.BackupStatus(ctx, nil, backendName, id)
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
@@ -90,24 +90,24 @@ func TestBackStatus(t *testing.T) {
 
 func TestBackupRequestValidation(t *testing.T) {
 	var (
-		cls         = "MyClass"
-		storageType = "s3"
-		m           = createManager(nil, nil, nil)
-		ctx         = context.Background()
+		cls     = "MyClass"
+		backend = "s3"
+		m       = createManager(nil, nil, nil)
+		ctx     = context.Background()
 	)
 	_, err := m.Backup(ctx, nil, &BackupRequest{
-		StorageType: storageType,
-		ID:          "A*:",
-		Include:     []string{cls},
+		Backend: backend,
+		ID:      "A*:",
+		Include: []string{cls},
 	})
 	if err == nil {
 		t.Errorf("must return an error for an invalid id")
 	}
 	_, err = m.Backup(ctx, nil, &BackupRequest{
-		StorageType: storageType,
-		ID:          "1234",
-		Include:     []string{cls},
-		Exclude:     []string{cls},
+		Backend: backend,
+		ID:      "1234",
+		Include: []string{cls},
+		Exclude: []string{cls},
 	})
 	if err == nil {
 		t.Errorf("must return an error for non empty include and exclude")
@@ -118,10 +118,10 @@ func TestBackupRequestValidation(t *testing.T) {
 
 	m2 := createManager(sourcer, nil, nil)
 	_, err = m2.Backup(ctx, nil, &BackupRequest{
-		StorageType: storageType,
-		ID:          "1234",
-		Include:     []string{},
-		Exclude:     []string{cls},
+		Backend: backend,
+		ID:      "1234",
+		Include: []string{},
+		Exclude: []string{cls},
 	})
 	if err == nil {
 		t.Errorf("must return an error if the resulting list of classes is empty")
@@ -131,7 +131,7 @@ func TestBackupRequestValidation(t *testing.T) {
 func TestBackupManager_CreateBackup(t *testing.T) {
 	className := "DemoClass"
 	className2 := "DemoClass2"
-	storageName := "DemoStorage"
+	backendName := "DemoBackend"
 	snapshotID := "snapshot-id"
 	snapshotID2 := "snapshot-id2"
 	ctx := context.Background()
@@ -146,9 +146,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, nil, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backendName,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -167,9 +167,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, nil, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backendName,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -178,43 +178,43 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
-	t.Run("fails when storage not registered", func(t *testing.T) {
+	t.Run("fails when backend not registered", func(t *testing.T) {
 		classes := []string{className}
 
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 
-		storageError := errors.New("I do not exist")
-		bm := createManager(sourcer, nil, storageError)
+		backendError := errors.New("I do not exist")
+		bm := createManager(sourcer, nil, backendError)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backendName,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), storageName)
+		assert.Contains(t, err.Error(), backendName)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
-	t.Run("fails when error reading meta from storage", func(t *testing.T) {
+	t.Run("fails when error reading meta from backend", func(t *testing.T) {
 		classes := []string{className}
 
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 
-		storage := &fakeStorage{}
-		storage.On("HomeDir", mock.Anything).Return(path)
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
 
-		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, errors.New("can not be read"))
-		bm := createManager(sourcer, storage, nil)
+		backend.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, errors.New("can not be read"))
+		bm := createManager(sourcer, backend, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backendName,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -223,24 +223,24 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
-	t.Run("fails when meta exists on storage", func(t *testing.T) {
+	t.Run("fails when meta exists on backend", func(t *testing.T) {
 		classes := []string{className}
 
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 		desc := backup.BackupDescriptor{}
 		bytes, _ := json.Marshal(desc)
-		storage := &fakeStorage{}
-		storage.On("HomeDir", mock.Anything).Return(path)
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
 
-		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(bytes, nil)
 
-		bm := createManager(sourcer, storage, nil)
+		bm := createManager(sourcer, backend, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backendName,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -258,23 +258,23 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil)
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
 		// make sure create backup takes some time, so the parallel execution has enough time to start before first one finishes
-		storage := &fakeStorage{}
-		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		storage.On("GetObject", ctx, snapshotID2, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		storage.On("Initialize", ctx, mock.Anything).Return(nil)
-		storage.On("HomeDir", mock.Anything).Return(path)
-		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
-		bm := createManager(sourcer, storage, nil)
+		backend := &fakeBackend{}
+		backend.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("GetObject", ctx, snapshotID2, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		backend.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
+		bm := createManager(sourcer, backend, nil)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 
 		go func() {
 			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				StorageType: storageName,
-				ID:          snapshotID,
-				Include:     classes,
+				Backend: backendName,
+				ID:      snapshotID,
+				Include: classes,
 			})
 			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
@@ -287,9 +287,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		go func() {
 			time.Sleep(25 * time.Microsecond)
 			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				StorageType: storageName,
-				ID:          snapshotID2,
-				Include:     classes,
+				Backend: backendName,
+				ID:      snapshotID2,
+				Include: classes,
 			})
 			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
@@ -308,16 +308,16 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
-		storage := &fakeStorage{}
-		storage.On("HomeDir", mock.Anything).Return(path)
-		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		storage.On("Initialize", ctx, snapshotID).Return(errors.New("init meta failed"))
-		bm := createManager(sourcer, storage, nil)
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, snapshotID).Return(errors.New("init meta failed"))
+		bm := createManager(sourcer, backend, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backendName,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -334,18 +334,18 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil).Once()
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil).Once()
-		storage := &fakeStorage{}
-		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		storage.On("Initialize", ctx, snapshotID).Return(nil)
-		storage.On("HomeDir", snapshotID).Return(path)
-		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
-		bm := createManager(sourcer, storage, nil)
+		backend := &fakeBackend{}
+		backend.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, snapshotID).Return(nil)
+		backend.On("HomeDir", snapshotID).Return(path)
+		backend.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		backend.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
+		bm := createManager(sourcer, backend, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backendName,
+			ID:      snapshotID,
+			Include: classes,
 		})
 		time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
@@ -364,22 +364,22 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil).Once()
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil).Once()
-		storage := &fakeStorage{}
-		storage.On("GetMeta", ctx, "", snapshotID).Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		storage.On("Initialize", ctx, snapshotID).Return(nil)
-		storage.On("HomeDir", snapshotID).Return(path)
-		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
-		bm := createManager(sourcer, storage, nil)
+		backend := &fakeBackend{}
+		backend.On("GetMeta", ctx, "", snapshotID).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, snapshotID).Return(nil)
+		backend.On("HomeDir", snapshotID).Return(path)
+		backend.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		backend.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
+		bm := createManager(sourcer, backend, nil)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 
 		go func() {
 			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				StorageType: storageName,
-				ID:          snapshotID,
-				Include:     classes,
+				Backend: backendName,
+				ID:      snapshotID,
+				Include: classes,
 			})
 			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
@@ -428,7 +428,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 	})
 
 // 	t.Run("fails when error reading meta from storage", func(t *testing.T) {
-// 		storage := &fakeStorage{}
+// 		storage := &fakeBackend{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, errors.New("can not be read"))
 // 		bm := createManager(nil, storage, nil, nil)
 
@@ -441,7 +441,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 	})
 
 // 	t.Run("fails when meta does not exist on storage", func(t *testing.T) {
-// 		storage := &fakeStorage{}
+// 		storage := &fakeBackend{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 // 		bm := createManager(nil, storage, nil, nil)
 
@@ -457,7 +457,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 		statuses := []string{string(backup.CreateFailed), string(backup.CreateStarted), string(backup.CreateTransferring), string(backup.CreateTransferred), "And Now for Something Completely Different"}
 
 // 		for _, status := range statuses {
-// 			storage := &fakeStorage{}
+// 			storage := &fakeBackend{}
 // 			storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: status}, nil)
 // 			bm := createManager(nil, storage, nil, nil)
 
@@ -472,7 +472,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 // 	t.Run("fails when snapshot restoration already in progress", func(t *testing.T) {
 // 		// make sure restore backup takes some time, so the parallel execution has enough time to start before first one finishes
-// 		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
+// 		storage := &fakeBackend{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 // 		storage.On("GetMeta", ctx, className, snapshotID2).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 // 		storage.On("HomeDir", className, snapshotID).Return(path)
@@ -508,7 +508,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 	})
 
 // 	t.Run("successfully starts", func(t *testing.T) {
-// 		storage := &fakeStorage{}
+// 		storage := &fakeBackend{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 // 		storage.On("HomeDir", className, snapshotID).Return(path)
 // 		storage.On("RestoreSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(&backup.Snapshot{}, nil).Once()
@@ -526,7 +526,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 // 	t.Run("successfully starts for multiple classes", func(t *testing.T) {
 // 		// make sure restore backup takes some time, so the parallel execution has enough time to start before first one finishes
-// 		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
+// 		storage := &fakeBackend{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 // 		storage.On("GetMeta", ctx, className2, snapshotID2).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 // 		storage.On("HomeDir", className, snapshotID).Return(path)
@@ -596,7 +596,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 // 	t.Run("fails when error reading meta from storage", func(t *testing.T) {
 // 		snapshotter := &fakeSnapshotter{}
-// 		storage := &fakeStorage{}
+// 		storage := &fakeBackend{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, errors.New("any type of error"))
 // 		bm := createManager(snapshotter, storage, nil, nil)
 
@@ -608,7 +608,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 	})
 
 // 	t.Run("fails when meta does not exist on storage", func(t *testing.T) {
-// 		storage := &fakeStorage{}
+// 		storage := &fakeBackend{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 // 		bm := createManager(storage, nil)
 
@@ -621,7 +621,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 	})
 
 // 	t.Run("successfully gets status", func(t *testing.T) {
-// 		storage := &fakeStorage{}
+// 		storage := &fakeBackend{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: "SOME_STATUS"}, nil)
 // 		storage.On("HomeDir", className, snapshotID).Return(path)
 // 		bm := createManager(storage, nil)
@@ -644,7 +644,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 //	require.NotNil(t, err)
 //	assert.Equal(t, "", path)
 //
-//	storage := &fakeStorage{}
+//	storage := &fakeBackend{}
 //	storage.On("HomeDir", "className", "ID").Return(path)
 //	sm = createManager(storage, nil)
 //	path2, err := sm.backups.HomeDir("storageName", "className", "ID")
@@ -652,11 +652,11 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 //	assert.Equal(t, path, path2)
 //}
 
-func createManager(sourcer Sourcer, storage modulecapabilities.BackupStorage, storageErr error) *Manager {
-	storages := &fakeBackupStorageProvider{storage, storageErr}
+func createManager(sourcer Sourcer, backend modulecapabilities.BackupBackend, backendErr error) *Manager {
+	backends := &fakeBackupBackendProvider{backend, backendErr}
 	if sourcer == nil {
 		sourcer = &fakeSourcer{}
 	}
 	logger, _ := test.NewNullLogger()
-	return NewManager(logger, &fakeAuthorizer{}, &fakeSchemaManger{}, sourcer, storages)
+	return NewManager(logger, &fakeAuthorizer{}, &fakeSchemaManger{}, sourcer, backends)
 }

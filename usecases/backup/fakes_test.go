@@ -19,13 +19,13 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-type fakeBackupStorageProvider struct {
-	storage modulecapabilities.BackupStorage
+type fakeBackupBackendProvider struct {
+	backend modulecapabilities.BackupBackend
 	err     error
 }
 
-func (bsp *fakeBackupStorageProvider) BackupStorage(storageName string) (modulecapabilities.BackupStorage, error) {
-	return bsp.storage, bsp.err
+func (bsp *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+	return bsp.backend, bsp.err
 }
 
 type fakeSourcer struct {
@@ -57,24 +57,24 @@ func (s *fakeSourcer) ClassExists(name string) bool {
 	return args.Bool(0)
 }
 
-type fakeStorage struct {
+type fakeBackend struct {
 	mock.Mock
 }
 
-func (s *fakeStorage) HomeDir(snapshotID string) string {
+func (s *fakeBackend) HomeDir(snapshotID string) string {
 	args := s.Called(snapshotID)
 	return args.String(0)
 }
 
-func (s *fakeStorage) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (s *fakeBackend) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
 	return nil
 }
 
-func (s *fakeStorage) PutObject(ctx context.Context, snapshotID, key string, _ []byte) error {
+func (s *fakeBackend) PutObject(ctx context.Context, snapshotID, key string, _ []byte) error {
 	return nil
 }
 
-func (s *fakeStorage) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+func (s *fakeBackend) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
 	args := s.Called(ctx, snapshotID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)
@@ -82,17 +82,17 @@ func (s *fakeStorage) GetObject(ctx context.Context, snapshotID, key string) ([]
 	return nil, args.Error(1)
 }
 
-func (s *fakeStorage) Initialize(ctx context.Context, snapshotID string) error {
+func (s *fakeBackend) Initialize(ctx context.Context, snapshotID string) error {
 	args := s.Called(ctx, snapshotID)
 	return args.Error(0)
 }
 
-func (s *fakeStorage) SourceDataPath() string {
+func (s *fakeBackend) SourceDataPath() string {
 	args := s.Called()
 	return args.String(0)
 }
 
-func (s *fakeStorage) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+func (s *fakeBackend) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
 	args := s.Called(ctx, snapshotID, key, destPath)
 	return args.Error(0)
 }

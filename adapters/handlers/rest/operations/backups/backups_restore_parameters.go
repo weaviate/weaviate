@@ -44,6 +44,11 @@ type BackupsRestoreParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*Backup backend name e.g. filesystem, gcs, s3.
+	  Required: true
+	  In: path
+	*/
+	Backend string
 	/*
 	  Required: true
 	  In: body
@@ -54,11 +59,6 @@ type BackupsRestoreParams struct {
 	  In: path
 	*/
 	ID string
-	/*Storage name e.g. filesystem, gcs, s3.
-	  Required: true
-	  In: path
-	*/
-	StorageName string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -69,6 +69,11 @@ func (o *BackupsRestoreParams) BindRequest(r *http.Request, route *middleware.Ma
 	var res []error
 
 	o.HTTPRequest = r
+
+	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
+	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
+		res = append(res, err)
+	}
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -97,14 +102,24 @@ func (o *BackupsRestoreParams) BindRequest(r *http.Request, route *middleware.Ma
 		res = append(res, err)
 	}
 
-	rStorageName, rhkStorageName, _ := route.Params.GetOK("storageName")
-	if err := o.bindStorageName(rStorageName, rhkStorageName, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindBackend binds and validates parameter Backend from path.
+func (o *BackupsRestoreParams) bindBackend(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+
+	o.Backend = raw
+
 	return nil
 }
 
@@ -119,21 +134,6 @@ func (o *BackupsRestoreParams) bindID(rawData []string, hasKey bool, formats str
 	// Parameter is provided by construction from the route
 
 	o.ID = raw
-
-	return nil
-}
-
-// bindStorageName binds and validates parameter StorageName from path.
-func (o *BackupsRestoreParams) bindStorageName(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: true
-	// Parameter is provided by construction from the route
-
-	o.StorageName = raw
 
 	return nil
 }

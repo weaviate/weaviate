@@ -84,7 +84,7 @@ type BackupsCreateOK struct {
 }
 
 func (o *BackupsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}][%d] backupsCreateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *BackupsCreateOK) GetPayload() *models.BackupCreateResponse {
@@ -116,7 +116,7 @@ type BackupsCreateUnauthorized struct {
 }
 
 func (o *BackupsCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}][%d] backupsCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized ", 401)
 }
 
 func (o *BackupsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -138,7 +138,7 @@ type BackupsCreateForbidden struct {
 }
 
 func (o *BackupsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsCreateForbidden) GetPayload() *models.ErrorResponse {
@@ -171,7 +171,7 @@ type BackupsCreateUnprocessableEntity struct {
 }
 
 func (o *BackupsCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -204,7 +204,7 @@ type BackupsCreateInternalServerError struct {
 }
 
 func (o *BackupsCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsCreateInternalServerError) GetPayload() *models.ErrorResponse {

@@ -50,7 +50,7 @@ func Test_BackupJourney(t *testing.T) {
 	})
 
 	compose, err := docker.New().
-		WithStorageS3(s3BackupJourneyBucketName).
+		WithBackendS3(s3BackupJourneyBucketName).
 		WithText2VecContextionary().
 		WithWeaviate().
 		Start(ctx)

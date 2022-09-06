@@ -133,7 +133,7 @@ func init() {
         }
       }
     },
-    "/backups/{storageName}": {
+    "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -143,8 +143,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -191,7 +191,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}": {
+    "/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "tags": [
@@ -201,8 +201,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -254,7 +254,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}/restore": {
+    "/backups/{backend}/{id}/restore": {
       "get": {
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "tags": [
@@ -264,8 +264,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -319,8 +319,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -2490,6 +2490,10 @@ func init() {
     "BackupCreateResponse": {
       "description": "The definition of a backup create response body",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -2506,7 +2510,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -2520,16 +2524,16 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
     "BackupCreateStatusResponse": {
       "description": "The definition of a backup create metadata",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -2539,7 +2543,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -2553,10 +2557,6 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
@@ -2586,6 +2586,10 @@ func init() {
     "BackupRestoreResponse": {
       "description": "The definition of a backup restore response body",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup restoration process was started",
           "type": "array",
@@ -2602,7 +2606,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -2616,16 +2620,16 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
     "BackupRestoreStatusResponse": {
       "description": "The definition of a backup restore metadata",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"
@@ -2635,7 +2639,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backup backend",
           "type": "string"
         },
         "status": {
@@ -2649,10 +2653,6 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
@@ -4121,7 +4121,7 @@ func init() {
         }
       }
     },
-    "/backups/{storageName}": {
+    "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -4131,8 +4131,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -4179,7 +4179,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}": {
+    "/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "tags": [
@@ -4189,8 +4189,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -4242,7 +4242,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}/restore": {
+    "/backups/{backend}/{id}/restore": {
       "get": {
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "tags": [
@@ -4252,8 +4252,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -4307,8 +4307,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -6505,6 +6505,10 @@ func init() {
     "BackupCreateResponse": {
       "description": "The definition of a backup create response body",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -6521,7 +6525,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -6535,16 +6539,16 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
     "BackupCreateStatusResponse": {
       "description": "The definition of a backup create metadata",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if creation failed",
           "type": "string"
@@ -6554,7 +6558,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -6568,10 +6572,6 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
@@ -6601,6 +6601,10 @@ func init() {
     "BackupRestoreResponse": {
       "description": "The definition of a backup restore response body",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup restoration process was started",
           "type": "array",
@@ -6617,7 +6621,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -6631,16 +6635,16 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
     "BackupRestoreStatusResponse": {
       "description": "The definition of a backup restore metadata",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "error": {
           "description": "error message if restoration failed",
           "type": "string"
@@ -6650,7 +6654,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backup backend",
           "type": "string"
         },
         "status": {
@@ -6664,10 +6668,6 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },

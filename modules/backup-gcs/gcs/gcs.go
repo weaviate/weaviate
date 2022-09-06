@@ -168,7 +168,7 @@ func (g *gcs) Initialize(ctx context.Context, snapshotID string) error {
 	key := "access-check"
 
 	if err := g.PutObject(ctx, snapshotID, key, []byte("")); err != nil {
-		return errors.Wrap(err, "failed to access-check gcs storage module")
+		return errors.Wrap(err, "failed to access-check gcs backup module")
 	}
 
 	bucket, err := g.findBucket(ctx)
@@ -178,7 +178,7 @@ func (g *gcs) Initialize(ctx context.Context, snapshotID string) error {
 
 	objectName := g.makeObjectName(snapshotID, key)
 	if err := bucket.Object(objectName).Delete(ctx); err != nil {
-		return errors.Wrap(err, "failed to remove access-check gcs storage module")
+		return errors.Wrap(err, "failed to remove access-check gcs backup module")
 	}
 
 	return nil

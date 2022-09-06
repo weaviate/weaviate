@@ -22,22 +22,21 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/modules/backup-s3/s3"
+	"github.com/semi-technologies/weaviate/modules/backup-gcs/gcs"
 	"github.com/semi-technologies/weaviate/test/docker"
 	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_S3Storage_Backup(t *testing.T) {
+func Test_GCSBackend_Backup(t *testing.T) {
 	ctx := context.Background()
-	compose, err := docker.New().WithMinIO().Start(ctx)
+	compose, err := docker.New().WithGCS().Start(ctx)
 	if err != nil {
 		t.Fatal(errors.Wrapf(err, "cannot start"))
 	}
 
-	require.Nil(t, os.Setenv(envMinioEndpoint, compose.GetMinIO().URI()))
+	require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
 
 	t.Run("store backup meta", moduleLevelStoreBackupMeta)
 	t.Run("copy objects", moduleLevelCopyObjects)
@@ -56,38 +55,38 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	className := "BackupClass"
 	backupID := "backup_id"
 	bucketName := "bucket"
-	region := "eu-west-1"
-	endpoint := os.Getenv(envMinioEndpoint)
+	projectID := "project-id"
+	endpoint := os.Getenv(envGCSEndpoint)
 	metadataFilename := "backup.json"
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envAwsRegion, region))
-		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
-		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
-		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGCSCredentials, ""))
+		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
+		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		createBucket(testCtx, t, endpoint, region, bucketName)
+		createBucket(testCtx, t, projectID, bucketName)
 	})
 
-	t.Run("store backup meta in s3", func(t *testing.T) {
-		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
-		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, dataDir)
+	t.Run("store backup meta in gcs", func(t *testing.T) {
+		gcsConfig := gcs.NewConfig(bucketName, "")
+		gcs, err := gcs.New(testCtx, gcsConfig, dataDir)
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := s3.Initialize(testCtx, backupID)
+			err := gcs.Initialize(testCtx, backupID)
 			assert.Nil(t, err)
 		})
 
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
-			meta, err := s3.GetObject(testCtx, backupID, metadataFilename)
+			meta, err := gcs.GetObject(testCtx, backupID, metadataFilename)
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
 		})
 
-		t.Run("put backup meta on storage", func(t *testing.T) {
+		t.Run("put backup meta on backend", func(t *testing.T) {
 			desc := &backup.BackupDescriptor{
 				StartedAt:   time.Now(),
 				CompletedAt: time.Time{},
@@ -103,16 +102,16 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = s3.PutObject(testCtx, backupID, metadataFilename, b)
+			err = gcs.PutObject(testCtx, backupID, metadataFilename, b)
 			require.Nil(t, err)
 
-			dest := s3.HomeDir(backupID)
-			expected := fmt.Sprintf("s3://%s/%s", bucketName, backupID)
+			dest := gcs.HomeDir(backupID)
+			expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
 			assert.Equal(t, expected, dest)
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
-			obj, err := s3.GetObject(testCtx, backupID, metadataFilename)
+			obj, err := gcs.GetObject(testCtx, backupID, metadataFilename)
 			require.Nil(t, err)
 
 			var meta backup.BackupDescriptor
@@ -137,31 +136,31 @@ func moduleLevelCopyObjects(t *testing.T) {
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 	bucketName := "bucket"
-	region := "eu-west-1"
-	endpoint := os.Getenv(envMinioEndpoint)
+	projectID := "project-id"
+	endpoint := os.Getenv(envGCSEndpoint)
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envAwsRegion, region))
-		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
-		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
-		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGCSCredentials, ""))
+		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
+		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		createBucket(testCtx, t, endpoint, region, bucketName)
+		createBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("copy objects", func(t *testing.T) {
-		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
-		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, dataDir)
+		gcsConfig := gcs.NewConfig(bucketName, "")
+		gcs, err := gcs.New(testCtx, gcsConfig, dataDir)
 		require.Nil(t, err)
 
 		t.Run("put object to backet", func(t *testing.T) {
-			err := s3.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := gcs.PutObject(testCtx, backupID, key, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
 		t.Run("get object from backet", func(t *testing.T) {
-			meta, err := s3.GetObject(testCtx, backupID, key)
+			meta, err := gcs.GetObject(testCtx, backupID, key)
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
@@ -175,17 +174,18 @@ func moduleLevelCopyFiles(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
-	bucketName := "bucket"
-	region := "eu-west-1"
-	endpoint := os.Getenv(envMinioEndpoint)
+	bucketName := "backet"
+	projectID := "project-id"
+	endpoint := os.Getenv(envGCSEndpoint)
 
 	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envAwsRegion, region))
-		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
-		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
-		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
+		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, endpoint))
+		require.Nil(t, os.Setenv(envGCSCredentials, ""))
+		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
+		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		createBucket(testCtx, t, endpoint, region, bucketName)
+		createBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("copy files", func(t *testing.T) {
@@ -195,29 +195,28 @@ func moduleLevelCopyFiles(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, expectedContents)
 
-		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
-		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, dataDir)
+		gcsConfig := gcs.NewConfig(bucketName, "")
+		gcs, err := gcs.New(testCtx, gcsConfig, dataDir)
 		require.Nil(t, err)
 
 		t.Run("verify source data path", func(t *testing.T) {
-			assert.Equal(t, dataDir, s3.SourceDataPath())
+			assert.Equal(t, dataDir, gcs.SourceDataPath())
 		})
 
-		t.Run("copy file to storage", func(t *testing.T) {
+		t.Run("copy file to backend", func(t *testing.T) {
 			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := s3.PutFile(testCtx, backupID, key, srcPath)
+			err := gcs.PutFile(testCtx, backupID, key, srcPath)
 			require.Nil(t, err)
 
-			contents, err := s3.GetObject(testCtx, backupID, key)
+			contents, err := gcs.GetObject(testCtx, backupID, key)
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})
 
-		t.Run("fetch file from storage", func(t *testing.T) {
+		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
-			err := s3.WriteToFile(testCtx, backupID, key, destPath)
+			err := gcs.WriteToFile(testCtx, backupID, key, destPath)
 			require.Nil(t, err)
 
 			contents, err := os.ReadFile(destPath)

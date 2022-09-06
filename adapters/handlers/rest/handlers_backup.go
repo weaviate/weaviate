@@ -32,10 +32,10 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	req := ubak.BackupRequest{
-		ID:          params.Body.ID,
-		StorageType: params.StorageName,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
+		ID:      params.Body.ID,
+		Backend: params.Backend,
+		Include: params.Body.Include,
+		Exclude: params.Body.Exclude,
 	}
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {
@@ -62,7 +62,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 	// Maybe not since classes are returned when restore is call the first time
 	// Also this would result in keeping this data in memory over the app life time
 	// I suggest to remove it from both restore and backup responses
-	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.StorageName, params.ID)
+	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -86,10 +86,10 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	req := ubak.BackupRequest{
-		ID:          params.ID,
-		StorageType: params.StorageName,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
+		ID:      params.ID,
+		Backend: params.Backend,
+		Include: params.Body.Include,
+		Exclude: params.Body.Exclude,
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {
@@ -120,7 +120,7 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	// Also this would result in keeping this data in memory over the app life time
 	// I suggest to remove it from both restore and backup responses
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.StorageName, params.ID)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -139,10 +139,10 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	}
 	sstatus := string(status.Status)
 	payload := models.BackupRestoreStatusResponse{
-		Status:      &sstatus,
-		ID:          params.ID,
-		Path:        status.Path,
-		StorageName: params.StorageName,
+		Status:  &sstatus,
+		ID:      params.ID,
+		Path:    status.Path,
+		Backend: params.Backend,
 	}
 	if status.Err != nil {
 		payload.Error = status.Err.Error()
