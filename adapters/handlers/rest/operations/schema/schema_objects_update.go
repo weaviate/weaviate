@@ -42,12 +42,12 @@ func NewSchemaObjectsUpdate(ctx *middleware.Context, handler SchemaObjectsUpdate
 	return &SchemaObjectsUpdate{Context: ctx, Handler: handler}
 }
 
-/*
-SchemaObjectsUpdate swagger:route PUT /schema/{className} schema schemaObjectsUpdate
+/*SchemaObjectsUpdate swagger:route PUT /schema/{className} schema schemaObjectsUpdate
 
-# Update settings of an existing schema class
+Update settings of an existing schema class
 
 Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.
+
 */
 type SchemaObjectsUpdate struct {
 	Context *middleware.Context

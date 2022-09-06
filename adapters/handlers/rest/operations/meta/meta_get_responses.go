@@ -27,8 +27,7 @@ import (
 // MetaGetOKCode is the HTTP code returned for type MetaGetOK
 const MetaGetOKCode int = 200
 
-/*
-MetaGetOK Successful response.
+/*MetaGetOK Successful response.
 
 swagger:response metaGetOK
 */
@@ -72,8 +71,7 @@ func (o *MetaGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Produ
 // MetaGetUnauthorizedCode is the HTTP code returned for type MetaGetUnauthorized
 const MetaGetUnauthorizedCode int = 401
 
-/*
-MetaGetUnauthorized Unauthorized or invalid credentials.
+/*MetaGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response metaGetUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *MetaGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer run
 // MetaGetForbiddenCode is the HTTP code returned for type MetaGetForbidden
 const MetaGetForbiddenCode int = 403
 
-/*
-MetaGetForbidden Forbidden
+/*MetaGetForbidden Forbidden
 
 swagger:response metaGetForbidden
 */
@@ -142,8 +139,7 @@ func (o *MetaGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtim
 // MetaGetInternalServerErrorCode is the HTTP code returned for type MetaGetInternalServerError
 const MetaGetInternalServerErrorCode int = 500
 
-/*
-MetaGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*MetaGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response metaGetInternalServerError
 */

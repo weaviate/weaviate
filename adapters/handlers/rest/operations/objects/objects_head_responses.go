@@ -27,8 +27,7 @@ import (
 // ObjectsHeadNoContentCode is the HTTP code returned for type ObjectsHeadNoContent
 const ObjectsHeadNoContentCode int = 204
 
-/*
-ObjectsHeadNoContent Object exists.
+/*ObjectsHeadNoContent Object exists.
 
 swagger:response objectsHeadNoContent
 */
@@ -52,8 +51,7 @@ func (o *ObjectsHeadNoContent) WriteResponse(rw http.ResponseWriter, producer ru
 // ObjectsHeadUnauthorizedCode is the HTTP code returned for type ObjectsHeadUnauthorized
 const ObjectsHeadUnauthorizedCode int = 401
 
-/*
-ObjectsHeadUnauthorized Unauthorized or invalid credentials.
+/*ObjectsHeadUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsHeadUnauthorized
 */
@@ -77,8 +75,7 @@ func (o *ObjectsHeadUnauthorized) WriteResponse(rw http.ResponseWriter, producer
 // ObjectsHeadForbiddenCode is the HTTP code returned for type ObjectsHeadForbidden
 const ObjectsHeadForbiddenCode int = 403
 
-/*
-ObjectsHeadForbidden Forbidden
+/*ObjectsHeadForbidden Forbidden
 
 swagger:response objectsHeadForbidden
 */
@@ -122,8 +119,7 @@ func (o *ObjectsHeadForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 // ObjectsHeadNotFoundCode is the HTTP code returned for type ObjectsHeadNotFound
 const ObjectsHeadNotFoundCode int = 404
 
-/*
-ObjectsHeadNotFound Object doesn't exist.
+/*ObjectsHeadNotFound Object doesn't exist.
 
 swagger:response objectsHeadNotFound
 */
@@ -147,8 +143,7 @@ func (o *ObjectsHeadNotFound) WriteResponse(rw http.ResponseWriter, producer run
 // ObjectsHeadInternalServerErrorCode is the HTTP code returned for type ObjectsHeadInternalServerError
 const ObjectsHeadInternalServerErrorCode int = 500
 
-/*
-ObjectsHeadInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ObjectsHeadInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsHeadInternalServerError
 */

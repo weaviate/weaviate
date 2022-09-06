@@ -68,6 +68,9 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		case errors.Forbidden:
 			return backups.NewBackupsCreateStatusForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case backup.ErrUnprocessable:
+			return backups.NewBackupsCreateStatusUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrNotFound:
 			return backups.NewBackupsCreateStatusNotFound().
 				WithPayload(errPayloadFromSingleErr(err))

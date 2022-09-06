@@ -25,8 +25,7 @@ import (
 // WeaviateRootOKCode is the HTTP code returned for type WeaviateRootOK
 const WeaviateRootOKCode int = 200
 
-/*
-WeaviateRootOK Weaviate is alive and ready to serve content
+/*WeaviateRootOK Weaviate is alive and ready to serve content
 
 swagger:response weaviateRootOK
 */
