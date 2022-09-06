@@ -56,7 +56,11 @@ func (m *BackupS3Module) initBackupBackend(ctx context.Context) error {
 
 	endpoint := os.Getenv(s3Endpoint)
 	pathName := os.Getenv(s3Path)
-	useSSL := strings.ToLower(os.Getenv(s3UseSSL)) == "true"
+	// SSL on by default
+	useSSL := true
+	if strings.ToLower(os.Getenv(s3UseSSL)) == "false" {
+		useSSL = false
+	}
 	config := s3.NewConfig(endpoint, bucketName, pathName, useSSL)
 	backendProvider, err := s3.New(config, m.logger, m.dataPath)
 	if err != nil {
