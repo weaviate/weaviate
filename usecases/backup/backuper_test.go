@@ -21,11 +21,72 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
+
+func TestBackStatus(t *testing.T) {
+	t.Parallel()
+	var (
+		storageType = "s3"
+		id          = "1234"
+		ctx         = context.Background()
+		starTime    = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
+		path        = "bucket/backups/123"
+		rawstatus   = string(backup.Transferring)
+		want        = &models.BackupCreateStatusResponse{
+			ID:          id,
+			Path:        path,
+			Status:      &rawstatus,
+			StorageName: storageType,
+		}
+	)
+
+	t.Run("get active state", func(t *testing.T) {
+		m := createManager(nil, nil, nil)
+		m.backupper.lastBackup.reqStat = reqStat{
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Transferring,
+			path:      path,
+		}
+		st, err := m.BackupStatus(ctx, nil, storageType, id)
+		assert.Nil(t, err)
+		assert.Equal(t, want, st)
+	})
+
+	t.Run("get storage provider", func(t *testing.T) {
+		m := createManager(nil, nil, ErrAny)
+		_, err := m.BackupStatus(ctx, nil, storageType, id)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("metdata not found", func(t *testing.T) {
+		storage := &fakeStorage{}
+		storage.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
+		m := createManager(nil, storage, nil)
+		_, err := m.BackupStatus(ctx, nil, storageType, id)
+		assert.NotNil(t, err)
+		nerr := backup.ErrNotFound{}
+		if !errors.As(err, &nerr) {
+			t.Errorf("error want=%v got=%v", nerr, err)
+		}
+	})
+
+	t.Run("read status from metdata", func(t *testing.T) {
+		storage := &fakeStorage{}
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Transferring)})
+		storage.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		storage.On("DestinationPath", mock.Anything).Return(path)
+		m := createManager(nil, storage, nil)
+		got, err := m.BackupStatus(ctx, nil, storageType, id)
+		assert.Nil(t, err)
+		assert.Equal(t, want, got)
+	})
+}
 
 func TestBackupRequestValidation(t *testing.T) {
 	var (

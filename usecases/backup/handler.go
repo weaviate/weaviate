@@ -68,7 +68,7 @@ type Manager struct {
 	// is not a proper solution for communicating status to the user.
 	// On app crash or restart this data will be lost
 	// This should be regarded as workaround and should be fixed asap
-	RestoreStatus sync.Map
+	restoreStatusMap sync.Map
 }
 
 func NewManager(
@@ -184,7 +184,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 				status.Err = err
 				status.Status = backup.Failed
 			}
-			m.RestoreStatus.Store(basePath(req.StorageType, req.ID), status)
+			m.restoreStatusMap.Store(basePath(req.StorageType, req.ID), status)
 		}()
 		err = m.restorer.restoreAll(context.Background(), pr, meta, store)
 		if err != nil {
@@ -221,7 +221,7 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 		}, nil
 	}
 	ref := basePath(storageName, ID)
-	istatus, ok := m.RestoreStatus.Load(ref)
+	istatus, ok := m.restoreStatusMap.Load(ref)
 	if !ok {
 		return RestoreStatus{}, errors.Errorf("status not found: %s", ref)
 	}
