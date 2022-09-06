@@ -103,6 +103,12 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
+	t.Run("date aggregations with grouping",
+		testDateAggregationsWithGrouping(repo, true))
+
+	t.Run("date aggregations without grouping",
+		testDateAggregationsWithoutGrouping(repo, true))
+
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
