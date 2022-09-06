@@ -105,8 +105,8 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = gcs.PutObject(testCtx, backupID, metadataFilename, b)
 			require.Nil(t, err)
 
-			dest := gcs.DestinationPath(backupID)
-			expected := fmt.Sprintf("gs://%s/%s/snapshot.json", bucketName, backupID)
+			dest := gcs.HomeDir(backupID)
+			expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
 			assert.Equal(t, expected, dest)
 		})
 

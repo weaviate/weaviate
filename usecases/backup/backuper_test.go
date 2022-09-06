@@ -80,7 +80,7 @@ func TestBackStatus(t *testing.T) {
 		storage := &fakeStorage{}
 		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Transferring)})
 		storage.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
-		storage.On("DestinationPath", mock.Anything).Return(path)
+		storage.On("HomeDir", mock.Anything).Return(path)
 		m := createManager(nil, storage, nil)
 		got, err := m.BackupStatus(ctx, nil, storageType, id)
 		assert.Nil(t, err)
@@ -206,7 +206,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 
 		storage := &fakeStorage{}
-		storage.On("DestinationPath", mock.Anything).Return(path)
+		storage.On("HomeDir", mock.Anything).Return(path)
 
 		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, errors.New("can not be read"))
 		bm := createManager(sourcer, storage, nil)
@@ -231,7 +231,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		desc := backup.BackupDescriptor{}
 		bytes, _ := json.Marshal(desc)
 		storage := &fakeStorage{}
-		storage.On("DestinationPath", mock.Anything).Return(path)
+		storage.On("HomeDir", mock.Anything).Return(path)
 
 		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(bytes, nil)
 
@@ -262,7 +262,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("GetObject", ctx, snapshotID2, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("Initialize", ctx, mock.Anything).Return(nil)
-		storage.On("DestinationPath", mock.Anything).Return(path)
+		storage.On("HomeDir", mock.Anything).Return(path)
 		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
 		bm := createManager(sourcer, storage, nil)
@@ -309,7 +309,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 		storage := &fakeStorage{}
-		storage.On("DestinationPath", mock.Anything).Return(path)
+		storage.On("HomeDir", mock.Anything).Return(path)
 		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("Initialize", ctx, snapshotID).Return(errors.New("init meta failed"))
 		bm := createManager(sourcer, storage, nil)
@@ -337,7 +337,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetObject", ctx, snapshotID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("Initialize", ctx, snapshotID).Return(nil)
-		storage.On("DestinationPath", snapshotID).Return(path)
+		storage.On("HomeDir", snapshotID).Return(path)
 		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
 		bm := createManager(sourcer, storage, nil)
@@ -367,7 +367,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetMeta", ctx, "", snapshotID).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		storage.On("Initialize", ctx, snapshotID).Return(nil)
-		storage.On("DestinationPath", snapshotID).Return(path)
+		storage.On("HomeDir", snapshotID).Return(path)
 		storage.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		storage.On("StoreSnapshot", mock.Anything, mock.Anything).Return(nil)
 		bm := createManager(sourcer, storage, nil)
@@ -475,7 +475,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 // 		storage.On("GetMeta", ctx, className, snapshotID2).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
-// 		storage.On("DestinationPath", className, snapshotID).Return(path)
+// 		storage.On("HomeDir", className, snapshotID).Return(path)
 // 		storage.On("RestoreSnapshot", mock.Anything, className, snapshotID).Return(&backup.Snapshot{}, nil).Once()
 // 		bm := createManager(nil, storage)
 
@@ -510,7 +510,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 	t.Run("successfully starts", func(t *testing.T) {
 // 		storage := &fakeStorage{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
-// 		storage.On("DestinationPath", className, snapshotID).Return(path)
+// 		storage.On("HomeDir", className, snapshotID).Return(path)
 // 		storage.On("RestoreSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(&backup.Snapshot{}, nil).Once()
 // 		bm := createManager(nil, storage, nil)
 
@@ -529,8 +529,8 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 		storage := &fakeStorage{getMetaStatusSleep: 50 * time.Millisecond, restoreSnapshotSleep: 50 * time.Millisecond}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
 // 		storage.On("GetMeta", ctx, className2, snapshotID2).Return(&backup.Snapshot{Status: string(backup.CreateSuccess)}, nil)
-// 		storage.On("DestinationPath", className, snapshotID).Return(path)
-// 		storage.On("DestinationPath", className2, snapshotID2).Return(path)
+// 		storage.On("HomeDir", className, snapshotID).Return(path)
+// 		storage.On("HomeDir", className2, snapshotID2).Return(path)
 // 		storage.On("RestoreSnapshot", mock.Anything, mock.Anything, mock.Anything).Return(&backup.Snapshot{}, nil).Twice()
 // 		bm := createManager(nil, storage, nil, nil)
 
@@ -623,7 +623,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 // 	t.Run("successfully gets status", func(t *testing.T) {
 // 		storage := &fakeStorage{}
 // 		storage.On("GetMeta", ctx, className, snapshotID).Return(&backup.Snapshot{Status: "SOME_STATUS"}, nil)
-// 		storage.On("DestinationPath", className, snapshotID).Return(path)
+// 		storage.On("HomeDir", className, snapshotID).Return(path)
 // 		bm := createManager(storage, nil)
 
 // 		meta, err := bm.CreateBackupStatus(ctx, nil, className, storageName, snapshotID)
@@ -640,14 +640,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 //func TestBackupManager_DestinationPath(t *testing.T) {
 //	storageError := errors.New("I do not exist")
 //	sm := createManager(nil, storageError)
-//	path, err := sm.backups.DestinationPath("storageName", "className", "ID")
+//	path, err := sm.backups.HomeDir("storageName", "className", "ID")
 //	require.NotNil(t, err)
 //	assert.Equal(t, "", path)
 //
 //	storage := &fakeStorage{}
-//	storage.On("DestinationPath", "className", "ID").Return(path)
+//	storage.On("HomeDir", "className", "ID").Return(path)
 //	sm = createManager(storage, nil)
-//	path2, err := sm.backups.DestinationPath("storageName", "className", "ID")
+//	path2, err := sm.backups.HomeDir("storageName", "className", "ID")
 //	require.Nil(t, err)
 //	assert.Equal(t, path, path2)
 //}

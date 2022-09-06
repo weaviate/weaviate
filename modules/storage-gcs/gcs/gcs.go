@@ -86,9 +86,9 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	return content, nil
 }
 
-func (g *gcs) DestinationPath(snapshotID string) string {
+func (g *gcs) HomeDir(snapshotID string) string {
 	return "gs://" + path.Join(g.config.BucketName(),
-		g.makeObjectName(snapshotID, "snapshot.json"))
+		g.makeObjectName(snapshotID))
 }
 
 func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {

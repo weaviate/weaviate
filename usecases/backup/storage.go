@@ -33,7 +33,7 @@ const (
 )
 
 const (
-	MetaDataFilename = "snapshot.json"
+	MetaDataFilename = "backup.json"
 	TempDirectory    = ".backup.tmp"
 )
 
