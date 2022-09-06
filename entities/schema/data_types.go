@@ -142,7 +142,21 @@ func (p *propertyDataType) ContainsClass(needle ClassName) bool {
 }
 
 // Based on the schema, return a valid description of the defined datatype
+//
+// Note that this function will error if referenced classes do not exist. If
+// you don't want such validation, use [Schema.FindPropertyDataTypeRelaxedRefs]
+// instead and set relax to true
 func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, error) {
+	return s.FindPropertyDataTypeWithRefs(dataType, false)
+}
+
+// Based on the schema, return a valid description of the defined datatype
+// If relaxCrossRefValidation is set, there is no check if the referenced class
+// exists in the schema. This can be helpful in scenarios, such as restoring
+// from a backup where we have no guarantee over the order of class creation.
+func (s *Schema) FindPropertyDataTypeWithRefs(
+	dataType []string, relaxCrossRefValidation bool,
+) (PropertyDataType, error) {
 	if len(dataType) < 1 {
 		return nil, errors.New("dataType must have at least one element")
 	} else if len(dataType) == 1 {
@@ -183,8 +197,10 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 				return nil, err
 			}
 
-			if s.FindClassByName(className) == nil {
-				return nil, fmt.Errorf("SingleRef class name '%s' does not exist", className)
+			if !relaxCrossRefValidation {
+				if s.FindClassByName(className) == nil {
+					return nil, fmt.Errorf("SingleRef class name '%s' does not exist", className)
+				}
 			}
 
 			classes = append(classes, className)
