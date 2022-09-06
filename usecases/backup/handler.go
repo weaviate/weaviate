@@ -229,7 +229,8 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 	ref := basePath(storageName, ID)
 	istatus, ok := m.restoreStatusMap.Load(ref)
 	if !ok {
-		return RestoreStatus{}, errors.Errorf("status not found: %s", ref)
+		err := errors.Errorf("status not found: %s", ref)
+		return RestoreStatus{}, backup.NewErrNotFound(err)
 	}
 	return istatus.(RestoreStatus), nil
 }
