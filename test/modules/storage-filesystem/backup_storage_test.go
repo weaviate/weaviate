@@ -1,0 +1,199 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
+package test
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
+	modstgfs "github.com/semi-technologies/weaviate/modules/storage-filesystem"
+	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func Test_FilesystemStorage_Backup(t *testing.T) {
+	t.Run("store backup meta", moduleLevelStoreBackupMeta)
+	t.Run("copy objects", moduleLevelCopyObjects)
+	t.Run("copy files", moduleLevelCopyFiles)
+}
+
+func moduleLevelStoreBackupMeta(t *testing.T) {
+	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dataDir := t.TempDir()
+	backupDir := t.TempDir()
+	className := "BackupClass"
+	backupID := "backup_id"
+	metadataFilename := "backup.json"
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv("STORAGE_FS_SNAPSHOTS_PATH", backupDir))
+	})
+
+	t.Run("store backup meta in fs", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		sp := fakeStorageProvider{dataDir}
+		params := moduletools.NewInitParams(sp, nil, logger)
+
+		fs := modstgfs.New()
+		err := fs.Init(testCtx, params)
+		require.Nil(t, err)
+
+		t.Run("access permissions", func(t *testing.T) {
+			err := fs.Initialize(testCtx, backupID)
+			assert.Nil(t, err)
+		})
+
+		t.Run("backup meta does not exist yet", func(t *testing.T) {
+			meta, err := fs.GetObject(testCtx, backupID, metadataFilename)
+			assert.Nil(t, meta)
+			assert.NotNil(t, err)
+			assert.IsType(t, backup.ErrNotFound{}, err)
+		})
+
+		t.Run("put backup meta on storage", func(t *testing.T) {
+			desc := &backup.BackupDescriptor{
+				StartedAt:   time.Now(),
+				CompletedAt: time.Time{},
+				ID:          backupID,
+				Classes: []backup.ClassDescriptor{
+					{
+						Name: className,
+					},
+				},
+				Status: string(backup.Started),
+			}
+
+			b, err := json.Marshal(desc)
+			require.Nil(t, err)
+
+			err = fs.PutObject(testCtx, backupID, metadataFilename, b)
+			require.Nil(t, err)
+
+			dest := fs.DestinationPath(backupID)
+			expected := fmt.Sprintf("%s/%s/snapshot.json", backupDir, backupID)
+			assert.Equal(t, expected, dest)
+		})
+	})
+}
+
+func moduleLevelCopyObjects(t *testing.T) {
+	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dataDir := t.TempDir()
+	backupDir := t.TempDir()
+	key := "moduleLevelCopyObjects"
+	backupID := "backup_id"
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv("STORAGE_FS_SNAPSHOTS_PATH", backupDir))
+	})
+
+	t.Run("copy objects", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		sp := fakeStorageProvider{dataDir}
+		params := moduletools.NewInitParams(sp, nil, logger)
+
+		fs := modstgfs.New()
+		err := fs.Init(testCtx, params)
+		require.Nil(t, err)
+
+		t.Run("put object to backet", func(t *testing.T) {
+			err := fs.PutObject(testCtx, backupID, key, []byte("hello"))
+			assert.Nil(t, err)
+		})
+
+		t.Run("get object from backet", func(t *testing.T) {
+			meta, err := fs.GetObject(testCtx, backupID, key)
+			assert.Nil(t, err)
+			assert.Equal(t, []byte("hello"), meta)
+		})
+	})
+}
+
+func moduleLevelCopyFiles(t *testing.T) {
+	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dataDir := t.TempDir()
+	backupDir := t.TempDir()
+	key := "moduleLevelCopyFiles"
+	backupID := "backup_id"
+
+	t.Run("setup env", func(t *testing.T) {
+		require.Nil(t, os.Setenv("STORAGE_FS_SNAPSHOTS_PATH", backupDir))
+	})
+
+	t.Run("copy files", func(t *testing.T) {
+		fpaths := moduleshelper.CreateTestFiles(t, dataDir)
+		fpath := fpaths[0]
+		expectedContents, err := os.ReadFile(fpath)
+		require.Nil(t, err)
+		require.NotNil(t, expectedContents)
+
+		logger, _ := test.NewNullLogger()
+		sp := fakeStorageProvider{dataDir}
+		params := moduletools.NewInitParams(sp, nil, logger)
+
+		fs := modstgfs.New()
+		err = fs.Init(testCtx, params)
+		require.Nil(t, err)
+
+		t.Run("verify source data path", func(t *testing.T) {
+			assert.Equal(t, dataDir, fs.SourceDataPath())
+		})
+
+		t.Run("copy file to storage", func(t *testing.T) {
+			srcPath, _ := filepath.Rel(dataDir, fpath)
+			err := fs.PutFile(testCtx, backupID, key, srcPath)
+			require.Nil(t, err)
+
+			contents, err := fs.GetObject(testCtx, backupID, key)
+			require.Nil(t, err)
+			assert.Equal(t, expectedContents, contents)
+		})
+
+		t.Run("fetch file from storage", func(t *testing.T) {
+			destPath := dataDir + "/file_0.copy.db"
+
+			err := fs.WriteToFile(testCtx, backupID, key, destPath)
+			require.Nil(t, err)
+
+			contents, err := os.ReadFile(destPath)
+			require.Nil(t, err)
+			assert.Equal(t, expectedContents, contents)
+		})
+	})
+}
+
+type fakeStorageProvider struct {
+	dataPath string
+}
+
+func (sp fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
+	return nil, nil
+}
+
+func (sp fakeStorageProvider) DataPath() string {
+	return sp.dataPath
+}
