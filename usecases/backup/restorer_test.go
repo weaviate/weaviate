@@ -6,10 +6,57 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/stretchr/testify/mock"
 )
+
+// ErrAny represent a random error
+var ErrAny = errors.New("any error")
+
+func TestRestoreStatus(t *testing.T) {
+	var (
+		storageType = "s3"
+		id          = "1234"
+		m           = createManager(nil, nil, nil)
+		ctx         = context.Background()
+		starTime    = time.Now().UTC()
+		path        = "bucket/backups/123"
+	)
+	// initial state
+	_, err := m.RestorationStatus(ctx, nil, storageType, id)
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("must return an error if backup doesn't exist")
+	}
+	// active state
+	m.restorer.lastStatus.reqStat = reqStat{
+		Starttime: starTime,
+		ID:        id,
+		Status:    backup.Transferring,
+		path:      path,
+	}
+	st, err := m.RestorationStatus(ctx, nil, storageType, id)
+	if err != nil {
+		t.Errorf("get active status: %v", err)
+	}
+	expected := RestoreStatus{Path: path, StartedAt: starTime, Status: backup.Transferring}
+	if expected != st {
+		t.Errorf("get active status: got=%v want=%v", st, expected)
+	}
+	// cached status
+	m.restorer.lastStatus.reset()
+	st.CompletedAt = starTime
+	m.restoreStatusMap.Store("s3/"+id, st)
+	st, err = m.RestorationStatus(ctx, nil, storageType, id)
+	if err != nil {
+		t.Errorf("fetch status from map: %v", err)
+	}
+	expected.CompletedAt = starTime
+	if expected != st {
+		t.Errorf("fetch status from map got=%v want=%v", st, expected)
+	}
+}
 
 func TestRestoreRequestValidation(t *testing.T) {
 	var (
@@ -18,7 +65,6 @@ func TestRestoreRequestValidation(t *testing.T) {
 		id          = "1234"
 		m           = createManager(nil, nil, nil)
 		ctx         = context.Background()
-		anyErr      = errors.New("any error")
 		path        = "bucket/backups"
 		req         = &BackupRequest{
 			StorageType: storageType,
@@ -39,7 +85,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	}
 	{ //  storage provider fails
 		storage := &fakeStorage{}
-		m2 := createManager(nil, storage, anyErr)
+		m2 := createManager(nil, storage, ErrAny)
 		_, err = m2.Restore(ctx, nil, &BackupRequest{
 			StorageType: storageType,
 			ID:          id,
@@ -52,7 +98,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	}
 	{ //  fail to get meta data
 		storage := &fakeStorage{}
-		storage.On("GetObject", ctx, id, MetaDataFilename).Return(nil, anyErr)
+		storage.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
 		storage.On("DestinationPath", mock.Anything).Return(path)
 		m2 := createManager(nil, storage, nil)
 		_, err = m2.Restore(ctx, nil, req)
