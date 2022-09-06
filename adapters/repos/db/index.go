@@ -55,8 +55,8 @@ type Index struct {
 	remote                *sharding.RemoteIndex
 	stopwords             *stopwords.Detector
 
-	snapshotState     BackupState
-	snapshotStateLock sync.RWMutex
+	backupState     BackupState
+	backupStateLock sync.RWMutex
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -218,8 +218,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
 	}
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(object.ID())
 	if err != nil {
 		return err
@@ -245,8 +245,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object,
 ) error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shardName]
 	if !ok {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -357,8 +357,8 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 func (i *Index) putObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	type objsAndPos struct {
 		objects []*storobj.Object
 		pos     []int
@@ -422,8 +422,8 @@ func duplicateErr(in error, count int) []error {
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	objects []*storobj.Object,
 ) []error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shardName]
 	if !ok {
 		return duplicateErr(errors.Errorf("shard %q does not exist locally",
@@ -451,8 +451,8 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 func (i *Index) addReferencesBatch(ctx context.Context,
 	refs objects.BatchReferences,
 ) []error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	type refsAndPos struct {
 		refs objects.BatchReferences
 		pos  []int
@@ -498,8 +498,8 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences,
 ) []error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shardName]
 	if !ok {
 		return duplicateErr(errors.Errorf("shard %q does not exist locally",
@@ -868,8 +868,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return err
@@ -895,8 +895,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -911,8 +911,8 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(merge.ID)
 	if err != nil {
 		return err
@@ -938,8 +938,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument,
 ) error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return errors.Errorf("shard %q does not exist locally", shardName)
@@ -1002,8 +1002,8 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	for _, name := range i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards() {
 		shard, ok := i.Shards[name]
@@ -1022,8 +1022,8 @@ func (i *Index) drop() error {
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	for id, shard := range i.Shards {
 		if err := shard.shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown shard %q", id)
@@ -1158,8 +1158,8 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 func (i *Index) batchDeleteObjects(ctx context.Context,
 	shardDocIDs map[string][]uint64, dryRun bool,
 ) (objects.BatchSimpleObjects, error) {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
 
@@ -1203,8 +1203,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	docIDs []uint64, dryRun bool,
 ) objects.BatchSimpleObjects {
-	i.snapshotStateLock.RLock()
-	defer i.snapshotStateLock.RUnlock()
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
 	shard, ok := i.Shards[shardName]
 	if !ok {
 		return objects.BatchSimpleObjects{

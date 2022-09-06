@@ -38,7 +38,7 @@ const (
 )
 
 type objectStore struct {
-	modulecapabilities.SnapshotStorage
+	modulecapabilities.BackupStorage
 }
 
 func (s *objectStore) Meta(ctx context.Context, backupID string) (*backup.BackupDescriptor, error) {

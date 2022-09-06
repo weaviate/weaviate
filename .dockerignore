@@ -4,12 +4,19 @@ Dockerfile
 docker-compose.yml
 data/
 data-node2/
-snapshots/
-snapshots-node2/
 data_wiki/
 logs/
 test/acceptance/
-snapshots-s3/
+/snapshots/
+/snapshots-fs/
+/snapshots-node2/
+/snapshots-s3/
+/snapshots-gcs/
+/backups/
+/backups-fs/
+/backups-node2/
+/backups-s3/
+/backups-gcs/
 *.fvecs  # sift data
 *.png  # profiling
 *.out

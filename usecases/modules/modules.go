@@ -704,10 +704,10 @@ func (m *Provider) HasMultipleVectorizers() bool {
 	return m.hasMultipleVectorizers
 }
 
-func (m *Provider) BackupStorage(storageName string) (modulecapabilities.SnapshotStorage, error) {
+func (m *Provider) BackupStorage(storageName string) (modulecapabilities.BackupStorage, error) {
 	if module := m.GetByName(storageName); module != nil {
-		if module.Type() == modulecapabilities.Storage {
-			if storage, ok := module.(modulecapabilities.SnapshotStorage); ok {
+		if module.Type() == modulecapabilities.Backup {
+			if storage, ok := module.(modulecapabilities.BackupStorage); ok {
 				return storage, nil
 			}
 		}

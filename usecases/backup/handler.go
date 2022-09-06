@@ -35,7 +35,7 @@ const Version = "1.0"
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
 
 type BackupStorageProvider interface {
-	BackupStorage(storageName string) (modulecapabilities.SnapshotStorage, error)
+	BackupStorage(storageName string) (modulecapabilities.BackupStorage, error)
 }
 
 type authorizer interface {

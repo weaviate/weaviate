@@ -652,7 +652,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 //	assert.Equal(t, path, path2)
 //}
 
-func createManager(sourcer Sourcer, storage modulecapabilities.SnapshotStorage, storageErr error) *Manager {
+func createManager(sourcer Sourcer, storage modulecapabilities.BackupStorage, storageErr error) *Manager {
 	storages := &fakeBackupStorageProvider{storage, storageErr}
 	if sourcer == nil {
 		sourcer = &fakeSourcer{}

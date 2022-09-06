@@ -28,7 +28,7 @@ const (
 	envGCSStorageEmulatorHost = "STORAGE_EMULATOR_HOST"
 	envGCSCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
 	envGCSProjectID           = "GOOGLE_CLOUD_PROJECT"
-	envGCSBucket              = "STORAGE_GCS_BUCKET"
+	envGCSBucket              = "BACKUP_GCS_BUCKET"
 
 	gcsBackupJourneyClassName  = "GcsBackup"
 	gcsBackupJourneySnapshotID = "gcs-snapshot"
@@ -67,7 +67,7 @@ func Test_BackupJourney(t *testing.T) {
 	})
 
 	// journey tests
-	t.Run("storage-gcs", func(t *testing.T) {
+	t.Run("backup-gcs", func(t *testing.T) {
 		journey.BackupJourneyTests(t, compose.GetWeaviate().URI(),
 			"gcs", gcsBackupJourneyClassName, gcsBackupJourneySnapshotID)
 	})

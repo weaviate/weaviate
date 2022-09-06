@@ -15,7 +15,7 @@ import (
 	"context"
 )
 
-type SnapshotStorage interface {
+type BackupStorage interface {
 	DestinationPath(snapshotID string) string // TODO: might be change it to something like DestDir because meta.json is now specified by the user
 
 	// GetObject giving snapshotID and key

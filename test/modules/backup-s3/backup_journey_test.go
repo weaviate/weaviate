@@ -29,7 +29,7 @@ const (
 	envAwsRegion     = "AWS_REGION"
 	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
 	envS3SecretKey   = "AWS_SECRET_KEY"
-	envS3Bucket      = "STORAGE_S3_BUCKET"
+	envS3Bucket      = "BACKUP_S3_BUCKET"
 
 	s3BackupJourneyClassName  = "S3Backup"
 	s3BackupJourneySnapshotID = "s3-snapshot"
@@ -50,7 +50,7 @@ func Test_BackupJourney(t *testing.T) {
 	})
 
 	compose, err := docker.New().
-		WithStorageAWSS3(s3BackupJourneyBucketName).
+		WithStorageS3(s3BackupJourneyBucketName).
 		WithText2VecContextionary().
 		WithWeaviate().
 		Start(ctx)
@@ -67,7 +67,7 @@ func Test_BackupJourney(t *testing.T) {
 	})
 
 	// journey tests
-	t.Run("storage-aws-s3", func(t *testing.T) {
+	t.Run("backup-s3", func(t *testing.T) {
 		journey.BackupJourneyTests(t, os.Getenv(weaviateEndpoint),
 			"s3", s3BackupJourneyClassName, s3BackupJourneySnapshotID)
 	})

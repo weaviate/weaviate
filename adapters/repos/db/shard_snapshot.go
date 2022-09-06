@@ -33,16 +33,16 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 		}
 	}()
 	if err = s.store.PauseCompaction(ctx); err != nil {
-		return errors.Wrap(err, "create snapshot")
+		return errors.Wrap(err, "pause compaction")
 	}
 	if err = s.store.FlushMemtables(ctx); err != nil {
-		return errors.Wrap(err, "create snapshot")
+		return errors.Wrap(err, "flush memtables")
 	}
 	if err = s.vectorIndex.PauseMaintenance(ctx); err != nil {
-		return errors.Wrap(err, "create snapshot")
+		return errors.Wrap(err, "pause maintenance")
 	}
 	if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-		return errors.Wrap(err, "create snapshot")
+		return errors.Wrap(err, "switch commit logs")
 	}
 	return nil
 }

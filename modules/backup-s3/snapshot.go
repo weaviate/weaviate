@@ -17,38 +17,38 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
+	"github.com/semi-technologies/weaviate/modules/backup-s3/s3"
 )
 
-func (m *StorageS3Module) DestinationPath(snapshotID string) string {
+func (m *BackupS3Module) DestinationPath(snapshotID string) string {
 	return m.storageProvider.DestinationPath(snapshotID)
 }
 
-func (m *StorageS3Module) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+func (m *BackupS3Module) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
 	return m.storageProvider.GetObject(ctx, snapshotID, key)
 }
 
-func (m *StorageS3Module) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (m *BackupS3Module) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
 	return m.storageProvider.PutFile(ctx, snapshotID, key, srcPath)
 }
 
-func (m *StorageS3Module) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+func (m *BackupS3Module) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
 	return m.storageProvider.PutObject(ctx, snapshotID, key, byes)
 }
 
-func (m *StorageS3Module) Initialize(ctx context.Context, snapshotID string) error {
+func (m *BackupS3Module) Initialize(ctx context.Context, snapshotID string) error {
 	return m.storageProvider.Initialize(ctx, snapshotID)
 }
 
-func (m *StorageS3Module) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+func (m *BackupS3Module) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
 	return m.storageProvider.WriteToFile(ctx, snapshotID, key, destPath)
 }
 
-func (m *StorageS3Module) SourceDataPath() string {
+func (m *BackupS3Module) SourceDataPath() string {
 	return m.storageProvider.SourceDataPath()
 }
 
-func (m *StorageS3Module) initSnapshotStorage(ctx context.Context) error {
+func (m *BackupS3Module) initSnapshotStorage(ctx context.Context) error {
 	bucketName := os.Getenv(s3Bucket)
 	if bucketName == "" {
 		return errors.Errorf("snapshot init: '%s' must be set", s3Bucket)
