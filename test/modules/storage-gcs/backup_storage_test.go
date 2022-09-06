@@ -33,7 +33,7 @@ func Test_GCSStorage_Backup(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithGCS().Start(ctx)
 	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
+		t.Fatal(errors.Wrapf(err, "cannot start"))
 	}
 
 	require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
@@ -43,7 +43,7 @@ func Test_GCSStorage_Backup(t *testing.T) {
 	t.Run("copy files", moduleLevelCopyFiles)
 
 	if err := compose.Terminate(ctx); err != nil {
-		t.Fatalf("failed to terminte test containers: %s", err.Error())
+		t.Fatal(errors.Wrapf(err, "failed to terminte test containers"))
 	}
 }
 

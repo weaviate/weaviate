@@ -34,7 +34,7 @@ func Test_S3Storage_Backup(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithMinIO().Start(ctx)
 	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
+		t.Fatal(errors.Wrapf(err, "cannot start"))
 	}
 
 	require.Nil(t, os.Setenv(envMinioEndpoint, compose.GetMinIO().URI()))
@@ -44,7 +44,7 @@ func Test_S3Storage_Backup(t *testing.T) {
 	t.Run("copy files", moduleLevelCopyFiles)
 
 	if err := compose.Terminate(ctx); err != nil {
-		t.Fatalf("failed to terminte test containers: %s", err.Error())
+		t.Fatal(errors.Wrapf(err, "failed to terminte test containers"))
 	}
 }
 
