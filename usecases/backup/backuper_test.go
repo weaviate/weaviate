@@ -31,17 +31,17 @@ import (
 func TestBackStatus(t *testing.T) {
 	t.Parallel()
 	var (
-		storageType = "s3"
-		id          = "1234"
-		ctx         = context.Background()
-		starTime    = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
-		path        = "bucket/backups/123"
-		rawstatus   = string(backup.Transferring)
-		want        = &models.BackupCreateStatusResponse{
-			ID:          id,
-			Path:        path,
-			Status:      &rawstatus,
-			StorageName: storageType,
+		backend   = "s3"
+		id        = "1234"
+		ctx       = context.Background()
+		starTime  = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
+		path      = "bucket/backups/123"
+		rawstatus = string(backup.Transferring)
+		want      = &models.BackupCreateStatusResponse{
+			ID:      id,
+			Path:    path,
+			Status:  &rawstatus,
+			Backend: backend,
 		}
 	)
 
@@ -53,14 +53,14 @@ func TestBackStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			path:      path,
 		}
-		st, err := m.BackupStatus(ctx, nil, storageType, id)
+		st, err := m.BackupStatus(ctx, nil, backend, id)
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
 	})
 
 	t.Run("get storage provider", func(t *testing.T) {
 		m := createManager(nil, nil, ErrAny)
-		_, err := m.BackupStatus(ctx, nil, storageType, id)
+		_, err := m.BackupStatus(ctx, nil, backend, id)
 		assert.NotNil(t, err)
 	})
 
@@ -68,7 +68,7 @@ func TestBackStatus(t *testing.T) {
 		storage := &fakeStorage{}
 		storage.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
 		m := createManager(nil, storage, nil)
-		_, err := m.BackupStatus(ctx, nil, storageType, id)
+		_, err := m.BackupStatus(ctx, nil, backend, id)
 		assert.NotNil(t, err)
 		nerr := backup.ErrNotFound{}
 		if !errors.As(err, &nerr) {
@@ -82,7 +82,7 @@ func TestBackStatus(t *testing.T) {
 		storage.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
 		storage.On("HomeDir", mock.Anything).Return(path)
 		m := createManager(nil, storage, nil)
-		got, err := m.BackupStatus(ctx, nil, storageType, id)
+		got, err := m.BackupStatus(ctx, nil, backend, id)
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
@@ -90,24 +90,24 @@ func TestBackStatus(t *testing.T) {
 
 func TestBackupRequestValidation(t *testing.T) {
 	var (
-		cls         = "MyClass"
-		storageType = "s3"
-		m           = createManager(nil, nil, nil)
-		ctx         = context.Background()
+		cls     = "MyClass"
+		backend = "s3"
+		m       = createManager(nil, nil, nil)
+		ctx     = context.Background()
 	)
 	_, err := m.Backup(ctx, nil, &BackupRequest{
-		StorageType: storageType,
-		ID:          "A*:",
-		Include:     []string{cls},
+		Backend: backend,
+		ID:      "A*:",
+		Include: []string{cls},
 	})
 	if err == nil {
 		t.Errorf("must return an error for an invalid id")
 	}
 	_, err = m.Backup(ctx, nil, &BackupRequest{
-		StorageType: storageType,
-		ID:          "1234",
-		Include:     []string{cls},
-		Exclude:     []string{cls},
+		Backend: backend,
+		ID:      "1234",
+		Include: []string{cls},
+		Exclude: []string{cls},
 	})
 	if err == nil {
 		t.Errorf("must return an error for non empty include and exclude")
@@ -118,10 +118,10 @@ func TestBackupRequestValidation(t *testing.T) {
 
 	m2 := createManager(sourcer, nil, nil)
 	_, err = m2.Backup(ctx, nil, &BackupRequest{
-		StorageType: storageType,
-		ID:          "1234",
-		Include:     []string{},
-		Exclude:     []string{cls},
+		Backend: backend,
+		ID:      "1234",
+		Include: []string{},
+		Exclude: []string{cls},
 	})
 	if err == nil {
 		t.Errorf("must return an error if the resulting list of classes is empty")
@@ -131,7 +131,7 @@ func TestBackupRequestValidation(t *testing.T) {
 func TestBackupManager_CreateBackup(t *testing.T) {
 	className := "DemoClass"
 	className2 := "DemoClass2"
-	storageName := "DemoStorage"
+	backend := "DemoBackend"
 	snapshotID := "snapshot-id"
 	snapshotID2 := "snapshot-id2"
 	ctx := context.Background()
@@ -146,9 +146,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, nil, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backend,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -167,9 +167,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, nil, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backend,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -188,14 +188,14 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, nil, storageError)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backend,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), storageName)
+		assert.Contains(t, err.Error(), backend)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
@@ -212,9 +212,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, storage, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backend,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -238,9 +238,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, storage, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backend,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -272,9 +272,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		go func() {
 			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				StorageType: storageName,
-				ID:          snapshotID,
-				Include:     classes,
+				Backend: backend,
+				ID:      snapshotID,
+				Include: classes,
 			})
 			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
@@ -287,9 +287,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		go func() {
 			time.Sleep(25 * time.Microsecond)
 			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				StorageType: storageName,
-				ID:          snapshotID2,
-				Include:     classes,
+				Backend: backend,
+				ID:      snapshotID2,
+				Include: classes,
 			})
 			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 
@@ -315,9 +315,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, storage, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backend,
+			ID:      snapshotID,
+			Include: classes,
 		})
 
 		assert.Nil(t, meta)
@@ -343,9 +343,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		bm := createManager(sourcer, storage, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			StorageType: storageName,
-			ID:          snapshotID,
-			Include:     classes,
+			Backend: backend,
+			ID:      snapshotID,
+			Include: classes,
 		})
 		time.Sleep(10 * time.Millisecond) // enough time to async create finish
 
@@ -377,9 +377,9 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 
 		go func() {
 			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				StorageType: storageName,
-				ID:          snapshotID,
-				Include:     classes,
+				Backend: backend,
+				ID:      snapshotID,
+				Include: classes,
 			})
 			time.Sleep(75 * time.Millisecond) // enough time to async create finish
 

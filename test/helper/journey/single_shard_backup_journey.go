@@ -91,7 +91,7 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 				break
 			}
 
-			resp, err := helper.RestoreBackupStatus(t, className, storage, snapshotID)
+			resp, err := helper.RestoreBackupStatus(t, storage, snapshotID)
 			helper.AssertRequestOk(t, resp, err, func() {
 				require.NotNil(t, resp)
 				require.NotNil(t, resp.Payload)
@@ -105,7 +105,7 @@ func singleShardBackupJourney(t *testing.T, className, storage, snapshotID strin
 			time.Sleep(time.Second)
 		}
 
-		statusResp, err := helper.RestoreBackupStatus(t, className, storage, snapshotID)
+		statusResp, err := helper.RestoreBackupStatus(t, storage, snapshotID)
 		helper.AssertRequestOk(t, statusResp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)

@@ -28,7 +28,7 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Authorization(t *testing.T) {
-	req := &BackupRequest{ID: "123", StorageType: "s3"}
+	req := &BackupRequest{ID: "123", Backend: "s3"}
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}

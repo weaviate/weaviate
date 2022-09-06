@@ -95,10 +95,10 @@ func NewManager(
 }
 
 type BackupRequest struct {
-	// StorageType specify on which storage to store backups (gcs, s3, ..)
-	StorageType string
 	// ID is the backup ID
 	ID string
+	// Backend specify on which backend to store backups (gcs, s3, ..)
+	Backend string
 
 	// Include is list of class which need to be backed up
 	// The same class cannot appear in both Include and Exclude in the same request
@@ -110,13 +110,13 @@ type BackupRequest struct {
 
 func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (*models.BackupCreateResponse, error) {
-	path := fmt.Sprintf("backups/%s/%s", req.StorageType, req.ID)
+	path := fmt.Sprintf("backups/%s/%s", req.Backend, req.ID)
 	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
-	store, err := m.objectStore(req.StorageType)
+	store, err := m.objectStore(req.Backend)
 	if err != nil {
-		err = fmt.Errorf("no backup provider %q, did you enable the right module?", req.StorageType)
+		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
@@ -133,11 +133,11 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	} else {
 		status := string(meta.Status)
 		return &models.BackupCreateResponse{
-			Classes:     classes,
-			ID:          req.ID,
-			StorageName: req.StorageType,
-			Status:      &status,
-			Path:        meta.Path,
+			Classes: classes,
+			ID:      req.ID,
+			Backend: req.Backend,
+			Status:  &status,
+			Path:    meta.Path,
 		}, nil
 	}
 }
@@ -147,13 +147,13 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (*models.BackupRestoreResponse, error) {
-	path := fmt.Sprintf("backups/%s/%s/restore", req.StorageType, req.ID)
+	path := fmt.Sprintf("backups/%s/%s/restore", req.Backend, req.ID)
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
-	store, err := m.objectStore(req.StorageType)
+	store, err := m.objectStore(req.Backend)
 	if err != nil {
-		err = fmt.Errorf("no backup provider %q, did you enable the right module?", req.StorageType)
+		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 	meta, err := m.validateRestoreRequst(ctx, store, req)
@@ -168,11 +168,11 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	status := string(backup.Started)
 	destPath := store.HomeDir(req.ID)
 	returnData := &models.BackupRestoreResponse{
-		Classes:     cs,
-		ID:          req.ID,
-		StorageName: req.StorageType,
-		Status:      &status,
-		Path:        destPath,
+		Classes: cs,
+		ID:      req.ID,
+		Backend: req.Backend,
+		Status:  &status,
+		Path:    destPath,
 	}
 	go func() {
 		var err error
@@ -190,7 +190,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 				status.Err = err
 				status.Status = backup.Failed
 			}
-			m.restoreStatusMap.Store(basePath(req.StorageType, req.ID), status)
+			m.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
 		}()
 		err = m.restorer.restoreAll(context.Background(), pr, meta, store)
 		if err != nil {

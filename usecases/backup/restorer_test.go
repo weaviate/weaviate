@@ -71,25 +71,25 @@ func TestRestoreStatus(t *testing.T) {
 
 func TestRestoreRequestValidation(t *testing.T) {
 	var (
-		cls         = "MyClass"
-		storageType = "s3"
-		id          = "1234"
-		m           = createManager(nil, nil, nil)
-		ctx         = context.Background()
-		path        = "bucket/backups"
-		req         = &BackupRequest{
-			StorageType: storageType,
-			ID:          id,
-			Include:     []string{cls},
-			Exclude:     []string{},
+		cls     = "MyClass"
+		backend = "s3"
+		id      = "1234"
+		m       = createManager(nil, nil, nil)
+		ctx     = context.Background()
+		path    = "bucket/backups"
+		req     = &BackupRequest{
+			Backend: backend,
+			ID:      id,
+			Include: []string{cls},
+			Exclude: []string{},
 		}
 	)
 
 	_, err := m.Restore(ctx, nil, &BackupRequest{
-		StorageType: storageType,
-		ID:          id,
-		Include:     []string{cls},
-		Exclude:     []string{cls},
+		Backend: backend,
+		ID:      id,
+		Include: []string{cls},
+		Exclude: []string{cls},
 	})
 	if err == nil {
 		t.Errorf("must return an error for non empty include and exclude")
@@ -98,12 +98,12 @@ func TestRestoreRequestValidation(t *testing.T) {
 		storage := &fakeStorage{}
 		m2 := createManager(nil, storage, ErrAny)
 		_, err = m2.Restore(ctx, nil, &BackupRequest{
-			StorageType: storageType,
-			ID:          id,
-			Include:     []string{cls},
-			Exclude:     []string{},
+			Backend: backend,
+			ID:      id,
+			Include: []string{cls},
+			Exclude: []string{},
 		})
-		if err == nil || !strings.Contains(err.Error(), storageType) {
+		if err == nil || !strings.Contains(err.Error(), backend) {
 			t.Errorf("must return an error if it fails to get storage provider: %v", err)
 		}
 	}

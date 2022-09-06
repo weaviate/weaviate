@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string) {
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -53,7 +53,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 
 	t.Run("start backup process", func(t *testing.T) {
 		params := backups.NewBackupsCreateParams().
-			WithStorageName(storage).
+			WithBackend(backend).
 			WithBody(&models.BackupCreateRequest{
 				ID:      snapshotID,
 				Include: []string{booksClass.Class},
@@ -69,7 +69,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 
 	t.Run("verify that backup process is completed", func(t *testing.T) {
 		params := backups.NewBackupsCreateStatusParams().
-			WithStorageName(storage).
+			WithBackend(backend).
 			WithID(snapshotID)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
@@ -108,7 +108,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 
 	t.Run("start restore process", func(t *testing.T) {
 		params := backups.NewBackupsRestoreParams().
-			WithStorageName(storage).
+			WithBackend(backend).
 			WithID(snapshotID).
 			WithBody(&models.BackupRestoreRequest{
 				Include: []string{booksClass.Class},
@@ -123,7 +123,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 
 	t.Run("verify that restore process is completed", func(t *testing.T) {
 		params := backups.NewBackupsRestoreStatusParams().
-			WithStorageName(storage).
+			WithBackend(backend).
 			WithID(snapshotID)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsRestoreStatus(params, nil)
