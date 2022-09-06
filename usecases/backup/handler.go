@@ -125,7 +125,7 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	if len(classes) == 0 {
 		classes = m.backupper.sourcer.ListBackupable()
 	}
-	if classes = filter_classes(classes, req.Exclude); len(classes) == 0 {
+	if classes = filterClasses(classes, req.Exclude); len(classes) == 0 {
 		backup.NewErrUnprocessable(fmt.Errorf("empty class list"))
 	}
 
@@ -304,9 +304,7 @@ func basePath(storageType, backupID string) string {
 	return fmt.Sprintf("%s/%s", storageType, backupID)
 }
 
-// exclude_classes return classes excluding excludes
-// this is and in-place operation
-func filter_classes(classes, excludes []string) []string {
+func filterClasses(classes, excludes []string) []string {
 	if len(excludes) == 0 {
 		return classes
 	}
