@@ -13,26 +13,26 @@ package gcs
 
 type Config interface {
 	BucketName() string
-	SnapshotRoot() string
+	BackupPath() string
 }
 
 type config struct {
 	bucket string
 
 	// this is an optional value, allowing for
-	// the snapshot to be stored in a specific
+	// the backup to be stored in a specific
 	// directory inside the provided bucket
-	snapshotRoot string
+	backupPath string
 }
 
-func NewConfig(bucket, root string) Config {
-	return &config{bucket, root}
+func NewConfig(bucket, path string) Config {
+	return &config{bucket, path}
 }
 
 func (c *config) BucketName() string {
 	return c.bucket
 }
 
-func (c *config) SnapshotRoot() string {
-	return c.snapshotRoot
+func (c *config) BackupPath() string {
+	return c.backupPath
 }

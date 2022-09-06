@@ -38,7 +38,7 @@ func TestBackup_DBLevel(t *testing.T) {
 	t.Run("successful backup creation", func(t *testing.T) {
 		ctx := testCtx()
 		dirName := t.TempDir()
-		className := "DBLevelSnapshotClass"
+		className := "DBLevelBackupClass"
 		backupID := "backup1"
 		now := time.Now()
 
@@ -97,10 +97,10 @@ func TestBackup_DBLevel(t *testing.T) {
 		})
 	})
 
-	t.Run("failed snapshot creation from expired context", func(t *testing.T) {
+	t.Run("failed backup creation from expired context", func(t *testing.T) {
 		ctx := testCtx()
 		dirName := t.TempDir()
-		className := "DBLevelSnapshotClass"
+		className := "DBLevelBackupClass"
 		backupID := "backup1"
 		now := time.Now()
 

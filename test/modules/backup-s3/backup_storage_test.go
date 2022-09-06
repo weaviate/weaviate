@@ -22,7 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/modules/storage-aws-s3/s3"
+	"github.com/semi-technologies/weaviate/modules/backup-s3/s3"
 	"github.com/semi-technologies/weaviate/test/docker"
 	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/sirupsen/logrus/hooks/test"

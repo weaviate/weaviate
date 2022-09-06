@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/backup"
 )
 
-func (m *StorageFileSystemModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+func (m *BackupFileSystemModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
 	metaPath := filepath.Join(m.snapshotsPath, snapshotID, key)
 
 	if err := ctx.Err(); err != nil {
@@ -43,7 +43,7 @@ func (m *StorageFileSystemModule) GetObject(ctx context.Context, snapshotID, key
 	return contents, nil
 }
 
-func (m *StorageFileSystemModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (m *BackupFileSystemModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
 	contents, err := os.ReadFile(path.Join(m.dataPath, srcPath))
 	if err != nil {
 		return errors.Wrapf(err, "read file '%s'", srcPath)
@@ -52,7 +52,7 @@ func (m *StorageFileSystemModule) PutFile(ctx context.Context, snapshotID, key, 
 	return m.PutObject(ctx, snapshotID, key, contents)
 }
 
-func (m *StorageFileSystemModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+func (m *BackupFileSystemModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
 	snapshotPath := path.Join(m.makeSnapshotDirPath(snapshotID), key)
 
 	dir := path.Dir(snapshotPath)
@@ -68,12 +68,12 @@ func (m *StorageFileSystemModule) PutObject(ctx context.Context, snapshotID, key
 	return nil
 }
 
-func (m *StorageFileSystemModule) Initialize(ctx context.Context, snapshotID string) error {
+func (m *BackupFileSystemModule) Initialize(ctx context.Context, snapshotID string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }
 
-func (m *StorageFileSystemModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+func (m *BackupFileSystemModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
 	obj, err := m.GetObject(ctx, snapshotID, key)
 	if err != nil {
 		return errors.Wrapf(err, "get object '%s'", key)
@@ -91,11 +91,11 @@ func (m *StorageFileSystemModule) WriteToFile(ctx context.Context, snapshotID, k
 	return nil
 }
 
-func (m *StorageFileSystemModule) SourceDataPath() string {
+func (m *BackupFileSystemModule) SourceDataPath() string {
 	return m.dataPath
 }
 
-func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snapshotsPath string) error {
+func (m *BackupFileSystemModule) initSnapshotStorage(ctx context.Context, snapshotsPath string) error {
 	if snapshotsPath == "" {
 		return fmt.Errorf("empty backup path provided")
 	}
@@ -111,7 +111,7 @@ func (m *StorageFileSystemModule) initSnapshotStorage(ctx context.Context, snaps
 	return nil
 }
 
-func (m *StorageFileSystemModule) createBackupsDir(snapshotsPath string) error {
+func (m *BackupFileSystemModule) createBackupsDir(snapshotsPath string) error {
 	if err := os.MkdirAll(snapshotsPath, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "create_snapshots_dir").

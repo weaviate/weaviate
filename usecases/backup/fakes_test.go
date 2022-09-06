@@ -20,11 +20,11 @@ import (
 )
 
 type fakeBackupStorageProvider struct {
-	storage modulecapabilities.SnapshotStorage
+	storage modulecapabilities.BackupStorage
 	err     error
 }
 
-func (bsp *fakeBackupStorageProvider) BackupStorage(storageName string) (modulecapabilities.SnapshotStorage, error) {
+func (bsp *fakeBackupStorageProvider) BackupStorage(storageName string) (modulecapabilities.BackupStorage, error) {
 	return bsp.storage, bsp.err
 }
 

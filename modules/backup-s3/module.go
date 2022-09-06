@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package modstggcs
+package modstgs3
 
 import (
 	"context"
@@ -18,49 +18,51 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/storage-gcs/gcs"
+	"github.com/semi-technologies/weaviate/modules/backup-s3/s3"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	Name      = "storage-gcs"
-	AltName1  = "gcs"
-	gcsBucket = "STORAGE_GCS_BUCKET"
+	Name       = "backup-s3"
+	AltName1   = "s3"
+	s3Endpoint = "BACKUP_S3_ENDPOINT"
+	s3Bucket   = "BACKUP_S3_BUCKET"
+	s3UseSSL   = "BACKUP_S3_USE_SSL"
 
 	// this is an optional value, allowing for
-	// the snapshot to be stored in a specific
+	// the backup to be stored in a specific
 	// directory inside the provided bucket.
 	//
 	// if left unset, the snapshot files will
 	// be stored directly in the root of the
 	// bucket.
-	gcsSnapshotRoot = "STORAGE_GCS_ROOT"
+	s3Path = "BACKUP_S3_PATH"
 )
 
-type StorageGCSModule struct {
+type BackupS3Module struct {
 	logger          logrus.FieldLogger
-	storageProvider modulecapabilities.SnapshotStorage
-	config          gcs.Config
+	storageProvider modulecapabilities.BackupStorage
+	config          s3.Config
 	dataPath        string
 }
 
-func New() *StorageGCSModule {
-	return &StorageGCSModule{}
+func New() *BackupS3Module {
+	return &BackupS3Module{}
 }
 
-func (m *StorageGCSModule) Name() string {
+func (m *BackupS3Module) Name() string {
 	return Name
 }
 
-func (m *StorageGCSModule) AltNames() []string {
+func (m *BackupS3Module) AltNames() []string {
 	return []string{AltName1}
 }
 
-func (m *StorageGCSModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Storage
+func (m *BackupS3Module) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Backup
 }
 
-func (m *StorageGCSModule) Init(ctx context.Context,
+func (m *BackupS3Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
@@ -73,23 +75,25 @@ func (m *StorageGCSModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *StorageGCSModule) RootHandler() http.Handler {
+func (m *BackupS3Module) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *StorageGCSModule) MetaInfo() (map[string]interface{}, error) {
+func (m *BackupS3Module) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
+	metaInfo["endpoint"] = m.config.Endpoint()
 	metaInfo["bucketName"] = m.config.BucketName()
-	if root := m.config.SnapshotRoot(); root != "" {
+	if root := m.config.BackupPath(); root != "" {
 		metaInfo["rootName"] = root
 	}
+	metaInfo["useSSL"] = m.config.UseSSL()
 	return metaInfo, nil
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.SnapshotStorage(New())
+	_ = modulecapabilities.BackupStorage(New())
 	_ = modulecapabilities.MetaProvider(New())
 )
