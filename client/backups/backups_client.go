@@ -61,7 +61,7 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "backups.create",
 		Method:             "POST",
-		PathPattern:        "/backups/{storageName}",
+		PathPattern:        "/backups/{backend}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -96,7 +96,7 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "backups.create.status",
 		Method:             "GET",
-		PathPattern:        "/backups/{storageName}/{id}",
+		PathPattern:        "/backups/{backend}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -131,7 +131,7 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "backups.restore",
 		Method:             "POST",
-		PathPattern:        "/backups/{storageName}/{id}/restore",
+		PathPattern:        "/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -166,7 +166,7 @@ func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authIn
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "backups.restore.status",
 		Method:             "GET",
-		PathPattern:        "/backups/{storageName}/{id}/restore",
+		PathPattern:        "/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

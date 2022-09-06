@@ -30,6 +30,9 @@ import (
 // swagger:model BackupRestoreResponse
 type BackupRestoreResponse struct {
 
+	// Backup backend name e.g. filesystem, gcs, s3.
+	Backend string `json:"backend,omitempty"`
+
 	// The list of classes for which the backup restoration process was started
 	Classes []string `json:"classes"`
 
@@ -39,15 +42,12 @@ type BackupRestoreResponse struct {
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// destination path of backup files proper to selected storage
+	// destination path of backup files proper to selected backend
 	Path string `json:"path,omitempty"`
 
 	// phase of backup restoration process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]
 	Status *string `json:"status,omitempty"`
-
-	// Storage name e.g. filesystem, gcs, s3.
-	StorageName string `json:"storageName,omitempty"`
 }
 
 // Validate validates this backup restore response

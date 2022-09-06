@@ -28,7 +28,7 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 
 	t.Run("fails init fs module with empty backup path", func(t *testing.T) {
 		module := New()
-		err := module.initSnapshotStorage(ctx, "")
+		err := module.initBackupBackend(ctx, "")
 
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "empty backup path provided")
@@ -36,15 +36,15 @@ func TestSnapshotStorage_StoreSnapshot(t *testing.T) {
 
 	t.Run("fails init fs module with relative backup path", func(t *testing.T) {
 		module := New()
-		err := module.initSnapshotStorage(ctx, backupRelativePath)
+		err := module.initBackupBackend(ctx, backupRelativePath)
 
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "relative backup path provided")
 	})
 
-	t.Run("inits storage module with absolute backup path", func(t *testing.T) {
+	t.Run("inits backup module with absolute backup path", func(t *testing.T) {
 		module := New()
-		err := module.initSnapshotStorage(ctx, backupAbsolutePath)
+		err := module.initBackupBackend(ctx, backupAbsolutePath)
 
 		assert.Nil(t, err)
 

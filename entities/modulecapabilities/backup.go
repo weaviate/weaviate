@@ -15,7 +15,7 @@ import (
 	"context"
 )
 
-type BackupStorage interface {
+type BackupBackend interface {
 	// HomeDir is the home directory of all backup files
 	HomeDir(snapshotID string) string
 
@@ -34,6 +34,6 @@ type BackupStorage interface {
 	PutFile(ctx context.Context, snapshotID, key, srcPath string) error
 	// PutObject writes bytes to the object with key key
 	PutObject(ctx context.Context, snapshotID, key string, byes []byte) error
-	// Initialize initializes storage provider and make sure that app have access rights to write into the object store.
+	// Initialize initializes backup provider and make sure that app have access rights to write into the object store.
 	Initialize(ctx context.Context, snapshotID string) error
 }

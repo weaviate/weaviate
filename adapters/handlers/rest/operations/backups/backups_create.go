@@ -42,7 +42,7 @@ func NewBackupsCreate(ctx *middleware.Context, handler BackupsCreateHandler) *Ba
 	return &BackupsCreate{Context: ctx, Handler: handler}
 }
 
-/*BackupsCreate swagger:route POST /backups/{storageName} backups backupsCreate
+/*BackupsCreate swagger:route POST /backups/{backend} backups backupsCreate
 
 Starts a process of creating a backup for a set of classes
 

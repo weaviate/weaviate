@@ -38,7 +38,7 @@ const (
 )
 
 type objectStore struct {
-	modulecapabilities.BackupStorage
+	modulecapabilities.BackupBackend
 }
 
 func (s *objectStore) Meta(ctx context.Context, backupID string) (*backup.BackupDescriptor, error) {
@@ -71,15 +71,15 @@ func (s *objectStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
 	sourcer    Sourcer
-	storage    objectStore
+	backend    objectStore
 	snapshotID string
 	setStatus  func(st backup.Status)
 }
 
-func newUploader(sourcer Sourcer, storage objectStore,
+func newUploader(sourcer Sourcer, backend objectStore,
 	snapshotID string, setstaus func(st backup.Status),
 ) *uploader {
-	return &uploader{sourcer, storage, snapshotID, setstaus}
+	return &uploader{sourcer, backend, snapshotID, setstaus}
 }
 
 // all uploads all files in addition to the metadata file
@@ -90,9 +90,9 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	defer func() {
 		if err != nil {
 			desc.Error = err.Error()
-			err = fmt.Errorf("upload %w: %v", err, u.storage.PutMeta(ctx, desc))
+			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc))
 		} else {
-			if err = u.storage.PutMeta(ctx, desc); err != nil {
+			if err = u.backend.PutMeta(ctx, desc); err != nil {
 				desc.Status = string(backup.Transferred)
 			}
 			u.setStatus(backup.Success)
@@ -136,7 +136,7 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 			return err
 		}
 		for _, fpath := range shard.Files {
-			if err := u.storage.PutFile(ctx, id, fpath, fpath); err != nil {
+			if err := u.backend.PutFile(ctx, id, fpath, fpath); err != nil {
 				return err
 			}
 		}
@@ -147,7 +147,7 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 // fileWriter downloads files from object store and writes files to the destintion folder destDir
 type fileWriter struct {
 	sourcer    Sourcer
-	storage    objectStore
+	backend    objectStore
 	tempDir    string
 	destDir    string
 	snapshotID string
@@ -155,13 +155,13 @@ type fileWriter struct {
 	// setStatus  func(st backup.RestoreStatus) //TODO
 }
 
-func newFileWriter(sourcer Sourcer, storage objectStore,
+func newFileWriter(sourcer Sourcer, backend objectStore,
 	snapshotID string,
 ) *fileWriter {
-	destDir := storage.SourceDataPath()
+	destDir := backend.SourceDataPath()
 	return &fileWriter{
 		sourcer:    sourcer,
-		storage:    storage,
+		backend:    backend,
 		snapshotID: snapshotID,
 		destDir:    destDir,
 		tempDir:    path.Join(destDir, TempDirectory),
@@ -204,7 +204,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 			if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
 				return fmt.Errorf("create folder %s: %w", destDir, err)
 			}
-			if err := fw.storage.WriteToFile(ctx, fw.snapshotID, key, destPath); err != nil {
+			if err := fw.backend.WriteToFile(ctx, fw.snapshotID, key, destPath); err != nil {
 				return fmt.Errorf("write file %s: %w", destPath, err)
 			}
 		}

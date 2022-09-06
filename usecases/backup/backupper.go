@@ -73,16 +73,16 @@ func (s *backupStat) set(st backup.Status) {
 type backupper struct {
 	logger     logrus.FieldLogger
 	sourcer    Sourcer
-	storages   BackupStorageProvider
+	backends   BackupBackendProvider
 	lastBackup backupStat
 }
 
-func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, storages BackupStorageProvider,
+func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		logger:   logger,
 		sourcer:  sourcer,
-		storages: storages,
+		backends: backends,
 	}
 }
 
@@ -121,26 +121,26 @@ func (b *backupper) Backup(ctx context.Context,
 // Status returns status of a backup
 // If the backup is still active the status is immediately returned
 // If not it fetches the metadata file to get the status
-func (b *backupper) Status(ctx context.Context, storageName, bakID string,
+func (b *backupper) Status(ctx context.Context, backend, bakID string,
 ) (*models.BackupCreateStatusResponse, error) {
 	// check if backup is still active
 	st := b.lastBackup.get()
 	if st.ID == bakID {
 		status := string(st.Status)
-		// TODO: do we need to remove models.BackupCreateMeta{classes, storagename, ID}
+		// TODO: do we need to remove models.BackupCreateMeta{classes, backend, ID}
 		// classes are returned as part of createBackup
 		return &models.BackupCreateStatusResponse{
-			ID:          bakID,
-			Path:        st.path,
-			Status:      &status,
-			StorageName: storageName,
+			ID:      bakID,
+			Path:    st.path,
+			Status:  &status,
+			Backend: backend,
 		}, nil
 	}
 
 	// The backup might have been already created.
-	store, err := b.objectStore(storageName)
+	store, err := b.objectStore(backend)
 	if err != nil {
-		err = fmt.Errorf("no backup provider %q, did you enable the right module?", storageName)
+		err = fmt.Errorf("no backup provider %q, did you enable the right module?", backend)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
@@ -154,15 +154,15 @@ func (b *backupper) Status(ctx context.Context, storageName, bakID string,
 
 	// TODO: populate Error field if snapshot failed
 	return &models.BackupCreateStatusResponse{
-		ID:          bakID,
-		Path:        store.HomeDir(bakID),
-		Status:      &status,
-		StorageName: storageName,
+		ID:      bakID,
+		Path:    store.HomeDir(bakID),
+		Status:  &status,
+		Backend: backend,
 	}, nil
 }
 
-func (b *backupper) objectStore(storageName string) (objectStore, error) {
-	caps, err := b.storages.BackupStorage(storageName)
+func (b *backupper) objectStore(backend string) (objectStore, error) {
+	caps, err := b.backends.BackupBackend(backend)
 	if err != nil {
 		return objectStore{}, err
 	}

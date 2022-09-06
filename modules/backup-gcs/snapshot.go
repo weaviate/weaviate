@@ -20,45 +20,45 @@ import (
 )
 
 func (m *BackupGCSModule) HomeDir(snapshotID string) string {
-	return m.storageProvider.HomeDir(snapshotID)
+	return m.backendProvider.HomeDir(snapshotID)
 }
 
 func (m *BackupGCSModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	return m.storageProvider.GetObject(ctx, snapshotID, key)
+	return m.backendProvider.GetObject(ctx, snapshotID, key)
 }
 
 func (m *BackupGCSModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
-	return m.storageProvider.PutFile(ctx, snapshotID, key, srcPath)
+	return m.backendProvider.PutFile(ctx, snapshotID, key, srcPath)
 }
 
 func (m *BackupGCSModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
-	return m.storageProvider.PutObject(ctx, snapshotID, key, byes)
+	return m.backendProvider.PutObject(ctx, snapshotID, key, byes)
 }
 
 func (m *BackupGCSModule) Initialize(ctx context.Context, snapshotID string) error {
-	return m.storageProvider.Initialize(ctx, snapshotID)
+	return m.backendProvider.Initialize(ctx, snapshotID)
 }
 
 func (m *BackupGCSModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
-	return m.storageProvider.WriteToFile(ctx, snapshotID, key, destPath)
+	return m.backendProvider.WriteToFile(ctx, snapshotID, key, destPath)
 }
 
 func (m *BackupGCSModule) SourceDataPath() string {
-	return m.storageProvider.SourceDataPath()
+	return m.backendProvider.SourceDataPath()
 }
 
-func (m *BackupGCSModule) initSnapshotStorage(ctx context.Context) error {
+func (m *BackupGCSModule) initBackupBackend(ctx context.Context) error {
 	bucketName := os.Getenv(gcsBucket)
 	if bucketName == "" {
-		return errors.Errorf("snapshot init: '%s' must be set", gcsBucket)
+		return errors.Errorf("backup init: '%s' must be set", gcsBucket)
 	}
 
 	config := gcs.NewConfig(bucketName, os.Getenv(gcsPath))
-	storageProvider, err := gcs.New(ctx, config, m.dataPath)
+	backendProvider, err := gcs.New(ctx, config, m.dataPath)
 	if err != nil {
 		return errors.Wrap(err, "init gcs client")
 	}
-	m.storageProvider = storageProvider
+	m.backendProvider = backendProvider
 	m.config = config
 	return nil
 }

@@ -26,7 +26,7 @@ func Test_BackupJourney(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithStorageFilesystem().
+		WithBackendFilesystem().
 		WithText2VecContextionary().
 		WithWeaviate().
 		Start(ctx)

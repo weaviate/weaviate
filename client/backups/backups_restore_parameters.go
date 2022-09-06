@@ -73,6 +73,11 @@ for the backups restore operation typically these are written to a http.Request
 */
 type BackupsRestoreParams struct {
 
+	/*Backend
+	  Backup backend name e.g. filesystem, gcs, s3.
+
+	*/
+	Backend string
 	/*Body*/
 	Body *models.BackupRestoreRequest
 	/*ID
@@ -80,11 +85,6 @@ type BackupsRestoreParams struct {
 
 	*/
 	ID string
-	/*StorageName
-	  Storage name e.g. filesystem, gcs, s3.
-
-	*/
-	StorageName string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -124,6 +124,17 @@ func (o *BackupsRestoreParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBackend adds the backend to the backups restore params
+func (o *BackupsRestoreParams) WithBackend(backend string) *BackupsRestoreParams {
+	o.SetBackend(backend)
+	return o
+}
+
+// SetBackend adds the backend to the backups restore params
+func (o *BackupsRestoreParams) SetBackend(backend string) {
+	o.Backend = backend
+}
+
 // WithBody adds the body to the backups restore params
 func (o *BackupsRestoreParams) WithBody(body *models.BackupRestoreRequest) *BackupsRestoreParams {
 	o.SetBody(body)
@@ -146,17 +157,6 @@ func (o *BackupsRestoreParams) SetID(id string) {
 	o.ID = id
 }
 
-// WithStorageName adds the storageName to the backups restore params
-func (o *BackupsRestoreParams) WithStorageName(storageName string) *BackupsRestoreParams {
-	o.SetStorageName(storageName)
-	return o
-}
-
-// SetStorageName adds the storageName to the backups restore params
-func (o *BackupsRestoreParams) SetStorageName(storageName string) {
-	o.StorageName = storageName
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsRestoreParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -164,6 +164,11 @@ func (o *BackupsRestoreParams) WriteToRequest(r runtime.ClientRequest, reg strfm
 		return err
 	}
 	var res []error
+
+	// path param backend
+	if err := r.SetPathParam("backend", o.Backend); err != nil {
+		return err
+	}
 
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
@@ -173,11 +178,6 @@ func (o *BackupsRestoreParams) WriteToRequest(r runtime.ClientRequest, reg strfm
 
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
-		return err
-	}
-
-	// path param storageName
-	if err := r.SetPathParam("storageName", o.StorageName); err != nil {
 		return err
 	}
 

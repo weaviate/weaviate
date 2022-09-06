@@ -30,21 +30,21 @@ import (
 // swagger:model BackupCreateStatusResponse
 type BackupCreateStatusResponse struct {
 
+	// Backup backend name e.g. filesystem, gcs, s3.
+	Backend string `json:"backend,omitempty"`
+
 	// error message if creation failed
 	Error string `json:"error,omitempty"`
 
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// destination path of backup files proper to selected storage
+	// destination path of backup files proper to selected backend
 	Path string `json:"path,omitempty"`
 
 	// phase of backup creation process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]
 	Status *string `json:"status,omitempty"`
-
-	// Storage name e.g. filesystem, gcs, s3.
-	StorageName string `json:"storageName,omitempty"`
 }
 
 // Validate validates this backup create status response

@@ -73,13 +73,13 @@ for the backups create operation typically these are written to a http.Request
 */
 type BackupsCreateParams struct {
 
-	/*Body*/
-	Body *models.BackupCreateRequest
-	/*StorageName
-	  Storage name e.g. filesystem, gcs, s3.
+	/*Backend
+	  Backup backend name e.g. filesystem, gcs, s3.
 
 	*/
-	StorageName string
+	Backend string
+	/*Body*/
+	Body *models.BackupCreateRequest
 
 	timeout    time.Duration
 	Context    context.Context
@@ -119,6 +119,17 @@ func (o *BackupsCreateParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBackend adds the backend to the backups create params
+func (o *BackupsCreateParams) WithBackend(backend string) *BackupsCreateParams {
+	o.SetBackend(backend)
+	return o
+}
+
+// SetBackend adds the backend to the backups create params
+func (o *BackupsCreateParams) SetBackend(backend string) {
+	o.Backend = backend
+}
+
 // WithBody adds the body to the backups create params
 func (o *BackupsCreateParams) WithBody(body *models.BackupCreateRequest) *BackupsCreateParams {
 	o.SetBody(body)
@@ -130,17 +141,6 @@ func (o *BackupsCreateParams) SetBody(body *models.BackupCreateRequest) {
 	o.Body = body
 }
 
-// WithStorageName adds the storageName to the backups create params
-func (o *BackupsCreateParams) WithStorageName(storageName string) *BackupsCreateParams {
-	o.SetStorageName(storageName)
-	return o
-}
-
-// SetStorageName adds the storageName to the backups create params
-func (o *BackupsCreateParams) SetStorageName(storageName string) {
-	o.StorageName = storageName
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -149,15 +149,15 @@ func (o *BackupsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 	}
 	var res []error
 
+	// path param backend
+	if err := r.SetPathParam("backend", o.Backend); err != nil {
+		return err
+	}
+
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
 		}
-	}
-
-	// path param storageName
-	if err := r.SetPathParam("storageName", o.StorageName); err != nil {
-		return err
 	}
 
 	if len(res) > 0 {
