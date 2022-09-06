@@ -46,7 +46,7 @@ func TestFilerClasses(t *testing.T) {
 		{in: []string{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
 	}
 	for _, tc := range tests {
-		got := filter_classes(tc.in, tc.xs)
+		got := filterClasses(tc.in, tc.xs)
 		assert.Equal(t, tc.out, got)
 	}
 }
