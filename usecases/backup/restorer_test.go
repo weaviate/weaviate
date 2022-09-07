@@ -89,7 +89,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		}
 	)
 	meta := backup.BackupDescriptor{
-		ID:            "1",
+		ID:            id,
 		StartedAt:     timept,
 		Version:       "1",
 		ServerVersion: "1",
@@ -144,17 +144,18 @@ func TestRestoreRequestValidation(t *testing.T) {
 
 	t.Run("FailedBackup", func(t *testing.T) {
 		backend := &fakeBackend{}
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Failed)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
 		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
 		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), backup.Failed)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
-	t.Run("CorruptedFile", func(t *testing.T) {
+	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		backend := &fakeBackend{}
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
 		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, backend, nil)
@@ -162,6 +163,17 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "corrupted")
+	})
+	t.Run("WrongBackupFile", func(t *testing.T) {
+		backend := &fakeBackend{}
+		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
+		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m2 := createManager(nil, backend, nil)
+		_, err := m2.Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.Contains(t, err.Error(), "wrong backup file")
 	})
 
 	t.Run("UknownClass", func(t *testing.T) {
