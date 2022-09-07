@@ -80,9 +80,9 @@ type ClientService interface {
 }
 
 /*
-ObjectsClassDelete deletes object based on its class and UUID
+  ObjectsClassDelete deletes object based on its class and UUID
 
-Delete a single data object.
+  Delete a single data object.
 */
 func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -117,9 +117,9 @@ func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo r
 }
 
 /*
-ObjectsClassGet gets a specific object based on its class and UUID also available as websocket bus
+  ObjectsClassGet gets a specific object based on its class and UUID also available as websocket bus
 
-Get a single data object
+  Get a single data object
 */
 func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassGetOK, error) {
 	// TODO: Validate the params before sending
@@ -154,9 +154,9 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 }
 
 /*
-ObjectsClassHead checks object s existence based on its class and uuid
+  ObjectsClassHead checks object s existence based on its class and uuid
 
-Checks if a data object exists without retrieving it.
+  Checks if a data object exists without retrieving it.
 */
 func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassHeadNoContent, error) {
 	// TODO: Validate the params before sending
@@ -191,9 +191,9 @@ func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runti
 }
 
 /*
-ObjectsClassPatch updates an object based on its UUID using patch semantics
+  ObjectsClassPatch updates an object based on its UUID using patch semantics
 
-Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+  Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -228,9 +228,9 @@ func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo run
 }
 
 /*
-ObjectsClassPut updates a class object based on its uuid
+  ObjectsClassPut updates a class object based on its uuid
 
-Update an individual data object based on its class and uuid.
+  Update an individual data object based on its class and uuid.
 */
 func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPutOK, error) {
 	// TODO: Validate the params before sending
@@ -265,9 +265,9 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 }
 
 /*
-ObjectsClassReferencesCreate adds a single reference to a class property
+  ObjectsClassReferencesCreate adds a single reference to a class property
 
-Add a single reference to a class-property.
+  Add a single reference to a class-property.
 */
 func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -302,9 +302,9 @@ func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCrea
 }
 
 /*
-ObjectsClassReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
+  ObjectsClassReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
 
-Delete the single reference that is given in the body from the list of references that this property of a data object has
+  Delete the single reference that is given in the body from the list of references that this property of a data object has
 */
 func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -339,9 +339,9 @@ func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDele
 }
 
 /*
-ObjectsClassReferencesPut replaces all references to a class property
+  ObjectsClassReferencesPut replaces all references to a class property
 
-Update all references of a property of a data object.
+  Update all references of a property of a data object.
 */
 func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesPutOK, error) {
 	// TODO: Validate the params before sending
@@ -376,9 +376,9 @@ func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutPara
 }
 
 /*
-ObjectsCreate creates objects between two objects object and subject
+  ObjectsCreate creates objects between two objects object and subject
 
-Registers a new Object. Provided meta-data and schema values are validated.
+  Registers a new Object. Provided meta-data and schema values are validated.
 */
 func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -413,9 +413,9 @@ func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.Cli
 }
 
 /*
-ObjectsDelete deletes an object based on its UUID
+  ObjectsDelete deletes an object based on its UUID
 
-Deletes an Object from the system.
+  Deletes an Object from the system.
 */
 func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -450,9 +450,9 @@ func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.Cli
 }
 
 /*
-ObjectsGet gets a specific object based on its UUID and a object UUID also available as websocket bus
+  ObjectsGet gets a specific object based on its UUID and a object UUID also available as websocket bus
 
-Lists Objects.
+  Lists Objects.
 */
 func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -487,9 +487,9 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 }
 
 /*
-ObjectsHead checks object s existence based on its UUID
+  ObjectsHead checks object s existence based on its UUID
 
-Checks if an Object exists in the system.
+  Checks if an Object exists in the system.
 */
 func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsHeadNoContent, error) {
 	// TODO: Validate the params before sending
@@ -524,9 +524,9 @@ func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientA
 }
 
 /*
-ObjectsList gets a list of objects
+  ObjectsList gets a list of objects
 
-Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.
+  Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.
 */
 func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsListOK, error) {
 	// TODO: Validate the params before sending
@@ -561,9 +561,9 @@ func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientA
 }
 
 /*
-ObjectsPatch updates an object based on its UUID using patch semantics
+  ObjectsPatch updates an object based on its UUID using patch semantics
 
-Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+  Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -598,9 +598,9 @@ func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.Clien
 }
 
 /*
-ObjectsReferencesCreate adds a single reference to a class property
+  ObjectsReferencesCreate adds a single reference to a class property
 
-Add a single reference to a class-property.
+  Add a single reference to a class-property.
 */
 func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -635,9 +635,9 @@ func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, 
 }
 
 /*
-ObjectsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
+  ObjectsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
 
-Delete the single reference that is given in the body from the list of references that this property has.
+  Delete the single reference that is given in the body from the list of references that this property has.
 */
 func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -672,9 +672,9 @@ func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, 
 }
 
 /*
-ObjectsReferencesUpdate replaces all references to a class property
+  ObjectsReferencesUpdate replaces all references to a class property
 
-Replace all references to a class-property.
+  Replace all references to a class-property.
 */
 func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -709,9 +709,9 @@ func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, 
 }
 
 /*
-ObjectsUpdate updates an object based on its UUID
+  ObjectsUpdate updates an object based on its UUID
 
-Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+  Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -746,9 +746,9 @@ func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.Cli
 }
 
 /*
-ObjectsValidate validates an object based on a schema
+  ObjectsValidate validates an object based on a schema
 
-Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.
+  Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.
 */
 func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsValidateOK, error) {
 	// TODO: Validate the params before sending

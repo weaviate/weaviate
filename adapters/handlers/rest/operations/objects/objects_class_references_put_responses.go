@@ -27,8 +27,7 @@ import (
 // ObjectsClassReferencesPutOKCode is the HTTP code returned for type ObjectsClassReferencesPutOK
 const ObjectsClassReferencesPutOKCode int = 200
 
-/*
-ObjectsClassReferencesPutOK Successfully replaced all the references.
+/*ObjectsClassReferencesPutOK Successfully replaced all the references.
 
 swagger:response objectsClassReferencesPutOK
 */
@@ -52,8 +51,7 @@ func (o *ObjectsClassReferencesPutOK) WriteResponse(rw http.ResponseWriter, prod
 // ObjectsClassReferencesPutUnauthorizedCode is the HTTP code returned for type ObjectsClassReferencesPutUnauthorized
 const ObjectsClassReferencesPutUnauthorizedCode int = 401
 
-/*
-ObjectsClassReferencesPutUnauthorized Unauthorized or invalid credentials.
+/*ObjectsClassReferencesPutUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassReferencesPutUnauthorized
 */
@@ -77,8 +75,7 @@ func (o *ObjectsClassReferencesPutUnauthorized) WriteResponse(rw http.ResponseWr
 // ObjectsClassReferencesPutForbiddenCode is the HTTP code returned for type ObjectsClassReferencesPutForbidden
 const ObjectsClassReferencesPutForbiddenCode int = 403
 
-/*
-ObjectsClassReferencesPutForbidden Forbidden
+/*ObjectsClassReferencesPutForbidden Forbidden
 
 swagger:response objectsClassReferencesPutForbidden
 */
@@ -122,8 +119,7 @@ func (o *ObjectsClassReferencesPutForbidden) WriteResponse(rw http.ResponseWrite
 // ObjectsClassReferencesPutNotFoundCode is the HTTP code returned for type ObjectsClassReferencesPutNotFound
 const ObjectsClassReferencesPutNotFoundCode int = 404
 
-/*
-ObjectsClassReferencesPutNotFound Source object doesn't exist.
+/*ObjectsClassReferencesPutNotFound Source object doesn't exist.
 
 swagger:response objectsClassReferencesPutNotFound
 */
@@ -147,8 +143,7 @@ func (o *ObjectsClassReferencesPutNotFound) WriteResponse(rw http.ResponseWriter
 // ObjectsClassReferencesPutUnprocessableEntityCode is the HTTP code returned for type ObjectsClassReferencesPutUnprocessableEntity
 const ObjectsClassReferencesPutUnprocessableEntityCode int = 422
 
-/*
-ObjectsClassReferencesPutUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+/*ObjectsClassReferencesPutUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 
 swagger:response objectsClassReferencesPutUnprocessableEntity
 */
@@ -192,8 +187,7 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) WriteResponse(rw http.Res
 // ObjectsClassReferencesPutInternalServerErrorCode is the HTTP code returned for type ObjectsClassReferencesPutInternalServerError
 const ObjectsClassReferencesPutInternalServerErrorCode int = 500
 
-/*
-ObjectsClassReferencesPutInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ObjectsClassReferencesPutInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsClassReferencesPutInternalServerError
 */

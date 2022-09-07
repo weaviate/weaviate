@@ -75,8 +75,7 @@ func NewGraphqlBatchOK() *GraphqlBatchOK {
 	return &GraphqlBatchOK{}
 }
 
-/*
-GraphqlBatchOK handles this case with default header values.
+/*GraphqlBatchOK handles this case with default header values.
 
 Successful query (with select).
 */
@@ -107,8 +106,7 @@ func NewGraphqlBatchUnauthorized() *GraphqlBatchUnauthorized {
 	return &GraphqlBatchUnauthorized{}
 }
 
-/*
-GraphqlBatchUnauthorized handles this case with default header values.
+/*GraphqlBatchUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,8 +127,7 @@ func NewGraphqlBatchForbidden() *GraphqlBatchForbidden {
 	return &GraphqlBatchForbidden{}
 }
 
-/*
-GraphqlBatchForbidden handles this case with default header values.
+/*GraphqlBatchForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -163,8 +160,7 @@ func NewGraphqlBatchUnprocessableEntity() *GraphqlBatchUnprocessableEntity {
 	return &GraphqlBatchUnprocessableEntity{}
 }
 
-/*
-GraphqlBatchUnprocessableEntity handles this case with default header values.
+/*GraphqlBatchUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -197,8 +193,7 @@ func NewGraphqlBatchInternalServerError() *GraphqlBatchInternalServerError {
 	return &GraphqlBatchInternalServerError{}
 }
 
-/*
-GraphqlBatchInternalServerError handles this case with default header values.
+/*GraphqlBatchInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

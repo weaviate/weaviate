@@ -66,8 +66,7 @@ func NewObjectsClassDeleteParamsWithHTTPClient(client *http.Client) *ObjectsClas
 	}
 }
 
-/*
-ObjectsClassDeleteParams contains all the parameters to send to the API endpoint
+/*ObjectsClassDeleteParams contains all the parameters to send to the API endpoint
 for the objects class delete operation typically these are written to a http.Request
 */
 type ObjectsClassDeleteParams struct {
