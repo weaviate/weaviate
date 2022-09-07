@@ -85,7 +85,10 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
 
-	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues("backup-gcs", "class").Add(float64(len(content)))
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
+	if err == nil {
+		metric.Add(float64(len(content)))
+	}
 	return content, nil
 }
 
@@ -165,7 +168,10 @@ func (g *gcs) PutObject(ctx context.Context, backupID, key string, byes []byte) 
 		return errors.Wrapf(err, "close writer for file: %v", objectName)
 	}
 
-	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-gcs", "class").Add(float64(len(byes)))
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
+	if err == nil {
+		metric.Add(float64(len(byes)))
+	}
 
 	return nil
 }

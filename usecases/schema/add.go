@@ -59,14 +59,17 @@ func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
 
 	m.Lock()
 	defer m.Unlock()
-	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupRestoreClassDurations.WithLabelValues(class.Class))
-	defer timer.ObserveDuration()
+	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
+	if err == nil {
+		timer := prometheus.NewTimer(metric)
+		defer timer.ObserveDuration()
+	}
 
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err := m.validateCanAddClass(ctx, principal, class, true)
+	err = m.validateCanAddClass(ctx, principal, class, true)
 	if err != nil {
 		return err
 	}
