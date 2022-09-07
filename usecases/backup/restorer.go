@@ -86,8 +86,11 @@ func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor,
 	store objectStore,
 ) (err error) {
-	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupRestoreDurations.WithLabelValues(getType(store.BackupBackend), desc.Name))
-	defer timer.ObserveDuration()
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.BackupBackend), desc.Name)
+	if err != nil {
+		timer := prometheus.NewTimer(metric)
+		defer timer.ObserveDuration()
+	}
 
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
