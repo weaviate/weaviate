@@ -23,6 +23,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -90,6 +91,8 @@ func (s *s3) GetObject(ctx context.Context, backupID, key string) ([]byte, error
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
+	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues("backup-s3").Add(float64(len(contents)))
+
 	return contents, nil
 }
 
@@ -119,6 +122,7 @@ func (s *s3) PutObject(ctx context.Context, backupID, key string, byes []byte) e
 			errors.Wrapf(err, "put object '%s'", objectName))
 	}
 
+	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3").Add(float64(len(byes)))
 	return nil
 }
 
