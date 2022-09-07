@@ -88,6 +88,7 @@ func TestBackStatus(t *testing.T) {
 }
 
 func TestBackupRequestValidation(t *testing.T) {
+	t.Parallel()
 	var (
 		cls         = "MyClass"
 		backendName = "s3"
@@ -96,6 +97,14 @@ func TestBackupRequestValidation(t *testing.T) {
 		id          = "123"
 		path        = "root/123"
 	)
+	t.Run("ValidateEmptyID", func(t *testing.T) {
+		_, err := m.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "",
+			Include: []string{cls},
+		})
+		assert.NotNil(t, err)
+	})
 	t.Run("ValidateID", func(t *testing.T) {
 		_, err := m.Backup(ctx, nil, &BackupRequest{
 			Backend: backendName,
