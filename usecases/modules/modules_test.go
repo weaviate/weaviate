@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
@@ -303,13 +302,13 @@ func TestModulesProvider(t *testing.T) {
 	})
 
 	t.Run("should register module with alt names", func(t *testing.T) {
-		module := &dummyStorageModuleWithAltNames{}
+		module := &dummyBackupModuleWithAltNames{}
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
-		modByName := modulesProvider.GetByName("SomeStorage")
-		modByAltName1 := modulesProvider.GetByName("AltStorageName")
-		modByAltName2 := modulesProvider.GetByName("YetAnotherStorageName")
+		modByName := modulesProvider.GetByName("SomeBackend")
+		modByAltName1 := modulesProvider.GetByName("AltBackendName")
+		modByAltName2 := modulesProvider.GetByName("YetAnotherBackendName")
 		modMissing := modulesProvider.GetByName("DoesNotExist")
 
 		assert.NotNil(t, modByName)
@@ -318,22 +317,22 @@ func TestModulesProvider(t *testing.T) {
 		assert.Nil(t, modMissing)
 	})
 
-	t.Run("should provide backup storage", func(t *testing.T) {
-		module := &dummyStorageModuleWithAltNames{}
+	t.Run("should provide backup backend", func(t *testing.T) {
+		module := &dummyBackupModuleWithAltNames{}
 		modulesProvider := NewProvider()
 		modulesProvider.Register(module)
 
-		provider, ok := interface{}(modulesProvider).(ubackup.BackupStorageProvider)
+		provider, ok := interface{}(modulesProvider).(ubackup.BackupBackendProvider)
 		assert.True(t, ok)
 
 		fmt.Printf("provider: %v\n", provider)
 
-		storageByName, err1 := provider.BackupStorage("SomeStorage")
-		storageByAltName, err2 := provider.BackupStorage("YetAnotherStorageName")
+		backendByName, err1 := provider.BackupBackend("SomeBackend")
+		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName")
 
-		assert.NotNil(t, storageByName)
+		assert.NotNil(t, backendByName)
 		assert.Nil(t, err1)
-		assert.NotNil(t, storageByAltName)
+		assert.NotNil(t, backendByAltName)
 		assert.Nil(t, err2)
 	})
 }
@@ -470,52 +469,52 @@ func getFakeSchemaGetter() schemaGetter {
 	return &fakeSchemaGetter{schema: sch}
 }
 
-type dummyStorageModuleWithAltNames struct{}
+type dummyBackupModuleWithAltNames struct{}
 
-func (m *dummyStorageModuleWithAltNames) Name() string {
-	return "SomeStorage"
+func (m *dummyBackupModuleWithAltNames) Name() string {
+	return "SomeBackend"
 }
 
-func (m *dummyStorageModuleWithAltNames) AltNames() []string {
-	return []string{"AltStorageName", "YetAnotherStorageName"}
+func (m *dummyBackupModuleWithAltNames) AltNames() []string {
+	return []string{"AltBackendName", "YetAnotherBackendName"}
 }
 
-func (m *dummyStorageModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
+func (m *dummyBackupModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) RootHandler() http.Handler {
+func (m *dummyBackupModuleWithAltNames) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *dummyStorageModuleWithAltNames) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Storage
+func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Backup
 }
 
-func (m *dummyStorageModuleWithAltNames) StoreSnapshot(ctx context.Context, snapshot *backup.Snapshot) error {
-	return nil
-}
-
-func (m *dummyStorageModuleWithAltNames) RestoreSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return nil, nil
-}
-
-func (m *dummyStorageModuleWithAltNames) SetMetaStatus(ctx context.Context, className, snapshotID, status string) error {
-	return nil
-}
-
-func (m *dummyStorageModuleWithAltNames) SetMetaError(ctx context.Context, className, snapshotID string, err error) error {
-	return nil
-}
-
-func (m *dummyStorageModuleWithAltNames) GetMeta(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
-	return nil, nil
-}
-
-func (m *dummyStorageModuleWithAltNames) DestinationPath(className, snapshotId string) string {
+func (m *dummyBackupModuleWithAltNames) HomeDir(backupID string) string {
 	return ""
 }
 
-func (m *dummyStorageModuleWithAltNames) InitSnapshot(ctx context.Context, className, snapshotID string) (*backup.Snapshot, error) {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
 	return nil, nil
+}
+
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) SourceDataPath() string {
+	return ""
+}
+
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID string) error {
+	return nil
 }

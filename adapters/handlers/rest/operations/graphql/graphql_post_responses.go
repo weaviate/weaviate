@@ -27,8 +27,7 @@ import (
 // GraphqlPostOKCode is the HTTP code returned for type GraphqlPostOK
 const GraphqlPostOKCode int = 200
 
-/*
-GraphqlPostOK Successful query (with select).
+/*GraphqlPostOK Successful query (with select).
 
 swagger:response graphqlPostOK
 */
@@ -72,8 +71,7 @@ func (o *GraphqlPostOK) WriteResponse(rw http.ResponseWriter, producer runtime.P
 // GraphqlPostUnauthorizedCode is the HTTP code returned for type GraphqlPostUnauthorized
 const GraphqlPostUnauthorizedCode int = 401
 
-/*
-GraphqlPostUnauthorized Unauthorized or invalid credentials.
+/*GraphqlPostUnauthorized Unauthorized or invalid credentials.
 
 swagger:response graphqlPostUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *GraphqlPostUnauthorized) WriteResponse(rw http.ResponseWriter, producer
 // GraphqlPostForbiddenCode is the HTTP code returned for type GraphqlPostForbidden
 const GraphqlPostForbiddenCode int = 403
 
-/*
-GraphqlPostForbidden Forbidden
+/*GraphqlPostForbidden Forbidden
 
 swagger:response graphqlPostForbidden
 */
@@ -142,8 +139,7 @@ func (o *GraphqlPostForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 // GraphqlPostUnprocessableEntityCode is the HTTP code returned for type GraphqlPostUnprocessableEntity
 const GraphqlPostUnprocessableEntityCode int = 422
 
-/*
-GraphqlPostUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*GraphqlPostUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response graphqlPostUnprocessableEntity
 */
@@ -187,8 +183,7 @@ func (o *GraphqlPostUnprocessableEntity) WriteResponse(rw http.ResponseWriter, p
 // GraphqlPostInternalServerErrorCode is the HTTP code returned for type GraphqlPostInternalServerError
 const GraphqlPostInternalServerErrorCode int = 500
 
-/*
-GraphqlPostInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*GraphqlPostInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response graphqlPostInternalServerError
 */

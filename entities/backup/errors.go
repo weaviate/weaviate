@@ -28,7 +28,10 @@ type ErrNotFound struct {
 }
 
 func (e ErrNotFound) Error() string {
-	return e.err.Error()
+	if e.err != nil {
+		return e.err.Error()
+	}
+	return ""
 }
 
 func NewErrNotFound(err error) ErrNotFound {

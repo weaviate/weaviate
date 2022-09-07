@@ -704,13 +704,13 @@ func (m *Provider) HasMultipleVectorizers() bool {
 	return m.hasMultipleVectorizers
 }
 
-func (m *Provider) BackupStorage(storageName string) (modulecapabilities.SnapshotStorage, error) {
-	if module := m.GetByName(storageName); module != nil {
-		if module.Type() == modulecapabilities.Storage {
-			if storage, ok := module.(modulecapabilities.SnapshotStorage); ok {
-				return storage, nil
+func (m *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+	if module := m.GetByName(backend); module != nil {
+		if module.Type() == modulecapabilities.Backup {
+			if backend, ok := module.(modulecapabilities.BackupBackend); ok {
+				return backend, nil
 			}
 		}
 	}
-	return nil, errors.Errorf("storage: %s not found", storageName)
+	return nil, errors.Errorf("backup: %s not found", backend)
 }

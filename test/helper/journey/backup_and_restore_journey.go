@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string) {
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -39,7 +39,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 		require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
 	}
 
-	snapshotID := "snapshot-1"
+	backupID := "backup-1"
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
@@ -53,9 +53,9 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 
 	t.Run("start backup process", func(t *testing.T) {
 		params := backups.NewBackupsCreateParams().
-			WithStorageName(storage).
+			WithBackend(backend).
 			WithBody(&models.BackupCreateRequest{
-				ID:      snapshotID,
+				ID:      backupID,
 				Include: []string{booksClass.Class},
 			})
 		resp, err := helper.Client(t).Backups.BackupsCreate(params, nil)
@@ -63,14 +63,14 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 		helper.AssertRequestOk(t, resp, err, func() {
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			require.Equal(t, models.BackupCreateMetaStatusSTARTED, *meta.Status)
+			require.Equal(t, models.BackupCreateStatusResponseStatusSTARTED, *meta.Status)
 		})
 	})
 
 	t.Run("verify that backup process is completed", func(t *testing.T) {
 		params := backups.NewBackupsCreateStatusParams().
-			WithStorageName(storage).
-			WithID(snapshotID)
+			WithBackend(backend).
+			WithID(backupID)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
@@ -78,10 +78,10 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
 			switch *meta.Status {
-			case models.BackupCreateMetaStatusSUCCESS:
+			case models.BackupCreateStatusResponseStatusSUCCESS:
 				return
-			case models.BackupCreateMetaStatusFAILED:
-				t.Errorf("failed to create snapshot, got response: %+v", meta)
+			case models.BackupCreateStatusResponseStatusFAILED:
+				t.Errorf("failed to create backup, got response: %+v", meta)
 				return
 			default:
 				time.Sleep(1 * time.Second)
@@ -108,8 +108,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 
 	t.Run("start restore process", func(t *testing.T) {
 		params := backups.NewBackupsRestoreParams().
-			WithStorageName(storage).
-			WithID(snapshotID).
+			WithBackend(backend).
+			WithID(backupID).
 			WithBody(&models.BackupRestoreRequest{
 				Include: []string{booksClass.Class},
 			})
@@ -117,14 +117,14 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 		helper.AssertRequestOk(t, resp, err, func() {
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
-			require.Equal(t, models.BackupCreateMetaStatusSTARTED, *meta.Status)
+			require.Equal(t, models.BackupCreateStatusResponseStatusSTARTED, *meta.Status)
 		})
 	})
 
 	t.Run("verify that restore process is completed", func(t *testing.T) {
 		params := backups.NewBackupsRestoreStatusParams().
-			WithStorageName(storage).
-			WithID(snapshotID)
+			WithBackend(backend).
+			WithID(backupID)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsRestoreStatus(params, nil)
 			require.Nil(t, err)
@@ -132,10 +132,10 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, storage string)
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
 			switch *meta.Status {
-			case models.BackupRestoreMetaStatusSUCCESS:
+			case models.BackupRestoreStatusResponseStatusSUCCESS:
 				return
-			case models.BackupRestoreMetaStatusFAILED:
-				t.Errorf("failed to create snapshot, got response: %+v", meta)
+			case models.BackupRestoreStatusResponseStatusFAILED:
+				t.Errorf("failed to create backup, got response: %+v", meta)
 				return
 			default:
 				time.Sleep(1 * time.Second)

@@ -28,10 +28,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSnapshot_Integration(t *testing.T) {
+func TestBackup_Integration(t *testing.T) {
 	ctx := context.Background()
 
-	indexID := "snapshot-integration-test"
+	indexID := "backup-integration-test"
 
 	dirName := makeTestDir(t)
 
@@ -72,9 +72,9 @@ func TestSnapshot_Integration(t *testing.T) {
 		// maintenance has been paused, so we shouldn't see any .condensed
 		// files either.
 		//
-		// because `ListFiles` is used within the context of snapshotting,
+		// because `ListFiles` is used within the context of backups,
 		// it excludes any currently active log files, which are not part
-		// of the snapshot. in this case, the only other file is the prev
+		// of the backup. in this case, the only other file is the prev
 		// commitlog, so we should only have 1 result here.
 		assert.Len(t, files, 1)
 

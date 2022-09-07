@@ -75,26 +75,25 @@ func NewBackupsRestoreStatusOK() *BackupsRestoreStatusOK {
 	return &BackupsRestoreStatusOK{}
 }
 
-/*
-BackupsRestoreStatusOK handles this case with default header values.
+/*BackupsRestoreStatusOK handles this case with default header values.
 
 Backup restoration status successfully returned
 */
 type BackupsRestoreStatusOK struct {
-	Payload *models.BackupRestoreMeta
+	Payload *models.BackupRestoreStatusResponse
 }
 
 func (o *BackupsRestoreStatusOK) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}/restore][%d] backupsRestoreStatusOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusOK  %+v", 200, o.Payload)
 }
 
-func (o *BackupsRestoreStatusOK) GetPayload() *models.BackupRestoreMeta {
+func (o *BackupsRestoreStatusOK) GetPayload() *models.BackupRestoreStatusResponse {
 	return o.Payload
 }
 
 func (o *BackupsRestoreStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.BackupRestoreMeta)
+	o.Payload = new(models.BackupRestoreStatusResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -109,8 +108,7 @@ func NewBackupsRestoreStatusUnauthorized() *BackupsRestoreStatusUnauthorized {
 	return &BackupsRestoreStatusUnauthorized{}
 }
 
-/*
-BackupsRestoreStatusUnauthorized handles this case with default header values.
+/*BackupsRestoreStatusUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -118,7 +116,7 @@ type BackupsRestoreStatusUnauthorized struct {
 }
 
 func (o *BackupsRestoreStatusUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}/restore][%d] backupsRestoreStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusUnauthorized ", 401)
 }
 
 func (o *BackupsRestoreStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -131,8 +129,7 @@ func NewBackupsRestoreStatusForbidden() *BackupsRestoreStatusForbidden {
 	return &BackupsRestoreStatusForbidden{}
 }
 
-/*
-BackupsRestoreStatusForbidden handles this case with default header values.
+/*BackupsRestoreStatusForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -141,7 +138,7 @@ type BackupsRestoreStatusForbidden struct {
 }
 
 func (o *BackupsRestoreStatusForbidden) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}/restore][%d] backupsRestoreStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsRestoreStatusForbidden) GetPayload() *models.ErrorResponse {
@@ -165,8 +162,7 @@ func NewBackupsRestoreStatusNotFound() *BackupsRestoreStatusNotFound {
 	return &BackupsRestoreStatusNotFound{}
 }
 
-/*
-BackupsRestoreStatusNotFound handles this case with default header values.
+/*BackupsRestoreStatusNotFound handles this case with default header values.
 
 Not Found - Backup does not exist
 */
@@ -175,7 +171,7 @@ type BackupsRestoreStatusNotFound struct {
 }
 
 func (o *BackupsRestoreStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}/restore][%d] backupsRestoreStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsRestoreStatusNotFound) GetPayload() *models.ErrorResponse {
@@ -199,8 +195,7 @@ func NewBackupsRestoreStatusInternalServerError() *BackupsRestoreStatusInternalS
 	return &BackupsRestoreStatusInternalServerError{}
 }
 
-/*
-BackupsRestoreStatusInternalServerError handles this case with default header values.
+/*BackupsRestoreStatusInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -209,7 +204,7 @@ type BackupsRestoreStatusInternalServerError struct {
 }
 
 func (o *BackupsRestoreStatusInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /backups/{storageName}/{id}/restore][%d] backupsRestoreStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsRestoreStatusInternalServerError) GetPayload() *models.ErrorResponse {

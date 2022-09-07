@@ -19,27 +19,10 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	entitySchema "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/semi-technologies/weaviate/usecases/backup"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
-
-func newSource(db *db.DB) ubak.SourceFactory {
-	return &sourcer{db}
-}
-
-type sourcer struct {
-	db *db.DB
-}
-
-func (sp *sourcer) SourceFactory(className string) ubak.Sourcer {
-	if idx := sp.db.GetIndex(entitySchema.ClassName(className)); idx != nil {
-		return idx
-	}
-	return nil
-}
 
 type backupHandlers struct {
 	manager *ubak.Manager
@@ -48,9 +31,13 @@ type backupHandlers struct {
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO: update s.manager.CreateBackup to receive list of classes
-	meta, err := s.manager.CreateBackup(params.HTTPRequest.Context(), principal,
-		params.Body.Include[0], params.StorageName, params.Body.ID)
+	req := ubak.BackupRequest{
+		ID:      params.Body.ID,
+		Backend: params.Backend,
+		Include: params.Body.Include,
+		Exclude: params.Body.Exclude,
+	}
+	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -72,12 +59,17 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 	principal *models.Principal,
 ) middleware.Responder {
 	// TODO: update s.manager.CreateBackupStatus to fetch the target classes internally
-	status, err := s.manager.CreateBackupStatus(params.HTTPRequest.Context(), principal,
-		"", params.StorageName, params.ID)
+	// Maybe not since classes are returned when restore is call the first time
+	// Also this would result in keeping this data in memory over the app life time
+	// I suggest to remove it from both restore and backup responses
+	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
 			return backups.NewBackupsCreateStatusForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		case backup.ErrUnprocessable:
+			return backups.NewBackupsCreateStatusUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		case backup.ErrNotFound:
 			return backups.NewBackupsCreateStatusNotFound().
@@ -93,9 +85,13 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO: update s.manager.RestoreBackup to receive list of classes
-	meta, err := s.manager.RestoreBackup(params.HTTPRequest.Context(), principal,
-		params.Body.Include[0], params.StorageName, params.ID)
+	req := ubak.BackupRequest{
+		ID:      params.ID,
+		Backend: params.Backend,
+		Include: params.Body.Include,
+		Exclude: params.Body.Exclude,
+	}
+	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &req)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -120,8 +116,11 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	principal *models.Principal,
 ) middleware.Responder {
 	// TODO: update s.manager.RestoreBackupStatus to fetch the target classes internally
-	status, restoreError, path, err := s.manager.RestoreBackupStatus(
-		params.HTTPRequest.Context(), principal, "", params.StorageName, params.ID)
+	// Maybe not since classes are returned when restore is call the first time
+	// Also this would result in keeping this data in memory over the app life time
+	// I suggest to remove it from both restore and backup responses
+	status, err := s.manager.RestorationStatus(
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -138,28 +137,24 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-
-	return backups.NewBackupsRestoreStatusOK().
-		WithPayload(&models.BackupRestoreMeta{
-			Status: &status,
-			// TODO: fetch the target classes internally
-			//       and pass them back up here to set
-			Classes:     []string{},
-			Error:       restoreError,
-			ID:          params.ID,
-			Path:        path,
-			StorageName: params.StorageName,
-		})
+	sstatus := string(status.Status)
+	payload := models.BackupRestoreStatusResponse{
+		Status:  &sstatus,
+		ID:      params.ID,
+		Path:    status.Path,
+		Backend: params.Backend,
+	}
+	if status.Err != nil {
+		payload.Error = status.Err.Error()
+	}
+	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)
 }
 
-func setupBackupHandlers(api *operations.WeaviateAPI, schemaManger *schemaUC.Manager, repo *db.DB, appState *state.State) {
-	shardingStateFunc := func(className string) *sharding.State {
-		return appState.SchemaManager.ShardingState(className)
-	}
-	snapshotterProvider := newSource(repo)
+func setupBackupHandlers(api *operations.WeaviateAPI,
+	schemaManger *schemaUC.Manager, repo *db.DB, appState *state.State,
+) {
 	backupManager := ubak.NewManager(appState.Logger, appState.Authorizer,
-		schemaManger, snapshotterProvider,
-		appState.Modules, shardingStateFunc)
+		schemaManger, repo, appState.Modules)
 
 	h := &backupHandlers{backupManager}
 	api.BackupsBackupsCreateHandler = backups.

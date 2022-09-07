@@ -16,198 +16,131 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io/fs"
-	"io/ioutil"
 	"os"
 	"path"
 	"regexp"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestSnapshot_IndexLevel(t *testing.T) {
-	t.Run("successful snapshot creation", func(t *testing.T) {
-		t.Run("setup env", func(t *testing.T) {
-			var spec struct {
-				Info struct {
-					Version string `json:"version"`
-				} `json:"info"`
-			}
-
-			contents, err := ioutil.ReadFile("../../../openapi-specs/schema.json")
-			require.Nil(t, err)
-
-			require.Nil(t, json.Unmarshal(contents, &spec))
-			// this is normally set on server start up, so
-			// it needs to be manually set for this test
-			config.ServerVersion = spec.Info.Version
-		})
-
+func TestBackup_DBLevel(t *testing.T) {
+	t.Run("successful backup creation", func(t *testing.T) {
 		ctx := testCtx()
-		className := "IndexLevelSnapshotClass"
-		snapshotID := "index-level-snapshot-test"
+		dirName := t.TempDir()
+		className := "DBLevelBackupClass"
+		backupID := "backup1"
 		now := time.Now()
-		snapshot := backup.NewSnapshot(className, snapshotID, now)
 
-		shard, index := testShard(t, ctx, className, withVectorIndexing(true))
-		// let the index age for a second so that
-		// the commitlogger filenames, which are
-		// based on current timestamp, can differ
-		time.Sleep(time.Second)
+		db := setupTestDB(t, dirName, makeTestClass(className))
+		defer func() {
+			require.Nil(t, db.Shutdown(context.Background()))
+		}()
 
 		t.Run("insert data", func(t *testing.T) {
-			require.Nil(t, index.putObject(ctx, &storobj.Object{
-				MarshallerVersion: 1,
-				Object: models.Object{
-					Class:              className,
-					CreationTimeUnix:   now.UnixNano(),
-					ID:                 "ff9fcae5-57b8-431c-b8e2-986fd78f5809",
-					LastUpdateTimeUnix: now.UnixNano(),
-					Vector:             []float32{1, 2, 3},
-					VectorWeights:      nil,
-				},
-				Vector: []float32{1, 2, 3},
-			}))
+			require.Nil(t, db.PutObject(ctx, &models.Object{
+				Class:              className,
+				CreationTimeUnix:   now.UnixNano(),
+				ID:                 "ff9fcae5-57b8-431c-b8e2-986fd78f5809",
+				LastUpdateTimeUnix: now.UnixNano(),
+				Vector:             []float32{1, 2, 3},
+				VectorWeights:      nil,
+			}, []float32{1, 2, 3}))
 		})
 
-		t.Run("create snapshot", func(t *testing.T) {
-			snap, err := index.CreateBackup(ctx, snapshot)
+		classes := db.ListBackupable()
+
+		t.Run("create backup", func(t *testing.T) {
+
+			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 
-			t.Run("assert snapshot file contents", func(t *testing.T) {
-				// should have 4 files:
-				//     - 3 files from lsm store:
-				//         - objects/segment-123.db
-				//         - hash_property__id/segment-123.db
-				//         - property__id/segment-123.db
-				//     - 1 file from vector index commitlogger
-				assert.Len(t, snap.Files, 4) // .wal are excluded
-			})
+			ch := db.BackupDescriptors(ctx, backupID, classes)
 
-			t.Run("assert shard metadata contents", func(t *testing.T) {
-				assert.NotNil(t, snap.ShardMetadata)
-				assert.Len(t, snap.ShardMetadata, 1)
-				assert.NotEmpty(t, snap.ShardMetadata[shard.name].DocIDCounter)
-				assert.NotEmpty(t, snap.ShardMetadata[shard.name].PropLengthTracker)
-				assert.NotEmpty(t, snap.ShardMetadata[shard.name].ShardVersion)
-			})
-
-			t.Run("assert schema state", func(t *testing.T) {
-				assert.NotEmpty(t, snap.ShardingState)
-				assert.NotEmpty(t, snap.Schema)
-			})
-
-			t.Run("assert server version", func(t *testing.T) {
-				assert.NotEmpty(t, snap.ServerVersion)
-				assert.Equal(t, config.ServerVersion, snap.ServerVersion)
-			})
+			for d := range ch {
+				assert.Equal(t, className, d.Name)
+				assert.Len(t, d.Shards, len(classes))
+				for _, shd := range d.Shards {
+					assert.NotEmpty(t, shd.Name)
+					assert.NotEmpty(t, shd.Node)
+					assert.NotEmpty(t, shd.Files)
+					for _, f := range shd.Files {
+						assert.NotEmpty(t, f)
+					}
+					assert.NotEmpty(t, shd.DocIDCounterPath)
+					assert.NotEmpty(t, shd.DocIDCounter)
+					assert.NotEmpty(t, shd.PropLengthTrackerPath)
+					assert.NotEmpty(t, shd.PropLengthTracker)
+					assert.NotEmpty(t, shd.ShardVersionPath)
+					assert.NotEmpty(t, shd.Version)
+				}
+				assert.NotEmpty(t, d.ShardingState)
+				assert.NotEmpty(t, d.Schema)
+			}
 		})
 
-		t.Run("release snapshot", func(t *testing.T) {
-			err := index.ReleaseBackup(ctx, snapshotID)
-			assert.Nil(t, err)
-
-			assert.False(t, index.snapshotState.InProgress)
-		})
-
-		t.Run("cleanup", func(t *testing.T) {
-			err := index.Shutdown(ctx)
-			require.Nil(t, err)
-
-			err = os.RemoveAll(index.Config.RootPath)
-			require.Nil(t, err)
+		t.Run("release backup", func(t *testing.T) {
+			for _, class := range classes {
+				err := db.ReleaseBackup(ctx, backupID, class)
+				assert.Nil(t, err)
+			}
 		})
 	})
 
-	t.Run("failed snapshot creation from expired context", func(t *testing.T) {
+	t.Run("failed backup creation from expired context", func(t *testing.T) {
 		ctx := testCtx()
+		dirName := t.TempDir()
+		className := "DBLevelBackupClass"
+		backupID := "backup1"
+		now := time.Now()
 
-		className := "IndexLevelSnapshotClass"
-		snapshotID := "index-level-snapshot-test"
-		snapshot := backup.NewSnapshot(className, snapshotID, time.Now())
+		db := setupTestDB(t, dirName, makeTestClass(className))
+		defer func() {
+			require.Nil(t, db.Shutdown(context.Background()))
+		}()
 
-		_, index := testShard(t, ctx, className, withVectorIndexing(true))
-
-		timeout, cancel := context.WithTimeout(context.Background(), 0)
-		defer cancel()
-
-		snap, err := index.CreateBackup(timeout, snapshot)
-		assert.Nil(t, snap)
-
-		// due to concurrently running cycle shutdowns,
-		// we cannot always know which will error first
-		// amongst the affected cycles (i.e. compaction,
-		// tombstone cleanup, etc)
-		expected1 := "create snapshot: long-running"
-		expected2 := "context deadline exceeded"
-		assert.Contains(t, err.Error(), expected1)
-		assert.Contains(t, err.Error(), expected2)
-
-		// snapshot state is reset on failure, so that
-		// subsequent calls to create a snapshot are
-		// not blocked
-		assert.False(t, index.snapshotState.InProgress)
-		assert.Empty(t, index.snapshotState.SnapshotID)
-
-		snapPath := backup.BuildSnapshotPath(index.Config.RootPath, className, snapshotID)
-		_, err = os.Stat(snapPath)
-		expectedErr := &fs.PathError{Op: "stat", Path: snapPath, Err: syscall.ENOENT}
-		assert.Equal(t, err, expectedErr)
-
-		t.Run("cleanup", func(t *testing.T) {
-			err := index.Shutdown(ctx)
-			require.Nil(t, err)
-
-			err = os.RemoveAll(index.Config.RootPath)
-			require.Nil(t, err)
+		t.Run("insert data", func(t *testing.T) {
+			require.Nil(t, db.PutObject(ctx, &models.Object{
+				Class:              className,
+				CreationTimeUnix:   now.UnixNano(),
+				ID:                 "ff9fcae5-57b8-431c-b8e2-986fd78f5809",
+				LastUpdateTimeUnix: now.UnixNano(),
+				Vector:             []float32{1, 2, 3},
+				VectorWeights:      nil,
+			}, []float32{1, 2, 3}))
 		})
-	})
 
-	t.Run("failed snapshot creation from existing unreleased snapshot", func(t *testing.T) {
-		ctx := testCtx()
-		className := "IndexLevelSnapshotClass"
-		inProgressSnapshotID := "index-level-snapshot-test"
-		snapshot := backup.NewSnapshot(className, "some-new-snapshot", time.Now())
+		t.Run("fail with expired context", func(t *testing.T) {
+			classes := db.ListBackupable()
 
-		_, index := testShard(t, ctx, className, withVectorIndexing(true))
+			err := db.Backupable(ctx, classes)
+			assert.Nil(t, err)
 
-		index.snapshotState = backup.State{
-			SnapshotID: inProgressSnapshotID,
-			InProgress: true,
-		}
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), 0)
+			defer cancel()
 
-		snap, err := index.CreateBackup(ctx, snapshot)
-		assert.Nil(t, snap)
-
-		expectedErr := fmt.Errorf("cannot create new snapshot, snapshot ‘%s’ "+
-			"is not yet released, this means its contents have not yet been fully copied "+
-			"to its destination, try again later", inProgressSnapshotID)
-		assert.EqualError(t, expectedErr, err.Error())
-
-		t.Run("cleanup", func(t *testing.T) {
-			err := index.Shutdown(ctx)
-			require.Nil(t, err)
-
-			err = os.RemoveAll(index.Config.RootPath)
-			require.Nil(t, err)
+			ch := db.BackupDescriptors(timeoutCtx, backupID, classes)
+			for d := range ch {
+				require.NotNil(t, d.Error)
+				assert.Contains(t, d.Error.Error(), "context deadline exceeded")
+			}
 		})
 	})
 }
 
-func TestSnapshot_BucketLevel(t *testing.T) {
+func TestBackup_BucketLevel(t *testing.T) {
 	ctx := testCtx()
-	className := "BucketLevelSnapshot"
+	className := "BucketLevelBackup"
 	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
@@ -225,7 +158,7 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("perform snapshot sequence", func(t *testing.T) {
+	t.Run("perform backup sequence", func(t *testing.T) {
 		objBucket := shard.store.Bucket("objects")
 		require.NotNil(t, objBucket)
 
@@ -245,7 +178,7 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			re := path.Clean(fmt.Sprintf("^bucketlevelsnapshot_%s_lsm\\/objects\\/.*\\.(wal|db)", shard.name))
+			re := path.Clean(fmt.Sprintf("^bucketlevelbackup_%s_lsm\\/objects\\/.*\\.(wal|db)", shard.name))
 
 			// we expect to see only two files inside the bucket at this point:
 			//   1. a *.db file
@@ -270,4 +203,50 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 		require.Nil(t, shard.shutdown(ctx))
 		require.Nil(t, os.RemoveAll(shard.index.Config.RootPath))
 	})
+}
+
+func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
+	logger, _ := test.NewNullLogger()
+
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	db := New(logger, Config{
+		RootPath:                  rootDir,
+		QueryMaximumResults:       10,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
+		NodeName:                  "testNode",
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	db.SetSchemaGetter(schemaGetter)
+	err := db.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(db, logger)
+
+	for _, class := range classes {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	}
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: classes,
+		},
+	}
+
+	return db
+}
+
+func makeTestClass(className string) *models.Class {
+	return &models.Class{
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               className,
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
 }

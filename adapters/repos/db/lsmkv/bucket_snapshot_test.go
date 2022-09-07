@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSnapshot_PauseCompaction(t *testing.T) {
+func TestBackup_PauseCompaction(t *testing.T) {
 	t.Run("assert that context timeout works for long compactions", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -75,7 +75,7 @@ func TestSnapshot_PauseCompaction(t *testing.T) {
 	})
 }
 
-func TestSnapshot_FlushMemtable(t *testing.T) {
+func TestBackup_FlushMemtable(t *testing.T) {
 	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -147,7 +147,7 @@ func TestSnapshot_FlushMemtable(t *testing.T) {
 	})
 }
 
-func TestSnapshot_ListFiles(t *testing.T) {
+func TestBackup_ListFiles(t *testing.T) {
 	ctx := context.Background()
 
 	dirName := makeTestDir(t)
@@ -175,7 +175,7 @@ func TestSnapshot_ListFiles(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestSnapshot_ResumeCompaction(t *testing.T) {
+func TestBackup_ResumeCompaction(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

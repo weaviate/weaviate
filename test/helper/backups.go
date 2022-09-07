@@ -16,36 +16,29 @@ import (
 
 	"github.com/semi-technologies/weaviate/client/backups"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/stretchr/testify/require"
 )
 
-func CreateBackup(t *testing.T, className, storageName, snapshotID string) {
+func CreateBackup(t *testing.T, className, backend, backupID string) (*backups.BackupsCreateOK, error) {
 	params := backups.NewBackupsCreateParams().
-		WithStorageName(storageName).
+		WithBackend(backend).
 		WithBody(&models.BackupCreateRequest{
-			ID:      snapshotID,
+			ID:      backupID,
 			Include: []string{className},
 		})
-	resp, err := Client(t).Backups.BackupsCreate(params, nil)
-	AssertRequestOk(t, resp, err, nil)
+	return Client(t).Backups.BackupsCreate(params, nil)
 }
 
-func CreateBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupCreateMeta {
+func CreateBackupStatus(t *testing.T, backend, backupID string) (*backups.BackupsCreateStatusOK, error) {
 	params := backups.NewBackupsCreateStatusParams().
-		WithStorageName(storageName).
-		WithID(snapshotID)
-	resp, err := Client(t).Backups.BackupsCreateStatus(params, nil)
-	if err != nil {
-		t.Fatalf("expected nil err, got: %s", err.Error())
-	}
-
-	return resp.Payload
+		WithBackend(backend).
+		WithID(backupID)
+	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
-func RestoreBackup(t *testing.T, className, storageName, snapshotID string) {
+func RestoreBackup(t *testing.T, className, backend, backupID string) {
 	params := backups.NewBackupsRestoreParams().
-		WithStorageName(storageName).
-		WithID(snapshotID).
+		WithBackend(backend).
+		WithID(backupID).
 		WithBody(&models.BackupRestoreRequest{
 			Include: []string{className},
 		})
@@ -53,12 +46,9 @@ func RestoreBackup(t *testing.T, className, storageName, snapshotID string) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func RestoreBackupStatus(t *testing.T, className, storageName, snapshotID string) *models.BackupRestoreMeta {
+func RestoreBackupStatus(t *testing.T, backend, backupID string) (*backups.BackupsRestoreStatusOK, error) {
 	params := backups.NewBackupsRestoreStatusParams().
-		WithStorageName(storageName).
-		WithID(snapshotID)
-	resp, err := Client(t).Backups.BackupsRestoreStatus(params, nil)
-	require.Nil(t, err)
-
-	return resp.Payload
+		WithBackend(backend).
+		WithID(backupID)
+	return Client(t).Backups.BackupsRestoreStatus(params, nil)
 }

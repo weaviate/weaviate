@@ -27,8 +27,7 @@ import (
 // BackupsCreateStatusOKCode is the HTTP code returned for type BackupsCreateStatusOK
 const BackupsCreateStatusOKCode int = 200
 
-/*
-BackupsCreateStatusOK Backup creation status successfully returned
+/*BackupsCreateStatusOK Backup creation status successfully returned
 
 swagger:response backupsCreateStatusOK
 */
@@ -37,7 +36,7 @@ type BackupsCreateStatusOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.BackupCreateMeta `json:"body,omitempty"`
+	Payload *models.BackupCreateStatusResponse `json:"body,omitempty"`
 }
 
 // NewBackupsCreateStatusOK creates BackupsCreateStatusOK with default headers values
@@ -47,13 +46,13 @@ func NewBackupsCreateStatusOK() *BackupsCreateStatusOK {
 }
 
 // WithPayload adds the payload to the backups create status o k response
-func (o *BackupsCreateStatusOK) WithPayload(payload *models.BackupCreateMeta) *BackupsCreateStatusOK {
+func (o *BackupsCreateStatusOK) WithPayload(payload *models.BackupCreateStatusResponse) *BackupsCreateStatusOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the backups create status o k response
-func (o *BackupsCreateStatusOK) SetPayload(payload *models.BackupCreateMeta) {
+func (o *BackupsCreateStatusOK) SetPayload(payload *models.BackupCreateStatusResponse) {
 	o.Payload = payload
 }
 
@@ -72,8 +71,7 @@ func (o *BackupsCreateStatusOK) WriteResponse(rw http.ResponseWriter, producer r
 // BackupsCreateStatusUnauthorizedCode is the HTTP code returned for type BackupsCreateStatusUnauthorized
 const BackupsCreateStatusUnauthorizedCode int = 401
 
-/*
-BackupsCreateStatusUnauthorized Unauthorized or invalid credentials.
+/*BackupsCreateStatusUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsCreateStatusUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *BackupsCreateStatusUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // BackupsCreateStatusForbiddenCode is the HTTP code returned for type BackupsCreateStatusForbidden
 const BackupsCreateStatusForbiddenCode int = 403
 
-/*
-BackupsCreateStatusForbidden Forbidden
+/*BackupsCreateStatusForbidden Forbidden
 
 swagger:response backupsCreateStatusForbidden
 */
@@ -142,8 +139,7 @@ func (o *BackupsCreateStatusForbidden) WriteResponse(rw http.ResponseWriter, pro
 // BackupsCreateStatusNotFoundCode is the HTTP code returned for type BackupsCreateStatusNotFound
 const BackupsCreateStatusNotFoundCode int = 404
 
-/*
-BackupsCreateStatusNotFound Not Found - Backup does not exist
+/*BackupsCreateStatusNotFound Not Found - Backup does not exist
 
 swagger:response backupsCreateStatusNotFound
 */
@@ -184,11 +180,54 @@ func (o *BackupsCreateStatusNotFound) WriteResponse(rw http.ResponseWriter, prod
 	}
 }
 
+// BackupsCreateStatusUnprocessableEntityCode is the HTTP code returned for type BackupsCreateStatusUnprocessableEntity
+const BackupsCreateStatusUnprocessableEntityCode int = 422
+
+/*BackupsCreateStatusUnprocessableEntity Invalid backup restoration status attempt.
+
+swagger:response backupsCreateStatusUnprocessableEntity
+*/
+type BackupsCreateStatusUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewBackupsCreateStatusUnprocessableEntity creates BackupsCreateStatusUnprocessableEntity with default headers values
+func NewBackupsCreateStatusUnprocessableEntity() *BackupsCreateStatusUnprocessableEntity {
+
+	return &BackupsCreateStatusUnprocessableEntity{}
+}
+
+// WithPayload adds the payload to the backups create status unprocessable entity response
+func (o *BackupsCreateStatusUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *BackupsCreateStatusUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the backups create status unprocessable entity response
+func (o *BackupsCreateStatusUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *BackupsCreateStatusUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // BackupsCreateStatusInternalServerErrorCode is the HTTP code returned for type BackupsCreateStatusInternalServerError
 const BackupsCreateStatusInternalServerErrorCode int = 500
 
-/*
-BackupsCreateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*BackupsCreateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response backupsCreateStatusInternalServerError
 */

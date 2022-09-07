@@ -40,16 +40,16 @@ type BackupsCreateStatusParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*Backup backend name e.g. filesystem, gcs, s3.
+	  Required: true
+	  In: path
+	*/
+	Backend string
 	/*The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	  Required: true
 	  In: path
 	*/
 	ID string
-	/*Storage name e.g. filesystem, gcs, s3.
-	  Required: true
-	  In: path
-	*/
-	StorageName string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -61,19 +61,34 @@ func (o *BackupsCreateStatusParams) BindRequest(r *http.Request, route *middlewa
 
 	o.HTTPRequest = r
 
-	rID, rhkID, _ := route.Params.GetOK("id")
-	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
+	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
-	rStorageName, rhkStorageName, _ := route.Params.GetOK("storageName")
-	if err := o.bindStorageName(rStorageName, rhkStorageName, route.Formats); err != nil {
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindBackend binds and validates parameter Backend from path.
+func (o *BackupsCreateStatusParams) bindBackend(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+
+	o.Backend = raw
+
 	return nil
 }
 
@@ -88,21 +103,6 @@ func (o *BackupsCreateStatusParams) bindID(rawData []string, hasKey bool, format
 	// Parameter is provided by construction from the route
 
 	o.ID = raw
-
-	return nil
-}
-
-// bindStorageName binds and validates parameter StorageName from path.
-func (o *BackupsCreateStatusParams) bindStorageName(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: true
-	// Parameter is provided by construction from the route
-
-	o.StorageName = raw
 
 	return nil
 }

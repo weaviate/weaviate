@@ -66,22 +66,21 @@ func NewBackupsCreateStatusParamsWithHTTPClient(client *http.Client) *BackupsCre
 	}
 }
 
-/*
-BackupsCreateStatusParams contains all the parameters to send to the API endpoint
+/*BackupsCreateStatusParams contains all the parameters to send to the API endpoint
 for the backups create status operation typically these are written to a http.Request
 */
 type BackupsCreateStatusParams struct {
 
+	/*Backend
+	  Backup backend name e.g. filesystem, gcs, s3.
+
+	*/
+	Backend string
 	/*ID
 	  The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 
 	*/
 	ID string
-	/*StorageName
-	  Storage name e.g. filesystem, gcs, s3.
-
-	*/
-	StorageName string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -121,6 +120,17 @@ func (o *BackupsCreateStatusParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBackend adds the backend to the backups create status params
+func (o *BackupsCreateStatusParams) WithBackend(backend string) *BackupsCreateStatusParams {
+	o.SetBackend(backend)
+	return o
+}
+
+// SetBackend adds the backend to the backups create status params
+func (o *BackupsCreateStatusParams) SetBackend(backend string) {
+	o.Backend = backend
+}
+
 // WithID adds the id to the backups create status params
 func (o *BackupsCreateStatusParams) WithID(id string) *BackupsCreateStatusParams {
 	o.SetID(id)
@@ -132,17 +142,6 @@ func (o *BackupsCreateStatusParams) SetID(id string) {
 	o.ID = id
 }
 
-// WithStorageName adds the storageName to the backups create status params
-func (o *BackupsCreateStatusParams) WithStorageName(storageName string) *BackupsCreateStatusParams {
-	o.SetStorageName(storageName)
-	return o
-}
-
-// SetStorageName adds the storageName to the backups create status params
-func (o *BackupsCreateStatusParams) SetStorageName(storageName string) {
-	o.StorageName = storageName
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsCreateStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -151,13 +150,13 @@ func (o *BackupsCreateStatusParams) WriteToRequest(r runtime.ClientRequest, reg 
 	}
 	var res []error
 
-	// path param id
-	if err := r.SetPathParam("id", o.ID); err != nil {
+	// path param backend
+	if err := r.SetPathParam("backend", o.Backend); err != nil {
 		return err
 	}
 
-	// path param storageName
-	if err := r.SetPathParam("storageName", o.StorageName); err != nil {
+	// path param id
+	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
 	}
 
