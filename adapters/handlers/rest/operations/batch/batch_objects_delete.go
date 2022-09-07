@@ -42,12 +42,12 @@ func NewBatchObjectsDelete(ctx *middleware.Context, handler BatchObjectsDeleteHa
 	return &BatchObjectsDelete{Context: ctx, Handler: handler}
 }
 
-/*BatchObjectsDelete swagger:route DELETE /batch/objects batch objects batchObjectsDelete
+/*
+BatchObjectsDelete swagger:route DELETE /batch/objects batch objects batchObjectsDelete
 
 Deletes Objects based on a match filter as a batch.
 
 Delete Objects in bulk that match a certain filter.
-
 */
 type BatchObjectsDelete struct {
 	Context *middleware.Context

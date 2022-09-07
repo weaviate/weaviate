@@ -27,7 +27,8 @@ import (
 // BackupsCreateOKCode is the HTTP code returned for type BackupsCreateOK
 const BackupsCreateOKCode int = 200
 
-/*BackupsCreateOK Backup create process successfully started.
+/*
+BackupsCreateOK Backup create process successfully started.
 
 swagger:response backupsCreateOK
 */
@@ -71,7 +72,8 @@ func (o *BackupsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime
 // BackupsCreateUnauthorizedCode is the HTTP code returned for type BackupsCreateUnauthorized
 const BackupsCreateUnauthorizedCode int = 401
 
-/*BackupsCreateUnauthorized Unauthorized or invalid credentials.
+/*
+BackupsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsCreateUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *BackupsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, produc
 // BackupsCreateForbiddenCode is the HTTP code returned for type BackupsCreateForbidden
 const BackupsCreateForbiddenCode int = 403
 
-/*BackupsCreateForbidden Forbidden
+/*
+BackupsCreateForbidden Forbidden
 
 swagger:response backupsCreateForbidden
 */
@@ -139,7 +142,8 @@ func (o *BackupsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 // BackupsCreateUnprocessableEntityCode is the HTTP code returned for type BackupsCreateUnprocessableEntity
 const BackupsCreateUnprocessableEntityCode int = 422
 
-/*BackupsCreateUnprocessableEntity Invalid backup creation attempt.
+/*
+BackupsCreateUnprocessableEntity Invalid backup creation attempt.
 
 swagger:response backupsCreateUnprocessableEntity
 */
@@ -183,7 +187,8 @@ func (o *BackupsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter,
 // BackupsCreateInternalServerErrorCode is the HTTP code returned for type BackupsCreateInternalServerError
 const BackupsCreateInternalServerErrorCode int = 500
 
-/*BackupsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+BackupsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response backupsCreateInternalServerError
 */
