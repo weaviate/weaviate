@@ -20,6 +20,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
@@ -83,6 +84,8 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	if err != nil {
 		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
+
+	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues("backup-gcs").Add(float64(len(content)))
 	return content, nil
 }
 
@@ -161,6 +164,9 @@ func (g *gcs) PutObject(ctx context.Context, backupID, key string, byes []byte) 
 	if err := writer.Close(); err != nil {
 		return errors.Wrapf(err, "close writer for file: %v", objectName)
 	}
+
+	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-gcs").Add(float64(len(byes)))
+
 	return nil
 }
 
