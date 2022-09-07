@@ -19,8 +19,10 @@ import (
 	"path"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
 // TODO adjust or make configurable
@@ -124,7 +126,8 @@ Loop:
 
 // class uploads one class
 func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescriptor) (err error) {
-	// TODO and instrumentation
+	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupRestoreDurations.WithLabelValues(getType(u.backend.BackupBackend), desc.Name))
+	defer timer.ObserveDuration()
 	defer func() {
 		// backups need to be released anyway
 		go u.sourcer.ReleaseBackup(context.Background(), id, desc.Name)
