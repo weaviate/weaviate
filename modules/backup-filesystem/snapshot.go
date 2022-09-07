@@ -41,7 +41,7 @@ func (m *BackupFileSystemModule) GetObject(ctx context.Context, backupID, key st
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", metaPath))
 	}
 
-	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues(m.Name()).Add(float64(len(contents)))
+	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues(m.Name(), "class").Add(float64(len(contents)))
 
 	return contents, nil
 }
@@ -68,7 +68,7 @@ func (m *BackupFileSystemModule) PutObject(ctx context.Context, backupID, key st
 		return errors.Wrapf(err, "write file '%s'", backupPath)
 	}
 
-	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues(m.Name()).Add(float64(len(byes)))
+	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues(m.Name(), "class").Add(float64(len(byes)))
 
 	return nil
 }
