@@ -75,10 +75,8 @@ func (r *restorer) restoreAll(ctx context.Context,
 
 func getType(myvar interface{}) string {
 	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
-		fmt.Printf("!!!!!!!!!type of myvar is %s", t.Elem().Name())
 		return "*" + t.Elem().Name()
 	} else {
-		fmt.Printf("!!!!!!!!!type of myvar is %s", t.Name())
 		return t.Name()
 	}
 }
@@ -90,7 +88,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 ) (err error) {
 	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupRestoreDurations.WithLabelValues(getType(store.BackupBackend), desc.Name))
 	defer timer.ObserveDuration()
-	
+
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
 	}
