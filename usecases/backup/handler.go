@@ -142,8 +142,6 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	}
 }
 
-// TODO validate meta data file
-
 func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (*models.BackupRestoreResponse, error) {
@@ -282,7 +280,11 @@ func (m *Manager) validateRestoreRequst(ctx context.Context, store objectStore, 
 	}
 	if meta.Status != string(backup.Success) {
 		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
-		return nil, backup.NewErrNotFound(err)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	if err := meta.Validate(); err != nil {
+		err = fmt.Errorf("corrupted backup file: %w", err)
+		return nil, backup.NewErrUnprocessable(err)
 	}
 	classes := meta.List()
 	if len(req.Include) > 0 {

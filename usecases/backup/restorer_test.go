@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -27,6 +28,7 @@ import (
 var ErrAny = errors.New("any error")
 
 func TestRestoreStatus(t *testing.T) {
+	t.Parallel()
 	var (
 		backendType = "s3"
 		id          = "1234"
@@ -73,7 +75,9 @@ func TestRestoreRequestValidation(t *testing.T) {
 	var (
 		cls         = "MyClass"
 		backendName = "s3"
+		rawbytes    = []byte("hello")
 		id          = "1234"
+		timept      = time.Now().UTC()
 		m           = createManager(nil, nil, nil)
 		ctx         = context.Background()
 		path        = "bucket/backups"
@@ -84,35 +88,45 @@ func TestRestoreRequestValidation(t *testing.T) {
 			Exclude: []string{},
 		}
 	)
-
-	_, err := m.Restore(ctx, nil, &BackupRequest{
-		Backend: backendName,
-		ID:      id,
-		Include: []string{cls},
-		Exclude: []string{cls},
-	})
-	if err == nil {
-		t.Errorf("must return an error for non empty include and exclude")
+	meta := backup.BackupDescriptor{
+		ID:            "1",
+		StartedAt:     timept,
+		Version:       "1",
+		ServerVersion: "1",
+		Status:        string(backup.Success),
+		Classes: []backup.ClassDescriptor{{
+			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+		}},
 	}
-	{ //  backend provider fails
+
+	t.Run("NonEmptyIncludeAndExclude", func(t *testing.T) {
+		_, err := m.Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      id,
+			Include: []string{cls},
+			Exclude: []string{cls},
+		})
+		assert.NotNil(t, err)
+	})
+	t.Run("BackendFailure", func(t *testing.T) { //  backend provider fails
 		backend := &fakeBackend{}
 		m2 := createManager(nil, backend, ErrAny)
-		_, err = m2.Restore(ctx, nil, &BackupRequest{
+		_, err := m2.Restore(ctx, nil, &BackupRequest{
 			Backend: backendName,
 			ID:      id,
 			Include: []string{cls},
 			Exclude: []string{},
 		})
-		if err == nil || !strings.Contains(err.Error(), backendName) {
-			t.Errorf("must return an error if it fails to get backend provider: %v", err)
-		}
-	}
-	{ //  fail to get meta data
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), backendName)
+	})
+
+	t.Run("GetMetdataFile", func(t *testing.T) {
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, backend, nil)
-		_, err = m2.Restore(ctx, nil, req)
+		_, err := m2.Restore(ctx, nil, req)
 		if err == nil || !strings.Contains(err.Error(), "find") {
 			t.Errorf("must return an error if it fails to get meta data: %v", err)
 		}
@@ -126,74 +140,67 @@ func TestRestoreRequestValidation(t *testing.T) {
 		if _, ok := err.(backup.ErrNotFound); !ok {
 			t.Errorf("must return an error if meta data doesn't exist: %v", err)
 		}
-	}
+	})
 
-	{ //  failed backup
+	t.Run("FailedBackup", func(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Failed)})
 		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, backend, nil)
-		_, err = m2.Restore(ctx, nil, req)
-		if err == nil {
-			t.Errorf("must return an error backup failed: %v", err)
-		}
-	}
-	{ //  backup was successful requst include unknown class
+		_, err := m2.Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+	t.Run("CorruptedFile", func(t *testing.T) {
 		backend := &fakeBackend{}
-		bytes := marshalMeta(
-			backup.BackupDescriptor{
-				Status:  string(backup.Success),
-				Classes: []backup.ClassDescriptor{{Name: cls}},
-			},
-		)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
 		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, backend, nil)
-		_, err = m2.Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}})
-		if err == nil || !strings.Contains(err.Error(), "unknown") {
-			t.Errorf("must return an error if any class in 'include' doesn't exist in metadata: %v", err)
-		}
-	}
-	{ //  backup was successful but class list is empty
+		_, err := m2.Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.Contains(t, err.Error(), "corrupted")
+	})
+
+	t.Run("UknownClass", func(t *testing.T) {
 		backend := &fakeBackend{}
-		bytes := marshalMeta(
-			backup.BackupDescriptor{
-				Status:  string(backup.Success),
-				Classes: []backup.ClassDescriptor{{Name: cls}},
-			},
-		)
+		bytes := marshalMeta(meta)
 		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, backend, nil)
-		_, err = m2.Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}})
-		if err == nil || !strings.Contains(err.Error(), "empty") {
-			t.Errorf("must return an error resulting list of classes is empty: %v", err)
-		}
-	}
-	{ //  one class exists already in DB
+		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}})
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "unknown")
+	})
+
+	t.Run("EmptyResultClassList", func(t *testing.T) { //  backup was successful but class list is empty
+		backend := &fakeBackend{}
+		bytes := marshalMeta(meta)
+		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m2 := createManager(nil, backend, nil)
+		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}})
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "empty")
+	})
+	t.Run("ClassAlreadyExists", func(t *testing.T) { //  one class exists already in DB
 		backend := &fakeBackend{}
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(true)
-		bytes := marshalMeta(
-			backup.BackupDescriptor{
-				Status:  string(backup.Success),
-				Classes: []backup.ClassDescriptor{{Name: cls}},
-			},
-		)
+		bytes := marshalMeta(meta)
 		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(sourcer, backend, nil)
-		_, err = m2.Restore(ctx, nil, &BackupRequest{ID: id})
-		if err == nil || !strings.Contains(err.Error(), cls) {
-			t.Errorf("must return an error if a class exits already: %v", err)
-		}
+		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id})
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), cls)
 		uerr := backup.ErrUnprocessable{}
 		if !errors.As(err, &uerr) {
 			t.Errorf("error want=%v got=%v", uerr, err)
 		}
-
-	}
+	})
 }
 
 func marshalMeta(m backup.BackupDescriptor) []byte {
