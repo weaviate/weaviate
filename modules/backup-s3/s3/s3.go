@@ -91,7 +91,10 @@ func (s *s3) GetObject(ctx context.Context, backupID, key string) ([]byte, error
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues("backup-s3", "class").Add(float64(len(contents)))
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(len(contents)))
+	}
 
 	return contents, nil
 }
@@ -114,7 +117,10 @@ func (s *s3) PutFile(ctx context.Context, backupID, key string, srcPath string) 
 	}
 	size := file.Size()
 
-	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3", "class").Add(float64(size))
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(size))
+	}
 	return nil
 }
 
@@ -130,7 +136,10 @@ func (s *s3) PutObject(ctx context.Context, backupID, key string, byes []byte) e
 			errors.Wrapf(err, "put object '%s'", objectName))
 	}
 
-	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3", "class").Add(float64(len(byes)))
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(len(byes)))
+	}
 	return nil
 }
 
