@@ -62,6 +62,14 @@ different usecase for a [Bucket].
 
     The same performance-considerations as for sets apply.
 
+# Navigate around these docs
+
+Good entrypoints to learn more about how this package works include [Store]
+with [New] and [Store.CreateOrLoadBucket], as well as [Bucket] with
+[Bucket.Get], [Bucket.GetBySecondary], [Bucket.Put], etc.
+
+Each strategy also supports cursor types: [CursorReplace] can be created using [Bucket.Cursor], [CursorSet] can be created with [Bucket.SetCursor] , and [CursorMap] can be created with [Bucket.MapCursor].
+
 [LSM Stores]: https://en.wikipedia.org/wiki/Log-structured_merge-tree
 */
 package lsmkv
