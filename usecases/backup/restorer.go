@@ -14,10 +14,13 @@ package backup
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -70,11 +73,25 @@ func (r *restorer) restoreAll(ctx context.Context,
 	return nil
 }
 
+func getType(myvar interface{}) string {
+	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
+		return "*" + t.Elem().Name()
+	} else {
+		return t.Name()
+	}
+}
+
 func (r *restorer) restoreOne(ctx context.Context,
 	pr *models.Principal, backupID string,
 	desc *backup.ClassDescriptor,
 	store objectStore,
 ) (err error) {
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.BackupBackend), desc.Name)
+	if err != nil {
+		timer := prometheus.NewTimer(metric)
+		defer timer.ObserveDuration()
+	}
+
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
 	}

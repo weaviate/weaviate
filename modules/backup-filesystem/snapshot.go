@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
 func (m *BackupFileSystemModule) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
@@ -38,6 +39,11 @@ func (m *BackupFileSystemModule) GetObject(ctx context.Context, backupID, key st
 	contents, err := os.ReadFile(metaPath)
 	if err != nil {
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", metaPath))
+	}
+
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
+	if err == nil {
+		metric.Add(float64(len(contents)))
 	}
 
 	return contents, nil
@@ -63,6 +69,11 @@ func (m *BackupFileSystemModule) PutObject(ctx context.Context, backupID, key st
 
 	if err := os.WriteFile(backupPath, byes, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "write file '%s'", backupPath)
+	}
+
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
+	if err == nil {
+		metric.Add(float64(len(byes)))
 	}
 
 	return nil

@@ -23,6 +23,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
 
@@ -90,6 +91,11 @@ func (s *s3) GetObject(ctx context.Context, backupID, key string) ([]byte, error
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(len(contents)))
+	}
+
 	return contents, nil
 }
 
@@ -104,6 +110,17 @@ func (s *s3) PutFile(ctx context.Context, backupID, key string, srcPath string) 
 			errors.Wrapf(err, "put file '%s'", objectName))
 	}
 
+	// Get filesize
+	file, err := os.Stat(srcPath)
+	if err != nil {
+		return nil
+	}
+	size := file.Size()
+
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(size))
+	}
 	return nil
 }
 
@@ -119,6 +136,10 @@ func (s *s3) PutObject(ctx context.Context, backupID, key string, byes []byte) e
 			errors.Wrapf(err, "put object '%s'", objectName))
 	}
 
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(len(byes)))
+	}
 	return nil
 }
 
@@ -152,6 +173,11 @@ func (s *s3) WriteToFile(ctx context.Context, backupID, key, destPath string) er
 
 	if err := os.WriteFile(destPath, obj, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "write file '%s'", destPath)
+	}
+
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(len(obj)))
 	}
 
 	return nil
