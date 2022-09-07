@@ -27,7 +27,8 @@ import (
 // SchemaDumpOKCode is the HTTP code returned for type SchemaDumpOK
 const SchemaDumpOKCode int = 200
 
-/*SchemaDumpOK Successfully dumped the database schema.
+/*
+SchemaDumpOK Successfully dumped the database schema.
 
 swagger:response schemaDumpOK
 */
@@ -71,7 +72,8 @@ func (o *SchemaDumpOK) WriteResponse(rw http.ResponseWriter, producer runtime.Pr
 // SchemaDumpUnauthorizedCode is the HTTP code returned for type SchemaDumpUnauthorized
 const SchemaDumpUnauthorizedCode int = 401
 
-/*SchemaDumpUnauthorized Unauthorized or invalid credentials.
+/*
+SchemaDumpUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaDumpUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *SchemaDumpUnauthorized) WriteResponse(rw http.ResponseWriter, producer 
 // SchemaDumpForbiddenCode is the HTTP code returned for type SchemaDumpForbidden
 const SchemaDumpForbiddenCode int = 403
 
-/*SchemaDumpForbidden Forbidden
+/*
+SchemaDumpForbidden Forbidden
 
 swagger:response schemaDumpForbidden
 */
@@ -139,7 +142,8 @@ func (o *SchemaDumpForbidden) WriteResponse(rw http.ResponseWriter, producer run
 // SchemaDumpInternalServerErrorCode is the HTTP code returned for type SchemaDumpInternalServerError
 const SchemaDumpInternalServerErrorCode int = 500
 
-/*SchemaDumpInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+SchemaDumpInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaDumpInternalServerError
 */

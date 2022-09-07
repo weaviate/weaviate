@@ -42,12 +42,12 @@ func NewObjectsPatch(ctx *middleware.Context, handler ObjectsPatchHandler) *Obje
 	return &ObjectsPatch{Context: ctx, Handler: handler}
 }
 
-/*ObjectsPatch swagger:route PATCH /objects/{id} objects objectsPatch
+/*
+ObjectsPatch swagger:route PATCH /objects/{id} objects objectsPatch
 
 Update an Object based on its UUID (using patch semantics).
 
 Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
-
 */
 type ObjectsPatch struct {
 	Context *middleware.Context

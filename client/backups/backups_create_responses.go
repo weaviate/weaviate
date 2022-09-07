@@ -75,7 +75,8 @@ func NewBackupsCreateOK() *BackupsCreateOK {
 	return &BackupsCreateOK{}
 }
 
-/*BackupsCreateOK handles this case with default header values.
+/*
+BackupsCreateOK handles this case with default header values.
 
 Backup create process successfully started.
 */
@@ -108,7 +109,8 @@ func NewBackupsCreateUnauthorized() *BackupsCreateUnauthorized {
 	return &BackupsCreateUnauthorized{}
 }
 
-/*BackupsCreateUnauthorized handles this case with default header values.
+/*
+BackupsCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewBackupsCreateForbidden() *BackupsCreateForbidden {
 	return &BackupsCreateForbidden{}
 }
 
-/*BackupsCreateForbidden handles this case with default header values.
+/*
+BackupsCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewBackupsCreateUnprocessableEntity() *BackupsCreateUnprocessableEntity {
 	return &BackupsCreateUnprocessableEntity{}
 }
 
-/*BackupsCreateUnprocessableEntity handles this case with default header values.
+/*
+BackupsCreateUnprocessableEntity handles this case with default header values.
 
 Invalid backup creation attempt.
 */
@@ -195,7 +199,8 @@ func NewBackupsCreateInternalServerError() *BackupsCreateInternalServerError {
 	return &BackupsCreateInternalServerError{}
 }
 
-/*BackupsCreateInternalServerError handles this case with default header values.
+/*
+BackupsCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

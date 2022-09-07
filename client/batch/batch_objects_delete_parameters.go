@@ -68,7 +68,8 @@ func NewBatchObjectsDeleteParamsWithHTTPClient(client *http.Client) *BatchObject
 	}
 }
 
-/*BatchObjectsDeleteParams contains all the parameters to send to the API endpoint
+/*
+BatchObjectsDeleteParams contains all the parameters to send to the API endpoint
 for the batch objects delete operation typically these are written to a http.Request
 */
 type BatchObjectsDeleteParams struct {
