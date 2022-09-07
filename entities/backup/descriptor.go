@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -115,4 +116,32 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 		}
 	}
 	d.Classes = cs
+}
+
+func (d *BackupDescriptor) Validate() error {
+	if d.StartedAt.IsZero() || d.ID == "" ||
+		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
+		return fmt.Errorf("invalid file: [id versions time error]")
+	}
+	for _, c := range d.Classes {
+		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
+			return fmt.Errorf("invalid class %q: [name schema sharding]", c.Name)
+		}
+		for _, s := range c.Shards {
+			n := len(s.Files)
+			if s.Name == "" || s.Node == "" || s.DocIDCounterPath == "" ||
+				s.ShardVersionPath == "" || s.PropLengthTrackerPath == "" ||
+				(n > 0 && (len(s.DocIDCounter) == 0 ||
+					len(s.PropLengthTracker) == 0 ||
+					len(s.Version) == 0)) {
+				return fmt.Errorf("invalid shard %q.%q", c.Name, s.Name)
+			}
+			for i, fpath := range s.Files {
+				if fpath == "" {
+					return fmt.Errorf("invalid shard %q.%q: file number %d", c.Name, s.Name, i)
+				}
+			}
+		}
+	}
+	return nil
 }
