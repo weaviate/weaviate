@@ -278,6 +278,10 @@ func (m *Manager) validateRestoreRequst(ctx context.Context, store objectStore, 
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
+	if meta.ID != req.ID {
+		err = fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	if meta.Status != string(backup.Success) {
 		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
 		return nil, backup.NewErrUnprocessable(err)
