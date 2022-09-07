@@ -173,6 +173,8 @@ func newFileWriter(sourcer Sourcer, backend objectStore,
 
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (rollback func() error, err error) {
+	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupRestoreDurations.WithLabelValues(getType(fw.backend.BackupBackend), desc.Name))
+	defer timer.ObserveDuration()
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 	defer func() {
 		if err != nil {
