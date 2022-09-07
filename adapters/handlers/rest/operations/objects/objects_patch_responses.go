@@ -27,7 +27,8 @@ import (
 // ObjectsPatchNoContentCode is the HTTP code returned for type ObjectsPatchNoContent
 const ObjectsPatchNoContentCode int = 204
 
-/*ObjectsPatchNoContent Successfully applied. No content provided.
+/*
+ObjectsPatchNoContent Successfully applied. No content provided.
 
 swagger:response objectsPatchNoContent
 */
@@ -51,7 +52,8 @@ func (o *ObjectsPatchNoContent) WriteResponse(rw http.ResponseWriter, producer r
 // ObjectsPatchBadRequestCode is the HTTP code returned for type ObjectsPatchBadRequest
 const ObjectsPatchBadRequestCode int = 400
 
-/*ObjectsPatchBadRequest The patch-JSON is malformed.
+/*
+ObjectsPatchBadRequest The patch-JSON is malformed.
 
 swagger:response objectsPatchBadRequest
 */
@@ -75,7 +77,8 @@ func (o *ObjectsPatchBadRequest) WriteResponse(rw http.ResponseWriter, producer 
 // ObjectsPatchUnauthorizedCode is the HTTP code returned for type ObjectsPatchUnauthorized
 const ObjectsPatchUnauthorizedCode int = 401
 
-/*ObjectsPatchUnauthorized Unauthorized or invalid credentials.
+/*
+ObjectsPatchUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsPatchUnauthorized
 */
@@ -99,7 +102,8 @@ func (o *ObjectsPatchUnauthorized) WriteResponse(rw http.ResponseWriter, produce
 // ObjectsPatchForbiddenCode is the HTTP code returned for type ObjectsPatchForbidden
 const ObjectsPatchForbiddenCode int = 403
 
-/*ObjectsPatchForbidden Forbidden
+/*
+ObjectsPatchForbidden Forbidden
 
 swagger:response objectsPatchForbidden
 */
@@ -143,7 +147,8 @@ func (o *ObjectsPatchForbidden) WriteResponse(rw http.ResponseWriter, producer r
 // ObjectsPatchNotFoundCode is the HTTP code returned for type ObjectsPatchNotFound
 const ObjectsPatchNotFoundCode int = 404
 
-/*ObjectsPatchNotFound Successful query result but no resource was found.
+/*
+ObjectsPatchNotFound Successful query result but no resource was found.
 
 swagger:response objectsPatchNotFound
 */
@@ -167,7 +172,8 @@ func (o *ObjectsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 // ObjectsPatchUnprocessableEntityCode is the HTTP code returned for type ObjectsPatchUnprocessableEntity
 const ObjectsPatchUnprocessableEntityCode int = 422
 
-/*ObjectsPatchUnprocessableEntity The patch-JSON is valid but unprocessable.
+/*
+ObjectsPatchUnprocessableEntity The patch-JSON is valid but unprocessable.
 
 swagger:response objectsPatchUnprocessableEntity
 */
@@ -211,7 +217,8 @@ func (o *ObjectsPatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, 
 // ObjectsPatchInternalServerErrorCode is the HTTP code returned for type ObjectsPatchInternalServerError
 const ObjectsPatchInternalServerErrorCode int = 500
 
-/*ObjectsPatchInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+ObjectsPatchInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsPatchInternalServerError
 */

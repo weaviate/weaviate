@@ -27,7 +27,8 @@ import (
 // BackupsRestoreOKCode is the HTTP code returned for type BackupsRestoreOK
 const BackupsRestoreOKCode int = 200
 
-/*BackupsRestoreOK Backup restoration process successfully started.
+/*
+BackupsRestoreOK Backup restoration process successfully started.
 
 swagger:response backupsRestoreOK
 */
@@ -71,7 +72,8 @@ func (o *BackupsRestoreOK) WriteResponse(rw http.ResponseWriter, producer runtim
 // BackupsRestoreUnauthorizedCode is the HTTP code returned for type BackupsRestoreUnauthorized
 const BackupsRestoreUnauthorizedCode int = 401
 
-/*BackupsRestoreUnauthorized Unauthorized or invalid credentials.
+/*
+BackupsRestoreUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsRestoreUnauthorized
 */
@@ -95,7 +97,8 @@ func (o *BackupsRestoreUnauthorized) WriteResponse(rw http.ResponseWriter, produ
 // BackupsRestoreForbiddenCode is the HTTP code returned for type BackupsRestoreForbidden
 const BackupsRestoreForbiddenCode int = 403
 
-/*BackupsRestoreForbidden Forbidden
+/*
+BackupsRestoreForbidden Forbidden
 
 swagger:response backupsRestoreForbidden
 */
@@ -139,7 +142,8 @@ func (o *BackupsRestoreForbidden) WriteResponse(rw http.ResponseWriter, producer
 // BackupsRestoreNotFoundCode is the HTTP code returned for type BackupsRestoreNotFound
 const BackupsRestoreNotFoundCode int = 404
 
-/*BackupsRestoreNotFound Not Found - Backup does not exist
+/*
+BackupsRestoreNotFound Not Found - Backup does not exist
 
 swagger:response backupsRestoreNotFound
 */
@@ -183,7 +187,8 @@ func (o *BackupsRestoreNotFound) WriteResponse(rw http.ResponseWriter, producer 
 // BackupsRestoreUnprocessableEntityCode is the HTTP code returned for type BackupsRestoreUnprocessableEntity
 const BackupsRestoreUnprocessableEntityCode int = 422
 
-/*BackupsRestoreUnprocessableEntity Invalid backup restoration attempt.
+/*
+BackupsRestoreUnprocessableEntity Invalid backup restoration attempt.
 
 swagger:response backupsRestoreUnprocessableEntity
 */
@@ -227,7 +232,8 @@ func (o *BackupsRestoreUnprocessableEntity) WriteResponse(rw http.ResponseWriter
 // BackupsRestoreInternalServerErrorCode is the HTTP code returned for type BackupsRestoreInternalServerError
 const BackupsRestoreInternalServerErrorCode int = 500
 
-/*BackupsRestoreInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*
+BackupsRestoreInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response backupsRestoreInternalServerError
 */

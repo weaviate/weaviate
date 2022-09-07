@@ -42,10 +42,10 @@ func NewWeaviateWellknownLiveness(ctx *middleware.Context, handler WeaviateWellk
 	return &WeaviateWellknownLiveness{Context: ctx, Handler: handler}
 }
 
-/*WeaviateWellknownLiveness swagger:route GET /.well-known/live weaviateWellknownLiveness
+/*
+WeaviateWellknownLiveness swagger:route GET /.well-known/live weaviateWellknownLiveness
 
 Determines whether the application is alive. Can be used for kubernetes liveness probe
-
 */
 type WeaviateWellknownLiveness struct {
 	Context *middleware.Context

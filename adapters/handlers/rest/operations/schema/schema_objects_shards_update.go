@@ -42,10 +42,10 @@ func NewSchemaObjectsShardsUpdate(ctx *middleware.Context, handler SchemaObjects
 	return &SchemaObjectsShardsUpdate{Context: ctx, Handler: handler}
 }
 
-/*SchemaObjectsShardsUpdate swagger:route PUT /schema/{className}/shards/{shardName} schema schemaObjectsShardsUpdate
+/*
+SchemaObjectsShardsUpdate swagger:route PUT /schema/{className}/shards/{shardName} schema schemaObjectsShardsUpdate
 
 Update shard status of an Object Class
-
 */
 type SchemaObjectsShardsUpdate struct {
 	Context *middleware.Context

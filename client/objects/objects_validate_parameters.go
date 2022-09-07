@@ -68,7 +68,8 @@ func NewObjectsValidateParamsWithHTTPClient(client *http.Client) *ObjectsValidat
 	}
 }
 
-/*ObjectsValidateParams contains all the parameters to send to the API endpoint
+/*
+ObjectsValidateParams contains all the parameters to send to the API endpoint
 for the objects validate operation typically these are written to a http.Request
 */
 type ObjectsValidateParams struct {

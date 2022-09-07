@@ -68,7 +68,8 @@ func NewObjectsReferencesCreateParamsWithHTTPClient(client *http.Client) *Object
 	}
 }
 
-/*ObjectsReferencesCreateParams contains all the parameters to send to the API endpoint
+/*
+ObjectsReferencesCreateParams contains all the parameters to send to the API endpoint
 for the objects references create operation typically these are written to a http.Request
 */
 type ObjectsReferencesCreateParams struct {

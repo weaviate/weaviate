@@ -80,7 +80,8 @@ func NewBatchObjectsCreateOK() *BatchObjectsCreateOK {
 	return &BatchObjectsCreateOK{}
 }
 
-/*BatchObjectsCreateOK handles this case with default header values.
+/*
+BatchObjectsCreateOK handles this case with default header values.
 
 Request succeeded, see response body to get detailed information about each batched item.
 */
@@ -111,7 +112,8 @@ func NewBatchObjectsCreateUnauthorized() *BatchObjectsCreateUnauthorized {
 	return &BatchObjectsCreateUnauthorized{}
 }
 
-/*BatchObjectsCreateUnauthorized handles this case with default header values.
+/*
+BatchObjectsCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -132,7 +134,8 @@ func NewBatchObjectsCreateForbidden() *BatchObjectsCreateForbidden {
 	return &BatchObjectsCreateForbidden{}
 }
 
-/*BatchObjectsCreateForbidden handles this case with default header values.
+/*
+BatchObjectsCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -165,7 +168,8 @@ func NewBatchObjectsCreateUnprocessableEntity() *BatchObjectsCreateUnprocessable
 	return &BatchObjectsCreateUnprocessableEntity{}
 }
 
-/*BatchObjectsCreateUnprocessableEntity handles this case with default header values.
+/*
+BatchObjectsCreateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -198,7 +202,8 @@ func NewBatchObjectsCreateInternalServerError() *BatchObjectsCreateInternalServe
 	return &BatchObjectsCreateInternalServerError{}
 }
 
-/*BatchObjectsCreateInternalServerError handles this case with default header values.
+/*
+BatchObjectsCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -226,7 +231,8 @@ func (o *BatchObjectsCreateInternalServerError) readResponse(response runtime.Cl
 	return nil
 }
 
-/*BatchObjectsCreateBody batch objects create body
+/*
+BatchObjectsCreateBody batch objects create body
 swagger:model BatchObjectsCreateBody
 */
 type BatchObjectsCreateBody struct {
