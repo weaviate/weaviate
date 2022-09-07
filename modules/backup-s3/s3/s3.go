@@ -122,7 +122,7 @@ func (s *s3) PutObject(ctx context.Context, backupID, key string, byes []byte) e
 			errors.Wrapf(err, "put object '%s'", objectName))
 	}
 
-	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3","class").Add(float64(len(byes)))
+	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3", "class").Add(float64(len(byes)))
 	return nil
 }
 
