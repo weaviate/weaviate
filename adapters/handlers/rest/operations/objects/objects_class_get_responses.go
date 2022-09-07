@@ -27,8 +27,7 @@ import (
 // ObjectsClassGetOKCode is the HTTP code returned for type ObjectsClassGetOK
 const ObjectsClassGetOKCode int = 200
 
-/*
-ObjectsClassGetOK Successful response.
+/*ObjectsClassGetOK Successful response.
 
 swagger:response objectsClassGetOK
 */
@@ -72,8 +71,7 @@ func (o *ObjectsClassGetOK) WriteResponse(rw http.ResponseWriter, producer runti
 // ObjectsClassGetBadRequestCode is the HTTP code returned for type ObjectsClassGetBadRequest
 const ObjectsClassGetBadRequestCode int = 400
 
-/*
-ObjectsClassGetBadRequest Malformed request.
+/*ObjectsClassGetBadRequest Malformed request.
 
 swagger:response objectsClassGetBadRequest
 */
@@ -117,8 +115,7 @@ func (o *ObjectsClassGetBadRequest) WriteResponse(rw http.ResponseWriter, produc
 // ObjectsClassGetUnauthorizedCode is the HTTP code returned for type ObjectsClassGetUnauthorized
 const ObjectsClassGetUnauthorizedCode int = 401
 
-/*
-ObjectsClassGetUnauthorized Unauthorized or invalid credentials.
+/*ObjectsClassGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassGetUnauthorized
 */
@@ -142,8 +139,7 @@ func (o *ObjectsClassGetUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 // ObjectsClassGetForbiddenCode is the HTTP code returned for type ObjectsClassGetForbidden
 const ObjectsClassGetForbiddenCode int = 403
 
-/*
-ObjectsClassGetForbidden Forbidden
+/*ObjectsClassGetForbidden Forbidden
 
 swagger:response objectsClassGetForbidden
 */
@@ -187,8 +183,7 @@ func (o *ObjectsClassGetForbidden) WriteResponse(rw http.ResponseWriter, produce
 // ObjectsClassGetNotFoundCode is the HTTP code returned for type ObjectsClassGetNotFound
 const ObjectsClassGetNotFoundCode int = 404
 
-/*
-ObjectsClassGetNotFound Successful query result but no resource was found.
+/*ObjectsClassGetNotFound Successful query result but no resource was found.
 
 swagger:response objectsClassGetNotFound
 */
@@ -212,8 +207,7 @@ func (o *ObjectsClassGetNotFound) WriteResponse(rw http.ResponseWriter, producer
 // ObjectsClassGetInternalServerErrorCode is the HTTP code returned for type ObjectsClassGetInternalServerError
 const ObjectsClassGetInternalServerErrorCode int = 500
 
-/*
-ObjectsClassGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ObjectsClassGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsClassGetInternalServerError
 */

@@ -81,8 +81,7 @@ func NewBackupsCreateStatusOK() *BackupsCreateStatusOK {
 	return &BackupsCreateStatusOK{}
 }
 
-/*
-BackupsCreateStatusOK handles this case with default header values.
+/*BackupsCreateStatusOK handles this case with default header values.
 
 Backup creation status successfully returned
 */
@@ -115,8 +114,7 @@ func NewBackupsCreateStatusUnauthorized() *BackupsCreateStatusUnauthorized {
 	return &BackupsCreateStatusUnauthorized{}
 }
 
-/*
-BackupsCreateStatusUnauthorized handles this case with default header values.
+/*BackupsCreateStatusUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -137,8 +135,7 @@ func NewBackupsCreateStatusForbidden() *BackupsCreateStatusForbidden {
 	return &BackupsCreateStatusForbidden{}
 }
 
-/*
-BackupsCreateStatusForbidden handles this case with default header values.
+/*BackupsCreateStatusForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -171,8 +168,7 @@ func NewBackupsCreateStatusNotFound() *BackupsCreateStatusNotFound {
 	return &BackupsCreateStatusNotFound{}
 }
 
-/*
-BackupsCreateStatusNotFound handles this case with default header values.
+/*BackupsCreateStatusNotFound handles this case with default header values.
 
 Not Found - Backup does not exist
 */
@@ -205,8 +201,7 @@ func NewBackupsCreateStatusUnprocessableEntity() *BackupsCreateStatusUnprocessab
 	return &BackupsCreateStatusUnprocessableEntity{}
 }
 
-/*
-BackupsCreateStatusUnprocessableEntity handles this case with default header values.
+/*BackupsCreateStatusUnprocessableEntity handles this case with default header values.
 
 Invalid backup restoration status attempt.
 */
@@ -239,8 +234,7 @@ func NewBackupsCreateStatusInternalServerError() *BackupsCreateStatusInternalSer
 	return &BackupsCreateStatusInternalServerError{}
 }
 
-/*
-BackupsCreateStatusInternalServerError handles this case with default header values.
+/*BackupsCreateStatusInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

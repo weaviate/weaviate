@@ -54,8 +54,7 @@ func NewWeaviateRootOK() *WeaviateRootOK {
 	return &WeaviateRootOK{}
 }
 
-/*
-WeaviateRootOK handles this case with default header values.
+/*WeaviateRootOK handles this case with default header values.
 
 Weaviate is alive and ready to serve content
 */
@@ -83,8 +82,7 @@ func (o *WeaviateRootOK) readResponse(response runtime.ClientResponse, consumer 
 	return nil
 }
 
-/*
-WeaviateRootOKBody weaviate root o k body
+/*WeaviateRootOKBody weaviate root o k body
 swagger:model WeaviateRootOKBody
 */
 type WeaviateRootOKBody struct {

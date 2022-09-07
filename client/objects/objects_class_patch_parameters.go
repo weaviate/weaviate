@@ -68,8 +68,7 @@ func NewObjectsClassPatchParamsWithHTTPClient(client *http.Client) *ObjectsClass
 	}
 }
 
-/*
-ObjectsClassPatchParams contains all the parameters to send to the API endpoint
+/*ObjectsClassPatchParams contains all the parameters to send to the API endpoint
 for the objects class patch operation typically these are written to a http.Request
 */
 type ObjectsClassPatchParams struct {
