@@ -91,7 +91,7 @@ func (s *s3) GetObject(ctx context.Context, backupID, key string) ([]byte, error
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues("backup-s3").Add(float64(len(contents)))
+	monitoring.GetMetrics().BackupRestoreDataTransferred.WithLabelValues("backup-s3", "class").Add(float64(len(contents)))
 
 	return contents, nil
 }
@@ -122,7 +122,7 @@ func (s *s3) PutObject(ctx context.Context, backupID, key string, byes []byte) e
 			errors.Wrapf(err, "put object '%s'", objectName))
 	}
 
-	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3").Add(float64(len(byes)))
+	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3","class").Add(float64(len(byes)))
 	return nil
 }
 
