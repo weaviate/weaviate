@@ -19,28 +19,28 @@ import (
 	"github.com/semi-technologies/weaviate/modules/backup-gcs/gcs"
 )
 
-func (m *BackupGCSModule) HomeDir(snapshotID string) string {
-	return m.backendProvider.HomeDir(snapshotID)
+func (m *BackupGCSModule) HomeDir(backupID string) string {
+	return m.backendProvider.HomeDir(backupID)
 }
 
-func (m *BackupGCSModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	return m.backendProvider.GetObject(ctx, snapshotID, key)
+func (m *BackupGCSModule) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	return m.backendProvider.GetObject(ctx, backupID, key)
 }
 
-func (m *BackupGCSModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
-	return m.backendProvider.PutFile(ctx, snapshotID, key, srcPath)
+func (m *BackupGCSModule) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+	return m.backendProvider.PutFile(ctx, backupID, key, srcPath)
 }
 
-func (m *BackupGCSModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
-	return m.backendProvider.PutObject(ctx, snapshotID, key, byes)
+func (m *BackupGCSModule) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	return m.backendProvider.PutObject(ctx, backupID, key, byes)
 }
 
-func (m *BackupGCSModule) Initialize(ctx context.Context, snapshotID string) error {
-	return m.backendProvider.Initialize(ctx, snapshotID)
+func (m *BackupGCSModule) Initialize(ctx context.Context, backupID string) error {
+	return m.backendProvider.Initialize(ctx, backupID)
 }
 
-func (m *BackupGCSModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
-	return m.backendProvider.WriteToFile(ctx, snapshotID, key, destPath)
+func (m *BackupGCSModule) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	return m.backendProvider.WriteToFile(ctx, backupID, key, destPath)
 }
 
 func (m *BackupGCSModule) SourceDataPath() string {

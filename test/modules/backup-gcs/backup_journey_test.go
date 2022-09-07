@@ -31,9 +31,9 @@ const (
 	envGCSBucket              = "BACKUP_GCS_BUCKET"
 
 	gcsBackupJourneyClassName  = "GcsBackup"
-	gcsBackupJourneySnapshotID = "gcs-snapshot"
+	gcsBackupJourneyBackupID   = "gcs-backup"
 	gcsBackupJourneyProjectID  = "gcs-backup-journey"
-	gcsBackupJourneyBucketName = "snapshots"
+	gcsBackupJourneyBucketName = "backups"
 )
 
 func Test_BackupJourney(t *testing.T) {
@@ -69,6 +69,6 @@ func Test_BackupJourney(t *testing.T) {
 	// journey tests
 	t.Run("backup-gcs", func(t *testing.T) {
 		journey.BackupJourneyTests(t, compose.GetWeaviate().URI(),
-			"gcs", gcsBackupJourneyClassName, gcsBackupJourneySnapshotID)
+			"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupID)
 	})
 }

@@ -31,9 +31,9 @@ const (
 )
 
 type BackupFileSystemModule struct {
-	logger        logrus.FieldLogger
-	dataPath      string // path to the current (operational) data
-	snapshotsPath string // complete(?) path to the directory that holds all the snapshots
+	logger      logrus.FieldLogger
+	dataPath    string // path to the current (operational) data
+	backupsPath string // complete(?) path to the directory that holds all the backups
 }
 
 func New() *BackupFileSystemModule {
@@ -65,8 +65,8 @@ func (m *BackupFileSystemModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *BackupFileSystemModule) HomeDir(snapshotID string) string {
-	return path.Join(m.makeSnapshotDirPath(snapshotID))
+func (m *BackupFileSystemModule) HomeDir(backupID string) string {
+	return path.Join(m.makeBackupDirPath(backupID))
 }
 
 func (m *BackupFileSystemModule) RootHandler() http.Handler {
@@ -76,12 +76,12 @@ func (m *BackupFileSystemModule) RootHandler() http.Handler {
 
 func (m *BackupFileSystemModule) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
-	metaInfo["snapshotsPath"] = m.snapshotsPath
+	metaInfo["backupsPath"] = m.backupsPath
 	return metaInfo, nil
 }
 
-func (m *BackupFileSystemModule) makeSnapshotDirPath(id string) string {
-	return filepath.Join(m.snapshotsPath, id)
+func (m *BackupFileSystemModule) makeBackupDirPath(id string) string {
+	return filepath.Join(m.backupsPath, id)
 }
 
 // verify we implement the modules.Module interface

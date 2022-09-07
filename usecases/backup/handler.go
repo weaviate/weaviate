@@ -304,14 +304,14 @@ func (m *Manager) validateRestoreRequst(ctx context.Context, store objectStore, 
 	return meta, nil
 }
 
-func validateID(snapshotID string) error {
-	if snapshotID == "" {
-		return fmt.Errorf("missing snapshotID value")
+func validateID(backupID string) error {
+	if backupID == "" {
+		return fmt.Errorf("missing backupID value")
 	}
 
 	exp := regexp.MustCompile("^[a-z0-9_-]+$")
-	if !exp.MatchString(snapshotID) {
-		return fmt.Errorf("invalid characters for snapshotID. Allowed are lowercase, numbers, underscore, minus")
+	if !exp.MatchString(backupID) {
+		return fmt.Errorf("invalid characters for backupID. Allowed are lowercase, numbers, underscore, minus")
 	}
 
 	return nil

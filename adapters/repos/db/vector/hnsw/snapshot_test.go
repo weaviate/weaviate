@@ -27,9 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSnapshot_PauseMaintenance(t *testing.T) {
+func TestBackup_PauseMaintenance(t *testing.T) {
 	t.Run("assert that context timeout works for long maintenance cycle", func(t *testing.T) {
-		indexID := "snapshot-pause-maintenance-test"
+		indexID := "backup-pause-maintenance-test"
 
 		dirName := makeTestDir(t)
 
@@ -66,7 +66,7 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 
 		idx, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "snapshot-pause-maintenance-test",
+			ID:                    "backup-pause-maintenance-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk:      testVectorForID,
@@ -84,10 +84,10 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 	})
 }
 
-func TestSnapshot_SwitchCommitLogs(t *testing.T) {
+func TestBackup_SwitchCommitLogs(t *testing.T) {
 	ctx := context.Background()
 
-	indexID := "snapshot-switch-commitlogs-test"
+	indexID := "backup-switch-commitlogs-test"
 
 	dirName := makeTestDir(t)
 
@@ -113,12 +113,12 @@ func TestSnapshot_SwitchCommitLogs(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestSnapshot_ListFiles(t *testing.T) {
+func TestBackup_ListFiles(t *testing.T) {
 	ctx := context.Background()
 
 	dirName := makeTestDir(t)
 
-	indexID := "snapshot-list-files-test"
+	indexID := "backup-list-files-test"
 
 	idx, err := New(Config{
 		RootPath: dirName,
@@ -157,17 +157,17 @@ func TestSnapshot_ListFiles(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestSnapshot_ResumeMaintenance(t *testing.T) {
+func TestBackup_ResumeMaintenance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	indexID := "snapshot-resume-maintenance-test"
+	indexID := "backup-resume-maintenance-test"
 
 	dirName := makeTestDir(t)
 
 	idx, err := New(Config{
 		RootPath: dirName,
-		ID:       "snapshot-pause-maintenance-test",
+		ID:       "backup-pause-maintenance-test",
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
 				logrus.New())

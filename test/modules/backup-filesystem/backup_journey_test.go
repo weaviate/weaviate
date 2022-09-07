@@ -39,6 +39,6 @@ func Test_BackupJourney(t *testing.T) {
 
 	t.Run("backup-filesystem", func(t *testing.T) {
 		journey.BackupJourneyTests(t, compose.GetWeaviate().URI(),
-			"filesystem", "FileSystemClass", "filesystem-snapshot-1")
+			"filesystem", "FileSystemClass", "filesystem-backup-1")
 	})
 }

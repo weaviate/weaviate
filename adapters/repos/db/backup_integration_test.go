@@ -138,9 +138,9 @@ func TestBackup_DBLevel(t *testing.T) {
 	})
 }
 
-func TestSnapshot_BucketLevel(t *testing.T) {
+func TestBackup_BucketLevel(t *testing.T) {
 	ctx := testCtx()
-	className := "BucketLevelSnapshot"
+	className := "BucketLevelBackup"
 	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
@@ -158,7 +158,7 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("perform snapshot sequence", func(t *testing.T) {
+	t.Run("perform backup sequence", func(t *testing.T) {
 		objBucket := shard.store.Bucket("objects")
 		require.NotNil(t, objBucket)
 
@@ -178,7 +178,7 @@ func TestSnapshot_BucketLevel(t *testing.T) {
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			re := path.Clean(fmt.Sprintf("^bucketlevelsnapshot_%s_lsm\\/objects\\/.*\\.(wal|db)", shard.name))
+			re := path.Clean(fmt.Sprintf("^bucketlevelbackup_%s_lsm\\/objects\\/.*\\.(wal|db)", shard.name))
 
 			// we expect to see only two files inside the bucket at this point:
 			//   1. a *.db file

@@ -32,8 +32,8 @@ const (
 	envS3Bucket      = "BACKUP_S3_BUCKET"
 
 	s3BackupJourneyClassName  = "S3Backup"
-	s3BackupJourneySnapshotID = "s3-snapshot"
-	s3BackupJourneyBucketName = "snapshots"
+	s3BackupJourneyBackupID   = "s3-backup"
+	s3BackupJourneyBucketName = "backups"
 	s3BackupJourneyRegion     = "eu-west-1"
 	s3BackupJourneyAccessKey  = "aws_access_key"
 	s3BackupJourneySecretKey  = "aws_secret_key"
@@ -69,6 +69,6 @@ func Test_BackupJourney(t *testing.T) {
 	// journey tests
 	t.Run("backup-s3", func(t *testing.T) {
 		journey.BackupJourneyTests(t, os.Getenv(weaviateEndpoint),
-			"s3", s3BackupJourneyClassName, s3BackupJourneySnapshotID)
+			"s3", s3BackupJourneyClassName, s3BackupJourneyBackupID)
 	})
 }

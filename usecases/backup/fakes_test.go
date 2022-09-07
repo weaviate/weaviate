@@ -61,29 +61,29 @@ type fakeBackend struct {
 	mock.Mock
 }
 
-func (s *fakeBackend) HomeDir(snapshotID string) string {
-	args := s.Called(snapshotID)
+func (s *fakeBackend) HomeDir(backupID string) string {
+	args := s.Called(backupID)
 	return args.String(0)
 }
 
-func (s *fakeBackend) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (s *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
 	return nil
 }
 
-func (s *fakeBackend) PutObject(ctx context.Context, snapshotID, key string, _ []byte) error {
+func (s *fakeBackend) PutObject(ctx context.Context, backupID, key string, _ []byte) error {
 	return nil
 }
 
-func (s *fakeBackend) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	args := s.Called(ctx, snapshotID, key)
+func (s *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	args := s.Called(ctx, backupID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (s *fakeBackend) Initialize(ctx context.Context, snapshotID string) error {
-	args := s.Called(ctx, snapshotID)
+func (s *fakeBackend) Initialize(ctx context.Context, backupID string) error {
+	args := s.Called(ctx, backupID)
 	return args.Error(0)
 }
 
@@ -92,7 +92,7 @@ func (s *fakeBackend) SourceDataPath() string {
 	return args.String(0)
 }
 
-func (s *fakeBackend) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
-	args := s.Called(ctx, snapshotID, key, destPath)
+func (s *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	args := s.Called(ctx, backupID, key, destPath)
 	return args.Error(0)
 }
