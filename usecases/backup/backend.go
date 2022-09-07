@@ -126,7 +126,7 @@ Loop:
 
 // class uploads one class
 func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescriptor) (err error) {
-	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupStoreDurations.WithLabelValues(getType(u.backend.BackupBackend), desc.Name))
+	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupStoreDurations.WithLabelValues(id, desc.Name))
 	defer timer.ObserveDuration()
 	defer func() {
 		// backups need to be released anyway
