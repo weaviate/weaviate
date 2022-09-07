@@ -13,6 +13,7 @@ package backup
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -68,5 +69,119 @@ func TestAllExist(t *testing.T) {
 	}
 	if y := x.AllExists([]string{"b"}); y != "b" {
 		t.Errorf("x.AllExists(['a']) got=%v want=%v", y, "b")
+	}
+}
+
+func TestValidateBackup(t *testing.T) {
+	timept := time.Now().UTC()
+	bytes := []byte("hello")
+	tests := []struct {
+		desc    BackupDescriptor
+		success bool
+	}{
+		// first level check
+		{desc: BackupDescriptor{}},
+		{desc: BackupDescriptor{ID: "1"}},
+		{desc: BackupDescriptor{ID: "1", Version: "1"}},
+		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
+		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept}, success: true},
+		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{Name: "n"}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{Name: "n", Schema: bytes}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{Name: "n", Schema: bytes, ShardingState: bytes}},
+		}, success: true},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{Name: ""}},
+			}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{Name: "n", Node: ""}},
+			}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{Name: "n", Node: "n"}},
+			}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{
+					Name: "n", Node: "n",
+					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
+				}},
+			}},
+		}, success: true},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{
+					Name: "n", Node: "n",
+					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
+					Files: []string{"file"},
+				}},
+			}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{
+					Name: "n", Node: "n",
+					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
+					DocIDCounter: bytes, Files: []string{"file"},
+				}},
+			}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{
+					Name: "n", Node: "n",
+					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
+					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{""},
+				}},
+			}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n", Schema: bytes, ShardingState: bytes,
+				Shards: []ShardDescriptor{{
+					Name: "n", Node: "n",
+					PropLengthTrackerPath: "n", DocIDCounterPath: "n", ShardVersionPath: "n",
+					DocIDCounter: bytes, Version: bytes, PropLengthTracker: bytes, Files: []string{"file"},
+				}},
+			}},
+		}, success: true},
+	}
+	for i, tc := range tests {
+		err := tc.desc.Validate()
+		if got := err == nil; got != tc.success {
+			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.success, got, err)
+		}
 	}
 }
