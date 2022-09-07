@@ -107,6 +107,14 @@ func (s *s3) PutFile(ctx context.Context, backupID, key string, srcPath string) 
 			errors.Wrapf(err, "put file '%s'", objectName))
 	}
 
+	// Get filesize
+	file, err := os.Stat(srcPath)
+	if err != nil {
+		return nil
+	}
+	size := file.Size()
+
+	monitoring.GetMetrics().BackupStoreDataTransferred.WithLabelValues("backup-s3", "class").Add(float64(size))
 	return nil
 }
 
