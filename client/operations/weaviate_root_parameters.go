@@ -66,8 +66,7 @@ func NewWeaviateRootParamsWithHTTPClient(client *http.Client) *WeaviateRootParam
 	}
 }
 
-/*
-WeaviateRootParams contains all the parameters to send to the API endpoint
+/*WeaviateRootParams contains all the parameters to send to the API endpoint
 for the weaviate root operation typically these are written to a http.Request
 */
 type WeaviateRootParams struct {

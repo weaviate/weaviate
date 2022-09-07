@@ -81,26 +81,25 @@ func NewBackupsRestoreOK() *BackupsRestoreOK {
 	return &BackupsRestoreOK{}
 }
 
-/*
-BackupsRestoreOK handles this case with default header values.
+/*BackupsRestoreOK handles this case with default header values.
 
 Backup restoration process successfully started.
 */
 type BackupsRestoreOK struct {
-	Payload *models.BackupRestoreMeta
+	Payload *models.BackupRestoreResponse
 }
 
 func (o *BackupsRestoreOK) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreOK  %+v", 200, o.Payload)
 }
 
-func (o *BackupsRestoreOK) GetPayload() *models.BackupRestoreMeta {
+func (o *BackupsRestoreOK) GetPayload() *models.BackupRestoreResponse {
 	return o.Payload
 }
 
 func (o *BackupsRestoreOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.BackupRestoreMeta)
+	o.Payload = new(models.BackupRestoreResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -115,8 +114,7 @@ func NewBackupsRestoreUnauthorized() *BackupsRestoreUnauthorized {
 	return &BackupsRestoreUnauthorized{}
 }
 
-/*
-BackupsRestoreUnauthorized handles this case with default header values.
+/*BackupsRestoreUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -124,7 +122,7 @@ type BackupsRestoreUnauthorized struct {
 }
 
 func (o *BackupsRestoreUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreUnauthorized ", 401)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreUnauthorized ", 401)
 }
 
 func (o *BackupsRestoreUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -137,8 +135,7 @@ func NewBackupsRestoreForbidden() *BackupsRestoreForbidden {
 	return &BackupsRestoreForbidden{}
 }
 
-/*
-BackupsRestoreForbidden handles this case with default header values.
+/*BackupsRestoreForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -147,7 +144,7 @@ type BackupsRestoreForbidden struct {
 }
 
 func (o *BackupsRestoreForbidden) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreForbidden  %+v", 403, o.Payload)
 }
 
 func (o *BackupsRestoreForbidden) GetPayload() *models.ErrorResponse {
@@ -171,8 +168,7 @@ func NewBackupsRestoreNotFound() *BackupsRestoreNotFound {
 	return &BackupsRestoreNotFound{}
 }
 
-/*
-BackupsRestoreNotFound handles this case with default header values.
+/*BackupsRestoreNotFound handles this case with default header values.
 
 Not Found - Backup does not exist
 */
@@ -181,7 +177,7 @@ type BackupsRestoreNotFound struct {
 }
 
 func (o *BackupsRestoreNotFound) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreNotFound  %+v", 404, o.Payload)
 }
 
 func (o *BackupsRestoreNotFound) GetPayload() *models.ErrorResponse {
@@ -205,8 +201,7 @@ func NewBackupsRestoreUnprocessableEntity() *BackupsRestoreUnprocessableEntity {
 	return &BackupsRestoreUnprocessableEntity{}
 }
 
-/*
-BackupsRestoreUnprocessableEntity handles this case with default header values.
+/*BackupsRestoreUnprocessableEntity handles this case with default header values.
 
 Invalid backup restoration attempt.
 */
@@ -215,7 +210,7 @@ type BackupsRestoreUnprocessableEntity struct {
 }
 
 func (o *BackupsRestoreUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *BackupsRestoreUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -239,8 +234,7 @@ func NewBackupsRestoreInternalServerError() *BackupsRestoreInternalServerError {
 	return &BackupsRestoreInternalServerError{}
 }
 
-/*
-BackupsRestoreInternalServerError handles this case with default header values.
+/*BackupsRestoreInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -249,7 +243,7 @@ type BackupsRestoreInternalServerError struct {
 }
 
 func (o *BackupsRestoreInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /backups/{storageName}/{id}/restore][%d] backupsRestoreInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *BackupsRestoreInternalServerError) GetPayload() *models.ErrorResponse {

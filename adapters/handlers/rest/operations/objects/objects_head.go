@@ -42,12 +42,12 @@ func NewObjectsHead(ctx *middleware.Context, handler ObjectsHeadHandler) *Object
 	return &ObjectsHead{Context: ctx, Handler: handler}
 }
 
-/*
-ObjectsHead swagger:route HEAD /objects/{id} objects objectsHead
+/*ObjectsHead swagger:route HEAD /objects/{id} objects objectsHead
 
 Checks Object's existence based on its UUID.
 
 Checks if an Object exists in the system.
+
 */
 type ObjectsHead struct {
 	Context *middleware.Context

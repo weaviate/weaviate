@@ -25,8 +25,8 @@ import (
 
 // BackupsCreateStatusURL generates an URL for the backups create status operation
 type BackupsCreateStatusURL struct {
-	ID          string
-	StorageName string
+	Backend string
+	ID      string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,20 +52,20 @@ func (o *BackupsCreateStatusURL) SetBasePath(bp string) {
 func (o *BackupsCreateStatusURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/backups/{storageName}/{id}"
+	var _path = "/backups/{backend}/{id}"
+
+	backend := o.Backend
+	if backend != "" {
+		_path = strings.Replace(_path, "{backend}", backend, -1)
+	} else {
+		return nil, errors.New("backend is required on BackupsCreateStatusURL")
+	}
 
 	id := o.ID
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
 		return nil, errors.New("id is required on BackupsCreateStatusURL")
-	}
-
-	storageName := o.StorageName
-	if storageName != "" {
-		_path = strings.Replace(_path, "{storageName}", storageName, -1)
-	} else {
-		return nil, errors.New("storageName is required on BackupsCreateStatusURL")
 	}
 
 	_basePath := o._basePath

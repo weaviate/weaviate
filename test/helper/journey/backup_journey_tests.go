@@ -16,16 +16,16 @@ import (
 )
 
 // BackupJourneyTests this method gathers all backup related e2e tests
-func BackupJourneyTests(t *testing.T, weaviateEndpoint, storage, className, snapshotID string) {
+func BackupJourneyTests(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
 	// This is a simple test which covers almost the same scenario as singleShardBackupJourneyTest
 	// but is left here to be expanded in the future with a more complex example
 	// like adding there a new reference property and trying to run the test with 2 classes which
 	// one of those classes is a class with a reference property
 	t.Run("backup and restore Books", func(t *testing.T) {
-		backupAndRestoreJourneyTest(t, weaviateEndpoint, storage)
+		backupAndRestoreJourneyTest(t, weaviateEndpoint, backend)
 	})
 
 	t.Run("single shard backup", func(t *testing.T) {
-		singleShardBackupJourneyTest(t, weaviateEndpoint, storage, className, snapshotID)
+		singleShardBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID)
 	})
 }

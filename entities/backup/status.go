@@ -11,33 +11,22 @@
 
 package backup
 
-const (
-	CreateStarted      CreateStatus = "STARTED"
-	CreateTransferring CreateStatus = "TRANSFERRING"
-	CreateTransferred  CreateStatus = "TRANSFERRED"
-	CreateSuccess      CreateStatus = "SUCCESS"
-	CreateFailed       CreateStatus = "FAILED"
-)
+type Status string
 
 const (
-	RestoreStarted      RestoreStatus = "STARTED"
-	RestoreTransferring RestoreStatus = "TRANSFERRING"
-	RestoreTransferred  RestoreStatus = "TRANSFERRED"
-	RestoreSuccess      RestoreStatus = "SUCCESS"
-	RestoreFailed       RestoreStatus = "FAILED"
-)
-
-type (
-	CreateStatus  string
-	RestoreStatus string
+	Started      Status = "STARTED"
+	Transferring Status = "TRANSFERRING"
+	Transferred  Status = "TRANSFERRED"
+	Success      Status = "SUCCESS"
+	Failed       Status = "FAILED"
 )
 
 type CreateMeta struct {
 	Path   string
-	Status CreateStatus
+	Status Status
 }
 
 type RestoreMeta struct {
 	Path   string
-	Status RestoreStatus
+	Status Status
 }

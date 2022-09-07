@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, storage, className, snapshotID string) {
+func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -35,7 +35,7 @@ func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, storage, class
 	})
 
 	t.Run("single shard backup", func(t *testing.T) {
-		singleShardBackupJourney(t, className, storage, snapshotID)
+		singleShardBackupJourney(t, className, backend, backupID)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -43,57 +43,77 @@ func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, storage, class
 	})
 }
 
-func singleShardBackupJourney(t *testing.T, className, storage, snapshotID string) {
-	// create
-	helper.CreateBackup(t, className, storage, snapshotID)
+func singleShardBackupJourney(t *testing.T, className, backend, backupID string) {
+	t.Run("create backup", func(t *testing.T) {
+		resp, err := helper.CreateBackup(t, className, backend, backupID)
+		helper.AssertRequestOk(t, resp, err, nil)
 
-	// wait for create success
-	{
+		// wait for create success
 		createTime := time.Now()
 		for {
 			if time.Now().After(createTime.Add(10 * time.Second)) {
 				break
 			}
 
-			status := helper.CreateBackupStatus(t, className, storage, snapshotID)
-			require.NotNil(t, status)
-			if *status.Status == string(backup.CreateSuccess) {
+			resp, err := helper.CreateBackupStatus(t, backend, backupID)
+			helper.AssertRequestOk(t, resp, err, func() {
+				require.NotNil(t, resp)
+				require.NotNil(t, resp.Payload)
+				require.NotNil(t, resp.Payload.Status)
+			})
+
+			if *resp.Payload.Status == string(backup.Success) {
 				break
 			}
 		}
 
-		createStatus := helper.CreateBackupStatus(t, className, storage, snapshotID)
-		require.NotNil(t, createStatus)
-		require.Equal(t, *createStatus.Status, string(backup.CreateSuccess))
-	}
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+		helper.AssertRequestOk(t, resp, err, func() {
+			require.NotNil(t, statusResp)
+			require.NotNil(t, statusResp.Payload)
+			require.NotNil(t, statusResp.Payload.Status)
+		})
 
-	// remove the class so we can restore it
-	helper.DeleteClass(t, className)
+		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+	})
 
-	// restore
-	helper.RestoreBackup(t, className, storage, snapshotID)
+	t.Run("delete class for restoration", func(t *testing.T) {
+		helper.DeleteClass(t, className)
+	})
 
-	// wait for restore success
-	{
+	t.Run("restore backup", func(t *testing.T) {
+		helper.RestoreBackup(t, className, backend, backupID)
+
+		// wait for restore success
 		restoreTime := time.Now()
 		for {
 			if time.Now().After(restoreTime.Add(10 * time.Second)) {
 				break
 			}
 
-			status := helper.RestoreBackupStatus(t, className, storage, snapshotID)
-			require.NotNil(t, status)
-			if *status.Status == string(backup.CreateSuccess) {
+			resp, err := helper.RestoreBackupStatus(t, backend, backupID)
+			helper.AssertRequestOk(t, resp, err, func() {
+				require.NotNil(t, resp)
+				require.NotNil(t, resp.Payload)
+				require.NotNil(t, resp.Payload.Status)
+			})
+
+			if *resp.Payload.Status == string(backup.Success) {
 				break
 			}
 
 			time.Sleep(time.Second)
 		}
 
-		restoreStatus := helper.RestoreBackupStatus(t, className, storage, snapshotID)
-		require.NotNil(t, restoreStatus)
-		require.Equal(t, *restoreStatus.Status, string(backup.CreateSuccess))
-	}
+		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID)
+		helper.AssertRequestOk(t, statusResp, err, func() {
+			require.NotNil(t, statusResp)
+			require.NotNil(t, statusResp.Payload)
+			require.NotNil(t, statusResp.Payload.Status)
+		})
+
+		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+	})
 
 	// assert class exists again it its entirety
 	count := moduleshelper.GetClassCount(t, className)

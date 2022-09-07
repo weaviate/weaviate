@@ -133,7 +133,7 @@ func init() {
         }
       }
     },
-    "/backups/{storageName}": {
+    "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -143,8 +143,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -161,7 +161,7 @@ func init() {
           "200": {
             "description": "Backup create process successfully started.",
             "schema": {
-              "$ref": "#/definitions/BackupCreateMeta"
+              "$ref": "#/definitions/BackupCreateResponse"
             }
           },
           "401": {
@@ -191,7 +191,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}": {
+    "/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "tags": [
@@ -201,8 +201,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -218,7 +218,7 @@ func init() {
           "200": {
             "description": "Backup creation status successfully returned",
             "schema": {
-              "$ref": "#/definitions/BackupCreateMeta"
+              "$ref": "#/definitions/BackupCreateStatusResponse"
             }
           },
           "401": {
@@ -236,6 +236,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -248,7 +254,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}/restore": {
+    "/backups/{backend}/{id}/restore": {
       "get": {
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "tags": [
@@ -258,8 +264,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -275,7 +281,7 @@ func init() {
           "200": {
             "description": "Backup restoration status successfully returned",
             "schema": {
-              "$ref": "#/definitions/BackupRestoreMeta"
+              "$ref": "#/definitions/BackupRestoreStatusResponse"
             }
           },
           "401": {
@@ -313,8 +319,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -338,7 +344,7 @@ func init() {
           "200": {
             "description": "Backup restoration process successfully started.",
             "schema": {
-              "$ref": "#/definitions/BackupRestoreMeta"
+              "$ref": "#/definitions/BackupRestoreResponse"
             }
           },
           "401": {
@@ -2454,46 +2460,6 @@ func init() {
         }
       }
     },
-    "BackupCreateMeta": {
-      "description": "The definition of a backup create metadata",
-      "properties": {
-        "classes": {
-          "description": "The list of classes for which the backup creation process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "error": {
-          "description": "error message if creation failed",
-          "type": "string"
-        },
-        "id": {
-          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected storage",
-          "type": "string"
-        },
-        "status": {
-          "description": "phase of backup creation process",
-          "type": "string",
-          "default": "STARTED",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "TRANSFERRED",
-            "SUCCESS",
-            "FAILED"
-          ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
-        }
-      }
-    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
@@ -2521,18 +2487,22 @@ func init() {
         }
       }
     },
-    "BackupRestoreMeta": {
-      "description": "The definition of a backup restore metadata",
+    "BackupCreateResponse": {
+      "description": "The definition of a backup create response body",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "classes": {
-          "description": "The list of classes for which the backup restore process was started",
+          "description": "The list of classes for which the backup creation process was started",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "error message if creation failed",
           "type": "string"
         },
         "id": {
@@ -2540,11 +2510,11 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "phase of backup creation process",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -2554,10 +2524,39 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
+        }
+      }
+    },
+    "BackupCreateStatusResponse": {
+      "description": "The definition of a backup create metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -2575,16 +2574,85 @@ func init() {
             "type": "string"
           }
         },
-        "id": {
-          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
         "include": {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "BackupRestoreResponse": {
+      "description": "The definition of a backup restore response body",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "classes": {
+          "description": "The list of classes for which the backup restoration process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupRestoreStatusResponse": {
+      "description": "The definition of a backup restore metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backup backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -4053,7 +4121,7 @@ func init() {
         }
       }
     },
-    "/backups/{storageName}": {
+    "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "tags": [
@@ -4063,8 +4131,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -4081,7 +4149,7 @@ func init() {
           "200": {
             "description": "Backup create process successfully started.",
             "schema": {
-              "$ref": "#/definitions/BackupCreateMeta"
+              "$ref": "#/definitions/BackupCreateResponse"
             }
           },
           "401": {
@@ -4111,7 +4179,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}": {
+    "/backups/{backend}/{id}": {
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "tags": [
@@ -4121,8 +4189,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -4138,7 +4206,7 @@ func init() {
           "200": {
             "description": "Backup creation status successfully returned",
             "schema": {
-              "$ref": "#/definitions/BackupCreateMeta"
+              "$ref": "#/definitions/BackupCreateStatusResponse"
             }
           },
           "401": {
@@ -4156,6 +4224,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -4168,7 +4242,7 @@ func init() {
         ]
       }
     },
-    "/backups/{storageName}/{id}/restore": {
+    "/backups/{backend}/{id}/restore": {
       "get": {
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "tags": [
@@ -4178,8 +4252,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -4195,7 +4269,7 @@ func init() {
           "200": {
             "description": "Backup restoration status successfully returned",
             "schema": {
-              "$ref": "#/definitions/BackupRestoreMeta"
+              "$ref": "#/definitions/BackupRestoreStatusResponse"
             }
           },
           "401": {
@@ -4233,8 +4307,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
             "in": "path",
             "required": true
           },
@@ -4258,7 +4332,7 @@ func init() {
           "200": {
             "description": "Backup restoration process successfully started.",
             "schema": {
-              "$ref": "#/definitions/BackupRestoreMeta"
+              "$ref": "#/definitions/BackupRestoreResponse"
             }
           },
           "401": {
@@ -6401,46 +6475,6 @@ func init() {
         }
       }
     },
-    "BackupCreateMeta": {
-      "description": "The definition of a backup create metadata",
-      "properties": {
-        "classes": {
-          "description": "The list of classes for which the backup creation process was started",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "error": {
-          "description": "error message if creation failed",
-          "type": "string"
-        },
-        "id": {
-          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected storage",
-          "type": "string"
-        },
-        "status": {
-          "description": "phase of backup creation process",
-          "type": "string",
-          "default": "STARTED",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "TRANSFERRED",
-            "SUCCESS",
-            "FAILED"
-          ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
-        }
-      }
-    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
@@ -6468,18 +6502,22 @@ func init() {
         }
       }
     },
-    "BackupRestoreMeta": {
-      "description": "The definition of a backup restore metadata",
+    "BackupCreateResponse": {
+      "description": "The definition of a backup create response body",
       "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
         "classes": {
-          "description": "The list of classes for which the backup restore process was started",
+          "description": "The list of classes for which the backup creation process was started",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "error message if creation failed",
           "type": "string"
         },
         "id": {
@@ -6487,11 +6525,11 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected storage",
+          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "phase of backup creation process",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -6501,10 +6539,39 @@ func init() {
             "SUCCESS",
             "FAILED"
           ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
+        }
+      }
+    },
+    "BackupCreateStatusResponse": {
+      "description": "The definition of a backup create metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -6522,16 +6589,85 @@ func init() {
             "type": "string"
           }
         },
-        "id": {
-          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
         "include": {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "BackupRestoreResponse": {
+      "description": "The definition of a backup restore response body",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "classes": {
+          "description": "The list of classes for which the backup restoration process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupRestoreStatusResponse": {
+      "description": "The definition of a backup restore metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backup backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },

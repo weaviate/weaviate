@@ -27,7 +27,7 @@ const (
 	Multi2Vec     ModuleType = "Multi2Vec"
 	Text2Text     ModuleType = "Text2Text"
 	Extension     ModuleType = "Extension"
-	Storage       ModuleType = "Storage"
+	Backup        ModuleType = "Backup"
 )
 
 type Module interface {
