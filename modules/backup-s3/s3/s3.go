@@ -175,6 +175,11 @@ func (s *s3) WriteToFile(ctx context.Context, backupID, key, destPath string) er
 		return errors.Wrapf(err, "write file '%s'", destPath)
 	}
 
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues("backup-s3", "class")
+	if err == nil {
+		metric.Add(float64(len(obj)))
+	}
+
 	return nil
 }
 
