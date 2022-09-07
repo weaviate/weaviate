@@ -152,7 +152,6 @@ type fileWriter struct {
 	destDir    string
 	backupID   string
 	movedFiles []string // files successfully moved to destination folder
-	// setStatus  func(st backup.RestoreStatus) //TODO
 }
 
 func newFileWriter(sourcer Sourcer, backend objectStore,

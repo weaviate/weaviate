@@ -127,8 +127,6 @@ func (b *backupper) Status(ctx context.Context, backend, bakID string,
 	st := b.lastBackup.get()
 	if st.ID == bakID {
 		status := string(st.Status)
-		// TODO: do we need to remove models.BackupCreateMeta{classes, backend, ID}
-		// classes are returned as part of createBackup
 		return &models.BackupCreateStatusResponse{
 			ID:      bakID,
 			Path:    st.path,
@@ -152,7 +150,6 @@ func (b *backupper) Status(ctx context.Context, backend, bakID string,
 
 	status := string(meta.Status)
 
-	// TODO: populate Error field if backup failed
 	return &models.BackupCreateStatusResponse{
 		ID:      bakID,
 		Path:    store.HomeDir(bakID),

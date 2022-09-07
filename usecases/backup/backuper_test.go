@@ -13,7 +13,6 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -90,96 +89,110 @@ func TestBackStatus(t *testing.T) {
 
 func TestBackupRequestValidation(t *testing.T) {
 	var (
-		cls     = "MyClass"
-		backend = "s3"
-		m       = createManager(nil, nil, nil)
-		ctx     = context.Background()
+		cls         = "MyClass"
+		backendName = "s3"
+		m           = createManager(nil, nil, nil)
+		ctx         = context.Background()
+		id          = "123"
+		path        = "root/123"
 	)
-	_, err := m.Backup(ctx, nil, &BackupRequest{
-		Backend: backend,
-		ID:      "A*:",
-		Include: []string{cls},
+	t.Run("ValidateID", func(t *testing.T) {
+		_, err := m.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "A*:",
+			Include: []string{cls},
+		})
+		assert.NotNil(t, err)
 	})
-	if err == nil {
-		t.Errorf("must return an error for an invalid id")
-	}
-	_, err = m.Backup(ctx, nil, &BackupRequest{
-		Backend: backend,
-		ID:      "1234",
-		Include: []string{cls},
-		Exclude: []string{cls},
+	t.Run("IncludeExclude", func(t *testing.T) {
+		_, err := m.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{cls},
+			Exclude: []string{cls},
+		})
+		assert.NotNil(t, err)
 	})
-	if err == nil {
-		t.Errorf("must return an error for non empty include and exclude")
-	}
-	// return one class and exclude it in the request
-	sourcer := &fakeSourcer{}
-	sourcer.On("ListBackupable").Return([]string{cls})
+	t.Run("ResultingClassListIsEmpty", func(t *testing.T) {
+		// return one class and exclude it in the request
+		sourcer := &fakeSourcer{}
+		sourcer.On("ListBackupable").Return([]string{cls})
+		m = createManager(sourcer, nil, nil)
+		_, err := m.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{},
+			Exclude: []string{cls},
+		})
+		assert.NotNil(t, err)
+	})
+	t.Run("ClassNotBackupable", func(t *testing.T) {
+		// return an error in case index doesn't exist or a shard has multiple nodes
+		sourcer := &fakeSourcer{}
+		sourcer.On("ListBackupable").Return([]string{cls})
+		sourcer.On("Backupable", ctx, []string{cls}).Return(ErrAny)
+		m = createManager(sourcer, nil, nil)
+		_, err := m.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{},
+		})
+		assert.NotNil(t, err)
+	})
+	t.Run("GetMetadataFails", func(t *testing.T) {
+		sourcer := &fakeSourcer{}
+		sourcer.On("Backupable", ctx, []string{cls}).Return(nil)
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("GetObject", ctx, id, MetaDataFilename).Return(nil, errors.New("can not be read"))
+		bm := createManager(sourcer, backend, nil)
 
-	m2 := createManager(sourcer, nil, nil)
-	_, err = m2.Backup(ctx, nil, &BackupRequest{
-		Backend: backend,
-		ID:      "1234",
-		Include: []string{},
-		Exclude: []string{cls},
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      id,
+			Include: []string{cls},
+		})
+
+		assert.Nil(t, meta)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), fmt.Sprintf("backup %s already exists", id))
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
-	if err == nil {
-		t.Errorf("must return an error if the resulting list of classes is empty")
-	}
+	t.Run("MetadataNotFound", func(t *testing.T) {
+		sourcer := &fakeSourcer{}
+		sourcer.On("Backupable", ctx, []string{cls}).Return(nil)
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id})
+		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		bm := createManager(sourcer, backend, nil)
+
+		meta, err := bm.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      id,
+			Include: []string{cls},
+		})
+
+		assert.Nil(t, meta)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), fmt.Sprintf("backup %s already exists", id))
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
 }
 
-func TestBackupManager_CreateBackup(t *testing.T) {
-	className := "DemoClass"
-	className2 := "DemoClass2"
-	backendName := "DemoBackend"
-	backupID := "backup-id"
-	backupID2 := "backup-id2"
-	ctx := context.Background()
-	path := "dst/path"
-	t.Run("fails when index does not exist", func(t *testing.T) {
-		classes := []string{className}
-
-		sourcer := &fakeSourcer{}
-		sourcer.On("Backupable", ctx, classes).Return(
-			fmt.Errorf("class %v doesn't exist", classes[0]))
-
-		bm := createManager(sourcer, nil, nil)
-
-		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			Backend: backendName,
-			ID:      backupID,
-			Include: classes,
-		})
-
-		assert.Nil(t, meta)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("class %v doesn't exist", classes[0]))
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
-	})
-
-	t.Run("fails when index has multiple shards", func(t *testing.T) {
-		classes := []string{className}
-
-		sourcer := &fakeSourcer{}
-		sourcer.On("Backupable", ctx, classes).Return(
-			fmt.Errorf("class %v has %d physical shards", classes[0], 2))
-
-		bm := createManager(sourcer, nil, nil)
-
-		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			Backend: backendName,
-			ID:      backupID,
-			Include: classes,
-		})
-
-		assert.Nil(t, meta)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("class %v has %d physical shards", classes[0], 2))
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
-	})
+func TestManagerCreateBackup(t *testing.T) {
+	var (
+		cls         = "DemoClass"
+		cls2        = "DemoClass2"
+		backendName = "gcs"
+		backupID    = "1"
+		// backupID2   = "2"
+		ctx  = context.Background()
+		path = "dst/path"
+	)
 
 	t.Run("fails when backend not registered", func(t *testing.T) {
-		classes := []string{className}
+		classes := []string{cls}
 
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
@@ -199,111 +212,46 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
-	t.Run("fails when error reading meta from backend", func(t *testing.T) {
-		classes := []string{className}
-
-		sourcer := &fakeSourcer{}
-		sourcer.On("Backupable", ctx, classes).Return(nil)
-
-		backend := &fakeBackend{}
-		backend.On("HomeDir", mock.Anything).Return(path)
-
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, errors.New("can not be read"))
-		bm := createManager(sourcer, backend, nil)
-
-		meta, err := bm.Backup(ctx, nil, &BackupRequest{
-			Backend: backendName,
+	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
+		req1 := BackupRequest{
 			ID:      backupID,
-			Include: classes,
-		})
-
-		assert.Nil(t, meta)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("backup %s already exists", backupID))
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
-	})
-
-	t.Run("fails when meta exists on backend", func(t *testing.T) {
-		classes := []string{className}
-
-		sourcer := &fakeSourcer{}
-		sourcer.On("Backupable", ctx, classes).Return(nil)
-		desc := backup.BackupDescriptor{}
-		bytes, _ := json.Marshal(desc)
-		backend := &fakeBackend{}
-		backend.On("HomeDir", mock.Anything).Return(path)
-
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(bytes, nil)
-
-		bm := createManager(sourcer, backend, nil)
-
-		meta, err := bm.Backup(ctx, nil, &BackupRequest{
+			Include: []string{cls},
 			Backend: backendName,
-			ID:      backupID,
-			Include: classes,
-		})
-
-		assert.Nil(t, meta)
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("backup %s already exists", backupID))
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
-	})
-
-	t.Run("fails when backup creation already in progress", func(t *testing.T) {
-		t.Skip("skip flaky test with timing issue")
-		classes := []string{className}
+		}
 
 		sourcer := &fakeSourcer{}
-		sourcer.On("Backupable", ctx, classes).Return(nil)
+		// first
+		sourcer.On("Backupable", ctx, req1.Include).Return(nil)
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil)
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
-		// make sure create backup takes some time, so the parallel execution has enough time to start before first one finishes
 		backend := &fakeBackend{}
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		backend.On("GetObject", ctx, backupID2, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
-		backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		// first
+		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("SetMetaStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		bm := createManager(sourcer, backend, nil)
-
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-
-		go func() {
-			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				Backend: backendName,
-				ID:      backupID,
-				Include: classes,
-			})
-			time.Sleep(75 * time.Millisecond) // enough time to async create finish
-
-			assert.Nil(t, err)
-			assert.NotNil(t, meta)
-			assert.Equal(t, backup.Started, backup.Status(*meta.Status))
-			assert.Equal(t, path, meta.Path)
-			wg.Done()
-		}()
-		go func() {
-			time.Sleep(25 * time.Microsecond)
-			meta, err := bm.Backup(ctx, nil, &BackupRequest{
-				Backend: backendName,
-				ID:      backupID2,
-				Include: classes,
-			})
-			time.Sleep(75 * time.Millisecond) // enough time to async create finish
-
-			assert.NotNil(t, err)
-			assert.Nil(t, meta)
-			assert.Contains(t, err.Error(), "already in progress")
-			assert.IsType(t, backup.ErrUnprocessable{}, err)
-			wg.Done()
-		}()
-
-		wg.Wait()
+		sourcer.On("Backupable", ctx, req1.Include).Return(nil)
+		backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, ErrAny)
+		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, backend, nil)
+		resp1, err := m.Backup(ctx, nil, &req1)
+		assert.Nil(t, err)
+		status1 := string(backup.Started)
+		want1 := &models.BackupCreateResponse{
+			Backend: backendName,
+			Classes: req1.Include,
+			ID:      backupID,
+			Status:  &status1,
+		}
+		assert.NotNil(t, resp1, want1)
+		resp2, err := m.Backup(ctx, nil, &req1)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "already in progress")
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.Nil(t, resp2)
 	})
 
 	t.Run("fails when init meta fails", func(t *testing.T) {
-		classes := []string{className}
+		classes := []string{cls}
 
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
@@ -328,7 +276,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 	t.Run("successfully starts", func(t *testing.T) {
 		t.Skip("skip until BackupDescriptors and ReleaseBackup are fully implemented")
 
-		classes := []string{className}
+		classes := []string{cls}
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil).Once()
@@ -357,7 +305,7 @@ func TestBackupManager_CreateBackup(t *testing.T) {
 	t.Run("successfully starts for multiple classes", func(t *testing.T) {
 		t.Skip("skip until BackupDescriptors and ReleaseBackup are fully implemented")
 
-		classes := []string{className, className2}
+		classes := []string{cls, cls2}
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil).Once()
