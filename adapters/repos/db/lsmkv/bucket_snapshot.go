@@ -25,7 +25,7 @@ import (
 // PauseCompaction waits for all ongoing compactions to finish,
 // then makes sure that no new compaction can be started.
 //
-// This is a preparatory stage for taking snapshots.
+// This is a preparatory stage for creating backups.
 //
 // A timeout should be specified for the input context as some
 // compactions are long-running, in which case it may be better
@@ -42,7 +42,7 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 // FlushMemtable flushes any active memtable and returns only once the memtable
 // has been fully flushed and a stable state on disk has been reached.
 //
-// This is a preparatory stage for taking snapshots.
+// This is a preparatory stage for creating backups.
 //
 // A timeout should be specified for the input context as some
 // flushes are long-running, in which case it may be better
@@ -78,11 +78,11 @@ func (b *Bucket) FlushMemtable(ctx context.Context) error {
 		b.logger.WithField("action", "lsm_wal_stat").
 			WithField("path", b.dir).
 			WithError(err).
-			Fatal("bucket snapshot memtable flush failed")
+			Fatal("bucket backup memtable flush failed")
 	}
 
 	// attempting a flush&switch on when the active memtable
-	// or WAL is empty results in a corrupted snapshot attempt
+	// or WAL is empty results in a corrupted backup attempt
 	if b.active.Size() > 0 || stat.Size() > 0 {
 		if err := b.FlushAndSwitch(); err != nil {
 			return err

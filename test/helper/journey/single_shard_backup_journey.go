@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, className, snapshotID string) {
+func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -35,7 +35,7 @@ func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, class
 	})
 
 	t.Run("single shard backup", func(t *testing.T) {
-		singleShardBackupJourney(t, className, backend, snapshotID)
+		singleShardBackupJourney(t, className, backend, backupID)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -43,9 +43,9 @@ func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, class
 	})
 }
 
-func singleShardBackupJourney(t *testing.T, className, backend, snapshotID string) {
+func singleShardBackupJourney(t *testing.T, className, backend, backupID string) {
 	t.Run("create backup", func(t *testing.T) {
-		resp, err := helper.CreateBackup(t, className, backend, snapshotID)
+		resp, err := helper.CreateBackup(t, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
 
 		// wait for create success
@@ -55,7 +55,7 @@ func singleShardBackupJourney(t *testing.T, className, backend, snapshotID strin
 				break
 			}
 
-			resp, err := helper.CreateBackupStatus(t, backend, snapshotID)
+			resp, err := helper.CreateBackupStatus(t, backend, backupID)
 			helper.AssertRequestOk(t, resp, err, func() {
 				require.NotNil(t, resp)
 				require.NotNil(t, resp.Payload)
@@ -67,7 +67,7 @@ func singleShardBackupJourney(t *testing.T, className, backend, snapshotID strin
 			}
 		}
 
-		statusResp, err := helper.CreateBackupStatus(t, backend, snapshotID)
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
@@ -82,7 +82,7 @@ func singleShardBackupJourney(t *testing.T, className, backend, snapshotID strin
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
-		helper.RestoreBackup(t, className, backend, snapshotID)
+		helper.RestoreBackup(t, className, backend, backupID)
 
 		// wait for restore success
 		restoreTime := time.Now()
@@ -91,7 +91,7 @@ func singleShardBackupJourney(t *testing.T, className, backend, snapshotID strin
 				break
 			}
 
-			resp, err := helper.RestoreBackupStatus(t, backend, snapshotID)
+			resp, err := helper.RestoreBackupStatus(t, backend, backupID)
 			helper.AssertRequestOk(t, resp, err, func() {
 				require.NotNil(t, resp)
 				require.NotNil(t, resp.Payload)
@@ -105,7 +105,7 @@ func singleShardBackupJourney(t *testing.T, className, backend, snapshotID strin
 			time.Sleep(time.Second)
 		}
 
-		statusResp, err := helper.RestoreBackupStatus(t, backend, snapshotID)
+		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID)
 		helper.AssertRequestOk(t, statusResp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)

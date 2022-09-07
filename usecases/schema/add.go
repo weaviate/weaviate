@@ -59,7 +59,7 @@ func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
 
 	m.Lock()
 	defer m.Unlock()
-	timer := prometheus.NewTimer(monitoring.GetMetrics().SnapshotRestoreClassDurations.WithLabelValues(class.Class))
+	timer := prometheus.NewTimer(monitoring.GetMetrics().BackupRestoreClassDurations.WithLabelValues(class.Class))
 	defer timer.ObserveDuration()
 
 	class.Class = upperCaseClassName(class.Class)

@@ -38,7 +38,7 @@
       },
       "id": 6,
       "panels": [],
-      "title": "Snapshots",
+      "title": "Backups",
       "type": "row"
     },
     {
@@ -100,7 +100,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "{__name__=\"snapshot_store_to_storage_ms_sum\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", storage_name=\"filesystem\"}"
+              "options": "{__name__=\"backup_store_to_backend_ms_sum\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", backend_name=\"filesystem\"}"
             },
             "properties": [
               {
@@ -116,7 +116,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "{__name__=\"snapshot_store_data_transferred\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", storage_name=\"filesystem\"}"
+              "options": "{__name__=\"backup_store_data_transferred\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", backend_name=\"filesystem\"}"
             },
             "properties": [
               {
@@ -157,7 +157,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "snapshot_store_to_storage_ms_sum",
+          "expr": "backup_store_to_backend_ms_sum",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -168,7 +168,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "snapshot_store_data_transferred",
+          "expr": "backup_store_data_transferred",
           "hide": false,
           "legendFormat": "__auto",
           "range": true,
@@ -237,7 +237,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "{__name__=\"snapshot_restore_data_transferred\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", storage_name=\"filesystem\"}"
+              "options": "{__name__=\"backup_restore_data_transferred\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", backend_name=\"filesystem\"}"
             },
             "properties": [
               {
@@ -257,7 +257,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "{__name__=\"snapshot_restore_ms_sum\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", storage_name=\"storage-filesystem\"}"
+              "options": "{__name__=\"backup_restore_ms_sum\", class_name=\"Post\", instance=\"host.docker.internal:2112\", job=\"weaviate\", backend_name=\"backup-filesystem\"}"
             },
             "properties": [
               {
@@ -298,7 +298,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "snapshot_restore_data_transferred",
+          "expr": "backup_restore_data_transferred",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -309,7 +309,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "snapshot_restore_ms_sum",
+          "expr": "backup_restore_ms_sum",
           "hide": false,
           "legendFormat": "__auto",
           "range": true,

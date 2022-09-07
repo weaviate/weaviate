@@ -39,7 +39,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 		require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
 	}
 
-	snapshotID := "snapshot-1"
+	backupID := "backup-1"
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
@@ -55,7 +55,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 		params := backups.NewBackupsCreateParams().
 			WithBackend(backend).
 			WithBody(&models.BackupCreateRequest{
-				ID:      snapshotID,
+				ID:      backupID,
 				Include: []string{booksClass.Class},
 			})
 		resp, err := helper.Client(t).Backups.BackupsCreate(params, nil)
@@ -70,7 +70,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 	t.Run("verify that backup process is completed", func(t *testing.T) {
 		params := backups.NewBackupsCreateStatusParams().
 			WithBackend(backend).
-			WithID(snapshotID)
+			WithID(backupID)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
@@ -81,7 +81,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 			case models.BackupCreateStatusResponseStatusSUCCESS:
 				return
 			case models.BackupCreateStatusResponseStatusFAILED:
-				t.Errorf("failed to create snapshot, got response: %+v", meta)
+				t.Errorf("failed to create backup, got response: %+v", meta)
 				return
 			default:
 				time.Sleep(1 * time.Second)
@@ -109,7 +109,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 	t.Run("start restore process", func(t *testing.T) {
 		params := backups.NewBackupsRestoreParams().
 			WithBackend(backend).
-			WithID(snapshotID).
+			WithID(backupID).
 			WithBody(&models.BackupRestoreRequest{
 				Include: []string{booksClass.Class},
 			})
@@ -124,7 +124,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 	t.Run("verify that restore process is completed", func(t *testing.T) {
 		params := backups.NewBackupsRestoreStatusParams().
 			WithBackend(backend).
-			WithID(snapshotID)
+			WithID(backupID)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsRestoreStatus(params, nil)
 			require.Nil(t, err)
@@ -135,7 +135,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 			case models.BackupRestoreStatusResponseStatusSUCCESS:
 				return
 			case models.BackupRestoreStatusResponseStatusFAILED:
-				t.Errorf("failed to create snapshot, got response: %+v", meta)
+				t.Errorf("failed to create backup, got response: %+v", meta)
 				return
 			default:
 				time.Sleep(1 * time.Second)

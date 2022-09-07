@@ -22,8 +22,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/backup"
 )
 
-func (m *BackupFileSystemModule) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
-	metaPath := filepath.Join(m.snapshotsPath, snapshotID, key)
+func (m *BackupFileSystemModule) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	metaPath := filepath.Join(m.backupsPath, backupID, key)
 
 	if err := ctx.Err(); err != nil {
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", metaPath))
@@ -43,38 +43,38 @@ func (m *BackupFileSystemModule) GetObject(ctx context.Context, snapshotID, key 
 	return contents, nil
 }
 
-func (m *BackupFileSystemModule) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (m *BackupFileSystemModule) PutFile(ctx context.Context, backupID, key, srcPath string) error {
 	contents, err := os.ReadFile(path.Join(m.dataPath, srcPath))
 	if err != nil {
 		return errors.Wrapf(err, "read file '%s'", srcPath)
 	}
 
-	return m.PutObject(ctx, snapshotID, key, contents)
+	return m.PutObject(ctx, backupID, key, contents)
 }
 
-func (m *BackupFileSystemModule) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
-	snapshotPath := path.Join(m.makeSnapshotDirPath(snapshotID), key)
+func (m *BackupFileSystemModule) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
 
-	dir := path.Dir(snapshotPath)
+	dir := path.Dir(backupPath)
 
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir '%s'", dir)
 	}
 
-	if err := os.WriteFile(snapshotPath, byes, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "write file '%s'", snapshotPath)
+	if err := os.WriteFile(backupPath, byes, os.ModePerm); err != nil {
+		return errors.Wrapf(err, "write file '%s'", backupPath)
 	}
 
 	return nil
 }
 
-func (m *BackupFileSystemModule) Initialize(ctx context.Context, snapshotID string) error {
+func (m *BackupFileSystemModule) Initialize(ctx context.Context, backupID string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }
 
-func (m *BackupFileSystemModule) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
-	obj, err := m.GetObject(ctx, snapshotID, key)
+func (m *BackupFileSystemModule) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	obj, err := m.GetObject(ctx, backupID, key)
 	if err != nil {
 		return errors.Wrapf(err, "get object '%s'", key)
 	}
@@ -106,18 +106,18 @@ func (m *BackupFileSystemModule) initBackupBackend(ctx context.Context, backupsP
 	if err := m.createBackupsDir(backupsPath); err != nil {
 		return errors.Wrap(err, "invalid backup path provided")
 	}
-	m.snapshotsPath = backupsPath
+	m.backupsPath = backupsPath
 
 	return nil
 }
 
-func (m *BackupFileSystemModule) createBackupsDir(snapshotsPath string) error {
-	if err := os.MkdirAll(snapshotsPath, os.ModePerm); err != nil {
+func (m *BackupFileSystemModule) createBackupsDir(backupsPath string) error {
+	if err := os.MkdirAll(backupsPath, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
-			WithField("action", "create_snapshots_dir").
+			WithField("action", "create_backups_dir").
 			WithError(err).
-			Errorf("failed creating snapshots directory %v", snapshotsPath)
-		return backup.NewErrInternal(errors.Wrap(err, "make snapshot dir"))
+			Errorf("failed creating backups directory %v", backupsPath)
+		return backup.NewErrInternal(errors.Wrap(err, "make backups dir"))
 	}
 	return nil
 }

@@ -491,15 +491,15 @@ func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Backup
 }
 
-func (m *dummyBackupModuleWithAltNames) HomeDir(snapshotID string) string {
+func (m *dummyBackupModuleWithAltNames) HomeDir(backupID string) string {
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, snapshotID, key string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, snapshotID, key, destPath string) error {
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
 	return nil
 }
 
@@ -507,14 +507,14 @@ func (m *dummyBackupModuleWithAltNames) SourceDataPath() string {
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, snapshotID, key, srcPath string) error {
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, snapshotID, key string, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, snapshotID string) error {
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
