@@ -61,7 +61,6 @@ func TestBackup_DBLevel(t *testing.T) {
 		classes := db.ListBackupable()
 
 		t.Run("create backup", func(t *testing.T) {
-
 			err := db.Backupable(ctx, classes)
 			assert.Nil(t, err)
 

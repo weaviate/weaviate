@@ -53,7 +53,10 @@ func (s *Shard) startBatch() {
 	if s.numActiveBatches == 1 {
 		s.shutDownWg.Wait() // wait until any shutdown job is completed
 		if s.promMetrics != nil {
-			s.promMetrics.GoroutinesCount.WithLabelValues("object batcher", "").Add(float64(s.maxNumberGoroutines))
+			metric, err := s.promMetrics.GoroutinesCount.GetMetricWithLabelValues("object batcher", "")
+			if err == nil {
+				metric.Add(float64(s.maxNumberGoroutines))
+			}
 		}
 		for i := 0; i < s.maxNumberGoroutines; i++ {
 			go s.worker()
@@ -75,7 +78,10 @@ func (s *Shard) endBatch() {
 			}
 		}
 		if s.promMetrics != nil {
-			s.promMetrics.GoroutinesCount.WithLabelValues("object batcher", "").Sub(float64(s.maxNumberGoroutines))
+			metric, err := s.promMetrics.GoroutinesCount.GetMetricWithLabelValues("object batcher", "")
+			if err == nil {
+				metric.Sub(float64(s.maxNumberGoroutines))
+			}
 		}
 	}
 
