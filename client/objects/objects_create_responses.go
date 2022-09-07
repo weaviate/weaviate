@@ -75,7 +75,8 @@ func NewObjectsCreateOK() *ObjectsCreateOK {
 	return &ObjectsCreateOK{}
 }
 
-/*ObjectsCreateOK handles this case with default header values.
+/*
+ObjectsCreateOK handles this case with default header values.
 
 Object created.
 */
@@ -108,7 +109,8 @@ func NewObjectsCreateUnauthorized() *ObjectsCreateUnauthorized {
 	return &ObjectsCreateUnauthorized{}
 }
 
-/*ObjectsCreateUnauthorized handles this case with default header values.
+/*
+ObjectsCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewObjectsCreateForbidden() *ObjectsCreateForbidden {
 	return &ObjectsCreateForbidden{}
 }
 
-/*ObjectsCreateForbidden handles this case with default header values.
+/*
+ObjectsCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewObjectsCreateUnprocessableEntity() *ObjectsCreateUnprocessableEntity {
 	return &ObjectsCreateUnprocessableEntity{}
 }
 
-/*ObjectsCreateUnprocessableEntity handles this case with default header values.
+/*
+ObjectsCreateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -195,7 +199,8 @@ func NewObjectsCreateInternalServerError() *ObjectsCreateInternalServerError {
 	return &ObjectsCreateInternalServerError{}
 }
 
-/*ObjectsCreateInternalServerError handles this case with default header values.
+/*
+ObjectsCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
