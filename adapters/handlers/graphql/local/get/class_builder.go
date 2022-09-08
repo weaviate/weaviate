@@ -107,8 +107,8 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 						// class with an invalid reference property. Panicking
 						// is not necessary here
 						b.logger.WithField("action", "graphql_rebuild").
-							Warnf("ignoring class %q, because it contains ref prop %q to nonexistent class %q",
-								class.Class, property.Name, property.DataType)
+							Warnf("ignoring ref prop %q on class %q, because it contains reference to nonexistent class %q",
+								property.Name, class.Class, property.DataType)
 
 						continue
 					} else {

@@ -104,7 +104,7 @@ func TestBuild_GraphQLNetwork(t *testing.T) {
 }
 
 func TestBuild_RefProps(t *testing.T) {
-	t.Run("expected failure", func(t *testing.T) {
+	t.Run("expected error logs", func(t *testing.T) {
 		tests := testCases{
 			{
 				name: "build class with nonexistent ref prop",
@@ -126,9 +126,8 @@ func TestBuild_RefProps(t *testing.T) {
 			},
 		}
 
-		expectedLogMsg := "ignoring class \"ThisClassExists\", " +
-			"because it contains ref prop \"ofNonexistentClass\" " +
-			"to nonexistent class [\"ThisClassDoesNotExist\"]"
+		expectedLogMsg := "ignoring ref prop \"ofNonexistentClass\" on class \"ThisClassExists\", " +
+			"because it contains reference to nonexistent class [\"ThisClassDoesNotExist\"]"
 
 		tests.AssertErrorLogs(t, expectedLogMsg)
 	})
@@ -232,6 +231,9 @@ func (tests testCases) AssertNoError(t *testing.T) {
 	}
 }
 
+// AssertErrorLogs still expects the test to pass without errors,
+// but does expect the Build logger to contain errors messages
+// from the GQL schema rebuilding thunk
 func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -260,6 +262,7 @@ func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
 
 			last := logsHook.LastEntry()
 			assert.Contains(t, last.Message, expectedMsg)
+			assert.Nil(t, err)
 		})
 	}
 }
