@@ -29,6 +29,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStressHSNW(t *testing.T) {
+	dirName := t.TempDir()
+	indexID := "integrationtest"
+
+	logger, _ := test.NewNullLogger()
+	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
+	makeCL := func() (CommitLogger, error) {
+		return cl, clErr
+	}
+	index, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+	}, UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+	})
+	require.Nil(t, err)
+	vec := []float32{0.1, 0.9}
+
+	//parallelReqs := 2
+	//wg := sync.WaitGroup{}
+	//wgStartReqests := sync.WaitGroup{}
+	//wgStartReqests.Add(parallelReqs)
+	//wg.Add(parallelReqs)
+	//for i := 0; i < parallelReqs; i++ {
+	//	go func() {
+	//		wgStartReqests.Done()
+	//		wgStartReqests.Wait()
+	//
+	//		err := index.Add(uint64(0), vec)
+	//		require.Nil(t, err)
+	//		wg.Done()
+	//	}()
+	//}
+	//wg.Wait()
+	require.Nil(t, index.Add(uint64(0), vec))
+	require.NotNil(t, index.Add(uint64(0), vec))
+	perLevelCount := index.Stats()
+	require.NotNil(t, perLevelCount)
+	require.Equal(t, 1, len(perLevelCount))
+	require.Equal(t, uint(1), perLevelCount[0])
+}
+
 func TestHnswPersistence(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()

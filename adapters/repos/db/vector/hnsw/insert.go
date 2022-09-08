@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -97,7 +98,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+	randomNumber := h.randFunc()
+	targetLevel := int(math.Floor(-math.Log(randomNumber) * h.levelNormalizer))
+	fmt.Sprintf("randomNumber ", randomNumber, " targetLevel ", targetLevel)
 
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)
@@ -134,6 +137,10 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.cache.preload(node.id, nodeVec)
 
 	h.Lock()
+	if h.nodes[nodeId] != nil {
+		h.Unlock()
+		return errors.New("Node already present")
+	}
 	h.nodes[nodeId] = node
 	h.Unlock()
 

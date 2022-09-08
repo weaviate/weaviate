@@ -443,7 +443,7 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
-func (h *hnsw) Stats() {
+func (h *hnsw) Stats() map[int]uint {
 	fmt.Printf("levels: %d\n", h.currentMaximumLayer)
 
 	perLevelCount := map[int]uint{}
@@ -468,6 +468,7 @@ func (h *hnsw) Stats() {
 	for level, count := range perLevelCount {
 		fmt.Printf("unique count on level %d: %d\n", level, count)
 	}
+	return perLevelCount
 }
 
 func (h *hnsw) isEmpty() bool {
