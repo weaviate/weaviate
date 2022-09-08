@@ -1,7 +1,11 @@
 name: golangci-lint
-on: 
+on:
   push:
-  fork:
+    branches:
+      - master
+    tags:
+      - '**'
+  pull_request:
 jobs:
   golangci:
     name: lint
