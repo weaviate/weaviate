@@ -184,3 +184,27 @@ func (s *Shard) extendDimensionTrackerLSM(
 
 	return b.MapSet(buf[0:4], pair)
 }
+
+func (s *Shard) removeDimensionsLSM(
+	count int, docID uint64,
+) error {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return errors.Errorf("no bucket dimensions")
+	}
+
+	// 4 bytes for dim count (row key), 8 bytes for doc id (map key), 0 bytes for
+	// map value
+	buf := make([]byte, 12)
+
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(count))
+	binary.LittleEndian.PutUint64(buf[4:12], docID)
+
+	pair := lsmkv.MapPair{
+		Key:       buf[4:12],
+		Value:     buf[12:12],
+		Tombstone: true,
+	}
+
+	return b.MapSet(buf[0:4], pair)
+}
