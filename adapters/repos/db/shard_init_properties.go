@@ -76,7 +76,7 @@ func (s *Shard) initProperties() error {
 		})
 	}
 
-	if featureFlag {
+	if featureFlag { // TODO: proper feature flag
 		eg.Go(func() error {
 			if err := s.addDimensionsProperty(context.TODO()); err != nil {
 				return errors.Wrap(err, "init id property")
