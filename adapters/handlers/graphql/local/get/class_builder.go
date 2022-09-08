@@ -101,9 +101,21 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
-					// We can't return an error in this FieldsThunk function, so we need to panic
-					panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s; %s",
-						class.Class, property.Name, err.Error()))
+					if err.Error() == schema.ErrRefToNonexistentClass {
+						// This is a common case when a class which is referenced
+						// by another class is deleted, leaving the referencing
+						// class with an invalid reference property. Panicking
+						// is not necessary here
+						b.logger.WithField("action", "graphql_rebuild").
+							Warnf("ignoring class %q, because it contains ref prop %q to nonexistent class %q",
+								class.Class, property.Name, property.DataType)
+
+						continue
+					} else {
+						// We can't return an error in this FieldsThunk function, so we need to panic
+						panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s; %s",
+							class.Class, property.Name, err.Error()))
+					}
 				}
 
 				if propertyType.IsPrimitive() {
