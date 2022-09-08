@@ -74,9 +74,32 @@ func Test_DimensionTracking(t *testing.T) {
 		}
 	})
 
+	t.Run("import objects with d=0", func(t *testing.T) {
+		for i := 100; i < 200; i++ {
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "Test", ID: id}
+			err := repo.PutObject(context.Background(), obj, nil)
+			require.Nil(t, err)
+		}
+	})
+
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
 		for _, shard := range repo.GetIndex("Test").Shards {
 			assert.Equal(t, 12800, shard.Dimensions())
+		}
+	})
+
+	t.Run("delete 10 objects with d=128", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			err := repo.DeleteObject(context.Background(), "Test", id)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("verify dimensions after delete", func(t *testing.T) {
+		for _, shard := range repo.GetIndex("Test").Shards {
+			assert.Equal(t, 11520, shard.Dimensions())
 		}
 	})
 }
