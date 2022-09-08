@@ -29,6 +29,15 @@ func addDateAggregations(prop *aggregation.Property,
 		prop.DateAggregations = map[string]interface{}{}
 	}
 
+	// when combining the results from different shards, we need the raw dates to recompute the mode and median.
+	// Therefor we add a reference later which needs to be cleared out before returning the results to a user
+	for _, aProp := range aggs {
+		switch aProp {
+		case aggregation.ModeAggregator, aggregation.MedianAggregator:
+			prop.DateAggregations["_dateAggregator"] = agg
+		}
+	}
+
 	for _, aProp := range aggs {
 		switch aProp {
 		case aggregation.MinimumAggregator:
@@ -62,6 +71,7 @@ func newDateAggregator() *dateAggregator {
 	return &dateAggregator{
 		min:          timestamp{epochNano: math.MaxInt64},
 		valueCounter: map[timestamp]uint64{},
+		pairs:        make([]timestampCountPair, 0),
 	}
 }
 
@@ -191,6 +201,7 @@ func (a *dateAggregator) Median() string {
 
 // turns the value counter into a sorted list, as well as identifying the mode
 func (a *dateAggregator) buildPairsFromCounts() {
+	a.pairs = a.pairs[:0] // clear out old values in case this function called more than once
 	for value, count := range a.valueCounter {
 		if count > a.maxCount {
 			a.maxCount = count

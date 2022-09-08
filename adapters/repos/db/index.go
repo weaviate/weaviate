@@ -978,11 +978,7 @@ func (i *Index) aggregate(ctx context.Context,
 		results[j] = res
 	}
 
-	if len(shardNames) > 1 {
-		return aggregator.NewShardCombiner().Do(results), nil
-	}
-
-	return results[0], nil
+	return aggregator.NewShardCombiner().Do(results), nil
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,

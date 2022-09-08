@@ -103,6 +103,12 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
+	t.Run("date aggregations with grouping",
+		testDateAggregationsWithGrouping(repo, true))
+
+	t.Run("date aggregations without grouping",
+		testDateAggregationsWithoutGrouping(repo, true))
+
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
@@ -438,8 +444,8 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 									"minimum": 10.,
 									"sum":     13100.,
 									// "mode":    70,
-									"median": 70.,
-									"count":  60.,
+									"median": 115,
+									"count":  60,
 								},
 							},
 							"listedInIndex": {
@@ -735,7 +741,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 									"maximum": 150.,
 									"minimum": 47.,
 									"sum":     1970.,
-									"median":  47.,
+									"median":  98.5,
 									"count":   20.,
 								},
 							},
@@ -1604,7 +1610,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					"minimum": 0.0,
 					"sum":     124,
 					"mode":    0.0,
-					"median":  1.1,
+					"median":  1.2,
 					"count":   60.,
 				},
 			}
@@ -1617,7 +1623,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					"minimum": 10.,
 					"sum":     13100.,
 					"mode":    70.,
-					"median":  70.,
+					"median":  115.,
 					"count":   60.,
 				},
 			}
