@@ -2,13 +2,29 @@ package db
 
 import (
 	"encoding/binary"
-	"fmt"
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
-var featureFlag = false // TODO
+var featureFlag = true // TODO
+
+func (s *Shard) Dimensions() int {
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return 0
+	}
+
+	c := b.MapCursor()
+	sum := 0
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		dimLength := binary.LittleEndian.Uint32(k)
+		sum += int(dimLength) * len(v)
+	}
+	c.Close()
+
+	return sum
+}
 
 func (s *Shard) initDimensionTracking() {
 	// TODO: check real feature flag and disable if not set
@@ -23,23 +39,8 @@ func (s *Shard) initDimensionTracking() {
 
 		for {
 			<-t
-
-			b := s.store.Bucket(helpers.DimensionsBucketLSM)
-			if b == nil {
-				// TODO
-				continue
-			}
-
-			before := time.Now()
-			c := b.MapCursor()
-			for k, v := c.First(); k != nil; k, v = c.Next() {
-				dimLength := binary.LittleEndian.Uint32(k)
-				amount := len(v)
-
-				fmt.Printf("%d * %d = %d\n", dimLength, amount, int(dimLength)*amount)
-			}
-			c.Close()
-			fmt.Printf("it took %s\n", time.Since(before))
+			_ = s.Dimensions()
+			// fmt.Print(s.Dimensions())
 		}
 	}()
 }
