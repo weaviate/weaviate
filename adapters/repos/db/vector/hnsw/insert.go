@@ -72,6 +72,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
+	h.deleteVsInsertLock.RLock()
+	defer h.deleteVsInsertLock.RUnlock()
+
 	before := time.Now()
 
 	wasFirst := false
