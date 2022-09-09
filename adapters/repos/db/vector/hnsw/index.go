@@ -120,6 +120,9 @@ type hnsw struct {
 	insertMetrics *insertMetrics
 
 	randFunc func() float64 // added to temporarily get rid on flakiness in tombstones related tests. to be removed after fixing WEAVIATE-179
+
+	// TODO: validate that this is not a performance problem
+	deleteVsInsertLock sync.RWMutex
 }
 
 type CommitLogger interface {
@@ -153,7 +156,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 
 type (
 	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
-	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, error)
+	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
 // New creates a new HNSW index, the commit logger is provided through a thunk

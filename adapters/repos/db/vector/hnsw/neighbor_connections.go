@@ -62,7 +62,7 @@ func (n *neighborFinderConnector) Do() error {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
 	if !ok {
-		return errors.Errorf("entrypoint was deleted in the object store, " +
+		return errors.Errorf("initial: entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
@@ -71,7 +71,7 @@ func (n *neighborFinderConnector) Do() error {
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
 		err := n.doAtLevel(level)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "at level %d", level)
 		}
 	}
 
@@ -81,7 +81,7 @@ func (n *neighborFinderConnector) Do() error {
 func (n *neighborFinderConnector) doAtLevel(level int) error {
 	before := time.Now()
 	if err := n.replaceEntrypointsIfUnderMaintenance(); err != nil {
-		return err
+		return errors.Wrap(err, "replace ep under maintenance")
 	}
 
 	eps := priorityqueue.NewMin(1)
@@ -90,7 +90,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
 		level, nil)
 	if err != nil {
-		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
+		return errors.Wrapf(err, "search layer at level %d", level)
 	}
 
 	n.graph.insertMetrics.findAndConnectSearch(before)
@@ -99,7 +99,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	// max := n.maximumConnections(level)
 	max := n.graph.maximumConnections
 	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
-		return err
+		return errors.Wrap(err, "heuristic")
 	}
 
 	n.graph.insertMetrics.findAndConnectHeuristic(before)
@@ -122,7 +122,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
-			return err
+			return errors.Wrapf(err, "connect neighbor %d", neighborID)
 		}
 	}
 
@@ -168,7 +168,7 @@ func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
 			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 		}
 		if !ok {
-			return errors.Errorf("entrypoint was deleted in the object store, " +
+			return errors.Errorf("replace entrypoint: entrypoint was deleted in the object store, " +
 				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 		}
 		n.entryPointID = alternativeEP
