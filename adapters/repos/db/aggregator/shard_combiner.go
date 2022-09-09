@@ -99,7 +99,7 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 			if combinedProp.NumericalAggregations == nil {
 				combinedProp.NumericalAggregations = map[string]interface{}{}
 			}
-			combinedProp.NumericalAggregations = sc.mergeNumericalProp(
+			sc.mergeNumericalProp(
 				combinedProp.NumericalAggregations, prop.NumericalAggregations)
 		case aggregation.PropertyTypeDate:
 			if combinedProp.DateAggregations == nil {
@@ -108,18 +108,18 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 			sc.mergeDateProp(
 				combinedProp.DateAggregations, prop.DateAggregations)
 		case aggregation.PropertyTypeBoolean:
-			combinedProp.BooleanAggregation = sc.mergeBooleanProp(
-				combinedProp.BooleanAggregation, prop.BooleanAggregation)
+			sc.mergeBooleanProp(
+				&combinedProp.BooleanAggregation, &prop.BooleanAggregation)
 		case aggregation.PropertyTypeText:
-			combinedProp.TextAggregation = sc.mergeTextProp(
-				combinedProp.TextAggregation, prop.TextAggregation)
+			sc.mergeTextProp(
+				&combinedProp.TextAggregation, &prop.TextAggregation)
 		}
 		combinedGroups[pos].Properties[propName] = combinedProp
 
 	}
 }
 
-func (sc ShardCombiner) mergeDateProp(first, second map[string]interface{}) {
+func (sc *ShardCombiner) mergeDateProp(first, second map[string]interface{}) {
 	if len(second) == 0 {
 		return
 	}
@@ -188,49 +188,49 @@ func (sc ShardCombiner) mergeDateProp(first, second map[string]interface{}) {
 	}
 }
 
-func (sc ShardCombiner) mergeNumericalProp(combined, source map[string]interface{}) map[string]interface{} {
-	if len(source) == 0 {
-		return combined
+func (sc *ShardCombiner) mergeNumericalProp(first, second map[string]interface{}) {
+	if len(second) == 0 {
+		return
 	}
 
-	for propType, value := range source {
+	for propType, value := range second {
 		switch propType {
 		case "mean", "mode", "median", "count", "sum":
-			if val, ok := combined[propType]; ok {
-				combined[propType] = val.(float64) + value.(float64)
+			if val, ok := first[propType]; ok {
+				first[propType] = val.(float64) + value.(float64)
 			} else {
-				combined[propType] = value
+				first[propType] = value
 			}
 		case "minimum":
-			if _, ok := combined["minimum"]; !ok || value.(float64) < combined["minimum"].(float64) {
-				combined["minimum"] = value
+			if _, ok := first["minimum"]; !ok || value.(float64) < first["minimum"].(float64) {
+				first["minimum"] = value
 			}
 		case "maximum":
-			if _, ok := combined["maximum"]; !ok || value.(float64) > combined["maximum"].(float64) {
-				combined["maximum"] = value
+			if _, ok := first["maximum"]; !ok || value.(float64) > first["maximum"].(float64) {
+				first["maximum"] = value
 			}
 		default:
 			panic("unkwnon prop type: " + propType)
 		}
 	}
 
-	valMean, ok := combined["_rounds"]
+	valMean, ok := first["_rounds"]
 	if ok {
 		val := valMean.(float64)
 		val++
-		combined["_rounds"] = val
+		first["_rounds"] = val
 	} else {
-		combined["_rounds"] = 1.
+		first["_rounds"] = 1.
 	}
 
-	return combined
+	return
 }
 
-func (sc ShardCombiner) finalizeDateProp(combined map[string]interface{}) {
+func (sc *ShardCombiner) finalizeDateProp(combined map[string]interface{}) {
 	delete(combined, "_dateAggregator")
 }
 
-func (sc ShardCombiner) finalizeNumerical(combined map[string]interface{}) map[string]interface{} {
+func (sc *ShardCombiner) finalizeNumerical(combined map[string]interface{}) {
 	if _, ok := combined["mean"]; ok {
 		combined["mean"] = combined["mean"].(float64) / combined["_rounds"].(float64)
 	}
@@ -241,46 +241,36 @@ func (sc ShardCombiner) finalizeNumerical(combined map[string]interface{}) map[s
 		combined["median"] = combined["median"].(float64) / combined["_rounds"].(float64)
 	}
 	delete(combined, "_rounds")
-	return combined
 }
 
-func (sc ShardCombiner) mergeBooleanProp(combined,
-	source aggregation.Boolean,
-) aggregation.Boolean {
+func (sc *ShardCombiner) mergeBooleanProp(combined, source *aggregation.Boolean) {
 	combined.Count += source.Count
 	combined.TotalFalse += source.TotalFalse
 	combined.TotalTrue += source.TotalTrue
-	return combined
 }
 
-func (sc ShardCombiner) finalizeBoolean(combined aggregation.Boolean) aggregation.Boolean {
+func (sc *ShardCombiner) finalizeBoolean(combined *aggregation.Boolean) {
 	combined.PercentageFalse = float64(combined.TotalFalse) / float64(combined.Count)
 	combined.PercentageTrue = float64(combined.TotalTrue) / float64(combined.Count)
-	return combined
 }
 
-func (sc ShardCombiner) mergeTextProp(combined,
-	source aggregation.Text,
-) aggregation.Text {
-	combined.Count += source.Count
+func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
+	first.Count += second.Count
 
-	for _, textOcc := range source.Items {
-		pos := getPosOfTextOcc(combined.Items, textOcc.Value)
+	for _, textOcc := range second.Items {
+		pos := getPosOfTextOcc(first.Items, textOcc.Value)
 		if pos < 0 {
-			combined.Items = append(combined.Items, textOcc)
+			first.Items = append(first.Items, textOcc)
 		} else {
-			combined.Items[pos].Occurs += textOcc.Occurs
+			first.Items[pos].Occurs += textOcc.Occurs
 		}
 	}
-
-	return combined
 }
 
-func (sc ShardCombiner) finalizeText(combined aggregation.Text) aggregation.Text {
+func (sc *ShardCombiner) finalizeText(combined *aggregation.Text) {
 	sort.Slice(combined.Items, func(a, b int) bool {
 		return combined.Items[a].Occurs > combined.Items[b].Occurs
 	})
-	return combined
 }
 
 func getPosOfTextOcc(haystack []aggregation.TextOccurrence, needle string) int {
@@ -293,15 +283,15 @@ func getPosOfTextOcc(haystack []aggregation.TextOccurrence, needle string) int {
 	return -1
 }
 
-func (sc ShardCombiner) finalizeGroup(group *aggregation.Group) {
+func (sc *ShardCombiner) finalizeGroup(group *aggregation.Group) {
 	for propName, prop := range group.Properties {
 		switch prop.Type {
 		case aggregation.PropertyTypeNumerical:
-			prop.NumericalAggregations = sc.finalizeNumerical(prop.NumericalAggregations)
+			sc.finalizeNumerical(prop.NumericalAggregations)
 		case aggregation.PropertyTypeBoolean:
-			prop.BooleanAggregation = sc.finalizeBoolean(prop.BooleanAggregation)
+			sc.finalizeBoolean(&prop.BooleanAggregation)
 		case aggregation.PropertyTypeText:
-			prop.TextAggregation = sc.finalizeText(prop.TextAggregation)
+			sc.finalizeText(&prop.TextAggregation)
 		case aggregation.PropertyTypeDate:
 			sc.finalizeDateProp(prop.DateAggregations)
 
