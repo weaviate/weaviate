@@ -165,6 +165,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	results := h.pools.pqResults.GetMax(ef)
 	distancer := h.distancerProvider.New(queryVector)
 
+	fmt.Printf("query vec is len=%d", len(queryVector))
+
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
@@ -340,6 +342,7 @@ func (h *hnsw) distanceToNode(distancer distancer.Distancer,
 	nodeID uint64,
 ) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
+	fmt.Printf("candidate vec is %d %d\n", nodeID, len(candidateVec))
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
