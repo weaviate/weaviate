@@ -146,15 +146,21 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 		return nil
 	}
 
+	var err error
+	value, err = typedSliceToUntyped(value)
+	if err != nil {
+		return err
+	}
+
 	values, ok := value.([]interface{})
 	if !ok {
 		// skip any primitive prop that's not set
-		errors.New("analyze array prop: expected array prop")
+		return errors.New("analyze array prop: expected array prop")
 	}
 
 	property, err := a.analyzeArrayProp(prop, values)
 	if err != nil {
-		errors.Wrap(err, "analyze primitive prop")
+		return errors.Wrap(err, "analyze primitive prop")
 	}
 	if property == nil {
 		return nil
@@ -179,7 +185,7 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	}
 	property, err = a.analyzePrimitiveProp(prop, value)
 	if err != nil {
-		errors.Wrap(err, "analyze primitive prop")
+		return errors.Wrap(err, "analyze primitive prop")
 	}
 	if property == nil {
 		return nil
@@ -346,6 +352,11 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			value = int64(asFloat)
 		}
 
+		if asFloat, ok := value.(int); ok {
+			// when merging an existing object we may retrieve an untyped int
+			value = int64(asFloat)
+		}
+
 		asInt, ok := value.(int64)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type int64, but got %T", prop.Name, value)
@@ -382,12 +393,19 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		}
 	case schema.DataTypeDate:
 		hasFrequency = HasFrequency(dt)
+		var err error
+		if asString, ok := value.(string); ok {
+			// for example when patching the date may have been loaded as a string
+			value, err = time.Parse(time.RFC3339Nano, asString)
+			if err != nil {
+				return nil, errors.Wrap(err, "parse stringified timestamp")
+			}
+		}
 		asTime, ok := value.(time.Time)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
 		}
 
-		var err error
 		items, err = a.Int(asTime.UnixNano())
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
@@ -472,4 +490,44 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 		Items:        items,
 		HasFrequency: false,
 	}, nil
+}
+
+func typedSliceToUntyped(in interface{}) ([]interface{}, error) {
+	switch typed := in.(type) {
+	case []interface{}:
+		// nothing to do
+		return typed, nil
+	case []string:
+		out := make([]interface{}, len(typed))
+		for i := range out {
+			out[i] = typed[i]
+		}
+		return out, nil
+	case []int:
+		out := make([]interface{}, len(typed))
+		for i := range out {
+			out[i] = typed[i]
+		}
+		return out, nil
+	case []time.Time:
+		out := make([]interface{}, len(typed))
+		for i := range out {
+			out[i] = typed[i]
+		}
+		return out, nil
+	case []bool:
+		out := make([]interface{}, len(typed))
+		for i := range out {
+			out[i] = typed[i]
+		}
+		return out, nil
+	case []float64:
+		out := make([]interface{}, len(typed))
+		for i := range out {
+			out[i] = typed[i]
+		}
+		return out, nil
+	default:
+		return nil, errors.Errorf("unrecognized slice type %T", in)
+	}
 }
