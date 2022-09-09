@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,6 +89,7 @@ func (n *shardedLockCache) delete(ctx context.Context, id uint64) {
 }
 
 func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]float32, error) {
+	fmt.Printf("vector cache handling cache miss for %d\n", id)
 	vec, err := n.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err

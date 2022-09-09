@@ -75,3 +75,6 @@ func (i *Index) ListFiles(context.Context) ([]string, error) {
 func (i *Index) ResumeMaintenance(context.Context) error {
 	return nil
 }
+
+func (i *Index) Dump(labels ...string) {
+}
