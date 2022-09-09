@@ -62,8 +62,9 @@ func (n *neighborFinderConnector) Do() error {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
 	if !ok {
-		return errors.Errorf("initial: entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+		if err := n.replaceEntrypointsIfUnderMaintenance(); err != nil {
+			return err
+		}
 	}
 
 	n.entryPointDist = dist

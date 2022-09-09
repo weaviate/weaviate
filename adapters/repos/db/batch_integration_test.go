@@ -543,7 +543,6 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						return
 					}
 					recall := float32(relevant) / float32(retrieved)
-					fmt.Printf("recall is %f\n", recall)
 					assert.True(t, recall >= 0.99)
 				})
 			}

@@ -227,6 +227,14 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
+			if asJsonNumber, ok := value.(json.Number); ok {
+				var err error
+				value, err = asJsonNumber.Float64()
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			if asFloat, ok := value.(float64); ok {
 				// unmarshaling from json into a dynamic schema will assume every number
 				// is a float64
@@ -249,6 +257,14 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		hasFrequency = HasFrequency(dt)
 		in := make([]float64, len(values))
 		for i, value := range values {
+			if asJsonNumber, ok := value.(json.Number); ok {
+				var err error
+				value, err = asJsonNumber.Float64()
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			asFloat, ok := value.(float64)
 			if !ok {
 				return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
