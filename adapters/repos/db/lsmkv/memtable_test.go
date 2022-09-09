@@ -54,6 +54,6 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	t.Run("retrieve by initial secondary - should not find anything", func(t *testing.T) {
 		val, err := m.getBySecondary(0, []byte("secondary-key-initial"))
 		assert.Equal(t, NotFound, err)
-		assert.Equal(t, nil, val)
+		assert.Nil(t, val)
 	})
 }
