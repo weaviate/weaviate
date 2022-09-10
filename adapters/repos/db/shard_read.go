@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -153,8 +152,6 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("id=%d has object=%v\n", indexID, bytes)
 
 	if bytes == nil {
 		return nil, storobj.NewErrNotFoundf(indexID,

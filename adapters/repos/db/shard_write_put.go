@@ -16,7 +16,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -82,15 +81,12 @@ func (s *Shard) updateVectorIndex(vector []float32,
 		}
 	}
 
-	// fmt.Printf("doc_id=%d len=%d\n", status.docID, len(vector))
-
 	// vector is now optional as of
 	// https://github.com/semi-technologies/weaviate/issues/1800
 	if len(vector) == 0 {
 		return nil
 	}
 
-	fmt.Printf("update vector index doc_id=%d len=%d\n", status.docID, len(vector))
 	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}

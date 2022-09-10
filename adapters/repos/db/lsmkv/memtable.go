@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
@@ -110,8 +109,6 @@ func (l *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	if primary == nil {
 		return nil, NotFound
 	}
-
-	fmt.Printf("resolved secondary %v to primary %v\n", key, primary)
 
 	v, err := l.key.get(primary)
 	if err != nil {
