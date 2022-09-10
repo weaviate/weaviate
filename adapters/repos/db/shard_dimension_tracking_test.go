@@ -139,7 +139,6 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("update some of the origin nil vector objects with a d=128 vector", func(t *testing.T) {
-		t.Skip("skip temporarily as this update does not work!?")
 		dim := 128
 		for i := 100; i < 150; i++ {
 			vec := make([]float32, dim)
@@ -171,10 +170,9 @@ func Test_DimensionTracking(t *testing.T) {
 		for _, shard := range repo.GetIndex("Test").Shards {
 			// 000-050 d=128
 			// 051-100 d=0
-			// TODO: 100-150 with vectors if above bug is fixed
+			// 100-150 d=128
 			// 151-200 d=0
-			assert.Equal(t, 6400, shard.Dimensions())
-			// shard.vectorIndex.Dump()
+			assert.Equal(t, 12800, shard.Dimensions())
 		}
 	})
 }
