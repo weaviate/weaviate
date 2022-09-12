@@ -12,7 +12,10 @@
 package aggregator
 
 import (
+	"fmt"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +26,7 @@ const (
 	NanoSecondsTimeZone    = ".451235Z"
 )
 
-type TestStruct struct {
+type TestStructDates struct {
 	name            string
 	dates1          []string
 	dates2          []string
@@ -34,7 +37,7 @@ type TestStruct struct {
 }
 
 func TestShardCombinerMergeDates(t *testing.T) {
-	tests := []TestStruct{
+	tests := []TestStructDates{
 		{
 			name:            "Many values",
 			dates1:          []string{"55", "26", "10"},
@@ -62,7 +65,7 @@ func TestShardCombinerMergeDates(t *testing.T) {
 	}
 }
 
-func testDates(t *testing.T, dates1, dates2 []string, tt TestStruct) {
+func testDates(t *testing.T, dates1, dates2 []string, tt TestStructDates) {
 	sc := NewShardCombiner()
 	dateMap1 := createDateAgg(dates1)
 	dateMap2 := createDateAgg(dates2)
@@ -87,4 +90,93 @@ func createDateAgg(dates []string) map[string]interface{} {
 	aggs := []aggregation.Aggregator{aggregation.MedianAggregator, aggregation.MinimumAggregator, aggregation.MaximumAggregator, aggregation.CountAggregator, aggregation.ModeAggregator}
 	addDateAggregations(&prop, aggs, agg)
 	return prop.DateAggregations
+}
+
+type TestStructNumbers struct {
+	name     string
+	numbers1 []float64
+	numbers2 []float64
+	testMode bool
+}
+
+func TestShardCombinerMergeNumerical(t *testing.T) {
+	setSeed(t)
+	tests := []TestStructNumbers{
+		{
+			name:     "Uneven number of elements for both",
+			numbers1: []float64{0, 9, 9},
+			numbers2: []float64{2},
+			testMode: true,
+		},
+		{
+			name:     "Even number of elements for both",
+			numbers1: []float64{0, 5, 10, 15},
+			numbers2: []float64{15, 15},
+			testMode: true,
+		},
+		{
+			name:     "Mode is affected by merge",
+			numbers1: []float64{2.5, 2.5, 10, 15},
+			numbers2: []float64{15, 15},
+			testMode: true,
+		},
+		{
+			name:     "random",
+			numbers1: createRandomSlice(),
+			numbers2: createRandomSlice(),
+			testMode: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testNumbers(t, tt.numbers1, tt.numbers2, tt.testMode)
+			testNumbers(t, tt.numbers2, tt.numbers1, tt.testMode)
+		})
+	}
+}
+
+func testNumbers(t *testing.T, numbers1, numbers2 []float64, testMode bool) {
+	sc := NewShardCombiner()
+	numberMap1 := createNumericalAgg(numbers1)
+	numberMap2 := createNumericalAgg(numbers2)
+
+	combinedMap := createNumericalAgg(append(numbers1, numbers2...))
+
+	sc.mergeNumericalProp(numberMap1, numberMap2)
+	sc.finalizeNumerical(numberMap1)
+
+	assert.Equal(t, len(numbers1)+len(numbers2), int(numberMap1["count"].(float64)))
+	assert.InDelta(t, combinedMap["mean"], numberMap1["mean"], 0.0001)
+	assert.InDelta(t, combinedMap["median"], numberMap1["median"], 0.0001)
+	if testMode { // for random numbers the mode is flaky as there is no guaranteed order if several values have the same count
+		assert.Equal(t, combinedMap["mode"], numberMap1["mode"])
+	}
+}
+
+func createNumericalAgg(numbers []float64) map[string]interface{} {
+	agg := newNumericalAggregator()
+	for _, num := range numbers {
+		agg.AddFloat64(num)
+	}
+	agg.buildPairsFromCounts() // needed to populate all required info
+
+	prop := aggregation.Property{}
+	aggs := []aggregation.Aggregator{aggregation.MedianAggregator, aggregation.MeanAggregator, aggregation.ModeAggregator, aggregation.CountAggregator}
+	addNumericalAggregations(&prop, aggs, agg)
+	return prop.NumericalAggregations
+}
+
+func createRandomSlice() []float64 {
+	size := rand.Intn(100)
+	array := make([]float64, size)
+	for i := 0; i < size; i++ {
+		array[i] = rand.Float64() * 1000
+	}
+	return array
+}
+
+func setSeed(t *testing.T) {
+	time := time.Now().UnixNano()
+	t.Log("Seed is", fmt.Sprint(time))
+	rand.Seed(time)
 }

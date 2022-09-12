@@ -1219,7 +1219,7 @@ func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
 			require.Equal(t, 1, len(res.Groups))
 			require.Equal(t, 1, len(res.Groups[0].Properties))
 			require.Equal(t, 1, len(res.Groups[0].Properties["dividendYield"].NumericalAggregations))
-			require.Equal(t, uint64(0), res.Groups[0].Properties["dividendYield"].NumericalAggregations["count"].(uint64))
+			require.Equal(t, float64(0), res.Groups[0].Properties["dividendYield"].NumericalAggregations["count"].(float64))
 		})
 	}
 }
@@ -1914,55 +1914,54 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
 
-		// TODO: Flaky median result: https://github.com/semi-technologies/weaviate/issues/1693
-		// t.Run("array types, single aggregator numbers", func(t *testing.T) {
-		// 	params := aggregation.Params{
-		// 		ClassName: schema.ClassName(arrayTypesClass.Class),
-		// 		GroupBy:   nil, // explicitly set to nil
-		// 		Properties: []aggregation.ParamProperty{
-		// 			aggregation.ParamProperty{
-		// 				Name: schema.PropertyName("numbers"),
-		// 				Aggregators: []aggregation.Aggregator{
-		// 					aggregation.MeanAggregator,
-		// 					aggregation.MaximumAggregator,
-		// 					aggregation.MinimumAggregator,
-		// 					aggregation.SumAggregator,
-		// 					aggregation.ModeAggregator,
-		// 					aggregation.MedianAggregator,
-		// 					aggregation.CountAggregator,
-		// 					aggregation.TypeAggregator, // ignored in the repo, but can't block
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+		t.Run("array types, single aggregator numbers", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(arrayTypesClass.Class),
+				GroupBy:   nil, // explicitly set to nil
+				Properties: []aggregation.ParamProperty{
+					{
+						Name: schema.PropertyName("numbers"),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							// aggregation.ModeAggregator,
+							// aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+				},
+			}
 
-		// 	res, err := repo.Aggregate(context.Background(), params)
-		// 	require.Nil(t, err)
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
 
-		// 	expectedResult := &aggregation.Result{
-		// 		Groups: []aggregation.Group{
-		// 			aggregation.Group{
-		// 				GroupedBy: nil,
-		// 				Properties: map[string]aggregation.Property{
-		// 					"numbers": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]interface{}{
-		// 							"mean":    1.8,
-		// 							"maximum": 3.0,
-		// 							"minimum": 1.0,
-		// 							"sum":     9.0,
-		// 							"mode":    1.0,
-		// 							"median":  3.0,
-		// 							"count":   5.,
-		// 						},
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					{
+						GroupedBy: nil,
+						Properties: map[string]aggregation.Property{
+							"numbers": {
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]interface{}{
+									"mean":    1.8,
+									"maximum": 3.0,
+									"minimum": 1.0,
+									"sum":     9.0,
+									//"mode":    1.0,
+									//"median":  3.0,
+									"count": 5.,
+								},
+							},
+						},
+					},
+				},
+			}
 
-		// 	assert.Equal(t, expectedResult.Groups, res.Groups)
-		// })
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
 
 		t.Run("array types, single aggregator strings", func(t *testing.T) {
 			if !exact {
