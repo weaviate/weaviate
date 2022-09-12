@@ -165,6 +165,10 @@ func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
 		a.mode = number
 	}
 
+	currentCount := a.valueCounter[number]
+	currentCount += count
+	a.valueCounter[number] = currentCount
+
 	a.pairs = append(a.pairs, floatCountPair{value: number, count: count})
 
 	return nil
