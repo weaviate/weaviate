@@ -104,7 +104,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "rate(startup_durations_ms_sum[$__interval])/rate(startup_durations_ms_count[$__interval])",
+          "expr": "rate(startup_durations_ms_sum{}[$__interval])/rate(startup_durations_ms_count{}[$__interval])",
           "interval": "",
           "legendFormat": "{{operation}} ({{class_name}} / {{shard_name}})",
           "refId": "A"
@@ -394,7 +394,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "rate(startup_diskio_throughput_sum[$__interval])/rate(startup_diskio_throughput_count[$__interval])",
+          "expr": "rate(startup_diskio_throughput_sum{}[$__interval])/rate(startup_diskio_throughput_count{}[$__interval])",
           "interval": "",
           "legendFormat": "{{operation}} ({{class_name}}/{{shard_name}})",
           "refId": "A"

@@ -106,7 +106,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "vector_index_size",
+          "expr": "vector_index_size{}",
           "interval": "",
           "legendFormat": "{{class_name}} / {{shard_name}}",
           "refId": "A"
@@ -151,7 +151,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum(increase(vector_index_maintenance_durations_ms_bucket[$__interval])) by (le)",
+          "expr": "sum(increase(vector_index_maintenance_durations_ms_bucket{}[$__interval])) by (le)",
           "format": "heatmap",
           "interval": "",
           "legendFormat": "{{le}}",

@@ -195,7 +195,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "vector_index_tombstones",
+          "expr": "vector_index_tombstones{}",
           "instant": false,
           "interval": "",
           "intervalFactor": 1,
@@ -260,7 +260,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum(vector_index_tombstones)",
+          "expr": "sum(vector_index_tombstones{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -450,7 +450,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "vector_index_tombstone_cleanup_threads",
+          "expr": "vector_index_tombstone_cleanup_threads{}",
           "interval": "",
           "legendFormat": "{{class_name}} - {{shard_name}}",
           "refId": "A"
@@ -513,7 +513,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum(vector_index_tombstone_cleanup_threads)",
+          "expr": "sum(vector_index_tombstone_cleanup_threads{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -575,7 +575,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum(vector_index_tombstone_cleaned)",
+          "expr": "sum(vector_index_tombstone_cleaned{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -867,7 +867,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "go_memstats_heap_inuse_bytes",
+          "expr": "go_memstats_heap_inuse_bytes{}",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
