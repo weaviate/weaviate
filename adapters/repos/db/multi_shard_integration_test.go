@@ -547,12 +547,12 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 				{
 					name:              "boolProp desc",
 					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "desc"}},
-					expectedBoolProps: []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
+					expectedBoolProps: []bool{true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false},
 				},
 				{
 					name:              "boolProp asc",
 					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "asc"}},
-					expectedBoolProps: []bool{true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false},
+					expectedBoolProps: []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
 				},
 				{
 					name:            "index property doesn't exist in testrefclass",
