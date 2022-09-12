@@ -181,26 +181,25 @@ func (a *dateAggregator) Count() int64 {
 
 // Median does not require preparation if build from rows, but requires a call of
 // buildPairsFromCounts() if it was built using individual objects
+//
+// Check the numericalAggregator.Median() for details about the calculation
 func (a *dateAggregator) Median() string {
-	var index uint64
-	if a.count%2 == 0 {
-		index = a.count / 2
-	} else {
-		index = a.count/2 + 1
-	}
-
-	// since the pairs are read from an inverted index, which is in turn
-	// lexicographically sorted, we know that our pairs must also be sorted
-	var median timestamp
-	for _, pair := range a.pairs {
-		if index <= pair.count {
-			median = pair.value
-			break
+	middleIndex := a.count / 2
+	count := uint64(0)
+	for index, pair := range a.pairs {
+		count += pair.count
+		if a.count%2 == 1 && count > middleIndex {
+			return pair.value.rfc3339 // case a)
+		} else if a.count%2 == 0 {
+			if count == middleIndex {
+				MedianEpochNano := pair.value.epochNano + (a.pairs[index+1].value.epochNano-pair.value.epochNano)/2
+				return time.Unix(0, MedianEpochNano).UTC().Format(time.RFC3339Nano) // case b2)
+			} else if count > middleIndex {
+				return pair.value.rfc3339 // case b1)
+			}
 		}
-		index -= pair.count
 	}
-
-	return median.rfc3339
+	panic("Couldn't determine median. This should never happen. Did you add values and call buildRows before?")
 }
 
 // turns the value counter into a sorted list, as well as identifying the mode

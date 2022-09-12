@@ -25,21 +25,35 @@ func TestDateAggregator(t *testing.T) {
 			expectedMedian: "17",
 			expectedMode:   "17",
 		},
+		{
+			name:           "Even number of values",
+			seconds:        []string{"18", "18", "20", "25"},
+			expectedMedian: "19",
+			expectedMode:   "18",
+		},
+		{
+			name:           "Uneven number of values",
+			seconds:        []string{"18", "18", "19", "20", "25"},
+			expectedMedian: "19",
+			expectedMode:   "18",
+		},
 	}
 	names := []string{"AddTimestamp", "AddRow"}
 	for _, tt := range tests {
-		for i := 0; i < 2; i++ { // test two ways of adding the value to the aggregator
-			t.Run(tt.name+" "+names[i], func(t *testing.T) {
+		for _, name := range names { // test two ways of adding the value to the aggregator
+			t.Run(tt.name+" "+name, func(t *testing.T) {
 				agg := newDateAggregator()
 				for _, second := range tt.seconds {
 					fullDate := DateYearMonthDayHourMinute + second + DateNanoSecondsTimeZone
-					if i == 0 {
-						agg.AddTimestamp(fullDate)
+					if name == names[0] {
+						err := agg.AddTimestamp(fullDate)
+						assert.Nil(t, err)
 					} else {
-						timeParsed, ok := time.Parse(time.RFC3339, fullDate)
-						assert.Nil(t, ok)
+						timeParsed, err := time.Parse(time.RFC3339, fullDate)
+						assert.Nil(t, err)
 						ts := newTimestamp(timeParsed.UnixNano())
-						agg.addRow(ts, 1)
+						err = agg.addRow(ts, 1)
+						assert.Nil(t, err)
 					}
 				}
 				agg.buildPairsFromCounts() // needed to populate all required info

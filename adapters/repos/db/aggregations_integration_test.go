@@ -2065,7 +2065,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				"count":   int64(10),
 				"minimum": "2022-06-16T17:30:17.231346Z",
 				"maximum": "2022-06-16T17:30:26.451235Z",
-				"median":  "2022-06-16T17:30:20.123546Z",
+				"median":  "2022-06-16T17:30:21.1179905Z",
 				"mode":    "2022-06-16T17:30:17.231346Z",
 			}
 			receivedProperties := res.Groups[0].Properties["timeArrived"].DateAggregations
@@ -2109,7 +2109,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 							DateAggregations: map[string]interface{}{
 								"count":   int64(6),
 								"maximum": "2022-06-16T17:30:25.524536Z",
-								"median":  "2022-06-16T17:30:17.231346Z",
+								"median":  "2022-06-16T17:30:19.6718905Z",
 								"minimum": "2022-06-16T17:30:17.231346Z",
 								"mode":    "2022-06-16T17:30:17.231346Z",
 							},
@@ -2128,7 +2128,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 							DateAggregations: map[string]interface{}{
 								"count":   int64(4),
 								"maximum": "2022-06-16T17:30:26.451235Z",
-								"median":  "2022-06-16T17:30:20.123546Z",
+								"median":  "2022-06-16T17:30:22.224622Z",
 								"minimum": "2022-06-16T17:30:20.123546Z",
 								"mode":    "2022-06-16T17:30:20.123546Z",
 							},
