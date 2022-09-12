@@ -164,7 +164,7 @@ func TestBackupRequestValidation(t *testing.T) {
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("backup %s already exists", id))
+		assert.Contains(t, err.Error(), fmt.Sprintf("check if backup %q exists", id))
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 	t.Run("MetadataNotFound", func(t *testing.T) {
@@ -184,7 +184,7 @@ func TestBackupRequestValidation(t *testing.T) {
 
 		assert.Nil(t, meta)
 		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), fmt.Sprintf("backup %s already exists", id))
+		assert.Contains(t, err.Error(), fmt.Sprintf("backup %q already exists", id))
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 }
