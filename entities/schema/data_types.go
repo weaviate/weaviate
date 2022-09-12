@@ -199,7 +199,7 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 
 			if !relaxCrossRefValidation {
 				if s.FindClassByName(className) == nil {
-					return nil, errors.New(ErrRefToNonexistentClass)
+					return nil, ErrRefToNonexistentClass{}
 				}
 			}
 

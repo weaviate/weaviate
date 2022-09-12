@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -101,7 +102,7 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
-					if err.Error() == schema.ErrRefToNonexistentClass {
+					if errors.Is(err, schema.ErrRefToNonexistentClass{}) {
 						// This is a common case when a class which is referenced
 						// by another class is deleted, leaving the referencing
 						// class with an invalid reference property. Panicking

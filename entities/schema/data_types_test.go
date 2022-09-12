@@ -48,7 +48,7 @@ func TestNonExistingClassSingleRef(t *testing.T) {
 		t.Fatal("Should have error")
 	}
 
-	assert.EqualError(t, err, ErrRefToNonexistentClass)
+	assert.EqualError(t, err, ErrRefToNonexistentClass{}.Error())
 
 	if pdt != nil {
 		t.Fatal("Should return nil result")
