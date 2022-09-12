@@ -152,6 +152,10 @@ func (a *dateAggregator) addRow(ts timestamp, count uint64) error {
 		a.mode = ts
 	}
 
+	currentCount := a.valueCounter[ts]
+	currentCount += count
+	a.valueCounter[ts] = currentCount
+
 	a.pairs = append(a.pairs, timestampCountPair{value: ts, count: count})
 
 	return nil
