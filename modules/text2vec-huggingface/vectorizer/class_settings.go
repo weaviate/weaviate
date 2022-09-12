@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 
@@ -212,7 +211,7 @@ func (ic *classSettings) getProperty(name string) string {
 		if ok {
 			asString, ok := model.(string)
 			if ok {
-				return strings.ToLower(asString)
+				return asString
 			}
 		}
 	}
