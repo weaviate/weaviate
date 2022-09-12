@@ -32,11 +32,22 @@ func addNumericalAggregations(prop *aggregation.Property,
 	if agg.count == 0 {
 		for _, entry := range aggs {
 			if entry == aggregation.CountAggregator {
-				prop.NumericalAggregations["count"] = agg.count
+				prop.NumericalAggregations["count"] = float64(agg.count)
 				break
 			}
 		}
 		return
+	}
+
+	// when combining the results from different shards, we need the raw numbers to recompute the mode, mean and median.
+	// Therefor we add a reference later which needs to be cleared out before returning the results to a user
+loop:
+	for _, aProp := range aggs {
+		switch aProp {
+		case aggregation.ModeAggregator, aggregation.MedianAggregator, aggregation.MeanAggregator:
+			prop.NumericalAggregations["_numericalAggregator"] = agg
+			break loop
+		}
 	}
 
 	for _, aProp := range aggs {
@@ -67,6 +78,7 @@ func newNumericalAggregator() *numericalAggregator {
 		min:          math.MaxFloat64,
 		max:          math.SmallestNonzeroFloat64,
 		valueCounter: map[float64]uint64{},
+		pairs:        make([]floatCountPair, 0),
 	}
 }
 
@@ -106,11 +118,8 @@ func (a *numericalAggregator) AddFloat64(value float64) error {
 
 // turns the value counter into a sorted list, as well as identifying the mode
 func (a *numericalAggregator) buildPairsFromCounts() {
-	if a.pairs == nil {
-		a.pairs = make([]floatCountPair, 0, len(a.valueCounter))
-	} else {
-		a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
-	}
+	a.pairs = a.pairs[:0] // clear out old values in case this function called more than once
+	a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
 
 	for value, count := range a.valueCounter {
 		if count > a.maxCount {
