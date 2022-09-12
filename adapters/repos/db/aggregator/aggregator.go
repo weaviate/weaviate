@@ -84,7 +84,7 @@ func (a *Aggregator) aggTypeOfProperty(
 	}
 
 	if schema.IsRefDataType(schemaProp.DataType) {
-		return aggregation.PropertyTypeReference, "", nil
+		return aggregation.PropertyTypeReference, schema.DataTypeCRef, nil
 	}
 
 	dt := schema.DataType(schemaProp.DataType[0])
