@@ -262,10 +262,10 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, 
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
 	_, err := store.Meta(ctx, req.ID)
 	if err == nil {
-		return nil, fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
 	if _, ok := err.(backup.ErrNotFound); !ok {
-		return nil, fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
 	}
 	return classes, nil
 }
