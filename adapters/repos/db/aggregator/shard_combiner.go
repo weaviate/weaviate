@@ -106,6 +106,11 @@ func (sc *ShardCombiner) mergeIntoCombinedGroupAtPos(combinedGroups []aggregatio
 		case aggregation.PropertyTypeText:
 			sc.mergeTextProp(
 				&combinedProp.TextAggregation, &prop.TextAggregation)
+		case aggregation.PropertyTypeReference:
+			sc.mergeRefProp(
+				&combinedProp.ReferenceAggregation, &prop.ReferenceAggregation)
+		default:
+			panic("unknown prop type: " + prop.Type)
 		}
 		combinedGroups[pos].Properties[propName] = combinedProp
 
@@ -177,7 +182,7 @@ func (sc *ShardCombiner) mergeDateProp(first, second map[string]interface{}) {
 		case "_dateAggregator":
 			continue
 		default:
-			panic("unknown prop type: " + propType)
+			panic("unknown map entry: " + propType)
 		}
 	}
 }
@@ -235,7 +240,7 @@ func (sc *ShardCombiner) mergeNumericalProp(first, second map[string]interface{}
 		case "_numericalAggregator":
 			continue
 		default:
-			panic("unknown prop type: " + propType)
+			panic("unknown map entry: " + propType)
 		}
 	}
 }
@@ -272,6 +277,10 @@ func (sc *ShardCombiner) mergeTextProp(first, second *aggregation.Text) {
 	}
 }
 
+func (sc *ShardCombiner) mergeRefProp(first, second *aggregation.Reference) {
+	first.PointingTo = append(first.PointingTo, second.PointingTo...)
+}
+
 func (sc *ShardCombiner) finalizeText(combined *aggregation.Text) {
 	sort.Slice(combined.Items, func(a, b int) bool {
 		return combined.Items[a].Occurs > combined.Items[b].Occurs
@@ -299,7 +308,10 @@ func (sc *ShardCombiner) finalizeGroup(group *aggregation.Group) {
 			sc.finalizeText(&prop.TextAggregation)
 		case aggregation.PropertyTypeDate:
 			sc.finalizeDateProp(prop.DateAggregations)
-
+		case aggregation.PropertyTypeReference:
+			continue
+		default:
+			panic("Unknown prop type: " + prop.Type)
 		}
 		group.Properties[propName] = prop
 	}

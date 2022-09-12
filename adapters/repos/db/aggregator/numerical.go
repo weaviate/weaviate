@@ -66,7 +66,6 @@ loop:
 			prop.NumericalAggregations[aProp.String()] = agg.Sum()
 		case aggregation.CountAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Count()
-
 		default:
 			continue
 		}

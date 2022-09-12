@@ -1601,6 +1601,8 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			delete(res.Groups[0].Properties, "dividendYield")
 			actualPrice := res.Groups[0].Properties["price"]
 			delete(res.Groups[0].Properties, "price")
+			actualMakesProduct := res.Groups[0].Properties["makesProduct"]
+			delete(res.Groups[0].Properties, "makesProduct")
 
 			expectedDivYield := aggregation.Property{
 				Type: aggregation.PropertyTypeNumerical,
@@ -1625,6 +1627,13 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					"mode":    70.,
 					"median":  115.,
 					"count":   60.,
+				},
+			}
+
+			expectedMakesProduct := aggregation.Property{
+				Type: aggregation.PropertyTypeReference,
+				ReferenceAggregation: aggregation.Reference{
+					PointingTo: []string{"weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06"},
 				},
 			}
 
@@ -1721,6 +1730,9 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				actualDivYield.NumericalAggregations["count"], 0.1)
 			assert.InEpsilon(t, expectedPrice.NumericalAggregations["count"],
 				actualPrice.NumericalAggregations["count"], 0.1)
+
+			assert.Equal(t, expectedMakesProduct.ReferenceAggregation.PointingTo,
+				actualMakesProduct.ReferenceAggregation.PointingTo)
 		})
 
 		t.Run("multiple fields, multiple aggregators, ref filter", func(t *testing.T) {
@@ -1825,6 +1837,10 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					{
 						Count: 10,
 						Properties: map[string]aggregation.Property{
+							"makesProduct": {
+								Type:                 aggregation.PropertyTypeReference,
+								ReferenceAggregation: aggregation.Reference{PointingTo: []string{"weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06"}},
+							},
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]interface{}{
