@@ -1,226 +1,162 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
-//
-//  CONTACT: hello@semi.technology
-//
-
 package sorter
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
-type docIDAndValue struct {
-	docID uint64
-	dist  float32
-	value interface{}
+type LSMSorter interface {
+	Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error)
+	SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids []uint64) ([]uint64, error)
+	SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+		ids []uint64, dists []float32) ([]uint64, []float32, error)
 }
 
 type lsmSorter struct {
-	store             *lsmkv.Store
-	className         schema.ClassName
-	classHelper       *classHelper
-	property, order   string
-	sorter            *sortBy
-	propertyExtractor *lsmPropertyExtractor
+	bucket          *lsmkv.Bucket
+	dataTypesHelper *dataTypesHelper
+	valueExtractor  *comparableValueExtractor
 }
 
-func newLSMStoreSorter(store *lsmkv.Store, schema schema.Schema, className schema.ClassName, property, order string) *lsmSorter {
-	return &lsmSorter{
-		store:             store,
-		className:         className,
-		classHelper:       newClassHelper(schema),
-		property:          property,
-		order:             order,
-		sorter:            newSortBy(newComparator(order)),
-		propertyExtractor: newPropertyExtractor(className, newClassHelper(schema), property),
+func NewLSMSorter(store *lsmkv.Store, sch schema.Schema, className schema.ClassName) (LSMSorter, error) {
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return nil, fmt.Errorf("lsm sorter - bucket %s for class %s not found", helpers.ObjectsBucketLSM, className)
 	}
+	class := sch.GetClass(schema.ClassName(className))
+	if class == nil {
+		return nil, fmt.Errorf("lsm sorter - class %s not found", className)
+	}
+	dataTypesHelper := newDataTypesHelper(class)
+	comparableValuesExtractor := newComparableValueExtractor(dataTypesHelper)
+
+	return &lsmSorter{bucket, dataTypesHelper, comparableValuesExtractor}, nil
 }
 
-func (s *lsmSorter) sort(ctx context.Context, limit int, additional additional.Properties) ([]uint64, error) {
-	i := 0
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
+	helper, err := s.createHelper(sort, validateLimit(limit, s.bucket.Count()))
+	if err != nil {
+		return nil, err
+	}
+	return helper.getSorted(ctx)
+}
+
+func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids []uint64) ([]uint64, error) {
+	helper, err := s.createHelper(sort, validateLimit(limit, len(ids)))
+	if err != nil {
+		return nil, err
+	}
+	return helper.getSortedDocIDs(ctx, ids)
+}
+
+func (s *lsmSorter) SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+	ids []uint64, dists []float32,
+) ([]uint64, []float32, error) {
+	helper, err := s.createHelper(sort, validateLimit(limit, len(ids)))
+	if err != nil {
+		return nil, nil, err
+	}
+	return helper.getSortedDocIDsAndDistances(ctx, ids, dists)
+}
+
+func (s *lsmSorter) createHelper(sort []filters.Sort, limit int) (*lsmSorterHelper, error) {
+	propNames, orders, err := extractPropNamesAndOrders(sort)
+	if err != nil {
+		return nil, err
+	}
+
+	comparator := newComparator(s.dataTypesHelper, propNames, orders)
+	creator := newComparableCreator(s.valueExtractor, propNames)
+	return newLsmSorterHelper(s.bucket, comparator, creator, limit), nil
+}
+
+type lsmSorterHelper struct {
+	bucket     *lsmkv.Bucket
+	comparator *comparator
+	creator    *comparableCreator
+	limit      int
+}
+
+func newLsmSorterHelper(bucket *lsmkv.Bucket, comparator *comparator,
+	creator *comparableCreator, limit int,
+) *lsmSorterHelper {
+	return &lsmSorterHelper{bucket, comparator, creator, limit}
+}
+
+func (h *lsmSorterHelper) getSorted(ctx context.Context) ([]uint64, error) {
+	cursor := h.bucket.Cursor()
 	defer cursor.Close()
 
-	candidates := make([]docIDAndValue, 0, s.getLimit(limit))
+	sorter := newInsertSorter(h.comparator, h.limit)
 
-	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-		docID, err := storobj.DocIDFromBinary(v)
+	for k, objData := cursor.First(); k != nil; k, objData = cursor.Next() {
+		docID, err := storobj.DocIDFromBinary(objData)
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal doc id of item %d", i)
+			return nil, errors.Wrapf(err, "lsm sorter - could not get doc id")
 		}
-
-		value := s.getPropertyValue(v, s.property)
-
-		if s.currentIsBetterThanWorstElement(candidates, limit, value, s.order) {
-			candidates = s.addToCandidates(candidates, limit, docIDAndValue{docID: docID, value: value}, s.order)
-		}
+		comparable := h.creator.createFromBytes(docID, objData)
+		sorter.addComparable(comparable)
 	}
 
-	docIDs := s.toDocIDs(candidates)
-
-	return docIDs, nil
+	return h.creator.extractDocIDs(sorter.getSorted()), nil
 }
 
-func (s *lsmSorter) sortDocIDs(ctx context.Context, limit int, additional additional.Properties, ids []uint64) ([]uint64, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return nil, errors.Errorf("objects bucket not found")
-	}
+func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs []uint64) ([]uint64, error) {
+	sorter := newInsertSorter(h.comparator, h.limit)
+	docIDBytes := make([]byte, 8)
 
-	candidates := make([]docIDAndValue, 0, s.getLimit(limit))
-
-	for _, id := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
-		res, err := bucket.GetBySecondary(0, docIDBytes)
+	for _, docID := range docIDs {
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+		objData, err := h.bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "lsm sorter - could not get obj by doc id %d", docID)
 		}
-
-		if res == nil {
+		if objData == nil {
 			continue
 		}
 
-		value := s.getPropertyValue(res, s.property)
-
-		if s.currentIsBetterThanWorstElement(candidates, limit, value, s.order) {
-			candidates = s.addToCandidates(candidates, limit, docIDAndValue{docID: id, value: value}, s.order)
-		}
+		comparable := h.creator.createFromBytes(docID, objData)
+		sorter.addComparable(comparable)
 	}
 
-	docIDs := s.toDocIDs(candidates)
-
-	return docIDs, nil
+	return h.creator.extractDocIDs(sorter.getSorted()), nil
 }
 
-func (s *lsmSorter) sortDocIDsAndDists(ctx context.Context, limit int, additional additional.Properties, ids []uint64, dists []float32) ([]uint64, []float32, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return nil, nil, errors.Errorf("objects bucket not found")
-	}
+func (h *lsmSorterHelper) getSortedDocIDsAndDistances(ctx context.Context, docIDs []uint64,
+	distances []float32,
+) ([]uint64, []float32, error) {
+	sorter := newInsertSorter(h.comparator, h.limit)
+	docIDBytes := make([]byte, 8)
 
-	candidates := make([]docIDAndValue, 0, s.getLimit(limit))
-
-	for i := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &ids[i])
-		docIDBytes := keyBuf.Bytes()
-		res, err := bucket.GetBySecondary(0, docIDBytes)
+	for i, docID := range docIDs {
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+		objData, err := h.bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, errors.Wrapf(err, "lsm sorter - could not get obj by doc id %d", docID)
 		}
-
-		if res == nil {
+		if objData == nil {
 			continue
 		}
 
-		value := s.getPropertyValue(res, s.property)
-
-		if s.currentIsBetterThanWorstElement(candidates, limit, value, s.order) {
-			candidates = s.addToCandidates(candidates, limit, docIDAndValue{docID: ids[i], dist: dists[i], value: value}, s.order)
-		}
+		comparable := h.creator.createFromBytesWithPayload(docID, objData, distances[i])
+		sorter.addComparable(comparable)
 	}
 
-	docIDs := s.toDocIDs(candidates)
-	distances := s.toDists(candidates)
-
-	return docIDs, distances, nil
-}
-
-func (s *lsmSorter) getLimit(limit int) int {
-	if limit < 0 {
-		return 0
+	sorted := sorter.getSorted()
+	sortedDistances := make([]float32, len(sorted))
+	consume := func(i int, _ uint64, payload interface{}) bool {
+		sortedDistances[i] = payload.(float32)
+		return false
 	}
-	return limit
-}
+	h.creator.extractPayloads(sorted, consume)
 
-func (s *lsmSorter) toDocIDs(candidates []docIDAndValue) []uint64 {
-	docIDs := make([]uint64, len(candidates))
-	for i := range candidates {
-		docIDs[i] = candidates[i].docID
-	}
-	return docIDs
-}
-
-func (s *lsmSorter) toDists(candidates []docIDAndValue) []float32 {
-	dists := make([]float32, len(candidates))
-	for i := range candidates {
-		dists[i] = candidates[i].dist
-	}
-	return dists
-}
-
-func (s *lsmSorter) currentIsBetterThanWorstElement(candidates []docIDAndValue,
-	limit int, curr interface{}, order string,
-) bool {
-	if s.getLimit(limit) == 0 || len(candidates) < limit {
-		return true
-	}
-	target := candidates[len(candidates)-1].value
-	return s.compareBetterWorse(curr, target)
-}
-
-func (s *lsmSorter) addToCandidates(candidates []docIDAndValue,
-	limit int, newEntry docIDAndValue, order string,
-) []docIDAndValue {
-	if len(candidates) == 0 {
-		return []docIDAndValue{newEntry}
-	}
-
-	pos := -1
-	for i := range candidates {
-		if s.compareCandidates(newEntry, candidates[i]) {
-			pos = i
-			break
-		}
-	}
-
-	if pos == -1 {
-		candidates = append(candidates, newEntry)
-	} else {
-		if s.getLimit(limit) == 0 || len(candidates) < limit {
-			candidates = append(candidates[:pos+1], candidates[pos:]...)
-		} else {
-			candidates = append(candidates[:pos+1], candidates[pos:len(candidates)-1]...)
-		}
-		candidates[pos] = newEntry
-	}
-
-	return candidates
-}
-
-func (s *lsmSorter) compareBetterWorse(curr, target interface{}) bool {
-	return s.compare(curr, target)
-}
-
-func (s *lsmSorter) compareCandidates(newEntry, cand docIDAndValue) bool {
-	return s.compare(newEntry.value, cand.value)
-}
-
-func (s *lsmSorter) getPropertyValue(v []byte, property string) interface{} {
-	return s.propertyExtractor.getProperty(v)
-}
-
-func (s *lsmSorter) compare(curr, target interface{}) bool {
-	dataType := s.classHelper.getDataType(s.className.String(), s.property)
-	if len(dataType) > 0 {
-		return s.sorter.compare(curr, target, schema.DataType(dataType[0]))
-	}
-	return false
+	return h.creator.extractDocIDs(sorted), sortedDistances, nil
 }

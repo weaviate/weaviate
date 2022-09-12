@@ -1,41 +1,98 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
-//
-//  CONTACT: hello@semi.technology
-//
-
 package sorter
 
 import (
-	"sort"
-
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
+type Sorter interface {
+	Sort(objects []*storobj.Object, distances []float32,
+		limit int, sort []filters.Sort) ([]*storobj.Object, []float32, error)
+}
+
 type objectsSorter struct {
-	sorterClassHelper *classHelper
-	objects           []*storobj.Object
-	distances         []float32
+	schema schema.Schema
 }
 
-func newObjectsSorter(schema schema.Schema, objects []*storobj.Object, distances []float32) *objectsSorter {
-	return &objectsSorter{newClassHelper(schema), objects, distances}
+func NewObjectsSorter(schema schema.Schema) *objectsSorter {
+	return &objectsSorter{schema}
 }
 
-func (s *objectsSorter) sort(path []string, order string) ([]*storobj.Object, []float32) {
-	if len(s.objects) > 0 && len(path) == 1 {
-		property := path[0]
-		dataType := s.sorterClassHelper.getDataType(s.objects[0].Object.Class, property)
-		sortOrder := s.sorterClassHelper.getOrder(order)
-		sorter := newSortByObjects(s.objects, s.distances, property, sortOrder, dataType)
-		sort.Sort(sorter)
-		return sorter.objects, sorter.distances
+func (s objectsSorter) Sort(objects []*storobj.Object,
+	scores []float32, limit int, sort []filters.Sort,
+) ([]*storobj.Object, []float32, error) {
+	count := len(objects)
+	if count == 0 {
+		return objects, scores, nil
 	}
-	return s.objects, s.distances
+
+	limit = validateLimit(limit, count)
+	propNames, orders, err := extractPropNamesAndOrders(sort)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	class := s.schema.GetClass(objects[0].Class())
+	dataTypesHelper := newDataTypesHelper(class)
+	valueExtractor := newComparableValueExtractor(dataTypesHelper)
+	comparator := newComparator(dataTypesHelper, propNames, orders)
+	creator := newComparableCreator(valueExtractor, propNames)
+
+	return newObjectsSorterHelper(comparator, creator, limit).
+		sort(objects, scores)
+}
+
+type objectsSorterHelper struct {
+	comparator *comparator
+	creator    *comparableCreator
+	limit      int
+}
+
+func newObjectsSorterHelper(comparator *comparator, creator *comparableCreator, limit int) *objectsSorterHelper {
+	return &objectsSorterHelper{comparator, creator, limit}
+}
+
+func (h *objectsSorterHelper) sort(objects []*storobj.Object, distances []float32) ([]*storobj.Object, []float32, error) {
+	withDistances := len(distances) > 0
+	count := len(objects)
+	sorter := newDefaultSorter(h.comparator, count)
+
+	for i := range objects {
+		payload := object_distance_payload{o: objects[i]}
+		if withDistances {
+			payload.d = distances[i]
+		}
+		comparable := h.creator.createFromObjectWithPayload(objects[i], payload)
+		sorter.addComparable(comparable)
+	}
+
+	slice := h.limit
+	if slice == 0 {
+		slice = count
+	}
+
+	sorted := sorter.getSorted()
+	consume := func(i int, _ uint64, payload interface{}) bool {
+		if i >= slice {
+			return true
+		}
+		p := payload.(object_distance_payload)
+		objects[i] = p.o
+		if withDistances {
+			distances[i] = p.d
+		}
+		return false
+	}
+	h.creator.extractPayloads(sorted, consume)
+
+	if withDistances {
+		return objects[:slice], distances[:slice], nil
+	}
+	return objects[:slice], distances, nil
+}
+
+type object_distance_payload struct {
+	o *storobj.Object
+	d float32
 }
