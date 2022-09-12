@@ -368,9 +368,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			value = int64(asFloat)
 		}
 
-		if asFloat, ok := value.(int); ok {
+		if asInt, ok := value.(int); ok {
 			// when merging an existing object we may retrieve an untyped int
-			value = int64(asFloat)
+			value = int64(asInt)
 		}
 
 		asInt, ok := value.(int64)
