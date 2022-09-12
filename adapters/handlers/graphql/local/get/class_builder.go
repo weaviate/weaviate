@@ -102,7 +102,7 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
-					if errors.Is(err, schema.ErrRefToNonexistentClass{}) {
+					if errors.Is(err, schema.ErrRefToNonexistentClass) {
 						// This is a common case when a class which is referenced
 						// by another class is deleted, leaving the referencing
 						// class with an invalid reference property. Panicking
