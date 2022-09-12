@@ -149,7 +149,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 	var err error
 	value, err = typedSliceToUntyped(value)
 	if err != nil {
-		return err
+		return fmt.Errorf("extend properties with array type: %w", err)
 	}
 
 	values, ok := value.([]interface{})
@@ -514,36 +514,24 @@ func typedSliceToUntyped(in interface{}) ([]interface{}, error) {
 		// nothing to do
 		return typed, nil
 	case []string:
-		out := make([]interface{}, len(typed))
-		for i := range out {
-			out[i] = typed[i]
-		}
-		return out, nil
+		return convertToUntyped[string](typed), nil
 	case []int:
-		out := make([]interface{}, len(typed))
-		for i := range out {
-			out[i] = typed[i]
-		}
-		return out, nil
+		return convertToUntyped[int](typed), nil
 	case []time.Time:
-		out := make([]interface{}, len(typed))
-		for i := range out {
-			out[i] = typed[i]
-		}
-		return out, nil
+		return convertToUntyped[time.Time](typed), nil
 	case []bool:
-		out := make([]interface{}, len(typed))
-		for i := range out {
-			out[i] = typed[i]
-		}
-		return out, nil
+		return convertToUntyped[bool](typed), nil
 	case []float64:
-		out := make([]interface{}, len(typed))
-		for i := range out {
-			out[i] = typed[i]
-		}
-		return out, nil
+		return convertToUntyped[float64](typed), nil
 	default:
-		return nil, errors.Errorf("unrecognized slice type %T", in)
+		return nil, errors.Errorf("unsupported type %T", in)
 	}
+}
+
+func convertToUntyped[T comparable](in []T) []interface{} {
+	out := make([]interface{}, len(in))
+	for i := range out {
+		out[i] = in[i]
+	}
+	return out
 }
