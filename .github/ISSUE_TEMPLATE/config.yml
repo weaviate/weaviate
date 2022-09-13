@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Community Slack
+    url: https://weaviate.slack.com
+    about: Chat with the community about any issues, questions, or feedback
