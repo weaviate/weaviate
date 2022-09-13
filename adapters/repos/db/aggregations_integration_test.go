@@ -71,6 +71,9 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("date aggregations without grouping",
 		testDateAggregationsWithoutGrouping(repo, true))
 
+	t.Run("date aggregations with filters",
+		testDateAggregationsWithFilters(repo))
+
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
@@ -103,11 +106,18 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
+	// TODO: does not work currently, part of https://semi-technology.atlassian.net/browse/WEAVIATE-328
+	// t.Run("numerical aggregations with filters",
+	//	testNumericalAggregationsWithFilters(repo))
+
 	t.Run("date aggregations with grouping",
 		testDateAggregationsWithGrouping(repo, true))
 
 	t.Run("date aggregations without grouping",
 		testDateAggregationsWithoutGrouping(repo, true))
+
+	t.Run("date aggregations with filters",
+		testDateAggregationsWithFilters(repo))
 
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
@@ -1183,6 +1193,43 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 			}
 
 			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+		})
+	}
+}
+
+func testDateAggregationsWithFilters(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("Aggregations with filter that matches nothing", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(customerClass.Class),
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorGreaterThan,
+						Value: &filters.Value{
+							Type:  schema.DataTypeDate,
+							Value: "0312-06-16T17:30:17.231346Z", // hello roman empire!
+						},
+						On: &filters.Path{
+							Property: "timeArrived",
+						},
+					},
+				},
+				IncludeMetaCount: true,
+				Properties: []aggregation.ParamProperty{
+					{
+						Name:        schema.PropertyName("timeArrived"),
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator, aggregation.CountAggregator, aggregation.MaximumAggregator, aggregation.MedianAggregator, aggregation.MinimumAggregator, aggregation.ModeAggregator, aggregation.TypeAggregator},
+					},
+				},
+			}
+			res, err := repo.Aggregate(context.Background(), params)
+
+			// No results match the filter, so only a count of 0 is included
+			require.Nil(t, err)
+			require.Equal(t, 1, len(res.Groups))
+			require.Equal(t, 1, len(res.Groups[0].Properties))
+			require.Equal(t, 1, len(res.Groups[0].Properties["timeArrived"].DateAggregations))
+			require.Equal(t, int64(0), res.Groups[0].Properties["timeArrived"].DateAggregations["count"].(int64))
 		})
 	}
 }
