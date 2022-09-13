@@ -29,6 +29,18 @@ func addDateAggregations(prop *aggregation.Property,
 		prop.DateAggregations = map[string]interface{}{}
 	}
 
+	// if there are no elements to aggregate over because a filter does not match anything, calculating median etc. makes
+	// no sense. Non-existent entries evaluate to nil with an interface{} map
+	if agg.count == 0 {
+		for _, entry := range aggs {
+			if entry == aggregation.CountAggregator {
+				prop.DateAggregations["count"] = int64(agg.count)
+				break
+			}
+		}
+		return
+	}
+
 	// when combining the results from different shards, we need the raw dates to recompute the mode and median.
 	// Therefor we add a reference later which needs to be cleared out before returning the results to a user
 	for _, aProp := range aggs {
