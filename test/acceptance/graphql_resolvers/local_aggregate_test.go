@@ -1745,7 +1745,6 @@ func aggregatesOnDateFields(t *testing.T) {
 						minimum
 						maximum
 						median
-						mode
 					}
 				}
 			}
@@ -1760,7 +1759,6 @@ func aggregatesOnDateFields(t *testing.T) {
 					"maximum": "2022-06-16T22:19:11.837473Z",
 					"median":  "2022-06-16T22:19:06.1449075Z",
 					"minimum": "2022-06-16T22:18:59.640162Z",
-					"mode":    "2022-06-16T22:18:59.640162Z",
 				},
 			},
 		}

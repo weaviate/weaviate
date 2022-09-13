@@ -337,19 +337,14 @@ func (pa propAggs) results() (map[string]aggregation.Property, error) {
 		case aggregation.PropertyTypeBoolean:
 			aggProp.BooleanAggregation = prop.boolAgg.Res()
 			out[prop.name.String()] = aggProp
-
 		case aggregation.PropertyTypeText:
 			aggProp.TextAggregation = prop.textAgg.Res()
 			out[prop.name.String()] = aggProp
-
 		case aggregation.PropertyTypeNumerical:
-			prop.numericalAgg.buildPairsFromCounts()
 			addNumericalAggregations(&aggProp, prop.specifiedAggregators,
 				prop.numericalAgg)
 			out[prop.name.String()] = aggProp
-
 		case aggregation.PropertyTypeDate:
-			prop.dateAgg.buildPairsFromCounts()
 			addDateAggregations(&aggProp, prop.specifiedAggregators,
 				prop.dateAgg)
 			out[prop.name.String()] = aggProp
@@ -357,7 +352,6 @@ func (pa propAggs) results() (map[string]aggregation.Property, error) {
 			addReferenceAggregations(&aggProp, prop.specifiedAggregators,
 				prop.refAgg)
 			out[prop.name.String()] = aggProp
-
 		default:
 			return nil, errors.New(string("unknown aggregation type " + prop.aggType))
 		}
