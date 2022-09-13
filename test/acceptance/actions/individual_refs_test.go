@@ -19,8 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,13 +32,13 @@ func objectReferences(t *testing.T) {
 	t.Run("can add reference individually", func(t *testing.T) {
 		t.Parallel()
 
-		toPointToUuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, class1, toPointToUuid)
+		toPointToUuid := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
+		helper.AssertGetObjectEventually(t, class1, toPointToUuid)
 
-		uuid := assertCreateObject(t, class2, map[string]interface{}{})
+		uuid := helper.AssertCreateObject(t, class2, map[string]interface{}{})
 
 		// Verify that testReferences is empty
-		updatedObject := assertGetObjectEventually(t, class2, uuid)
+		updatedObject := helper.AssertGetObjectEventually(t, class2, uuid)
 		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.Nil(t, updatedSchema["testReferences"])
 
@@ -63,25 +62,25 @@ func objectReferences(t *testing.T) {
 			return updatedSchema["testReferences"] != nil
 		}
 
-		testhelper.AssertEventuallyEqual(t, true, checkThunk)
+		helper.AssertEventuallyEqual(t, true, checkThunk)
 	})
 
 	t.Run("can replace all properties", func(t *testing.T) {
 		t.Parallel()
 
-		toPointToUuidFirst := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		toPointToUuidLater := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, "TestObject", toPointToUuidFirst)
-		assertGetObjectEventually(t, "TestObject", toPointToUuidLater)
+		toPointToUuidFirst := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
+		toPointToUuidLater := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
+		helper.AssertGetObjectEventually(t, "TestObject", toPointToUuidFirst)
+		helper.AssertGetObjectEventually(t, "TestObject", toPointToUuidLater)
 
-		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
+		uuid := helper.AssertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
 				crossref.NewLocalhost("TestObject", toPointToUuidFirst).SingleRef(),
 			},
 		})
 
 		// Verify that testReferences is empty
-		updatedObject := assertGetObjectEventually(t, "TestObjectTwo", uuid)
+		updatedObject := helper.AssertGetObjectEventually(t, "TestObjectTwo", uuid)
 		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 
@@ -107,23 +106,23 @@ func objectReferences(t *testing.T) {
 			return updatedSchema["testReferences"] != nil
 		}
 
-		testhelper.AssertEventuallyEqual(t, true, checkThunk)
+		helper.AssertEventuallyEqual(t, true, checkThunk)
 	})
 
 	t.Run("remove property individually", func(t *testing.T) {
 		t.Parallel()
 
-		toPointToUuid := assertCreateObject(t, "TestObject", map[string]interface{}{})
-		assertGetObjectEventually(t, "TestObject", toPointToUuid)
+		toPointToUuid := helper.AssertCreateObject(t, "TestObject", map[string]interface{}{})
+		helper.AssertGetObjectEventually(t, "TestObject", toPointToUuid)
 
-		uuid := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
+		uuid := helper.AssertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testReferences": models.MultipleRef{
 				crossref.NewLocalhost("TestObject", toPointToUuid).SingleRef(),
 			},
 		})
 
 		// Verify that testReferences is not empty
-		updatedObject := assertGetObjectEventually(t, "TestObjectTwo", uuid)
+		updatedObject := helper.AssertGetObjectEventually(t, "TestObjectTwo", uuid)
 		updatedSchema := updatedObject.Properties.(map[string]interface{})
 		assert.NotNil(t, updatedSchema["testReferences"])
 
@@ -163,6 +162,6 @@ func objectReferences(t *testing.T) {
 			return false
 		}
 
-		testhelper.AssertEventuallyEqual(t, true, checkThunk)
+		helper.AssertEventuallyEqual(t, true, checkThunk)
 	})
 }

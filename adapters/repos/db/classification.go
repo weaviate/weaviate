@@ -32,7 +32,8 @@ import (
 // TODO: why is this logic in the persistence package? This is business-logic,
 // move out of here!
 func (db *DB) GetUnclassified(ctx context.Context, class string,
-	properties []string, filter *libfilters.LocalFilter) ([]search.Result, error) {
+	properties []string, filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorEqual, 0)
 	res, err := db.ClassSearch(ctx, traverser.GetParams{
@@ -57,7 +58,8 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 // move out of here!
 func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
-	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	filter *libfilters.LocalFilter,
+) ([]search.Result, error) {
 	res, err := db.VectorClassSearch(ctx, traverser.GetParams{
 		ClassName:    class,
 		SearchVector: vector,
@@ -77,7 +79,8 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 // move out of here!
 func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
-	filter *libfilters.LocalFilter) ([]classification.NeighborRef, error) {
+	filter *libfilters.LocalFilter,
+) ([]classification.NeighborRef, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
 	res, err := db.VectorClassSearch(ctx, traverser.GetParams{
@@ -190,7 +193,8 @@ func (a *KnnAggregator) aggregateBeacons(props neighborProps) ([]classification.
 }
 
 func (a *KnnAggregator) distances(beacons neighborBeacons,
-	winner string) classification.NeighborRefDistances {
+	winner string,
+) classification.NeighborRefDistances {
 	out := classification.NeighborRefDistances{}
 
 	var winningDistances []float32
@@ -228,7 +232,8 @@ type neighborProp struct {
 type neighborBeacons map[string][]float32
 
 func mergeUserFilterWithRefCountFilter(userFilter *libfilters.LocalFilter, className string,
-	properties []string, op libfilters.Operator, refCount int) *libfilters.LocalFilter {
+	properties []string, op libfilters.Operator, refCount int,
+) *libfilters.LocalFilter {
 	countFilters := make([]libfilters.Clause, len(properties))
 	for i, prop := range properties {
 		countFilters[i] = libfilters.Clause{

@@ -76,7 +76,8 @@ func (i *Inspector) validateAndSplit(words string) ([]string, error) {
 }
 
 func (i *Inspector) concatWord(ctx context.Context, words string,
-	wordArray []string) (*models.C11yWordsResponseConcatenatedWord, error) {
+	wordArray []string,
+) (*models.C11yWordsResponseConcatenatedWord, error) {
 	if len(wordArray) < 2 {
 		// only build a concat response if we have more than a single word
 		return nil, nil
@@ -107,7 +108,8 @@ func (i *Inspector) concatWord(ctx context.Context, words string,
 }
 
 func (i *Inspector) nearestNeighbors(ctx context.Context,
-	vector []float32) ([]*models.C11yNearestNeighborsItems0, error) {
+	vector []float32,
+) ([]*models.C11yNearestNeighborsItems0, error) {
 	// relate words of centroid
 	words, dists, err := i.client.NearestWordsByVector(ctx, vector, 12, 32)
 	if err != nil {
@@ -130,7 +132,8 @@ func (i *Inspector) nearestNeighbors(ctx context.Context,
 }
 
 func (i *Inspector) individualWords(ctx context.Context,
-	wordArray []string) ([]*models.C11yWordsResponseIndividualWordsItems0, error) {
+	wordArray []string,
+) ([]*models.C11yWordsResponseIndividualWordsItems0, error) {
 	var res []*models.C11yWordsResponseIndividualWordsItems0
 
 	for _, word := range wordArray {
@@ -146,7 +149,8 @@ func (i *Inspector) individualWords(ctx context.Context,
 }
 
 func (i *Inspector) individualWord(ctx context.Context,
-	word string) (*models.C11yWordsResponseIndividualWordsItems0, error) {
+	word string,
+) (*models.C11yWordsResponseIndividualWordsItems0, error) {
 	ok, err := i.client.IsWordPresent(ctx, word)
 	if err != nil {
 		return nil, fmt.Errorf("could not check word presence:  %v", err)
@@ -167,7 +171,8 @@ func (i *Inspector) individualWordNotPresent(word string) *models.C11yWordsRespo
 }
 
 func (i *Inspector) individualWordPresent(ctx context.Context,
-	word string) (*models.C11yWordsResponseIndividualWordsItems0, error) {
+	word string,
+) (*models.C11yWordsResponseIndividualWordsItems0, error) {
 	info, err := i.individualWordInfo(ctx, word)
 	if err != nil {
 		return nil, err
@@ -181,7 +186,8 @@ func (i *Inspector) individualWordPresent(ctx context.Context,
 }
 
 func (i *Inspector) individualWordInfo(ctx context.Context,
-	word string) (*models.C11yWordsResponseIndividualWordsItems0Info, error) {
+	word string,
+) (*models.C11yWordsResponseIndividualWordsItems0Info, error) {
 	vector, err := i.client.VectorForWord(ctx, word)
 	if err != nil {
 		return nil, err

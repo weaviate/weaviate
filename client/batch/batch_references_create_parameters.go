@@ -68,7 +68,8 @@ func NewBatchReferencesCreateParamsWithHTTPClient(client *http.Client) *BatchRef
 	}
 }
 
-/*BatchReferencesCreateParams contains all the parameters to send to the API endpoint
+/*
+BatchReferencesCreateParams contains all the parameters to send to the API endpoint
 for the batch references create operation typically these are written to a http.Request
 */
 type BatchReferencesCreateParams struct {

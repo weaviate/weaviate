@@ -12,11 +12,13 @@
 package db
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-// VectorIndex is anything that indexes vectors effieciently. For an example
+// VectorIndex is anything that indexes vectors efficiently. For an example
 // look at ./vector/hsnw/index.go
 type VectorIndex interface {
 	Add(id uint64, vector []float32) error
@@ -25,7 +27,11 @@ type VectorIndex interface {
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schema.VectorIndexConfig) error
-	Drop() error
-	Shutdown()
+	Drop(ctx context.Context) error
+	Shutdown(ctx context.Context) error
 	Flush() error
+	PauseMaintenance(ctx context.Context) error
+	SwitchCommitLogs(ctx context.Context) error
+	ListFiles(ctx context.Context) ([]string, error)
+	ResumeMaintenance(ctx context.Context) error
 }

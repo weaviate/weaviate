@@ -16,9 +16,7 @@ package lsmkv
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -28,15 +26,10 @@ import (
 
 func TestStoreLifecycle(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("cycle 1", func(t *testing.T) {
-		store, err := New(dirName, nullLogger(), nil)
+		store, err := New(dirName, "", nullLogger(), nil)
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
@@ -62,7 +55,7 @@ func TestStoreLifecycle(t *testing.T) {
 	})
 
 	t.Run("cycle 2", func(t *testing.T) {
-		store, err := New(dirName, nullLogger(), nil)
+		store, err := New(dirName, "", nullLogger(), nil)
 		require.Nil(t, err)
 
 		err = store.CreateOrLoadBucket(testCtx(), "bucket1", WithStrategy(StrategyReplace))
@@ -85,7 +78,6 @@ func TestStoreLifecycle(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, []byte("bar"), res)
 
-		fmt.Printf("about to shutdown\n")
 		err = store.Shutdown(context.Background())
 		require.Nil(t, err)
 	})

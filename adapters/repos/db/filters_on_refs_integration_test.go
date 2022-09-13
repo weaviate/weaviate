@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -37,12 +36,7 @@ import (
 
 func TestRefFilters(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -52,6 +46,7 @@ func TestRefFilters(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -464,12 +459,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	// The schema is modelled after the journey test, as the regular tests suites
 	// above do not seem to run into this issue on their own
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -478,6 +468,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -681,7 +672,8 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 }
 
 func filterCarParkedAtGarage(dataType schema.DataType,
-	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
+	prop string, operator filters.Operator, value interface{},
+) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: operator,
@@ -718,7 +710,8 @@ func filterCarParkedCount(operator filters.Operator, value int) *filters.LocalFi
 }
 
 func filterDrivesCarParkedAtGarage(dataType schema.DataType,
-	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
+	prop string, operator filters.Operator, value interface{},
+) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: operator,

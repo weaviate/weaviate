@@ -21,7 +21,8 @@ import (
 
 // Explore through unstructured search terms
 func (t *Traverser) Explore(ctx context.Context,
-	principal *models.Principal, params ExploreParams) ([]search.Result, error) {
+	principal *models.Principal, params ExploreParams,
+) ([]search.Result, error) {
 	if params.Limit == 0 {
 		params.Limit = 20
 	}
@@ -40,7 +41,7 @@ func (t *Traverser) Explore(ctx context.Context,
 		return nil, err
 	}
 
-	return t.explorer.Concepts(ctx, params)
+	return t.explorer.CrossClassVectorSearch(ctx, params)
 }
 
 // ExploreParams are the parameters used by the GraphQL `Explore { }` API

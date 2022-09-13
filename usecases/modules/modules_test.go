@@ -13,12 +13,16 @@ package modules
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	enitiesSchema "github.com/semi-technologies/weaviate/entities/schema"
+	ubackup "github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -296,6 +300,41 @@ func TestModulesProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "graphql additional property: certainty conflicts with weaviate's internal searcher in modules: [mod4]")
 		assert.Contains(t, err.Error(), "graphql additional property: id conflicts with weaviate's internal searcher in modules: [mod4]")
 	})
+
+	t.Run("should register module with alt names", func(t *testing.T) {
+		module := &dummyBackupModuleWithAltNames{}
+		modulesProvider := NewProvider()
+		modulesProvider.Register(module)
+
+		modByName := modulesProvider.GetByName("SomeBackend")
+		modByAltName1 := modulesProvider.GetByName("AltBackendName")
+		modByAltName2 := modulesProvider.GetByName("YetAnotherBackendName")
+		modMissing := modulesProvider.GetByName("DoesNotExist")
+
+		assert.NotNil(t, modByName)
+		assert.NotNil(t, modByAltName1)
+		assert.NotNil(t, modByAltName2)
+		assert.Nil(t, modMissing)
+	})
+
+	t.Run("should provide backup backend", func(t *testing.T) {
+		module := &dummyBackupModuleWithAltNames{}
+		modulesProvider := NewProvider()
+		modulesProvider.Register(module)
+
+		provider, ok := interface{}(modulesProvider).(ubackup.BackupBackendProvider)
+		assert.True(t, ok)
+
+		fmt.Printf("provider: %v\n", provider)
+
+		backendByName, err1 := provider.BackupBackend("SomeBackend")
+		backendByAltName, err2 := provider.BackupBackend("YetAnotherBackendName")
+
+		assert.NotNil(t, backendByName)
+		assert.Nil(t, err1)
+		assert.NotNil(t, backendByAltName)
+		assert.Nil(t, err2)
+	})
 }
 
 func fakeExtractFn(param map[string]interface{}) interface{} {
@@ -428,4 +467,54 @@ func getFakeSchemaGetter() schemaGetter {
 		},
 	}
 	return &fakeSchemaGetter{schema: sch}
+}
+
+type dummyBackupModuleWithAltNames struct{}
+
+func (m *dummyBackupModuleWithAltNames) Name() string {
+	return "SomeBackend"
+}
+
+func (m *dummyBackupModuleWithAltNames) AltNames() []string {
+	return []string{"AltBackendName", "YetAnotherBackendName"}
+}
+
+func (m *dummyBackupModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) RootHandler() http.Handler {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Backup
+}
+
+func (m *dummyBackupModuleWithAltNames) HomeDir(backupID string) string {
+	return ""
+}
+
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) SourceDataPath() string {
+	return ""
+}
+
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID string) error {
+	return nil
 }

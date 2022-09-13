@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"sort"
 	"testing"
 
@@ -47,14 +46,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -141,7 +133,7 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -207,12 +199,12 @@ func Test_CompactionReplaceStrategy(t *testing.T) {
 		assert.Equal(t, len(expected), bucket.Count())
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -256,14 +248,7 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	var expectedNotPresent []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -359,8 +344,8 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-			WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -426,12 +411,12 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 		})
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -458,7 +443,7 @@ func Test_CompactionReplaceStrategy_WithSecondaryKeys(t *testing.T) {
 
 func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	// in this test each segment reverses the action of the previous segment so
-	// that in the end a lot of information is present in the indivudal segments
+	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
 	// information is gone, thus freeing up disk space
 	size := 100
@@ -471,17 +456,10 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -529,12 +507,12 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -558,7 +536,7 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryDeletes(t *testing.T) {
 
 func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	// in this test each segment reverses the action of the previous segment so
-	// that in the end a lot of information is present in the indivudal segments
+	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
 	// information is gone, thus freeing up disk space
 	size := 100
@@ -571,17 +549,10 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -623,12 +594,12 @@ func Test_CompactionReplaceStrategy_RemoveUnnecessaryUpdates(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -669,14 +640,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -851,7 +815,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -925,12 +889,12 @@ func Test_CompactionSetStrategy(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -954,7 +918,7 @@ func Test_CompactionSetStrategy(t *testing.T) {
 
 func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	// in this test each segment reverses the action of the previous segment so
-	// that in the end a lot of information is present in the indivudal segments
+	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
 	// information is gone, thus freeing up disk space
 	size := 100
@@ -967,17 +931,10 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -1026,12 +983,12 @@ func Test_CompactionSetStrategy_RemoveUnnecessary(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -1081,14 +1038,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	var expected []kv
 	var bucket *Bucket
 
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -1330,7 +1280,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -1410,12 +1360,12 @@ func Test_CompactionMapStrategy(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -1439,7 +1389,7 @@ func Test_CompactionMapStrategy(t *testing.T) {
 
 func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	// in this test each segment reverses the action of the previous segment so
-	// that in the end a lot of information is present in the indivudal segments
+	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
 	// information is gone, thus freeing up disk space
 	size := 100
@@ -1454,17 +1404,10 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -1540,12 +1483,12 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -1568,7 +1511,7 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 }
 
 func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
-	// In this test we are testing that the compaction doesn't make the object to dissapear
+	// In this test we are testing that the compaction doesn't make the object to disappear
 	// We are creating even number of segments in which first we create an object
 	// then we in the next segment with delete it and we do this operation in loop
 	// we make sure that the last operation done in the last segment is create object operation
@@ -1583,17 +1526,10 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	key := []byte("my-key")
 
 	var bucket *Bucket
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
+	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -1624,12 +1560,12 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 		assert.NotNil(t, res)
 	})
 
-	t.Run("check if eligble for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+	t.Run("check if eligible for compaction", func(t *testing.T) {
+		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 	})
 
-	t.Run("compact until no longer eligble", func(t *testing.T) {
-		for bucket.disk.eligbleForCompaction() {
+	t.Run("compact until no longer eligible", func(t *testing.T) {
+		for bucket.disk.eligibleForCompaction() {
 			require.Nil(t, bucket.disk.compactOnce())
 		}
 	})
@@ -1642,7 +1578,7 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 }
 
 func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T) {
-	// In this test we are testing that the compaction doesn't make the object to dissapear
+	// In this test we are testing that the compaction doesn't make the object to disappear
 	// We are creating even number of segments in which first we create an object
 	// then we in the next segment with delete it and we do this operation in loop
 	// we make sure that the last operation done in the last segment is create object operation
@@ -1665,18 +1601,11 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 			key := []byte(fmt.Sprintf("key-original"))
 			keySecondary := []byte(fmt.Sprintf("secondary-key-%02d", size-1))
 
-			dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-			os.MkdirAll(dirName, 0o777)
-			defer func() {
-				err := os.RemoveAll(dirName)
-				if err != nil {
-					fmt.Println(err)
-				}
-			}()
+			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-					WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+					WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 				require.Nil(t, err)
 
 				// so big it effectively never triggers as part of this test
@@ -1712,12 +1641,12 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 				assert.NotNil(t, res)
 			})
 
-			t.Run("check if eligble for compaction", func(t *testing.T) {
-				assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+			t.Run("check if eligible for compaction", func(t *testing.T) {
+				assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 			})
 
-			t.Run("compact until no longer eligble", func(t *testing.T) {
-				for bucket.disk.eligbleForCompaction() {
+			t.Run("compact until no longer eligible", func(t *testing.T) {
+				for bucket.disk.eligibleForCompaction() {
 					require.Nil(t, bucket.disk.compactOnce())
 				}
 			})
@@ -1753,17 +1682,10 @@ func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 			value2 := []byte("value-02")
 			values := [][]byte{value1, value2}
 
-			dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-			os.MkdirAll(dirName, 0o777)
-			defer func() {
-				err := os.RemoveAll(dirName)
-				if err != nil {
-					fmt.Println(err)
-				}
-			}()
+			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 					WithStrategy(StrategySetCollection))
 				require.Nil(t, err)
 
@@ -1812,12 +1734,12 @@ func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 				}
 			})
 
-			t.Run("check if eligble for compaction", func(t *testing.T) {
-				assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+			t.Run("check if eligible for compaction", func(t *testing.T) {
+				assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 			})
 
-			t.Run("compact until no longer eligble", func(t *testing.T) {
-				for bucket.disk.eligbleForCompaction() {
+			t.Run("compact until no longer eligible", func(t *testing.T) {
+				for bucket.disk.eligibleForCompaction() {
 					require.Nil(t, bucket.disk.compactOnce())
 				}
 			})
@@ -1854,17 +1776,10 @@ func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {
 			var bucket *Bucket
-			dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-			os.MkdirAll(dirName, 0o777)
-			defer func() {
-				err := os.RemoveAll(dirName)
-				if err != nil {
-					fmt.Println(err)
-				}
-			}()
+			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+				b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 					WithStrategy(StrategyMapCollection))
 				require.Nil(t, err)
 
@@ -1907,18 +1822,18 @@ func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
 				}
 			})
 
-			t.Run("check if eligble for compaction", func(t *testing.T) {
-				assert.True(t, bucket.disk.eligbleForCompaction(), "check eligle before")
+			t.Run("check if eligible for compaction", func(t *testing.T) {
+				assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
 			})
 
-			t.Run("compact until no longer eligble", func(t *testing.T) {
-				for bucket.disk.eligbleForCompaction() {
+			t.Run("compact until no longer eligible", func(t *testing.T) {
+				for bucket.disk.eligibleForCompaction() {
 					require.Nil(t, bucket.disk.compactOnce())
 				}
 			})
 
-			t.Run("compact until no longer eligble", func(t *testing.T) {
-				for bucket.disk.eligbleForCompaction() {
+			t.Run("compact until no longer eligible", func(t *testing.T) {
+				for bucket.disk.eligibleForCompaction() {
 					require.Nil(t, bucket.disk.compactOnce())
 				}
 			})

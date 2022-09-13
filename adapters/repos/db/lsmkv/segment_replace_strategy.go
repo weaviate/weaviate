@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -29,21 +28,21 @@ func (i *segment) get(key []byte) ([]byte, error) {
 	before := time.Now()
 
 	if !i.bloomFilter.Test(key) {
-		i.observeBloomFilter(before, "get_true_negative")
+		i.bloomFilterMetrics.trueNegative(before)
 		return nil, NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
-			i.observeBloomFilter(before, "get_false_positive")
+			i.bloomFilterMetrics.falsePositive(before)
 			return nil, NotFound
 		} else {
 			return nil, err
 		}
 	}
 
-	defer i.observeBloomFilter(before, "get_true_positive")
+	defer i.bloomFilterMetrics.truePositive(before)
 	return i.replaceStratParseData(i.contents[node.Start:node.End])
 }
 
@@ -77,23 +76,19 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 		return nil, NotFound
 	}
 
+	// byte         meaning
+	// 0         is tombstone
+	// 1-8       data length as Little Endian uint64
+	// 9-length  data
+
 	// check the tombstone byte
 	if in[0] == 0x01 {
 		return nil, Deleted
 	}
 
-	r := bytes.NewReader(in[1:])
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return nil, errors.Wrap(err, "read value length encoding")
-	}
+	valueLength := binary.LittleEndian.Uint64(in[1:9])
 
-	data := make([]byte, valueLength)
-	if _, err := r.Read(data); err != nil {
-		return nil, errors.Wrap(err, "read value")
-	}
-
-	return data, nil
+	return in[9 : 9+valueLength], nil
 }
 
 func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
@@ -116,7 +111,8 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, e
 }
 
 func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
-	node *segmentReplaceNode) error {
+	node *segmentReplaceNode,
+) error {
 	if len(in) == 0 {
 		return NotFound
 	}
@@ -133,15 +129,4 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 	}
 
 	return nil
-}
-
-func (i *segment) observeBloomFilter(before time.Time, op string) {
-	if i.metrics == nil {
-		return
-	}
-
-	i.metrics.BloomFilters.With(prometheus.Labels{
-		"strategy":  "replace",
-		"operation": op,
-	}).Observe(float64(time.Since(before)) / float64(time.Millisecond))
 }

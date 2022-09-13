@@ -42,6 +42,8 @@ type Manager struct {
 	clusterState            clusterState
 	hnswConfigParser        VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
+	RestoreStatus           sync.Map
+	RestoreError            sync.Map
 	sync.Mutex
 }
 
@@ -90,7 +92,8 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	txClient cluster.Client) (*Manager, error) {
+	txClient cluster.Client,
+) (*Manager, error) {
 	m := &Manager{
 		config:                  config,
 		migrator:                migrator,

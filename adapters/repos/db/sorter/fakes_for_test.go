@@ -84,6 +84,18 @@ func getMyFavoriteClassSchemaForTests() schema.Schema {
 							DataType: []string{string(schema.DataTypeString)},
 						},
 						{
+							Name:     "emptyBoolProp",
+							DataType: []string{string(schema.DataTypeBoolean)},
+						},
+						{
+							Name:     "emptyNumberProp",
+							DataType: []string{string(schema.DataTypeNumber)},
+						},
+						{
+							Name:     "emptyIntProp",
+							DataType: []string{string(schema.DataTypeInt)},
+						},
+						{
 							Name:     "crefProp",
 							DataType: []string{string(schema.DataTypeCRef)},
 						},

@@ -16,13 +16,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 )
 
-func (sg *SegmentGroup) eligbleForCompaction() bool {
+func (sg *SegmentGroup) eligibleForCompaction() bool {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -190,7 +190,8 @@ func (sg *SegmentGroup) compactOnce() error {
 }
 
 func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
-	newPathTmp string) error {
+	newPathTmp string,
+) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
@@ -213,7 +214,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.segments[old1] = nil
 	sg.segments[old2] = nil
 
-	// the old segments have been deletd, we can now safely remove the .tmp
+	// the old segments have been deleted, we can now safely remove the .tmp
 	// extension from the new segment which carried the name of the second old
 	// segment
 	newPath, err := sg.stripTmpExtension(newPathTmp)
@@ -248,38 +249,21 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 	return newPath, nil
 }
 
-func (sg *SegmentGroup) initCompactionCycle(interval time.Duration) {
-	if interval == 0 {
-		return
-	}
+func (sg *SegmentGroup) compactIfLevelsMatch(stopFunc cyclemanager.StopFunc) {
+	sg.monitorSegments()
 
-	go func() {
-		t := time.Tick(interval)
-		for {
-			select {
-			case <-sg.stopCompactionCycle:
-				sg.logger.WithField("action", "lsm_compaction_stop_cycle").
-					WithField("path", sg.dir).
-					Debug("stop compaction cycle")
-				return
-			case <-t:
-				sg.monitorSegments()
-
-				if sg.eligbleForCompaction() {
-					if err := sg.compactOnce(); err != nil {
-						sg.logger.WithField("action", "lsm_compaction").
-							WithField("path", sg.dir).
-							WithError(err).
-							Errorf("compaction failed")
-					}
-				} else {
-					sg.logger.WithField("action", "lsm_compaction").
-						WithField("path", sg.dir).
-						Trace("no segment eligble for compaction")
-				}
-			}
+	if sg.eligibleForCompaction() {
+		if err := sg.compactOnce(); err != nil {
+			sg.logger.WithField("action", "lsm_compaction").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("compaction failed")
 		}
-	}()
+	} else {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			Trace("no segment eligible for compaction")
+	}
 }
 
 func (sg *SegmentGroup) Len() int {
@@ -370,7 +354,8 @@ func (s *segmentLevelStats) fillMissingLevels() {
 }
 
 func (s *segmentLevelStats) report(metrics *Metrics,
-	strategy, dir string) {
+	strategy, dir string,
+) {
 	for level, size := range s.indexes {
 		metrics.SegmentSize.With(prometheus.Labels{
 			"strategy": strategy,

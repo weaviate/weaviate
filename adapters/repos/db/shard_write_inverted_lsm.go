@@ -22,7 +22,8 @@ import (
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
-	docID uint64) error {
+	docID uint64,
+) error {
 	for _, prop := range props {
 		b := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 		if b == nil {
@@ -56,7 +57,8 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 }
 
 func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64, frequency float32, propLen float32) error {
+	item inverted.Countable, docID uint64, frequency float32, propLen float32,
+) error {
 	if b.Strategy() != lsmkv.StrategyMapCollection {
 		panic("prop has frequency, but bucket does not have 'Map' strategy")
 	}
@@ -92,7 +94,8 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 }
 
 func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64) error {
+	item inverted.Countable, docID uint64,
+) error {
 	if b.Strategy() != lsmkv.StrategySetCollection {
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}
@@ -113,7 +116,8 @@ func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 }
 
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv.Bucket,
-	item inverted.MergeItem) error {
+	item inverted.MergeItem,
+) error {
 	if b.Strategy() != lsmkv.StrategySetCollection {
 		panic("prop has no frequency, but bucket does not have 'Set' strategy")
 	}

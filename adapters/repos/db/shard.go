@@ -14,8 +14,10 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path"
+	"runtime"
 	"sync"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
@@ -58,12 +61,27 @@ type Shard struct {
 	versioner        *shardVersioner
 	diskScanState    *diskScanState
 
+	numActiveBatches    int
+	activeBatchesLock   sync.Mutex
+	jobQueueCh          chan job
+	shutDownWg          sync.WaitGroup
+	maxNumberGoroutines int
+
 	status     storagestate.Status
 	statusLock sync.Mutex
 }
 
+type job struct {
+	object  *storobj.Object
+	status  objectInsertStatus
+	index   int
+	ctx     context.Context
+	batcher *objectsBatcher
+}
+
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index) (*Shard, error) {
+	shardName string, index *Index,
+) (*Shard, error) {
 	before := time.Now()
 
 	rand, err := newBufferedRandomGen(64 * 1024)
@@ -83,10 +101,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		deletedDocIDs: docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
-		cancel:        make(chan struct{}, 1),
-		randomSource:  rand,
-		diskScanState: newDiskScanState(),
+		cancel:              make(chan struct{}, 1),
+		randomSource:        rand,
+		diskScanState:       newDiskScanState(),
+		jobQueueCh:          make(chan job, 100000),
+		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}
+	if s.maxNumberGoroutines == 0 {
+		return s, errors.New("no workers to add batch-jobs configured.")
+	}
+
 	defer s.metrics.ShardStartup(before)
 
 	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
@@ -98,7 +122,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
-
 		var distProv distancer.Provider
 
 		switch hnswUserConfig.Distance {
@@ -110,9 +133,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			distProv = distancer.NewL2SquaredProvider()
 		case hnsw.DistanceManhattan:
 			distProv = distancer.NewManhattanProvider()
+		case hnsw.DistanceHamming:
+			distProv = distancer.NewHammingProvider()
 		default:
 			return nil, errors.Errorf("unrecognized distance metric %q,"+
-				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\"]", hnswUserConfig.Distance)
+				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
 		}
 
 		vi, err := hnsw.New(hnsw.Config{
@@ -130,7 +155,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 				// each iteration. However, if you are running on a very powerful
 				// machine within 10s you could have potentially created two units of
 				// work, but we'll only be handling one every 10s. This means
-				// uncombined/uncodensed hnsw commit logs will keep piling up can only
+				// uncombined/uncondensed hnsw commit logs will keep piling up can only
 				// be processes long after the initial insert is complete. This also
 				// means that if there is a crash during importing a lot of work needs
 				// to be done at startup, since the commit logs still contain too many
@@ -202,14 +227,14 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
 	}
 
-	store, err := lsmkv.New(s.DBPathLSM(), annotatedLogger, metrics)
+	store, err := lsmkv.New(s.DBPathLSM(), s.index.Config.RootPath, annotatedLogger, metrics)
 	if err != nil {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
 	}
 
 	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndicies(1),
+		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
 	)
 	if err != nil {
@@ -253,7 +278,7 @@ func (s *Shard) drop(force bool) error {
 		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
 	}
 	// remove vector index
-	err = s.vectorIndex.Drop()
+	err = s.vectorIndex.Drop(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
 	}
@@ -267,7 +292,7 @@ func (s *Shard) drop(force bool) error {
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 
-	err = s.propertyIndices.DropAll()
+	err = s.propertyIndices.DropAll(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.DBPathLSM())
 	}
@@ -397,7 +422,8 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 }
 
 func (s *Shard) updateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig) error {
+	updated schema.VectorIndexConfig,
+) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -421,7 +447,9 @@ func (s *Shard) shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "flush vector index commitlog")
 	}
 
-	s.vectorIndex.Shutdown()
+	if err := s.vectorIndex.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "shut down vector index")
+	}
 
 	return s.store.Shutdown(ctx)
 }

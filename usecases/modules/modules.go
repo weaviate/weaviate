@@ -33,6 +33,7 @@ var (
 
 type Provider struct {
 	registered             map[string]modulecapabilities.Module
+	altNames               map[string]string
 	schemaGetter           schemaGetter
 	hasMultipleVectorizers bool
 }
@@ -44,15 +45,27 @@ type schemaGetter interface {
 func NewProvider() *Provider {
 	return &Provider{
 		registered: map[string]modulecapabilities.Module{},
+		altNames:   map[string]string{},
 	}
 }
 
 func (m *Provider) Register(mod modulecapabilities.Module) {
 	m.registered[mod.Name()] = mod
+	if modHasAltNames, ok := mod.(modulecapabilities.ModuleHasAltNames); ok {
+		for _, altName := range modHasAltNames.AltNames() {
+			m.altNames[altName] = mod.Name()
+		}
+	}
 }
 
 func (m *Provider) GetByName(name string) modulecapabilities.Module {
-	return m.registered[name]
+	if mod, ok := m.registered[name]; ok {
+		return mod
+	}
+	if origName, ok := m.altNames[name]; ok {
+		return m.registered[origName]
+	}
+	return nil
 }
 
 func (m *Provider) GetAll() []modulecapabilities.Module {
@@ -81,7 +94,8 @@ func (m *Provider) SetSchemaGetter(sg schemaGetter) {
 }
 
 func (m *Provider) Init(ctx context.Context,
-	params moduletools.ModuleInitParams, logger logrus.FieldLogger) error {
+	params moduletools.ModuleInitParams, logger logrus.FieldLogger,
+) error {
 	for i, mod := range m.GetAll() {
 		if err := mod.Init(ctx, params); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
@@ -201,7 +215,8 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 			m.hasMultipleVectorizers = true
 		}
 		for _, moduleName := range modules {
-			if m.moduleProvidesMultipleVectorizers(moduleName) {
+			moduleType := m.GetByName(moduleName).Type()
+			if m.moduleProvidesMultipleVectorizers(moduleType) {
 				m.hasMultipleVectorizers = true
 			}
 		}
@@ -211,24 +226,29 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 
 func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
-	case modulecapabilities.Text2Vec, modulecapabilities.Img2Vec, modulecapabilities.Multi2Vec:
+	case modulecapabilities.Text2Vec,
+		modulecapabilities.Img2Vec,
+		modulecapabilities.Multi2Vec,
+		modulecapabilities.Text2MultiVec:
 		return true
 	default:
 		return false
 	}
 }
 
-func (m *Provider) moduleProvidesMultipleVectorizers(module string) bool {
-	return module == "text2vec-openai"
+func (m *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
+	return moduleType == modulecapabilities.Text2MultiVec
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string,
-	moduleType modulecapabilities.ModuleType) bool {
+	moduleType modulecapabilities.ModuleType,
+) bool {
 	return class.Vectorizer == module || !m.isVectorizerModule(moduleType)
 }
 
 func (m *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, module string,
-	moduleType modulecapabilities.ModuleType) bool {
+	moduleType modulecapabilities.ModuleType,
+) bool {
 	if class == nil {
 		return !m.HasMultipleVectorizers()
 	}
@@ -236,7 +256,8 @@ func (m *Provider) shouldCrossClassIncludeClassArgument(class *models.Class, mod
 }
 
 func (m *Provider) shouldIncludeArgument(schema *models.Schema, module string,
-	moduleType modulecapabilities.ModuleType) bool {
+	moduleType modulecapabilities.ModuleType,
+) bool {
 	for _, c := range schema.Classes {
 		if m.shouldIncludeClassArgument(c, module, moduleType) {
 			return true
@@ -404,7 +425,8 @@ func (m *Provider) ExtractAdditionalField(className, name string, params []*ast.
 
 // GetObjectAdditionalExtend extends rest api get queries with additional properties
 func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
-	in *search.Result, moduleParams map[string]interface{}) (*search.Result, error) {
+	in *search.Result, moduleParams map[string]interface{},
+) (*search.Result, error) {
 	resArray, err := m.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil)
 	if err != nil {
 		return nil, err
@@ -414,27 +436,31 @@ func (m *Provider) GetObjectAdditionalExtend(ctx context.Context,
 
 // ListObjectsAdditionalExtend extends rest api list queries with additional properties
 func (m *Provider) ListObjectsAdditionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{}) (search.Results, error) {
+	in search.Results, moduleParams map[string]interface{},
+) (search.Results, error) {
 	return m.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil)
 }
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
 func (m *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return m.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
 func (m *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{},
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return m.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
 func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	capability string, argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
 		class, err := m.getClassFromSearchResult(toBeExtended)
@@ -487,7 +513,8 @@ func (m *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, 
 }
 
 func (m *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
-	moduleParams map[string]interface{}, capability string) error {
+	moduleParams map[string]interface{}, capability string,
+) error {
 	for name := range moduleParams {
 		additionalPropertyFn := m.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn == nil {
@@ -554,7 +581,8 @@ func (m *Provider) RestApiAdditionalProperties(includeProp string, class *models
 // Get { Class() } for example
 func (m *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	class, err := m.getClass(className)
 	if err != nil {
 		return nil, err
@@ -566,7 +594,7 @@ func (m *Provider) VectorFromSearchParam(ctx context.Context,
 				if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 					if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
 						cfg := NewClassBasedModuleConfig(class, mod.Name())
-						vector, err := searchVectorFn(ctx, params, findVectorFn, cfg)
+						vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 						if err != nil {
 							return nil, errors.Errorf("vectorize params: %v", err)
 						}
@@ -585,12 +613,13 @@ func (m *Provider) VectorFromSearchParam(ctx context.Context,
 // Explore() { } for example
 func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn) ([]float32, error) {
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	for _, mod := range m.GetAll() {
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					vector, err := searchVectorFn(ctx, params, findVectorFn, nil)
+					vector, err := searchVectorFn(ctx, params, "", findVectorFn, nil)
 					if err != nil {
 						return nil, errors.Errorf("vectorize params: %v", err)
 					}
@@ -605,7 +634,8 @@ func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 
 // ParseClassifierSettings parses and adds classifier specific settings
 func (m *Provider) ParseClassifierSettings(name string,
-	params *models.Classification) error {
+	params *models.Classification,
+) error {
 	class, err := m.getClass(params.Class)
 	if err != nil {
 		return err
@@ -626,7 +656,8 @@ func (m *Provider) ParseClassifierSettings(name string,
 
 // GetClassificationFn returns given module's classification
 func (m *Provider) GetClassificationFn(className, name string,
-	params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error) {
+	params modulecapabilities.ClassifyParams,
+) (modulecapabilities.ClassifyItemFn, error) {
 	class, err := m.getClass(className)
 	if err != nil {
 		return nil, err
@@ -673,13 +704,13 @@ func (m *Provider) HasMultipleVectorizers() bool {
 	return m.hasMultipleVectorizers
 }
 
-func (m *Provider) BackupStorageProvider(providerID string) (modulecapabilities.SnapshotStorage, error) {
-	if module := m.GetByName(providerID); module != nil {
-		if module.Type() == modulecapabilities.Storage {
-			if storageProvider, ok := module.(modulecapabilities.SnapshotStorage); ok {
-				return storageProvider, nil
+func (m *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+	if module := m.GetByName(backend); module != nil {
+		if module.Type() == modulecapabilities.Backup {
+			if backend, ok := module.(modulecapabilities.BackupBackend); ok {
+				return backend, nil
 			}
 		}
 	}
-	return nil, errors.Errorf("storage provider: %s not found", providerID)
+	return nil, errors.Errorf("backup: %s not found", backend)
 }

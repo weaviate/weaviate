@@ -16,7 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/pkg/errors"
@@ -40,7 +40,8 @@ func New(origin string, logger logrus.FieldLogger) *qna {
 }
 
 func (v *qna) Answer(ctx context.Context,
-	text, question string) (*ent.AnswerResult, error) {
+	text, question string,
+) (*ent.AnswerResult, error) {
 	body, err := json.Marshal(answersInput{
 		Text:     text,
 		Question: question,
@@ -61,7 +62,7 @@ func (v *qna) Answer(ctx context.Context,
 	}
 	defer res.Body.Close()
 
-	bodyBytes, err := ioutil.ReadAll(res.Body)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}

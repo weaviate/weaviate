@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,7 +40,7 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		cities := result.Get("Get", "City").AsSlice()
 
 		expectedResults := []interface{}{
@@ -72,7 +74,7 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		cities := result.Get("Get", "City").AsSlice()
 
 		expectedResults := []interface{}{
@@ -114,7 +116,7 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		cities := result.Get("Get", "City").AsSlice()
 
 		expectedResults := []interface{}{

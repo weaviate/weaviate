@@ -222,6 +222,37 @@ func Test_MergeObject(t *testing.T) {
 			stage: stageCount,
 		},
 		{
+			name: "update property",
+			previous: &models.Object{
+				Class:      cls,
+				Properties: map[string]interface{}{"name": "this name"},
+				Vector:     []float32{0.7, 0.3},
+			},
+			updated: &models.Object{
+				Class: cls,
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"name": "another name",
+				},
+			},
+			vectorizerCalledWith: &models.Object{
+				Class: cls,
+				Properties: map[string]interface{}{
+					"name": "another name",
+				},
+			},
+			expectedOutput: &MergeDocument{
+				UpdateTime: lastTime,
+				Class:      cls,
+				ID:         uuid,
+				Vector:     []float32{1, 2, 3},
+				PrimitiveSchema: map[string]interface{}{
+					"name": "another name",
+				},
+			},
+			stage: stageCount,
+		},
+		{
 			name: "without properties",
 			previous: &models.Object{
 				Class: cls,

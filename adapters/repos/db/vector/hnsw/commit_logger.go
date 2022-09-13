@@ -12,9 +12,8 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
-	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +24,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,10 +41,9 @@ func commitLogDirectory(rootPath, name string) string {
 
 func NewCommitLogger(rootPath, name string,
 	maintainenceInterval time.Duration, logger logrus.FieldLogger,
-	opts ...CommitlogOption) (*hnswCommitLogger, error) {
+	opts ...CommitlogOption,
+) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		cancel:               make(chan struct{}),
-		cancelComplete:       make(chan struct{}),
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
@@ -66,8 +66,11 @@ func NewCommitLogger(rootPath, name string,
 		return nil, err
 	}
 
+	l.switchLogCycle = cyclemanager.New(l.maintainenceInterval, l.startSwitchLogs)
+	l.condenseCycle = cyclemanager.New(l.maintainenceInterval, l.startCombineAndCondenseLogs)
+
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-	l.StartLogging()
+	l.Start()
 	return l, nil
 }
 
@@ -105,7 +108,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, errors.Wrap(err, "create commit logger directory")
 	}
 
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, errors.Wrap(err, "browse commit logger directory")
 	}
@@ -120,20 +123,20 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, nil
 	}
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 
 		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 		return ts1 < ts2
 	})
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return nil, err
 	}
 
@@ -148,7 +151,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 // getCurrentCommitLogFileName returns the fileName and true if a file was
 // present. If no file was present, the second arg is false.
 func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
-	files, err := ioutil.ReadDir(dirPath)
+	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return "", false, errors.Wrap(err, "browse commit logger directory")
 	}
@@ -163,28 +166,28 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, errors.Wrap(err, "clean up tmp combining files")
 	}
 
-	ec := &errorCompounder{}
+	ec := &errorcompounder.ErrorCompounder{}
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 
 		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
-			ec.add(err)
+			ec.Add(err)
 		}
 		return ts1 > ts2
 	})
-	if err := ec.toError(); err != nil {
+	if err := ec.ToError(); err != nil {
 		return "", false, err
 	}
 
 	return files[0].Name(), true, nil
 }
 
-func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
-	out := make([]fs.FileInfo, len(in))
+func removeTmpScratchFiles(in []os.DirEntry) []os.DirEntry {
+	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
@@ -199,8 +202,9 @@ func removeTmpScratchFiles(in []fs.FileInfo) []fs.FileInfo {
 }
 
 func removeTmpCombiningFiles(dirPath string,
-	in []fs.FileInfo) ([]fs.FileInfo, error) {
-	out := make([]fs.FileInfo, len(in))
+	in []os.DirEntry,
+) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, info := range in {
 		if strings.HasSuffix(info.Name(), ".combined.tmp") {
@@ -236,9 +240,6 @@ type hnswCommitLogger struct {
 	// buffer
 	sync.Mutex
 
-	cancel         chan struct{}
-	cancelComplete chan struct{}
-
 	rootPath             string
 	id                   string
 	condensor            condensor
@@ -247,6 +248,9 @@ type hnswCommitLogger struct {
 	maxSizeCombining     int64
 	commitLogger         *commitlog.Logger
 	maintainenceInterval time.Duration
+
+	switchLogCycle *cyclemanager.CycleManager
+	condenseCycle  *cyclemanager.CycleManager
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -293,6 +297,10 @@ func (t HnswCommitType) String() string {
 	return "unknown commit type"
 }
 
+func (l *hnswCommitLogger) ID() string {
+	return l.id
+}
+
 // AddNode adds an empty node
 func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.Lock()
@@ -316,7 +324,8 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 }
 
 func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
-	target uint64) error {
+	target uint64,
+) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -365,93 +374,85 @@ func (l *hnswCommitLogger) Reset() error {
 	return l.commitLogger.Reset()
 }
 
-func (l *hnswCommitLogger) StartLogging() {
-	// switch log job
-	cancelSwitchLog := l.startSwitchLogs()
-	// condense old logs job
-	cancelCombineAndCondenseLogs := l.startCombineAndCondenseLogs()
-	// cancel maintenance jobs on request
-	go func(cancel ...chan struct{}) {
-		<-l.cancel
-
-		for _, c := range cancel {
-			c <- struct{}{}
-		}
-
-		l.cancelComplete <- struct{}{}
-	}(cancelCombineAndCondenseLogs, cancelSwitchLog)
+func (l *hnswCommitLogger) Start() {
+	l.switchLogCycle.Start()
+	l.condenseCycle.Start()
 }
 
 // Shutdown waits for ongoing maintenance processes to stop, then cancels their
 // scheduling. The caller can be sure that state on disk is immutable after
 // calling Shutdown().
-func (l *hnswCommitLogger) Shutdown() {
-	l.cancel <- struct{}{}
-	<-l.cancelComplete
+func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
+	switchLogCycleStop := make(chan error)
+	condenseCycleStop := make(chan error)
+
+	go func() {
+		if err := l.switchLogCycle.StopAndWait(ctx); err != nil {
+			switchLogCycleStop <- errors.Wrap(err, "failed to stop commitlog switch cycle")
+			return
+		}
+		switchLogCycleStop <- nil
+	}()
+
+	go func() {
+		if err := l.condenseCycle.StopAndWait(ctx); err != nil {
+			condenseCycleStop <- errors.Wrap(err, "failed to stop commitlog condense cycle")
+			return
+		}
+		condenseCycleStop <- nil
+	}()
+
+	switchLogCycleStopErr := <-switchLogCycleStop
+	condenseCycleStopErr := <-condenseCycleStop
+
+	if switchLogCycleStopErr != nil && condenseCycleStopErr != nil {
+		return errors.Errorf("%s, %s", switchLogCycleStopErr, condenseCycleStopErr)
+	}
+
+	if switchLogCycleStopErr != nil {
+		// restart condense cycle since it was successfully stopped.
+		// both of these cycles work together, and need to work in sync
+		l.condenseCycle.Start()
+		return switchLogCycleStopErr
+	}
+
+	if condenseCycleStopErr != nil {
+		// restart switch log cycle since it was successfully stopped.
+		// both of these cycles work together, and need to work in sync
+		l.switchLogCycle.Start()
+		return condenseCycleStopErr
+	}
+
+	return nil
 }
 
-func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
-	cancelSwitchLog := make(chan struct{})
-
-	go func(cancel <-chan struct{}) {
-		if l.maintainenceInterval == 0 {
-			l.logger.WithField("action", "commit_logging_skipped").
-				WithField("id", l.id).
-				Info("commit log switching explitictly turned off")
-		}
-		maintenance := time.Tick(l.maintainenceInterval)
-
-		for {
-			select {
-			case <-cancel:
-				return
-			case <-maintenance:
-				if err := l.maintenance(); err != nil {
-					l.logger.WithError(err).
-						WithField("action", "hsnw_commit_log_maintenance").
-						Error("hnsw commit log maintenance failed")
-				}
-			}
-		}
-	}(cancelSwitchLog)
-
-	return cancelSwitchLog
+func (l *hnswCommitLogger) RootPath() string {
+	return l.rootPath
 }
 
-func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
-	cancelFromOutside := make(chan struct{})
-
-	go func(cancel <-chan struct{}) {
-		if l.maintainenceInterval == 0 {
-			l.logger.WithField("action", "commit_logging_skipped").
-				WithField("id", l.id).
-				Info("commit log switching explitictly turned off")
-		}
-		maintenance := time.Tick(l.maintainenceInterval)
-		for {
-			select {
-			case <-cancel:
-				return
-			case <-maintenance:
-				if err := l.combineLogs(); err != nil {
-					l.logger.WithError(err).
-						WithField("action", "hsnw_commit_log_combining").
-						Error("hnsw commit log maintenance (combining) failed")
-				}
-
-				if err := l.condenseOldLogs(); err != nil {
-					l.logger.WithError(err).
-						WithField("action", "hsnw_commit_log_condensing").
-						Error("hnsw commit log maintenance (condensing) failed")
-				}
-			}
-		}
-	}(cancelFromOutside)
-
-	return cancelFromOutside
+func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.StopFunc) {
+	if err := l.SwitchCommitLogs(false); err != nil {
+		l.logger.WithError(err).
+			WithField("action", "hsnw_commit_log_maintenance").
+			Error("hnsw commit log maintenance failed")
+	}
 }
 
-func (l *hnswCommitLogger) maintenance() error {
+func (l *hnswCommitLogger) startCombineAndCondenseLogs(stopFunc cyclemanager.StopFunc) {
+	if err := l.combineLogs(); err != nil {
+		l.logger.WithError(err).
+			WithField("action", "hsnw_commit_log_combining").
+			Error("hnsw commit log maintenance (combining) failed")
+	}
+
+	if err := l.condenseOldLogs(); err != nil {
+		l.logger.WithError(err).
+			WithField("action", "hsnw_commit_log_condensing").
+			Error("hnsw commit log maintenance (condensing) failed")
+	}
+}
+
+func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -460,7 +461,7 @@ func (l *hnswCommitLogger) maintenance() error {
 		return err
 	}
 
-	if size <= l.maxSizeIndividual {
+	if size <= l.maxSizeIndividual && !force {
 		return nil
 	}
 
@@ -476,12 +477,21 @@ func (l *hnswCommitLogger) maintenance() error {
 	// this is a new commit log, initialize with the current time stamp
 	fileName := fmt.Sprintf("%d", time.Now().Unix())
 
-	l.logger.WithField("action", "commit_log_file_switched").
-		WithField("id", l.id).
-		WithField("old_file_name", oldFileName).
-		WithField("old_file_size", size).
-		WithField("new_file_name", fileName).
-		Info("commit log size crossed threshold, switching to new file")
+	if force {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			WithField("old_file_size", size).
+			WithField("new_file_name", fileName).
+			Debug("commit log switched forced")
+	} else {
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", oldFileName).
+			WithField("old_file_size", size).
+			WithField("new_file_name", fileName).
+			Info("commit log size crossed threshold, switching to new file")
+	}
 
 	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
@@ -531,14 +541,16 @@ func (l *hnswCommitLogger) combineLogs() error {
 	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
 }
 
-func (l *hnswCommitLogger) Drop() error {
+func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 	if err := l.commitLogger.Close(); err != nil {
 		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}
 
 	// stop all goroutines
-	l.cancel <- struct{}{}
-	<-l.cancelComplete
+	if err := l.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "drop commitlog")
+	}
+
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
 	if _, err := os.Stat(dir); err == nil {
@@ -555,4 +567,8 @@ func (l *hnswCommitLogger) Flush() error {
 	defer l.Unlock()
 
 	return l.commitLogger.Flush()
+}
+
+func (l *hnswCommitLogger) MaintenanceInProgress() bool {
+	return l.condenseCycle.Running() && l.switchLogCycle.Running()
 }

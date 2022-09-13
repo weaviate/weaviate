@@ -63,7 +63,8 @@ func NewGenesisPeersRegisterOK() *GenesisPeersRegisterOK {
 	return &GenesisPeersRegisterOK{}
 }
 
-/*GenesisPeersRegisterOK handles this case with default header values.
+/*
+GenesisPeersRegisterOK handles this case with default header values.
 
 Successfully registred the peer to the network.
 */
@@ -95,12 +96,12 @@ func NewGenesisPeersRegisterBadRequest() *GenesisPeersRegisterBadRequest {
 	return &GenesisPeersRegisterBadRequest{}
 }
 
-/*GenesisPeersRegisterBadRequest handles this case with default header values.
+/*
+GenesisPeersRegisterBadRequest handles this case with default header values.
 
 The weaviate peer is not reachable from the Gensis service.
 */
-type GenesisPeersRegisterBadRequest struct {
-}
+type GenesisPeersRegisterBadRequest struct{}
 
 func (o *GenesisPeersRegisterBadRequest) Error() string {
 	return fmt.Sprintf("[POST /peers/register][%d] genesisPeersRegisterBadRequest ", 400)
@@ -115,12 +116,12 @@ func NewGenesisPeersRegisterForbidden() *GenesisPeersRegisterForbidden {
 	return &GenesisPeersRegisterForbidden{}
 }
 
-/*GenesisPeersRegisterForbidden handles this case with default header values.
+/*
+GenesisPeersRegisterForbidden handles this case with default header values.
 
 You are not allowed on the network.
 */
-type GenesisPeersRegisterForbidden struct {
-}
+type GenesisPeersRegisterForbidden struct{}
 
 func (o *GenesisPeersRegisterForbidden) Error() string {
 	return fmt.Sprintf("[POST /peers/register][%d] genesisPeersRegisterForbidden ", 403)

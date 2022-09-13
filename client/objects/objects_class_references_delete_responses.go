@@ -81,7 +81,8 @@ func NewObjectsClassReferencesDeleteNoContent() *ObjectsClassReferencesDeleteNoC
 	return &ObjectsClassReferencesDeleteNoContent{}
 }
 
-/*ObjectsClassReferencesDeleteNoContent handles this case with default header values.
+/*
+ObjectsClassReferencesDeleteNoContent handles this case with default header values.
 
 Successfully deleted.
 */
@@ -102,7 +103,8 @@ func NewObjectsClassReferencesDeleteUnauthorized() *ObjectsClassReferencesDelete
 	return &ObjectsClassReferencesDeleteUnauthorized{}
 }
 
-/*ObjectsClassReferencesDeleteUnauthorized handles this case with default header values.
+/*
+ObjectsClassReferencesDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -123,7 +125,8 @@ func NewObjectsClassReferencesDeleteForbidden() *ObjectsClassReferencesDeleteFor
 	return &ObjectsClassReferencesDeleteForbidden{}
 }
 
-/*ObjectsClassReferencesDeleteForbidden handles this case with default header values.
+/*
+ObjectsClassReferencesDeleteForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -156,7 +159,8 @@ func NewObjectsClassReferencesDeleteNotFound() *ObjectsClassReferencesDeleteNotF
 	return &ObjectsClassReferencesDeleteNotFound{}
 }
 
-/*ObjectsClassReferencesDeleteNotFound handles this case with default header values.
+/*
+ObjectsClassReferencesDeleteNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -189,7 +193,8 @@ func NewObjectsClassReferencesDeleteUnprocessableEntity() *ObjectsClassReference
 	return &ObjectsClassReferencesDeleteUnprocessableEntity{}
 }
 
-/*ObjectsClassReferencesDeleteUnprocessableEntity handles this case with default header values.
+/*
+ObjectsClassReferencesDeleteUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -222,7 +227,8 @@ func NewObjectsClassReferencesDeleteInternalServerError() *ObjectsClassReference
 	return &ObjectsClassReferencesDeleteInternalServerError{}
 }
 
-/*ObjectsClassReferencesDeleteInternalServerError handles this case with default header values.
+/*
+ObjectsClassReferencesDeleteInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

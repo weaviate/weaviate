@@ -51,8 +51,10 @@ func TestModulesWithSearchers(t *testing.T) {
 		p.Register(newSearcherModule("mod").
 			withArg("nearGrape").
 			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				className string,
 				findVectorFn modulecapabilities.FindVectorFn,
-				cfg moduletools.ClassConfig) ([]float32, error) {
+				cfg moduletools.ClassConfig,
+			) ([]float32, error) {
 				// verify that the config tool is set, as this is a per-class search,
 				// so it must be set
 				assert.NotNil(t, cfg)
@@ -60,7 +62,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "123")
+				initial, _ := findVectorFn(ctx, "class", "123")
 				return append(initial, 4), nil
 			}),
 		)
@@ -81,8 +83,10 @@ func TestModulesWithSearchers(t *testing.T) {
 		p.Register(newSearcherModule("mod").
 			withArg("nearGrape").
 			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				className string,
 				findVectorFn modulecapabilities.FindVectorFn,
-				cfg moduletools.ClassConfig) ([]float32, error) {
+				cfg moduletools.ClassConfig,
+			) ([]float32, error) {
 				// this is a cross-class search, such as is used for Explore{}, in this
 				// case we do not have class-based config, so the optional argument is
 				// nil! Modules must be able to deal with this situation!
@@ -91,7 +95,7 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "123")
+				initial, _ := findVectorFn(ctx, "class", "123")
 				return append(initial, 4), nil
 			}),
 		)
@@ -105,7 +109,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 }
 
-func fakeFindVector(ctx context.Context, id strfmt.UUID) ([]float32, error) {
+func fakeFindVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
 	return []float32{1, 2, 3}, nil
 }
 
@@ -131,7 +135,8 @@ func (m *dummySearcherModule) withArg(arg string) *dummySearcherModule {
 
 // a helper for our test
 func (m *dummySearcherModule) withSearcher(arg string,
-	impl modulecapabilities.VectorForParams) *dummySearcherModule {
+	impl modulecapabilities.VectorForParams,
+) *dummySearcherModule {
 	m.searchers[arg] = impl
 	return m
 }

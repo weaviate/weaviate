@@ -23,8 +23,10 @@ type Metrics struct {
 	tombstones       prometheus.Gauge
 	threads          prometheus.Gauge
 	insert           prometheus.Gauge
+	insertDimensions prometheus.Counter
 	insertTime       prometheus.ObserverVec
 	delete           prometheus.Gauge
+	deleteDimensions prometheus.Counter
 	deleteTime       prometheus.ObserverVec
 	cleaned          prometheus.Counter
 	size             prometheus.Gauge
@@ -35,7 +37,8 @@ type Metrics struct {
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
-	className, shardName string) *Metrics {
+	className, shardName string,
+) *Metrics {
 	if prom == nil {
 		return &Metrics{enabled: false}
 	}
@@ -61,6 +64,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "create",
 	})
 
+	insertDimensions := prom.VectorIndexDimensionOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "create",
+	})
+
 	insertTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
@@ -68,6 +77,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	})
 
 	del := prom.VectorIndexOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "delete",
+	})
+
+	delDimensions := prom.VectorIndexDimensionOperations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "delete",
@@ -112,8 +127,10 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		threads:          threads,
 		cleaned:          cleaned,
 		insert:           insert,
+		insertDimensions: insertDimensions,
 		insertTime:       insertTime,
 		delete:           del,
+		deleteDimensions: delDimensions,
 		deleteTime:       deleteTime,
 		size:             size,
 		grow:             grow,
@@ -171,12 +188,28 @@ func (m *Metrics) InsertVector() {
 	m.insert.Inc()
 }
 
+func (m *Metrics) InsertVectorDimensions(d int) {
+	if !m.enabled {
+		return
+	}
+
+	m.insertDimensions.Add(float64(d))
+}
+
 func (m *Metrics) DeleteVector() {
 	if !m.enabled {
 		return
 	}
 
 	m.delete.Inc()
+}
+
+func (m *Metrics) DeleteVectorDimensions(d int) {
+	if !m.enabled {
+		return
+	}
+
+	m.deleteDimensions.Add(float64(d))
 }
 
 func (m *Metrics) SetSize(size int) {
@@ -196,13 +229,23 @@ func (m *Metrics) GrowDuration(start time.Time) {
 	m.grow.Observe(took)
 }
 
-func (m *Metrics) TrackInsert(start time.Time, step string) {
+type Observer func(start time.Time)
+
+func noOpObserver(start time.Time) {
+	// do nothing
+}
+
+func (m *Metrics) TrackInsertObserver(step string) Observer {
 	if !m.enabled {
-		return
+		return noOpObserver
 	}
 
-	took := float64(time.Since(start)) / float64(time.Millisecond)
-	m.insertTime.With(prometheus.Labels{"step": step}).Observe(took)
+	curried := m.insertTime.With(prometheus.Labels{"step": step})
+
+	return func(start time.Time) {
+		took := float64(time.Since(start)) / float64(time.Millisecond)
+		curried.Observe(took)
+	}
 }
 
 func (m *Metrics) TrackDelete(start time.Time, step string) {

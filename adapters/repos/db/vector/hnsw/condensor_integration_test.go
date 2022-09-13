@@ -16,7 +16,6 @@ package hnsw
 
 import (
 	"bufio"
-	"fmt"
 	"math/rand"
 	"os"
 	"strings"
@@ -30,12 +29,7 @@ import (
 
 func TestCondensor(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
@@ -146,12 +140,7 @@ func TestCondensor(t *testing.T) {
 
 func TestCondensorAppendNodeLinks(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
@@ -239,12 +228,7 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 // regression.
 func TestCondensorReplaceNodeLinks(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
@@ -337,12 +321,7 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 // still added to test the broken (now fixed) behavior in relative isolation.
 func TestCondensorClearLinksAtLevel(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
@@ -431,12 +410,7 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 
 func TestCondensorWithoutEntrypoint(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0o777)
-	defer func() {
-		err := os.RemoveAll(rootPath)
-		fmt.Println(err)
-	}()
+	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
@@ -476,7 +450,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
-		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
+		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
@@ -502,7 +476,8 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 }
 
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
-	fileNames []string) {
+	fileNames []string,
+) {
 	control := readFromCommitLogs(t, fileNameControl)
 	actual := readFromCommitLogs(t, fileNames...)
 

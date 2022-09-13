@@ -64,11 +64,13 @@ type ObjectsVectorizer struct {
 }
 
 func NewObjectsVectorizer(vec modulecapabilities.Vectorizer,
-	cfg *ClassBasedModuleConfig) *ObjectsVectorizer {
+	cfg *ClassBasedModuleConfig,
+) *ObjectsVectorizer {
 	return &ObjectsVectorizer{modVectorizer: vec, cfg: cfg}
 }
 
 func (ov *ObjectsVectorizer) UpdateObject(ctx context.Context,
-	obj *models.Object) error {
+	obj *models.Object,
+) error {
 	return ov.modVectorizer.VectorizeObject(ctx, obj, ov.cfg)
 }

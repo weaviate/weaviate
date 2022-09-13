@@ -30,7 +30,8 @@ import (
 )
 
 func (d *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32) error {
+	vector []float32,
+) error {
 	object := storobj.FromObject(obj, vector)
 	idx := d.GetIndex(object.Class())
 	if idx == nil {
@@ -62,7 +63,8 @@ func (d *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID) err
 
 func (d *DB) MultiGet(ctx context.Context,
 	query []multi.Identifier,
-	additional additional.Properties) ([]search.Result, error) {
+	additional additional.Properties,
+) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 
 	for i, q := range query {
@@ -104,8 +106,26 @@ func (d *DB) MultiGet(ctx context.Context,
 // @warning: this function is deprecated by Object()
 func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties,
-	additional additional.Properties) (*search.Result, error) {
-	var result *search.Result
+	additional additional.Properties,
+) (*search.Result, error) {
+	results, err := d.ObjectsByID(ctx, id, props, additional)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+	return &results[0], nil
+}
+
+// ObjectsByID checks every index of the particular kind for the ID
+// this method is only used for Explore queries where we don't have
+// a class context
+func (d *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties,
+	additional additional.Properties,
+) (search.Results, error) {
+	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {
@@ -115,8 +135,7 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 		}
 
 		if res != nil {
-			result = res.SearchResult(additional)
-			break
+			result = append(result, res)
 		}
 	}
 
@@ -124,13 +143,15 @@ func (d *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 		return nil, nil
 	}
 
-	return d.enrichRefsForSingle(ctx, result, props, additional)
+	return d.enrichRefsForList(ctx,
+		storobj.SearchResults(result, additional), props, additional)
 }
 
 // Object gets object with id from index of specified class.
 func (d *DB) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
-	adds additional.Properties) (*search.Result, error) {
+	adds additional.Properties,
+) (*search.Result, error) {
 	idx := d.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil, nil
@@ -151,7 +172,8 @@ func (d *DB) Object(ctx context.Context, class string,
 }
 
 func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
-	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+	props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, []search.Result{*obj}, props, additional)
 	if err != nil {
@@ -190,7 +212,8 @@ func (d *DB) anyExists(ctx context.Context, id strfmt.UUID) (bool, error) {
 
 func (d *DB) AddReference(ctx context.Context,
 	className string, source strfmt.UUID, propName string,
-	ref *models.SingleRef) error {
+	ref *models.SingleRef,
+) error {
 	target, err := crossref.ParseSingleRef(ref)
 	if err != nil {
 		return err

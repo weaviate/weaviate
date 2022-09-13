@@ -32,19 +32,11 @@ import (
 
 func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("with some previous state", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -78,7 +70,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 			// then recreate bucket
 			var err error
-			b, err = NewBucket(testCtx(), dirNameOriginal, nullLogger(), nil,
+			b, err = NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 		})
@@ -163,7 +155,7 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 		var bRec *Bucket
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
-			b, err := NewBucket(testCtx(), dirNameRecovered, nullLogger(), nil,
+			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 
@@ -194,19 +186,11 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 
 func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("without previous state", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -313,7 +297,7 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 		var bRec *Bucket
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
-			b, err := NewBucket(testCtx(), dirNameRecovered, nullLogger(), nil,
+			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 
@@ -349,19 +333,11 @@ func TestReplaceStrategy_RecoverFromWALWithCorruptLastElement(t *testing.T) {
 
 func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("without prior state", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			WithStrategy(StrategySetCollection))
 		require.Nil(t, err)
 
@@ -460,7 +436,7 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 		var bRec *Bucket
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
-			b, err := NewBucket(testCtx(), dirNameRecovered, nullLogger(), nil,
+			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				WithStrategy(StrategySetCollection))
 			require.Nil(t, err)
 
@@ -498,19 +474,11 @@ func TestSetStrategy_RecoverFromWAL(t *testing.T) {
 
 func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirNameOriginal := fmt.Sprintf("./testdata/%d-original", rand.Intn(10000000))
-	dirNameRecovered := fmt.Sprintf("./testdata/%d-recovered", rand.Intn(10000000))
-	os.MkdirAll(dirNameOriginal, 0o777)
-	os.MkdirAll(dirNameRecovered, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirNameOriginal)
-		fmt.Println(err)
-		err = os.RemoveAll(dirNameRecovered)
-		fmt.Println(err)
-	}()
+	dirNameOriginal := t.TempDir()
+	dirNameRecovered := t.TempDir()
 
 	t.Run("without prior state", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirNameOriginal, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -647,7 +615,7 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 		var bRec *Bucket
 
 		t.Run("create new bucket from existing state", func(t *testing.T) {
-			b, err := NewBucket(testCtx(), dirNameRecovered, nullLogger(), nil,
+			b, err := NewBucket(testCtx(), dirNameRecovered, "", nullLogger(), nil,
 				WithStrategy(StrategyMapCollection))
 			require.Nil(t, err)
 

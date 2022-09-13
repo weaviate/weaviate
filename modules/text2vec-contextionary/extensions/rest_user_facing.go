@@ -13,7 +13,7 @@ package extensions
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -52,7 +52,7 @@ func (h *RESTUserFacingHandlers) post(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer r.Body.Close()
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.writeError(w, err, http.StatusInternalServerError)
 		return

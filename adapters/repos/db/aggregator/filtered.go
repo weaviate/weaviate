@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/models"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -22,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 type filteredAggregator struct {
@@ -80,20 +81,25 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
-	ids []uint64) (map[string]aggregation.Property, error) {
+	ids []uint64,
+) (map[string]aggregation.Property, error) {
 	propAggs, err := fa.prepareAggregatorsForProps()
 	if err != nil {
 		return nil, errors.Wrap(err, "prepare aggregators for props")
 	}
 
-	scan := func(obj *storobj.Object) (bool, error) {
-		if err := fa.analyzeObject(ctx, obj, propAggs); err != nil {
-			return false, errors.Wrapf(err, "analyze object %s", obj.ID())
+	scan := func(properties *models.PropertySchema, docID uint64) (bool, error) {
+		if err := fa.analyzeObject(ctx, properties, propAggs); err != nil {
+			return false, errors.Wrapf(err, "analyze object %d", docID)
 		}
 		return true, nil
 	}
+	propertyNames := make([]string, 0, len(propAggs))
+	for k := range propAggs {
+		propertyNames = append(propertyNames, k)
+	}
 
-	err = docid.ScanObjectsLSM(fa.store, ids, scan)
+	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames)
 	if err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}
@@ -102,17 +108,18 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 }
 
 func (fa *filteredAggregator) analyzeObject(ctx context.Context,
-	obj *storobj.Object, propAggs map[string]propAgg) error {
+	properties *models.PropertySchema, propAggs map[string]propAgg,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	if obj.Properties() == nil {
+	if properties == nil {
 		return nil
 	}
 
 	for propName, prop := range propAggs {
-		value, ok := obj.Properties().(map[string]interface{})[propName]
+		value, ok := (*properties).(map[string]interface{})[propName]
 		if !ok {
 			continue
 		}
@@ -128,38 +135,123 @@ func (fa *filteredAggregator) analyzeObject(ctx context.Context,
 func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) error {
 	switch prop.aggType {
 	case aggregation.PropertyTypeBoolean:
-		asBool, ok := value.(bool)
-		if !ok {
-			return fmt.Errorf("expected property type boolean, received %T", value)
+		analyzeBool := func(value interface{}) error {
+			asBool, ok := value.(bool)
+			if !ok {
+				return fmt.Errorf("expected property type boolean, received %T", value)
+			}
+			if err := prop.boolAgg.AddBool(asBool); err != nil {
+				return err
+			}
+			return nil
 		}
-		if err := prop.boolAgg.AddBool(asBool); err != nil {
-			return err
+		switch prop.dataType {
+		case schema.DataTypeBoolean:
+			if err := analyzeBool(value); err != nil {
+				return err
+			}
+		case schema.DataTypeBooleanArray:
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []boolean, received %T", valueStruct)
+			}
+			for _, val := range valueStruct {
+				if err := analyzeBool(val); err != nil {
+					return err
+				}
+			}
+		default:
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
 		}
 	case aggregation.PropertyTypeNumerical:
-		asFloat, ok := value.(float64)
-		if !ok {
-			return fmt.Errorf("expected property type float64, received %T", value)
+		analyzeFloat := func(value interface{}) error {
+			asFloat, ok := value.(float64)
+			if !ok {
+				return fmt.Errorf("expected property type float64, received %T", value)
+			}
+			if err := prop.numericalAgg.AddFloat64(asFloat); err != nil {
+				return err
+			}
+			return nil
 		}
-		if err := prop.numericalAgg.AddFloat64(asFloat); err != nil {
-			return err
+		switch prop.dataType {
+		case schema.DataTypeNumber, schema.DataTypeInt:
+			if err := analyzeFloat(value); err != nil {
+				return err
+			}
+		case schema.DataTypeNumberArray, schema.DataTypeIntArray:
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []float* or []int*, received %T", valueStruct)
+			}
+			for _, val := range valueStruct {
+				if err := analyzeFloat(val); err != nil {
+					return err
+				}
+			}
+		default:
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
 		}
 	case aggregation.PropertyTypeText:
-		asString, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("expected property type string, received %T", value)
+		analyzeString := func(value interface{}) error {
+			asString, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("expected property type string, received %T", value)
+			}
+			if err := prop.textAgg.AddText(asString); err != nil {
+				return err
+			}
+			return nil
 		}
-		if err := prop.textAgg.AddText(asString); err != nil {
-			return err
+		switch prop.dataType {
+		case schema.DataTypeText, schema.DataTypeString:
+			if err := analyzeString(value); err != nil {
+				return err
+			}
+		case schema.DataTypeTextArray, schema.DataTypeStringArray:
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []text or []string, received %T", valueStruct)
+			}
+			for _, val := range valueStruct {
+				if err := analyzeString(val); err != nil {
+					return err
+				}
+			}
+		default:
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
 		}
 	case aggregation.PropertyTypeDate:
-		asString, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("expected property type date, received %T", value)
+		analyzeDate := func(value interface{}) error {
+			asString, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("expected property type date, received %T", value)
+			}
+			if err := prop.dateAgg.AddTimestamp(asString); err != nil {
+				return err
+			}
+			return nil
 		}
-		if err := prop.dateAgg.AddTimestamp(asString); err != nil {
-			return err
+		switch prop.dataType {
+		case schema.DataTypeDate:
+			if err := analyzeDate(value); err != nil {
+				return err
+			}
+		case schema.DataTypeDateArray:
+			valueStruct, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type []date, received %T", valueStruct)
+			}
+			for _, val := range valueStruct {
+				if err := analyzeDate(val); err != nil {
+					return err
+				}
+			}
+		default:
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
 		}
 	default:
+
 	}
 
 	return nil

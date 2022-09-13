@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -28,15 +27,10 @@ import (
 
 func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -126,7 +120,7 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("with a single flush between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -220,7 +214,7 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("with flushes after initial and upate", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -317,7 +311,7 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -379,7 +373,7 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 				WithStrategy(StrategyMapCollection))
 			require.Nil(t, err)
 
@@ -419,15 +413,10 @@ func TestMapCollectionStrategy_InsertAndAppend(t *testing.T) {
 
 func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -520,7 +509,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with flushes between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -621,7 +610,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with memtable only, then an orderly shutdown and restart", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -686,7 +675,7 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 				WithStrategy(StrategyMapCollection))
 			require.Nil(t, err)
 
@@ -725,14 +714,9 @@ func TestMapCollectionStrategy_InsertAndDelete(t *testing.T) {
 func TestMapCollectionStrategy_Cursors(t *testing.T) {
 	t.Run("memtable-only", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 
@@ -917,14 +901,9 @@ func TestMapCollectionStrategy_Cursors(t *testing.T) {
 
 	t.Run("with flushes", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyMapCollection))
 		require.Nil(t, err)
 

@@ -67,7 +67,8 @@ func (m *TransformersModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *TransformersModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams) error {
+	params moduletools.ModuleInitParams,
+) error {
 	m.logger = params.GetLogger()
 
 	if err := m.initVectorizer(ctx, m.logger); err != nil {
@@ -100,7 +101,8 @@ func (m *TransformersModule) InitExtension(modules []modulecapabilities.Module) 
 }
 
 func (m *TransformersModule) initVectorizer(ctx context.Context,
-	logger logrus.FieldLogger) error {
+	logger logrus.FieldLogger,
+) error {
 	// TODO: gh-1486 proper config management
 	uriPassage := os.Getenv("TRANSFORMERS_PASSAGE_INFERENCE_API")
 	uriQuery := os.Getenv("TRANSFORMERS_QUERY_INFERENCE_API")
@@ -147,7 +149,8 @@ func (m *TransformersModule) RootHandler() http.Handler {
 }
 
 func (m *TransformersModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig) error {
+	obj *models.Object, cfg moduletools.ClassConfig,
+) error {
 	icheck := vectorizer.NewClassSettings(cfg)
 	return m.vectorizer.Object(ctx, obj, icheck)
 }

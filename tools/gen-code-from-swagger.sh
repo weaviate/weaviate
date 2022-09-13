@@ -9,13 +9,19 @@ version=v0.24.0
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SWAGGER=$DIR/swagger-${version}
 
+GOARCH=$(go env GOARCH)
+GOOS=$(go env GOOS)
 if [ ! -f $SWAGGER ]; then
-  curl -o $SWAGGER -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_$(echo `uname`|tr '[:upper:]' '[:lower:]')_amd64
+  if [ GOOS = "linux" ]; then
+    curl -o $SWAGGER -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_$(echo `uname`|tr '[:upper:]' '[:lower:]')_$GOARCH
+  else
+    curl -o $SWAGGER -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_$(echo `uname`|tr '[:upper:]' '[:lower:]')_amd64
+  fi
   chmod +x $SWAGGER
 fi
 
 if ! hash goimports >/dev/null 2>&1; then
-  go get golang.org/x/tools/cmd/goimports
+  go install golang.org/x/tools/cmd/goimports@v0.1.12
 fi
 
 # Explictly get yamplc package

@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+
+	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -32,7 +34,7 @@ func gettingObjectsWithCustomVectors(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		results := result.Get("Get", "CustomVectorClass").AsSlice()
 
 		expected := []interface{}{
@@ -43,7 +45,9 @@ func gettingObjectsWithCustomVectors(t *testing.T) {
 
 		assert.Equal(t, expected, results)
 	})
+}
 
+func exploreObjectsWithCustomVectors(t *testing.T) {
 	t.Run("through Explore {}", func(t *testing.T) {
 		query := `
 		{
@@ -52,7 +56,7 @@ func gettingObjectsWithCustomVectors(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		results := result.Get("Explore").AsSlice()
 
 		expected := []interface{}{

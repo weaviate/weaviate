@@ -21,12 +21,14 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,7 @@ import (
 func TestShard_UpdateStatus(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
-	shd, idx := testShard(ctx, className)
+	shd, idx := testShard(t, ctx, className)
 
 	amount := 10
 
@@ -75,6 +77,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 	})
 
 	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
 func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
@@ -85,7 +88,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	keys := make([][]byte, amount)
 	values := make([][]byte, amount)
 
-	shd, idx := testShard(context.Background(), "TestClass")
+	shd, idx := testShard(t, context.Background(), "TestClass")
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -94,8 +97,9 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 		}
 	}(shd.index.Config.RootPath)
 
-	shd.store.CreateOrLoadBucket(context.Background(), bucketName,
+	err := shd.store.CreateOrLoadBucket(context.Background(), bucketName,
 		lsmkv.WithMemtableThreshold(1024))
+	require.Nil(t, err)
 
 	bucket := shd.store.Bucket(bucketName)
 	require.NotNil(t, bucket)
@@ -159,4 +163,30 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+// tests adding multiple larger batches in parallel using different settings of the goroutine factor.
+// In all cases all objects should be added
+func TestShard_ParallelBatches(t *testing.T) {
+	batches := make([][]*storobj.Object, 4)
+	for i := range batches {
+		batches[i] = createRandomObjects("TestClass", 1000)
+	}
+	totalObjects := 1000 * len(batches)
+	ctx := testCtx()
+	shd, _ := testShard(t, context.Background(), "TestClass")
+
+	// add batches in parallel
+	wg := sync.WaitGroup{}
+	wg.Add(len(batches))
+	for _, batch := range batches {
+		go func(localBatch []*storobj.Object) {
+			shd.putObjectBatch(ctx, localBatch)
+			wg.Done()
+		}(batch)
+	}
+	wg.Wait()
+
+	require.Equal(t, totalObjects, int(shd.counter.Get()))
 }

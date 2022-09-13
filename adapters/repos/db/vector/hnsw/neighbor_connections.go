@@ -21,7 +21,8 @@ import (
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList) error {
+	denyList helpers.AllowList,
+) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, targetLevel,
 		currentMaxLevel, denyList)
 
@@ -42,7 +43,8 @@ type neighborFinderConnector struct {
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList) *neighborFinderConnector {
+	denyList helpers.AllowList,
+) *neighborFinderConnector {
 	return &neighborFinderConnector{
 		graph:           graph,
 		node:            node,
@@ -91,7 +93,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 	}
 
-	n.graph.metrics.TrackInsert(before, "find_and_connect_search")
+	n.graph.insertMetrics.findAndConnectSearch(before)
 	before = time.Now()
 
 	// max := n.maximumConnections(level)
@@ -100,7 +102,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return err
 	}
 
-	n.graph.metrics.TrackInsert(before, "find_and_connect_heuristic")
+	n.graph.insertMetrics.findAndConnectHeuristic(before)
 	before = time.Now()
 
 	// // for distributed spike
@@ -145,7 +147,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		n.entryPointDist = dist
 	}
 
-	n.graph.metrics.TrackInsert(before, "find_and_connect_update_connections")
+	n.graph.insertMetrics.findAndConnectUpdateConnections(before)
 	return nil
 }
 
@@ -177,7 +179,8 @@ func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
 }
 
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
-	level int) error {
+	level int,
+) error {
 	neighbor := n.graph.nodeByID(neighborID)
 	if skip := n.skipNeighbor(neighbor); skip {
 		return nil
@@ -191,7 +194,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	if len(currentConnections) < maximumConnections {
 		// we can simply append
 		// updatedConnections = append(currentConnections, n.node.id)
-		neighbor.appendConnectionAtLevelNoLock(level, n.node.id)
+		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
 		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
 			return err
 		}
@@ -238,7 +241,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
-			neighbor.appendConnectionAtLevelNoLock(level, id)
+			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
 			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
 				return err
 			}

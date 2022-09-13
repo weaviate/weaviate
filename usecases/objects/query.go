@@ -63,6 +63,9 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	}
 	defer unlock()
 
+	m.metrics.GetObjectInc()
+	defer m.metrics.GetObjectDec()
+
 	q, err := params.inputs(m)
 	if err != nil {
 		return nil, &Error{"offset or limit", StatusBadRequest, err}
@@ -77,6 +80,10 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		if err != nil {
 			return nil, &Error{"extend results", StatusInternalServerError, err}
 		}
+	}
+
+	if q.Additional.Vector {
+		m.trackUsageList(res)
 	}
 
 	return res.ObjectsWithVector(q.Additional.Vector), nil

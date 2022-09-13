@@ -35,6 +35,9 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	}
 	defer unlock()
 
+	m.metrics.HeadObjectInc()
+	defer m.metrics.HeadObjectDec()
+
 	ok, err := m.vectorRepo.Exists(ctx, class, id)
 	if err != nil {
 		return false, &Error{"repo.exists", StatusInternalServerError, err}

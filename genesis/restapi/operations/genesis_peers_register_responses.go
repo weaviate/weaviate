@@ -27,12 +27,12 @@ import (
 // GenesisPeersRegisterOKCode is the HTTP code returned for type GenesisPeersRegisterOK
 const GenesisPeersRegisterOKCode int = 200
 
-/*GenesisPeersRegisterOK Successfully registred the peer to the network.
+/*
+GenesisPeersRegisterOK Successfully registred the peer to the network.
 
 swagger:response genesisPeersRegisterOK
 */
 type GenesisPeersRegisterOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -69,12 +69,12 @@ func (o *GenesisPeersRegisterOK) WriteResponse(rw http.ResponseWriter, producer 
 // GenesisPeersRegisterBadRequestCode is the HTTP code returned for type GenesisPeersRegisterBadRequest
 const GenesisPeersRegisterBadRequestCode int = 400
 
-/*GenesisPeersRegisterBadRequest The weaviate peer is not reachable from the Gensis service.
+/*
+GenesisPeersRegisterBadRequest The weaviate peer is not reachable from the Gensis service.
 
 swagger:response genesisPeersRegisterBadRequest
 */
-type GenesisPeersRegisterBadRequest struct {
-}
+type GenesisPeersRegisterBadRequest struct{}
 
 // NewGenesisPeersRegisterBadRequest creates GenesisPeersRegisterBadRequest with default headers values
 func NewGenesisPeersRegisterBadRequest() *GenesisPeersRegisterBadRequest {
@@ -91,12 +91,12 @@ func (o *GenesisPeersRegisterBadRequest) WriteResponse(rw http.ResponseWriter, p
 // GenesisPeersRegisterForbiddenCode is the HTTP code returned for type GenesisPeersRegisterForbidden
 const GenesisPeersRegisterForbiddenCode int = 403
 
-/*GenesisPeersRegisterForbidden You are not allowed on the network.
+/*
+GenesisPeersRegisterForbidden You are not allowed on the network.
 
 swagger:response genesisPeersRegisterForbidden
 */
-type GenesisPeersRegisterForbidden struct {
-}
+type GenesisPeersRegisterForbidden struct{}
 
 // NewGenesisPeersRegisterForbidden creates GenesisPeersRegisterForbidden with default headers values
 func NewGenesisPeersRegisterForbidden() *GenesisPeersRegisterForbidden {

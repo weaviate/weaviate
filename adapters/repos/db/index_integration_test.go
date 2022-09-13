@@ -15,7 +15,7 @@
 package db
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -23,7 +23,7 @@ import (
 
 func getIndexFilenames(dirName string, className string) ([]string, error) {
 	filenames := []string{}
-	infos, err := ioutil.ReadDir(dirName)
+	infos, err := os.ReadDir(dirName)
 	if err != nil {
 		return filenames, err
 	}
@@ -39,12 +39,7 @@ func getIndexFilenames(dirName string, className string) ([]string, error) {
 
 // func TestIndex_DropIndex(t *testing.T) {
 // 	rand.Seed(time.Now().UnixNano())
-// 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-// 	os.MkdirAll(dirName, 0o777)
-// 	defer func() {
-// 		err := os.RemoveAll(dirName)
-// 		fmt.Println(err)
-// 	}()
+// 	dirName := t.TmpDir()
 // 	testClassName := "deletetest"
 // 	logger, _ := test.NewNullLogger()
 // 	shardState := singleShardState()
@@ -71,12 +66,7 @@ func getIndexFilenames(dirName string, className string) ([]string, error) {
 
 // func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 // 	rand.Seed(time.Now().UnixNano())
-// 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-// 	os.MkdirAll(dirName, 0o777)
-// 	defer func() {
-// 		err := os.RemoveAll(dirName)
-// 		fmt.Println(err)
-// 	}()
+// 	dirName := t.TmpDir()
 // 	testClassName := "deletetest"
 // 	logger, _ := test.NewNullLogger()
 // 	shardState := singleShardState()
@@ -113,12 +103,7 @@ func getIndexFilenames(dirName string, className string) ([]string, error) {
 
 // func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 // 	rand.Seed(time.Now().UnixNano())
-// 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-// 	os.MkdirAll(dirName, 0o777)
-// 	defer func() {
-// 		err := os.RemoveAll(dirName)
-// 		fmt.Println(err)
-// 	}()
+// 	dirName := t.TmpDir()
 // 	logger, _ := test.NewNullLogger()
 // 	testClassName := "deletetest"
 // 	testClass := &models.Class{

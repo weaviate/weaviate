@@ -47,7 +47,8 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
-	shardVersion uint16, vectorIndex vectorIndex) *Aggregator {
+	shardVersion uint16, vectorIndex vectorIndex,
+) *Aggregator {
 	return &Aggregator{
 		store:            store,
 		params:           params,
@@ -74,7 +75,8 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 }
 
 func (a *Aggregator) aggTypeOfProperty(
-	name schema.PropertyName) (aggregation.PropertyType, schema.DataType, error) {
+	name schema.PropertyName,
+) (aggregation.PropertyType, schema.DataType, error) {
 	s := a.getSchema.GetSchemaSkipAuth()
 	schemaProp, err := s.GetProperty(a.params.ClassName, name)
 	if err != nil {
@@ -95,7 +97,7 @@ func (a *Aggregator) aggTypeOfProperty(
 	case schema.DataTypeText, schema.DataTypeString, schema.DataTypeTextArray,
 		schema.DataTypeStringArray:
 		return aggregation.PropertyTypeText, dt, nil
-	case schema.DataTypeDate:
+	case schema.DataTypeDate, schema.DataTypeDateArray:
 		return aggregation.PropertyTypeDate, dt, nil
 	case schema.DataTypeGeoCoordinates:
 		return "", "", fmt.Errorf("dataType geoCoordinates can't be aggregated")

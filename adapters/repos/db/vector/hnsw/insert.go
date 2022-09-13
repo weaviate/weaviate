@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/pkg/errors"
@@ -27,7 +26,8 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 	}
 
 	h.metrics.InsertVector()
-	defer h.metrics.TrackInsert(before, "total")
+	h.metrics.InsertVectorDimensions(len(vector))
+	defer h.insertMetrics.total(before)
 
 	node := &vertex{
 		id: id,
@@ -52,8 +52,8 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
-	node.connections = map[int][]uint64{
-		0: make([]uint64, 0, h.maximumConnections),
+	node.connections = [][]uint64{
+		make([]uint64, 0, h.maximumConnectionsLayerZero),
 	}
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
@@ -97,12 +97,12 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := int(math.Floor(-math.Log(rand.Float64()) * h.levelNormalizer))
+	targetLevel := int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)
 	node.level = targetLevel
-	node.connections = map[int][]uint64{}
+	node.connections = make([][]uint64, targetLevel+1)
 
 	for i := targetLevel; i >= 0; i-- {
 		capacity := h.maximumConnections
@@ -137,7 +137,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.nodes[nodeId] = node
 	h.Unlock()
 
-	h.metrics.TrackInsert(before, "prepare_and_insert_node")
+	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
@@ -146,7 +146,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return errors.Wrap(err, "find best entrypoint")
 	}
 
-	h.metrics.TrackInsert(before, "find_entrypoint")
+	h.insertMetrics.findEntrypoint(before)
 	before = time.Now()
 
 	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
@@ -154,9 +154,9 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
 
-	h.metrics.TrackInsert(before, "find_and_connect_total")
+	h.insertMetrics.findAndConnectTotal(before)
 	before = time.Now()
-	defer h.metrics.TrackInsert(before, "update_global_entrypoint")
+	defer h.insertMetrics.updateGlobalEntrypoint(before)
 
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
 	node.unmarkAsMaintenance()

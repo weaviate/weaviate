@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"runtime"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -31,8 +30,9 @@ import (
 )
 
 func TestRecall(t *testing.T) {
-	efConstruction := 2000
-	maxNeighbors := 100
+	efConstruction := 256
+	ef := 256
+	maxNeighbors := 64
 
 	var vectors [][]float32
 	var queries [][]float32
@@ -63,13 +63,14 @@ func TestRecall(t *testing.T) {
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewDotProductProvider(),
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 		}, UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
+			EF:             ef,
 		})
 		require.Nil(t, err)
 		vectorIndex = index
@@ -106,7 +107,7 @@ func TestRecall(t *testing.T) {
 		hasDuplicates := 0
 
 		for _, vec := range queries {
-			results, err := vectorIndex.SearchByVector(vec, k, nil)
+			results, _, err := vectorIndex.SearchByVector(vec, k, nil)
 			require.Nil(t, err)
 			if containsDuplicates(results) {
 				hasDuplicates++
@@ -117,14 +118,14 @@ func TestRecall(t *testing.T) {
 		fmt.Printf("%d out of %d searches contained duplicates", hasDuplicates, len(queries))
 	})
 
-	t.Run("with k=1", func(t *testing.T) {
-		k := 1
+	t.Run("with k=10", func(t *testing.T) {
+		k := 10
 
 		var relevant int
 		var retrieved int
 
 		for i := 0; i < len(queries); i++ {
-			results, err := vectorIndex.SearchByVector(queries[i], k, nil)
+			results, _, err := vectorIndex.SearchByVector(queries[i], k, nil)
 			require.Nil(t, err)
 
 			retrieved += k
@@ -152,39 +153,6 @@ func matchesInLists(control []uint64, results []uint64) int {
 	}
 
 	return matches
-}
-
-func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
-	type distanceAndIndex struct {
-		distance float32
-		index    uint64
-	}
-
-	distances := make([]distanceAndIndex, len(vectors))
-
-	distancer := distancer.NewDotProductProvider().New(query)
-	for i, vec := range vectors {
-		dist, _, _ := distancer.Distance(vec)
-		distances[i] = distanceAndIndex{
-			index:    uint64(i),
-			distance: dist,
-		}
-	}
-
-	sort.Slice(distances, func(a, b int) bool {
-		return distances[a].distance < distances[b].distance
-	})
-
-	if len(distances) < k {
-		k = len(distances)
-	}
-
-	out := make([]uint64, k)
-	for i := 0; i < k; i++ {
-		out[i] = distances[i].index
-	}
-
-	return out
 }
 
 func containsDuplicates(in []uint64) bool {

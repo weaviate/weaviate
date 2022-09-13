@@ -27,12 +27,12 @@ import (
 // GenesisPeersListOKCode is the HTTP code returned for type GenesisPeersListOK
 const GenesisPeersListOKCode int = 200
 
-/*GenesisPeersListOK The list of registered peers
+/*
+GenesisPeersListOK The list of registered peers
 
 swagger:response genesisPeersListOK
 */
 type GenesisPeersListOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -72,12 +72,12 @@ func (o *GenesisPeersListOK) WriteResponse(rw http.ResponseWriter, producer runt
 // GenesisPeersListInternalServerErrorCode is the HTTP code returned for type GenesisPeersListInternalServerError
 const GenesisPeersListInternalServerErrorCode int = 500
 
-/*GenesisPeersListInternalServerError Internal error
+/*
+GenesisPeersListInternalServerError Internal error
 
 swagger:response genesisPeersListInternalServerError
 */
-type GenesisPeersListInternalServerError struct {
-}
+type GenesisPeersListInternalServerError struct{}
 
 // NewGenesisPeersListInternalServerError creates GenesisPeersListInternalServerError with default headers values
 func NewGenesisPeersListInternalServerError() *GenesisPeersListInternalServerError {

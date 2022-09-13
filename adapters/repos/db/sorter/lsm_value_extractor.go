@@ -27,12 +27,17 @@ type lsmPropertyExtractor struct {
 }
 
 func newPropertyExtractor(className schema.ClassName,
-	classHelper *classHelper, property string) *lsmPropertyExtractor {
+	classHelper *classHelper, property string,
+) *lsmPropertyExtractor {
 	return &lsmPropertyExtractor{className, classHelper, property}
 }
 
 func (e *lsmPropertyExtractor) getProperty(v []byte) interface{} {
 	prop, success, _ := storobj.ParseAndExtractProperty(v, e.property)
+	// in case the property does not exist for the object return nil
+	if len(prop) == 0 {
+		return nil
+	}
 	if success {
 		if e.property == "id" || e.property == "_id" {
 			// handle special ID property

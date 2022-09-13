@@ -20,7 +20,11 @@ import (
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
-	params GetParams) (interface{}, error) {
+	params GetParams,
+) (interface{}, error) {
+	t.metrics.QueriesGetInc(params.ClassName)
+	defer t.metrics.QueriesGetDec(params.ClassName)
+
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
 		return nil, err

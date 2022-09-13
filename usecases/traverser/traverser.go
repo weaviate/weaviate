@@ -44,19 +44,22 @@ type Traverser struct {
 	explorer         explorer
 	schemaGetter     schema.SchemaGetter
 	nearParamsVector *nearParamsVector
+	metrics          *Metrics
 }
 
 type VectorSearcher interface {
 	VectorSearch(ctx context.Context, vector []float32,
 		offset, limit int, filters *filters.LocalFilter) ([]search.Result, error)
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
-	ObjectByID(ctx context.Context, id strfmt.UUID,
+	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID,
+		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
 
 type explorer interface {
 	GetClass(ctx context.Context, params GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params ExploreParams) ([]search.Result, error)
+	CrossClassVectorSearch(ctx context.Context, params ExploreParams) ([]search.Result, error)
 }
 
 // NewTraverser to traverse the knowledge graph
@@ -64,7 +67,9 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 	logger logrus.FieldLogger, authorizer authorizer,
 	vectorSearcher VectorSearcher,
 	explorer explorer, schemaGetter schema.SchemaGetter,
-	modulesProvider ModulesProvider) *Traverser {
+	modulesProvider ModulesProvider,
+	metrics *Metrics,
+) *Traverser {
 	return &Traverser{
 		config:           config,
 		locks:            locks,
@@ -74,6 +79,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 		explorer:         explorer,
 		schemaGetter:     schemaGetter,
 		nearParamsVector: newNearParamsVector(modulesProvider, vectorSearcher),
+		metrics:          metrics,
 	}
 }
 

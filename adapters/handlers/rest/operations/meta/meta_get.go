@@ -42,12 +42,12 @@ func NewMetaGet(ctx *middleware.Context, handler MetaGetHandler) *MetaGet {
 	return &MetaGet{Context: ctx, Handler: handler}
 }
 
-/*MetaGet swagger:route GET /meta meta metaGet
+/*
+MetaGet swagger:route GET /meta meta metaGet
 
 Returns meta information of the current Weaviate instance.
 
 Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
-
 */
 type MetaGet struct {
 	Context *middleware.Context

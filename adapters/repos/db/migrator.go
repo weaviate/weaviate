@@ -29,7 +29,8 @@ type Migrator struct {
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
-	shardState *sharding.State) error {
+	shardState *sharding.State,
+) error {
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                 schema.ClassName(class.Class),
@@ -37,6 +38,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			DiskUseWarningPercentage:  m.db.config.DiskUseWarningPercentage,
 			DiskUseReadOnlyPercentage: m.db.config.DiskUseReadOnlyPercentage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
+			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
+			NodeName:                  m.db.config.NodeName,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -124,7 +127,7 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[s
 		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
 	}
 
-	return idx.getShardsStatus(), nil
+	return idx.getShardsStatus(ctx)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
@@ -133,7 +136,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	return idx.updateShardStatus(shardName, targetStatus)
+	return idx.updateShardStatus(ctx, shardName, targetStatus)
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
@@ -141,7 +144,8 @@ func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 }
 
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
-	className string, updated schema.VectorIndexConfig) error {
+	className string, updated schema.VectorIndexConfig,
+) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update vector index config of non-existing index for %s", className)
@@ -151,7 +155,8 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 }
 
 func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
-	old, updated schema.VectorIndexConfig) error {
+	old, updated schema.VectorIndexConfig,
+) error {
 	// hnsw is the only supported vector index type at the moment, so no need
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
@@ -159,12 +164,14 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
-	old, updated *models.InvertedIndexConfig) error {
+	old, updated *models.InvertedIndexConfig,
+) error {
 	return inverted.ValidateUserConfigUpdate(old, updated)
 }
 
 func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className string,
-	updated *models.InvertedIndexConfig) error {
+	updated *models.InvertedIndexConfig,
+) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)

@@ -14,6 +14,13 @@ This PR fixes: [issue link]
 
 <!-- Share artifacts of the changes, be they code snippets, GIFs or screenshots; whatever shares the most context. -->
 
+Review checklist:
+
+- [ ] Documentation has been updated, if necessary. Link to changed documentation:
+- [ ] Chaos pipeline run or not necessary. Link to pipeline:
+- [ ] All new code is covered by tests where it is reasonable.
+- [ ] Performance tests have been run or not necessary.
+
 ### Type of change:
 
 <!-- Please delete options that are not relevant.-->

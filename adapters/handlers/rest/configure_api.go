@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -40,14 +41,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
+	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
+	modstggcs "github.com/semi-technologies/weaviate/modules/backup-gcs"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/backup-s3"
 	modimage "github.com/semi-technologies/weaviate/modules/img2vec-neural"
 	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
 	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
-	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
-	modstgfs "github.com/semi-technologies/weaviate/modules/storage-filesystem"
+	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
+	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -84,7 +88,7 @@ type vectorRepo interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
+	CrossClassVectorSearch(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 	SetSchemaGetter(schemaUC.SchemaGetter)
 }
 
@@ -92,6 +96,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
+
+	config.ServerVersion = parseVersionFromSwaggerSpec()
 
 	appState := startupRoutine(ctx)
 	setupGoProfiling(appState.ServerConfig.Config)
@@ -154,11 +160,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
 		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
 		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
+		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		NodeName:                  appState.Cluster.LocalName(),
 	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules)
+	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics))
 	schemaRepo, err = schemarepo.NewRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
@@ -216,13 +224,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules)
+		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules,
+		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager, appState.Modules)
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
+		appState.Modules, traverser.NewMetrics(appState.Metrics))
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
@@ -236,6 +246,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
+	setupBackupHandlers(api, schemaManager, repo, appState)
 
 	api.ServerShutdown = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -404,6 +415,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules["sum-transformers"]; ok {
+		appState.Modules.Register(modsum.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "sum-transformers").
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules["img2vec-neural"]; ok {
 		appState.Modules.Register(modimage.New())
 		appState.Logger.
@@ -444,6 +463,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modhuggingface.Name]; ok {
+		appState.Modules.Register(modhuggingface.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modhuggingface.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modstgfs.Name]; ok {
 		appState.Modules.Register(modstgfs.New())
 		appState.Logger.
@@ -457,6 +484,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstgs3.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modstggcs.Name]; ok {
+		appState.Modules.Register(modstggcs.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modstggcs.Name).
 			Debug("enabled module")
 	}
 
@@ -521,4 +556,19 @@ func setupGoProfiling(config config.Config) {
 	if config.Profiling.MutexProfileFraction > 0 {
 		goruntime.SetMutexProfileFraction(config.Profiling.MutexProfileFraction)
 	}
+}
+
+func parseVersionFromSwaggerSpec() string {
+	spec := struct {
+		Info struct {
+			Version string `json:"version"`
+		} `json:"info"`
+	}{}
+
+	err := json.Unmarshal(SwaggerJSON, &spec)
+	if err != nil {
+		panic(err)
+	}
+
+	return spec.Info.Version
 }

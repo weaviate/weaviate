@@ -48,12 +48,12 @@ func NewBatchObjectsCreate(ctx *middleware.Context, handler BatchObjectsCreateHa
 	return &BatchObjectsCreate{Context: ctx, Handler: handler}
 }
 
-/*BatchObjectsCreate swagger:route POST /batch/objects batch objects batchObjectsCreate
+/*
+BatchObjectsCreate swagger:route POST /batch/objects batch objects batchObjectsCreate
 
 Creates new Objects based on a Object template as a batch.
 
 Register new Objects in bulk. Provided meta-data and schema values are validated.
-
 */
 type BatchObjectsCreate struct {
 	Context *middleware.Context

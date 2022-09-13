@@ -85,7 +85,8 @@ type fakeVectorSearcher struct {
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	vector []float32, offset, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
+	vector []float32, offset, limit int, filters *filters.LocalFilter,
+) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	f.calledWithOffset = offset
@@ -93,27 +94,39 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
-	params aggregation.Params) (*aggregation.Result, error) {
+	params aggregation.Params,
+) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
 
 func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
-	params GetParams) ([]search.Result, error) {
+	params GetParams,
+) ([]search.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
-	params GetParams) ([]search.Result, error) {
+	params GetParams,
+) ([]search.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
-	args := f.Called(id)
+func (f *fakeVectorSearcher) Object(ctx context.Context,
+	className string, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
+	args := f.Called(className, id)
 	return args.Get(0).(*search.Result), args.Error(1)
+}
+
+func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+) (search.Results, error) {
+	args := f.Called(id)
+	return args.Get(0).(search.Results), args.Error(1)
 }
 
 type fakeAuthorizer struct{}
@@ -126,29 +139,40 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
-func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties) (*search.Result, error) {
+func (f *fakeVectorRepo) ObjectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+) (search.Results, error) {
+	return nil, nil
+}
+
+func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+) (*search.Result, error) {
 	return nil, nil
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, index string,
-	concept *models.Object, vector []float32) error {
+	concept *models.Object, vector []float32,
+) error {
 	return nil
 }
 
 func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
-	vector []float32, offset, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
+	vector []float32, offset, limit int, filters *filters.LocalFilter,
+) ([]search.Result, error) {
 	return nil, nil
 }
 
 func (f *fakeVectorRepo) Aggregate(ctx context.Context,
-	params aggregation.Params) (*aggregation.Result, error) {
+	params aggregation.Params,
+) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) GetObject(ctx context.Context, uuid strfmt.UUID,
-	res *models.Object) error {
+	res *models.Object,
+) error {
 	args := f.Called(uuid)
 	*res = args.Get(0).(models.Object)
 	return args.Error(1)
@@ -160,7 +184,7 @@ func (f *fakeExplorer) GetClass(ctx context.Context, p GetParams) ([]interface{}
 	return nil, nil
 }
 
-func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]search.Result, error) {
+func (f *fakeExplorer) CrossClassVectorSearch(ctx context.Context, p ExploreParams) ([]search.Result, error) {
 	return nil, nil
 }
 
@@ -198,7 +222,8 @@ type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return in, nil
 }
 
@@ -216,7 +241,8 @@ type fakeExtender struct {
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -244,7 +270,8 @@ type fakeProjector struct {
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -264,7 +291,8 @@ type fakePathBuilder struct {
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error) {
+	argumentModuleParams map[string]interface{},
+) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
 
@@ -772,7 +800,8 @@ func (s *fakeSearcher) VectorSearches() map[string]modulecapabilities.VectorForP
 }
 
 func (s *fakeSearcher) vectorForNearTextParam(ctx context.Context, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
+	className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig,
+) ([]float32, error) {
 	vector, err := s.vectorizer.Corpi(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -794,4 +823,12 @@ func (s *fakeSearcher) vectorForNearTextParam(ctx context.Context, params interf
 		vector = afterMoveAway
 	}
 	return vector, nil
+}
+
+type fakeMetrics struct {
+	mock.Mock
+}
+
+func (m *fakeMetrics) AddUsageDimensions(class, query, op string, dims int) {
+	m.Called(class, query, op, dims)
 }

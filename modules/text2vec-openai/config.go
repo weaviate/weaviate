@@ -30,7 +30,8 @@ func (m *OpenAIModule) ClassConfigDefaults() map[string]interface{} {
 }
 
 func (m *OpenAIModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{
 		"skip":                  !vectorizer.DefaultPropertyIndexed,
 		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
@@ -38,7 +39,8 @@ func (m *OpenAIModule) PropertyConfigDefaults(
 }
 
 func (m *OpenAIModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	settings := vectorizer.NewClassSettings(cfg)
 	return settings.Validate(class)
 }

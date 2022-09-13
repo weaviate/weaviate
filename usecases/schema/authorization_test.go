@@ -96,18 +96,6 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:     "update",
 			expectedResource: "schema/className/shards/shardName",
 		},
-		{
-			methodName:       "CreateSnapshot",
-			additionalArgs:   []interface{}{"className", &models.Snapshot{}},
-			expectedVerb:     "add",
-			expectedResource: "schema/className/snapshots",
-		},
-		{
-			methodName:       "RestoreSnapshot",
-			additionalArgs:   []interface{}{"className", "id"},
-			expectedVerb:     "restore",
-			expectedResource: "schema/className/snapshots/id/restore",
-		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
@@ -122,7 +110,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback",
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "Lock", "Unlock",
 				"TryLock", // introduced by sync.Mutex in go 1.18
-				"ShardingState", "TxManager":
+				"ShardingState", "TxManager", "RestoreClass":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing

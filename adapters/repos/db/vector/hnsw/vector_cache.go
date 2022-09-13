@@ -23,14 +23,16 @@ import (
 )
 
 type shardedLockCache struct {
-	shardedLocks    []sync.RWMutex
-	cache           [][]float32
-	vectorForID     VectorForID
-	normalizeOnRead bool
-	maxSize         int64
-	count           int64
-	cancel          chan bool
-	logger          logrus.FieldLogger
+	shardedLocks        []sync.RWMutex
+	cache               [][]float32
+	vectorForID         VectorForID
+	normalizeOnRead     bool
+	maxSize             int64
+	count               int64
+	cancel              chan bool
+	logger              logrus.FieldLogger
+	dims                int32
+	trackDimensionsOnce sync.Once
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -40,7 +42,8 @@ type shardedLockCache struct {
 var shardFactor = uint64(512)
 
 func newShardedLockCache(vecForID VectorForID, maxSize int,
-	logger logrus.FieldLogger, normalizeOnRead bool) *shardedLockCache {
+	logger logrus.FieldLogger, normalizeOnRead bool,
+) *shardedLockCache {
 	vc := &shardedLockCache{
 		vectorForID:     vecForID,
 		cache:           make([][]float32, initialSize),
@@ -89,6 +92,10 @@ func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]fl
 	if err != nil {
 		return nil, err
 	}
+
+	n.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&n.dims, int32(len(vec)))
+	})
 
 	if n.normalizeOnRead {
 		vec = distancer.Normalize(vec)
@@ -141,6 +148,10 @@ func (n *shardedLockCache) preload(id uint64, vec []float32) {
 	defer n.shardedLocks[id%shardFactor].RUnlock()
 
 	atomic.AddInt64(&n.count, 1)
+	n.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&n.dims, int32(len(vec)))
+	})
+
 	n.cache[id] = vec
 }
 
@@ -224,6 +235,31 @@ func (c *shardedLockCache) obtainAllLocks() {
 	wg.Wait()
 }
 
+// dimensions makes a best-effort guess at the dimensions of a vector. If the
+// vector is in cache it serves it from cache. If the vector is not in the
+// cache it tries to load it. If it can't load it (for example because it had
+// been deleted in the underlying object stores) it picks another vector as it
+// runs under the assumption that all vectors in the cache have the same
+// dimensionality
+func (c *shardedLockCache) dimensions(id uint64) int {
+	c.shardedLocks[id%shardFactor].RLock()
+	vec := c.cache[id]
+	c.shardedLocks[id%shardFactor].RUnlock()
+
+	if vec != nil {
+		return len(vec)
+	}
+
+	vec, err := c.handleCacheMiss(context.Background(), id)
+	if err != nil && vec != nil {
+		return len(vec)
+	}
+
+	// this vector does not exist anymore, so we need to guess by taking another
+	// vector
+	return int(atomic.LoadInt32(&c.dims))
+}
+
 func (c *shardedLockCache) releaseAllLocks() {
 	for i := uint64(0); i < shardFactor; i++ {
 		c.shardedLocks[i].Unlock()
@@ -247,7 +283,8 @@ type noopCache struct {
 }
 
 func NewNoopCache(vecForID VectorForID, maxSize int,
-	logger logrus.FieldLogger) *noopCache {
+	logger logrus.FieldLogger,
+) *noopCache {
 	return &noopCache{vectorForID: vecForID}
 }
 

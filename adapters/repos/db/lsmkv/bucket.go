@@ -22,12 +22,15 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
 
 type Bucket struct {
 	dir      string
+	rootDir  string
 	active   *Memtable
 	flushing *Memtable
 	disk     *SegmentGroup
@@ -46,7 +49,7 @@ type Bucket struct {
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
 
-	stopFlushCycle chan struct{}
+	flushCycle *cyclemanager.CycleManager
 
 	status     storagestate.Status
 	statusLock sync.RWMutex
@@ -54,13 +57,22 @@ type Bucket struct {
 	metrics *Metrics
 
 	// all "replace" buckets support counting through net additions, but not all
-	// produce a meaningful count. Typically we the only count we're interested
-	// in is that of the bucket that holds objects
+	// produce a meaningful count. Typically, the only count we're interested in
+	// is that of the bucket that holds objects
 	monitorCount bool
+
+	pauseTimer *prometheus.Timer // Times the pause
 }
 
-func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
-	metrics *Metrics, opts ...BucketOption) (*Bucket, error) {
+// NewBucket initializes a new bucket. It either loads the state from disk if
+// it exists, or initializes new state.
+//
+// You do not need to ever call NewBucket() yourself, if you are using a
+// [Store]. In this case the [Store] can manage buckets for you, using methods
+// such as CreateOrLoadBucket().
+func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+	metrics *Metrics, opts ...BucketOption,
+) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
@@ -73,11 +85,11 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 
 	b := &Bucket{
 		dir:               dir,
+		rootDir:           rootDir,
 		memTableThreshold: defaultMemTableThreshold,
 		walThreshold:      defaultWalThreshold,
 		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
-		stopFlushCycle:    make(chan struct{}),
 		logger:            logger,
 		metrics:           metrics,
 	}
@@ -88,7 +100,7 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		}
 	}
 
-	sg, err := newSegmentGroup(dir, 3*time.Second, logger,
+	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
 		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
@@ -104,7 +116,9 @@ func NewBucket(ctx context.Context, dir string, logger logrus.FieldLogger,
 		return nil, err
 	}
 
-	b.initFlushCycle()
+	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.flushAndSwitchIfThresholdsMet)
+	b.flushCycle.Start()
+
 	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
@@ -114,6 +128,14 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 	b.memTableThreshold = size
 }
 
+// Get retrieves the single value for the given key.
+//
+// Get is specific to ReplaceStrategy and cannot be used with any of the other
+// strategies. Use [Bucket.SetList] or [Bucket.MapList] instead.
+//
+// Get uses the regular or "primary" key for an object. If a bucket has
+// secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
+// its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -155,6 +177,17 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	return b.disk.get(key)
 }
 
+// GetBySecondary retrieves an object using one of its secondary keys. A bucket
+// can have an infinite number of secondary keys. Specify the secondary key
+// position as the first argument.
+//
+// A real-life example of secondary keys is the Weaviate object store. Objects
+// are stored with the user-facing ID as their primary key and with the doc-id
+// (an ever-increasing uint64) as the secondary key.
+//
+// Similar to [Bucket.Get], GetBySecondary is limited to ReplaceStrategy. No
+// equivalent exists for Set and Map, as those do not support secondary
+// indexes.
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -196,6 +229,10 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 	return b.disk.getBySecondary(pos, key)
 }
 
+// SetList returns all Set entries for a given key.
+//
+// SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
+// for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -235,6 +272,25 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	return newSetDecoder().Do(out), nil
 }
 
+// Put creates or replaces a single value for a given key.
+//
+//	err := bucket.Put([]byte("my_key"), []byte("my_value"))
+//	 if err != nil {
+//		/* do something */
+//	}
+//
+// If a bucket has a secondary index configured, you can also specify one or
+// more secondary keys, like so:
+//
+//	err := bucket.Put([]byte("my_key"), []byte("my_value"),
+//		WithSecondaryKey(0, []byte("my_alternative_key")),
+//	)
+//	 if err != nil {
+//		/* do something */
+//	}
+//
+// Put is limited to ReplaceStrategy, use [Bucket.SetAdd] for Set or
+// [Bucket.MapSet] and [Bucket.MapSetMulti].
 func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -242,6 +298,21 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 	return b.active.put(key, value, opts...)
 }
 
+// SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
+// entirely agnostic of existing entries, it acts as append-only. This also
+// makes it agnostic of whether the key already exists or not.
+//
+// Example to add two entries to a set:
+//
+//	err := bucket.SetAdd([]byte("my_key"), [][]byte{
+//		[]byte("one-set-element"), []byte("another-set-element"),
+//	})
+//	if err != nil {
+//		/* do something */
+//	}
+//
+// SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
+// Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -249,6 +320,18 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 	return b.active.append(key, newSetEncoder().Do(values))
 }
 
+// SetDeleteSingle removes one Set element from the given key. Note that LSM
+// stores are append only, thus internally this action appends a tombstone. The
+// entry will not be removed until a compaction has run, and even then a
+// compaction does not guarantee the removal of the data right away. This is
+// because an entry could have been created in an older segment than those
+// present in the compaction. This can be seen as an implementation detail,
+// unless the caller expects to free disk space by calling this method. Such
+// freeing is not guaranteed.
+//
+// SetDeleteSingle is specific to the Set Strategy. For Replace, you can use
+// [Bucket.Delete] to delete the entire row, for Maps use [Bucket.MapDeleteKey]
+// to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -280,6 +363,13 @@ func MapListLegacySortingRequired() MapListOption {
 	}
 }
 
+// MapList returns all map entries for a given row key. The order of map pairs
+// has no specific meaning. For efficient merge operations, pair entries are
+// stored sorted on disk, however that is an implementation detail and not a
+// caller-facing guarantee.
+//
+// MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
+// Replace use [Bucket.Get].
 func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -352,6 +442,20 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	return newSortedMapMerger().do(segments)
 }
 
+// MapSet writes one [MapPair] into the map for the given row key. It is
+// agnostic of whether the row key already exists, as well as agnostic of
+// whether the map key already exists. In both cases it will create the entry
+// if it does not exist or override if it does.
+//
+// Example to add a new MapPair:
+//
+//	pair := MapPair{Key: []byte("Jane"), Value: []byte("Backend")}
+//	err := bucket.MapSet([]byte("developers"), pair)
+//	if err != nil {
+//		/* do something */
+//	}
+//
+// MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -359,6 +463,8 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	return b.active.appendMapSorted(rowKey, kv)
 }
 
+// MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
+// [MapPair] objects at the same time.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -372,6 +478,17 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 	return nil
 }
 
+// MapDeleteKey removes one key-value pair from the given map row. Note that
+// LSM stores are append only, thus internally this action appends a tombstone.
+// The entry will not be removed until a compaction has run, and even then a
+// compaction does not guarantee the removal of the data right away. This is
+// because an entry could have been created in an older segment than those
+// present in the compaction. This can be seen as an implementation detail,
+// unless the caller expects to free disk space by calling this method. Such
+// freeing is not guaranteed.
+//
+// MapDeleteKey is specific to the Map Strategy. For Replace, you can use
+// [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -384,6 +501,17 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	return b.active.appendMapSorted(rowKey, pair)
 }
 
+// Delete removes the given row. Note that LSM stores are append only, thus
+// internally this action appends a tombstone.  The entry will not be removed
+// until a compaction has run, and even then a compaction does not guarantee
+// the removal of the data right away. This is because an entry could have been
+// created in an older segment than those present in the compaction. This can
+// be seen as an implementation detail, unless the caller expects to free disk
+// space by calling this method. Such freeing is not guaranteed.
+//
+// Delete is specific to the Replace Strategy. For Maps, you can use
+// [Bucket.MapDeleteKey] to delete a single key-value pair, for Sets use
+// [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
@@ -454,7 +582,9 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	b.stopFlushCycle <- struct{}{}
+	if err := b.flushCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(ctx.Err(), "long-running flush in progress")
+	}
 
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
@@ -482,58 +612,48 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) initFlushCycle() {
-	go func() {
-		t := time.Tick(100 * time.Millisecond)
-		for {
-			select {
-			case <-b.stopFlushCycle:
-				return
-			case <-t:
-				b.flushLock.Lock()
+func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
+	b.flushLock.Lock()
 
-				// to check the current size of the WAL to
-				// see if the threshold has been reached
-				stat, err := b.active.commitlog.file.Stat()
-				if err != nil {
-					b.logger.WithField("action", "lsm_wal_stat").
-						WithField("path", b.dir).
-						WithError(err).
-						Fatal("flush and switch failed")
-				}
+	// to check the current size of the WAL to
+	// see if the threshold has been reached
+	stat, err := b.active.commitlog.file.Stat()
+	if err != nil {
+		b.logger.WithField("action", "lsm_wal_stat").
+			WithField("path", b.dir).
+			WithError(err).
+			Fatal("flush and switch failed")
+	}
 
-				memtableTooLarge := b.active.Size() >= b.memTableThreshold
-				walTooLarge := uint64(stat.Size()) >= b.walThreshold
-				dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
-					b.active.IdleDuration() >= b.flushAfterIdle
-				shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
+	memtableTooLarge := b.active.Size() >= b.memTableThreshold
+	walTooLarge := uint64(stat.Size()) >= b.walThreshold
+	dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
+		b.active.IdleDuration() >= b.flushAfterIdle
+	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 
-				// If true, the parent shard has indicated that it has
-				// entered an immutable state. During this time, the
-				// bucket should refrain from flushing until its shard
-				// indicates otherwise
-				if shouldSwitch && b.isReadOnly() {
-					b.logger.WithField("action", "lsm_memtable_flush").
-						WithField("path", b.dir).
-						Warn("flush halted due to shard READONLY status")
+	// If true, the parent shard has indicated that it has
+	// entered an immutable state. During this time, the
+	// bucket should refrain from flushing until its shard
+	// indicates otherwise
+	if shouldSwitch && b.isReadOnly() {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			Warn("flush halted due to shard READONLY status")
 
-					b.flushLock.Unlock()
-					time.Sleep(time.Second)
-					continue
-				}
+		b.flushLock.Unlock()
+		time.Sleep(time.Second)
+		return
+	}
 
-				b.flushLock.Unlock()
-				if shouldSwitch {
-					if err := b.FlushAndSwitch(); err != nil {
-						b.logger.WithField("action", "lsm_memtable_flush").
-							WithField("path", b.dir).
-							WithError(err).
-							Errorf("flush and switch failed")
-					}
-				}
-			}
+	b.flushLock.Unlock()
+	if shouldSwitch {
+		if err := b.FlushAndSwitch(); err != nil {
+			b.logger.WithField("action", "lsm_memtable_flush").
+				WithField("path", b.dir).
+				WithError(err).
+				Errorf("flush and switch failed")
 		}
-	}()
+	}
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
@@ -600,7 +720,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 
 	if b.strategy == StrategyReplace && b.monitorCount {
 		// having just flushed the memtable we now have the most up2date count which
-		// is a good place to udpate the metric
+		// is a good place to update the metric
 		b.metrics.ObjectCount(b.disk.count())
 	}
 
@@ -620,7 +740,7 @@ func (b *Bucket) Strategy() string {
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
-// this function explicitly called. This allows to safge unnecessary disk
+// this function explicitly called. This allows to avoid unnecessary disk
 // writes in larger operations, such as batches. It is sufficient to call write
 // on the WAL just once. This does not make a batch atomic, but it guarantees
 // that the WAL is written before a successful response is returned to the

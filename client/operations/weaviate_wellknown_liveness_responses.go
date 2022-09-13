@@ -48,7 +48,8 @@ func NewWeaviateWellknownLivenessOK() *WeaviateWellknownLivenessOK {
 	return &WeaviateWellknownLivenessOK{}
 }
 
-/*WeaviateWellknownLivenessOK handles this case with default header values.
+/*
+WeaviateWellknownLivenessOK handles this case with default header values.
 
 The application is able to respond to HTTP requests
 */

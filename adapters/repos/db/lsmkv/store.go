@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/sirupsen/logrus"
 )
@@ -25,6 +26,7 @@ import (
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
+	dir           string
 	rootDir       string
 	bucketsByName map[string]*Bucket
 	logger        logrus.FieldLogger
@@ -35,9 +37,14 @@ type Store struct {
 	bucketAccessLock sync.RWMutex
 }
 
-func New(rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics) (*Store, error) {
+// New initializes a new [Store] based on the root dir. If state is present on
+// disk, it is loaded, if the folder is empty a new store is initialized in
+// there.
+func New(dir, rootDir string, logger logrus.FieldLogger,
+	metrics *Metrics,
+) (*Store, error) {
 	s := &Store{
+		dir:           dir,
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
 		logger:        logger,
@@ -71,13 +78,13 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) {
 
 	if targetStatus == storagestate.StatusReadOnly {
 		s.logger.WithField("action", "lsm_compaction").
-			WithField("path", s.rootDir).
+			WithField("path", s.dir).
 			Warn("compaction halted due to shard READONLY status")
 	}
 }
 
 func (s *Store) init() error {
-	if err := os.MkdirAll(s.rootDir, 0o700); err != nil {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
 
@@ -85,16 +92,28 @@ func (s *Store) init() error {
 }
 
 func (s *Store) bucketDir(bucketName string) string {
-	return path.Join(s.rootDir, bucketName)
+	return path.Join(s.dir, bucketName)
 }
 
+// CreateOrLoadBucket registers a bucket with the given name. If state on disk
+// exists for this bucket it is loaded, otherwise created. Pass [BucketOptions]
+// to configure the strategy of a bucket. The strategy defaults to "replace".
+// For example, to load or create a map-type bucket, do:
+//
+//	ctx := context.Background()
+//	err := store.CreateOrLoadBucket(ctx, "my_bucket_name", WithStrategy(StrategyReplace))
+//	if err != nil { /* handle error */ }
+//
+//	// you can now access the bucket using store.Bucket()
+//	b := store.Bucket("my_bucket_name")
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
-	opts ...BucketOption) error {
+	opts ...BucketOption,
+) error {
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
 
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.logger, s.metrics, opts...)
+	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics, opts...)
 	if err != nil {
 		return err
 	}
@@ -134,4 +153,133 @@ func (s *Store) WriteWALs() error {
 	}
 
 	return nil
+}
+
+// bucketJobStatus is used to safely track the status of
+// a job applied to each of a store's buckets when run
+// in parallel
+type bucketJobStatus struct {
+	sync.Mutex
+	buckets map[*Bucket]error
+}
+
+func newBucketJobStatus() *bucketJobStatus {
+	return &bucketJobStatus{
+		buckets: make(map[*Bucket]error),
+	}
+}
+
+type jobFunc func(context.Context, *Bucket) (interface{}, error)
+
+type rollbackFunc func(context.Context, *Bucket) error
+
+func (s *Store) PauseCompaction(ctx context.Context) error {
+	pauseCompaction := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return nil, b.PauseCompaction(ctx)
+	}
+
+	resumeCompaction := func(ctx context.Context, b *Bucket) error {
+		return b.ResumeCompaction(ctx)
+	}
+
+	_, err := s.runJobOnBuckets(ctx, pauseCompaction, resumeCompaction)
+	return err
+}
+
+func (s *Store) FlushMemtables(ctx context.Context) error {
+	flushMemtable := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return nil, b.FlushMemtable(ctx)
+	}
+
+	_, err := s.runJobOnBuckets(ctx, flushMemtable, nil)
+	return err
+}
+
+func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
+	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return b.ListFiles(ctx)
+	}
+
+	result, err := s.runJobOnBuckets(ctx, listFiles, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	for _, res := range result {
+		files = append(files, res.([]string)...)
+	}
+
+	return files, nil
+}
+
+func (s *Store) ResumeCompaction(ctx context.Context) error {
+	resumeCompaction := func(ctx context.Context, b *Bucket) (interface{}, error) {
+		return nil, b.ResumeCompaction(ctx)
+	}
+
+	pauseCompaction := func(ctx context.Context, b *Bucket) error {
+		return b.PauseCompaction(ctx)
+	}
+
+	_, err := s.runJobOnBuckets(ctx, resumeCompaction, pauseCompaction)
+	return err
+}
+
+// runJobOnBuckets applies a jobFunc to each bucket in the store in parallel.
+// The jobFunc allows for the job to return an arbitrary value.
+// Additionally, a rollbackFunc may be provided which will be run on the target
+// bucket in the event of an unsuccessful job.
+func (s *Store) runJobOnBuckets(ctx context.Context,
+	jobFunc jobFunc, rollbackFunc rollbackFunc,
+) ([]interface{}, error) {
+	var (
+		status      = newBucketJobStatus()
+		resultQueue = make(chan interface{}, len(s.bucketsByName))
+		wg          = sync.WaitGroup{}
+	)
+
+	for _, bucket := range s.bucketsByName {
+		wg.Add(1)
+		b := bucket
+		go func() {
+			status.Lock()
+			defer status.Unlock()
+			res, err := jobFunc(ctx, b)
+			resultQueue <- res
+			status.buckets[b] = err
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	close(resultQueue)
+
+	var errs errorcompounder.ErrorCompounder
+	for _, err := range status.buckets {
+		errs.Add(err)
+	}
+
+	if errs.Len() != 0 {
+		// if any of the bucket jobs failed, and a
+		// rollbackFunc has been provided, attempt
+		// to roll back. if this fails, the err is
+		// added to the compounder
+		for b, jobErr := range status.buckets {
+			if jobErr != nil && rollbackFunc != nil {
+				if rollbackErr := rollbackFunc(ctx, b); rollbackErr != nil {
+					errs.AddWrap(rollbackErr, "bucket job rollback")
+				}
+			}
+		}
+
+		return nil, errs.ToError()
+	}
+
+	var finalResult []interface{}
+	for res := range resultQueue {
+		finalResult = append(finalResult, res)
+	}
+
+	return finalResult, nil
 }

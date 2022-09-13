@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -28,15 +27,10 @@ import (
 
 func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -99,7 +93,7 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -168,7 +162,7 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	})
 
 	t.Run("with a flush after the initial write and after the update", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -238,7 +232,7 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -290,7 +284,7 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 				WithStrategy(StrategyReplace))
 			require.Nil(t, err)
 
@@ -319,17 +313,12 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 
 func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),
-			WithSecondaryIndicies(1),
+			WithSecondaryIndices(1),
 		)
 		require.Nil(t, err)
 
@@ -420,9 +409,9 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace),
-			WithSecondaryIndicies(1))
+			WithSecondaryIndices(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -480,8 +469,8 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("with a flush after initial write and update", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-			WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -550,8 +539,8 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("update in memtable then do an orderly shutdown and reinit", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-			WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -595,8 +584,8 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 		})
 
 		t.Run("init a new one and verify", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
-				WithStrategy(StrategyReplace), WithSecondaryIndicies(1))
+			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+				WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 			require.Nil(t, err)
 
 			secondaryKey1 := []byte("secondary-key-1")
@@ -622,15 +611,10 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 
 func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -681,7 +665,7 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -736,7 +720,7 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with flushes after initial write and delete", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -797,14 +781,9 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 func TestReplaceStrategy_Cursors(t *testing.T) {
 	t.Run("memtable-only", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -1036,14 +1015,9 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 
 	t.Run("with a single flush", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil, WithStrategy(StrategyReplace))
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil, WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1133,14 +1107,9 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 
 	t.Run("mixing several disk segments and memtable - with updates", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 
@@ -1431,14 +1400,9 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 	// always smaller
 	t.Run("with deletes as latest in some segments", func(t *testing.T) {
 		rand.Seed(time.Now().UnixNano())
-		dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-		os.MkdirAll(dirName, 0o777)
-		defer func() {
-			err := os.RemoveAll(dirName)
-			fmt.Println(err)
-		}()
+		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, nullLogger(), nil,
+		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			WithStrategy(StrategyReplace))
 		require.Nil(t, err)
 

@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -36,12 +35,7 @@ import (
 
 func Test_Aggregations(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	shardState := singleShardState()
 	logger := logrus.New()
@@ -51,6 +45,7 @@ func Test_Aggregations(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -67,6 +62,9 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, true))
 
+	t.Run("numerical aggregations with filters",
+		testNumericalAggregationsWithFilters(repo))
+
 	t.Run("date aggregations with grouping",
 		testDateAggregationsWithGrouping(repo, true))
 
@@ -79,12 +77,7 @@ func Test_Aggregations(t *testing.T) {
 
 func Test_Aggregations_MultiShard(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	shardState := fixedMultiShardState()
 	logger := logrus.New()
@@ -94,6 +87,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -109,12 +103,19 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
+	t.Run("date aggregations with grouping",
+		testDateAggregationsWithGrouping(repo, true))
+
+	t.Run("date aggregations without grouping",
+		testDateAggregationsWithoutGrouping(repo, true))
+
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
 
 func prepareCompanyTestSchemaAndData(repo *DB,
-	migrator *Migrator, schemaGetter *fakeSchemaGetter) func(t *testing.T) {
+	migrator *Migrator, schemaGetter *fakeSchemaGetter,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		schema := schema.Schema{
 			Objects: &models.Schema{
@@ -204,7 +205,8 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 }
 
 func cleanupCompanyTestSchemaAndData(repo *DB,
-	migrator *Migrator) func(t *testing.T) {
+	migrator *Migrator,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		assert.Nil(t, repo.Shutdown(context.Background()))
 	}
@@ -247,7 +249,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean": 2.066666666666666,
 								},
 							},
@@ -262,7 +264,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean": 2.1999999999999999,
 								},
 							},
@@ -314,7 +316,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean": 2.375,
 								},
 							},
@@ -329,7 +331,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean": 0.0,
 								},
 							},
@@ -424,25 +426,25 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    2.06667,
 									"maximum": 8.0,
 									"minimum": 0.0,
 									"sum":     124,
-									"mode":    0,
+									"mode":    0.,
 									"median":  1.1,
 									"count":   60,
 								},
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    218.33333,
-									"maximum": 800,
-									"minimum": 10,
-									"sum":     13100,
+									"maximum": 800.,
+									"minimum": 10.,
+									"sum":     13100.,
 									// "mode":    70,
-									"median": 70,
+									"median": 115,
 									"count":  60,
 								},
 							},
@@ -495,11 +497,11 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    2.2,
 									"maximum": 4.0,
 									"minimum": 1.3,
-									"sum":     66,
+									"sum":     66.,
 									"mode":    1.3,
 									"median":  1.3,
 									"count":   30,
@@ -507,14 +509,14 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    265.66667,
-									"maximum": 600,
-									"minimum": 47,
-									"sum":     7970,
+									"maximum": 600.,
+									"minimum": 47.,
+									"sum":     7970.,
 									// "mode":    47,
-									"median": 150,
-									"count":  30,
+									"median": 150.,
+									"count":  30.,
 								},
 							},
 							"listedInIndex": {
@@ -658,24 +660,24 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    2.48,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     124,
+									"sum":     124.,
 									"median":  1.3,
 									"count":   50,
 								},
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    102,
-									"maximum": 200,
-									"minimum": 10,
-									"sum":     5100,
-									"median":  70,
-									"count":   50,
+								NumericalAggregations: map[string]interface{}{
+									"mean":    102.,
+									"maximum": 200.,
+									"minimum": 10.,
+									"sum":     5100.,
+									"median":  70.,
+									"count":   50.,
 								},
 							},
 							"listedInIndex": {
@@ -723,24 +725,24 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    1.3,
 									"maximum": 1.3,
 									"minimum": 1.3,
-									"sum":     26,
+									"sum":     26.,
 									"median":  1.3,
-									"count":   20,
+									"count":   20.,
 								},
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    98.5,
-									"maximum": 150,
-									"minimum": 47,
-									"sum":     1970,
-									"median":  47,
-									"count":   20,
+									"maximum": 150.,
+									"minimum": 47.,
+									"sum":     1970.,
+									"median":  98.5,
+									"count":   20.,
 								},
 							},
 							"listedInIndex": {
@@ -875,24 +877,24 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    8.0,
 									"maximum": 8.0,
 									"minimum": 8.0,
 									"sum":     80.0,
 									"median":  8.0,
-									"count":   10,
+									"count":   10.,
 								},
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    10,
-									"maximum": 10,
-									"minimum": 10,
-									"sum":     100,
-									"median":  10,
-									"count":   10,
+								NumericalAggregations: map[string]interface{}{
+									"mean":    10.,
+									"maximum": 10.,
+									"minimum": 10.,
+									"sum":     100.,
+									"median":  10.,
+									"count":   10.,
 								},
 							},
 							"listedInIndex": {
@@ -1025,24 +1027,24 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    8.0,
 									"maximum": 8.0,
 									"minimum": 8.0,
-									"sum":     80,
+									"sum":     80.,
 									"median":  8.0,
-									"count":   10,
+									"count":   10.,
 								},
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    10,
-									"maximum": 10,
-									"minimum": 10,
-									"sum":     100,
-									"median":  10,
-									"count":   10,
+								NumericalAggregations: map[string]interface{}{
+									"mean":    10.,
+									"maximum": 10.,
+									"minimum": 10.,
+									"sum":     100.,
+									"median":  10.,
+									"count":   10.,
 								},
 							},
 							"listedInIndex": {
@@ -1185,8 +1187,46 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 	}
 }
 
+func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("Aggregations with filter that matches nothing", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(companyClass.Class),
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLessThan,
+						Value: &filters.Value{
+							Type:  schema.DataTypeInt,
+							Value: -5, // price is positive everywhere
+						},
+						On: &filters.Path{
+							Property: "price",
+						},
+					},
+				},
+				IncludeMetaCount: true,
+				Properties: []aggregation.ParamProperty{
+					{
+						Name:        schema.PropertyName("dividendYield"),
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator, aggregation.CountAggregator, aggregation.MaximumAggregator, aggregation.MedianAggregator, aggregation.MinimumAggregator, aggregation.ModeAggregator, aggregation.TypeAggregator},
+					},
+				},
+			}
+			res, err := repo.Aggregate(context.Background(), params)
+
+			// No results match the filter, so only a count of 0 is included
+			require.Nil(t, err)
+			require.Equal(t, 1, len(res.Groups))
+			require.Equal(t, 1, len(res.Groups[0].Properties))
+			require.Equal(t, 1, len(res.Groups[0].Properties["dividendYield"].NumericalAggregations))
+			require.Equal(t, uint64(0), res.Groups[0].Properties["dividendYield"].NumericalAggregations["count"].(uint64))
+		})
+	}
+}
+
 func testNumericalAggregationsWithoutGrouping(repo *DB,
-	exact bool) func(t *testing.T) {
+	exact bool,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("only meta count, no other aggregations", func(t *testing.T) {
 			params := aggregation.Params{
@@ -1234,7 +1274,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 							Properties: map[string]aggregation.Property{
 								"dividendYield": {
 									Type: aggregation.PropertyTypeNumerical,
-									NumericalAggregations: map[string]float64{
+									NumericalAggregations: map[string]interface{}{
 										"mean": 2.111111111111111,
 									},
 								},
@@ -1333,26 +1373,26 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    2.111111111111111,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     190,
+									"sum":     190.,
 									"mode":    1.3,
 									"median":  1.3,
-									"count":   90,
+									"count":   90.,
 								},
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    234.11111111111111,
-									"maximum": 800,
-									"minimum": 10,
-									"sum":     21070,
-									"mode":    70,
-									"median":  150,
-									"count":   90,
+									"maximum": 800.,
+									"minimum": 10.,
+									"sum":     21070.,
+									"mode":    70.,
+									"median":  150.,
+									"count":   90.,
 								},
 							},
 							"listedInIndex": {
@@ -1564,27 +1604,27 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 
 			expectedDivYield := aggregation.Property{
 				Type: aggregation.PropertyTypeNumerical,
-				NumericalAggregations: map[string]float64{
+				NumericalAggregations: map[string]interface{}{
 					"mean":    2.066666666666666,
 					"maximum": 8.0,
 					"minimum": 0.0,
 					"sum":     124,
 					"mode":    0.0,
-					"median":  1.1,
-					"count":   60,
+					"median":  1.2,
+					"count":   60.,
 				},
 			}
 
 			expectedPrice := aggregation.Property{
 				Type: aggregation.PropertyTypeNumerical,
-				NumericalAggregations: map[string]float64{
+				NumericalAggregations: map[string]interface{}{
 					"mean":    218.33333333333334,
-					"maximum": 800,
-					"minimum": 10,
-					"sum":     13100,
-					"mode":    70,
-					"median":  70,
-					"count":   60,
+					"maximum": 800.,
+					"minimum": 10.,
+					"sum":     13100.,
+					"mode":    70.,
+					"median":  115.,
+					"count":   60.,
 				},
 			}
 
@@ -1787,26 +1827,26 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 						Properties: map[string]aggregation.Property{
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
+								NumericalAggregations: map[string]interface{}{
 									"mean":    8.0,
 									"maximum": 8.0,
 									"minimum": 8.0,
-									"sum":     80,
+									"sum":     80.,
 									"mode":    8.0,
 									"median":  8.0,
-									"count":   10,
+									"count":   10.,
 								},
 							},
 							"price": {
 								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    10,
-									"maximum": 10,
-									"minimum": 10,
-									"sum":     100,
-									"mode":    10,
-									"median":  10,
-									"count":   10,
+								NumericalAggregations: map[string]interface{}{
+									"mean":    10.,
+									"maximum": 10.,
+									"minimum": 10.,
+									"sum":     100.,
+									"mode":    10.,
+									"median":  10.,
+									"count":   10.,
 								},
 							},
 							"listedInIndex": {
@@ -1906,14 +1946,14 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 		// 				Properties: map[string]aggregation.Property{
 		// 					"numbers": aggregation.Property{
 		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
+		// 						NumericalAggregations: map[string]interface{}{
 		// 							"mean":    1.8,
 		// 							"maximum": 3.0,
 		// 							"minimum": 1.0,
 		// 							"sum":     9.0,
 		// 							"mode":    1.0,
 		// 							"median":  3.0,
-		// 							"count":   5,
+		// 							"count":   5.,
 		// 						},
 		// 					},
 		// 				},

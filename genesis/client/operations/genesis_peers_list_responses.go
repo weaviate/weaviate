@@ -57,7 +57,8 @@ func NewGenesisPeersListOK() *GenesisPeersListOK {
 	return &GenesisPeersListOK{}
 }
 
-/*GenesisPeersListOK handles this case with default header values.
+/*
+GenesisPeersListOK handles this case with default header values.
 
 The list of registered peers
 */
@@ -87,12 +88,12 @@ func NewGenesisPeersListInternalServerError() *GenesisPeersListInternalServerErr
 	return &GenesisPeersListInternalServerError{}
 }
 
-/*GenesisPeersListInternalServerError handles this case with default header values.
+/*
+GenesisPeersListInternalServerError handles this case with default header values.
 
 Internal error
 */
-type GenesisPeersListInternalServerError struct {
-}
+type GenesisPeersListInternalServerError struct{}
 
 func (o *GenesisPeersListInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /peers][%d] genesisPeersListInternalServerError ", 500)

@@ -9,6 +9,7 @@ services:
     restart: on-failure:0
     ports:
      - "8080:8080"
+     - "6060:6060"
     environment:
       LOG_LEVEL: "debug"
       CONTEXTIONARY_URL: contextionary:9999

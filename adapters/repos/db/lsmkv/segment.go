@@ -45,6 +45,7 @@ type segment struct {
 	secondaryIndices      []diskIndex
 	logger                logrus.FieldLogger
 	metrics               *Metrics
+	bloomFilterMetrics    *bloomFilterMetrics
 
 	// the net addition this segment adds with respect to all previous segments
 	countNetAdditions int
@@ -67,7 +68,8 @@ type diskIndex interface {
 }
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
-	existsLower existsOnLowerSegmentsFn) (*segment, error) {
+	existsLower existsOnLowerSegmentsFn,
+) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "open file")
@@ -116,6 +118,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		index:               primaryDiskIndex,
 		logger:              logger,
 		metrics:             metrics,
+		bloomFilterMetrics:  newBloomFilterMetrics(metrics),
 	}
 
 	if ind.secondaryIndexCount > 0 {

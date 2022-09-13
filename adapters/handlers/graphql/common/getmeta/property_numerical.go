@@ -21,7 +21,8 @@ import (
 )
 
 func numericalPropertyField(class *models.Class,
-	property *models.Property, prefix string) *graphql.Object {
+	property *models.Property, prefix string,
+) *graphql.Object {
 	getMetaNumberFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),

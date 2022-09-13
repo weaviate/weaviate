@@ -55,7 +55,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 	rowCache cacher, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
 	propLengths propLengthRetriever, logger logrus.FieldLogger,
-	shardVersion uint16) *BM25Searcher {
+	shardVersion uint16,
+) *BM25Searcher {
 	return &BM25Searcher{
 		config:        config,
 		store:         store,
@@ -74,7 +75,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 func (b *BM25Searcher) Object(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName) ([]*storobj.Object, []float32, error) {
+	className schema.ClassName,
+) ([]*storobj.Object, []float32, error) {
 	defer func() {
 		err := recover()
 		if err != nil {
@@ -129,7 +131,8 @@ func (b *BM25Searcher) sort(ids docPointersWithScore) docPointersWithScore {
 }
 
 func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
-	property, term string) (docPointersWithScore, error) {
+	property, term string,
+) (docPointersWithScore, error) {
 	before := time.Now()
 	ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, term)
 	if err != nil {
@@ -182,7 +185,8 @@ func (bm *BM25Searcher) score(ids docPointersWithScore, propName string) error {
 }
 
 func (b *BM25Searcher) getIdsWithFrequenciesForTerm(ctx context.Context,
-	prop, term string) (docPointersWithScore, error) {
+	prop, term string,
+) (docPointersWithScore, error) {
 	bucketName := helpers.BucketFromPropNameLSM(prop)
 	bucket := b.store.Bucket(bucketName)
 
@@ -194,7 +198,8 @@ func (b *BM25Searcher) getIdsWithFrequenciesForTerm(ctx context.Context,
 }
 
 func (b *BM25Searcher) docPointersInvertedFrequency(prop string, bucket *lsmkv.Bucket,
-	limit int, pv *propValuePair, tolerateDuplicates bool) (docPointersWithScore, error) {
+	limit int, pv *propValuePair, tolerateDuplicates bool,
+) (docPointersWithScore, error) {
 	rr := NewRowReaderFrequency(bucket, pv.value, pv.operator, false, b.shardVersion)
 
 	var pointers docPointersWithScore
@@ -246,7 +251,8 @@ func (b *BM25Searcher) docPointersInvertedFrequency(prop string, bucket *lsmkv.B
 }
 
 func (bm *BM25Searcher) rankedObjectsByDocID(found docPointersWithScore,
-	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
 	objs := make([]*storobj.Object, len(found.IDs()))
 	scores := make([]float32, len(found.IDs()))
 

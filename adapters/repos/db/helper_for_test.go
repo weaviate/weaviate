@@ -16,8 +16,8 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
+	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -199,8 +199,9 @@ func testCtx() context.Context {
 	return ctx
 }
 
-func testShard(ctx context.Context, className string) (*Shard, *Index) {
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
+	rand.Seed(time.Now().UnixNano())
+	tmpDir := t.TempDir()
 
 	shardState := singleShardState()
 	sch := schema.Schema{
@@ -211,12 +212,16 @@ func testShard(ctx context.Context, className string) (*Shard, *Index) {
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
 
 	idx := &Index{
-		Config:                IndexConfig{RootPath: dirName, ClassName: schema.ClassName(className)},
+		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className), MaxImportGoroutinesFactor: 1.5},
 		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
 		vectorIndexUserConfig: hnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
 		Shards:                map[string]*Shard{},
+	}
+
+	for _, opt := range indexOpts {
+		opt(idx)
 	}
 
 	shardName := shardState.AllPhysicalShards()[0]
@@ -231,6 +236,18 @@ func testShard(ctx context.Context, className string) (*Shard, *Index) {
 	return shd, idx
 }
 
+func withVectorIndexing(affirmative bool) func(*Index) {
+	if affirmative {
+		return func(i *Index) {
+			i.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+		}
+	}
+
+	return func(i *Index) {
+		i.vectorIndexUserConfig = hnsw.UserConfig{Skip: true}
+	}
+}
+
 func testObject(className string) *storobj.Object {
 	return &storobj.Object{
 		MarshallerVersion: 1,
@@ -240,4 +257,20 @@ func testObject(className string) *storobj.Object {
 		},
 		Vector: []float32{1, 2, 3},
 	}
+}
+
+func createRandomObjects(className string, numObj int) []*storobj.Object {
+	obj := make([]*storobj.Object, numObj)
+
+	for i := 0; i < numObj; i++ {
+		obj[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+			},
+			Vector: []float32{rand.Float32(), rand.Float32(), rand.Float32(), rand.Float32()},
+		}
+	}
+	return obj
 }

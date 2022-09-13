@@ -38,6 +38,9 @@ func (m *Manager) DeleteObjectReference(
 	principal *models.Principal,
 	input *DeleteReferenceInput,
 ) *Error {
+	m.metrics.DeleteReferenceInc()
+	defer m.metrics.DeleteReferenceDec()
+
 	deprecatedEndpoint := input.Class == ""
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{})
 	if err != nil {

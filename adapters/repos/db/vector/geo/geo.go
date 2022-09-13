@@ -43,7 +43,7 @@ type vectorIndex interface {
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id uint64) error
 	Dump(...string)
-	Drop() error
+	Drop(ctx context.Context) error
 	PostStartup()
 }
 
@@ -80,8 +80,8 @@ func NewIndex(config Config) (*Index, error) {
 	return i, nil
 }
 
-func (i *Index) Drop() error {
-	if err := i.vectorIndex.Drop(); err != nil {
+func (i *Index) Drop(ctx context.Context) error {
+	if err := i.vectorIndex.Drop(ctx); err != nil {
 		return err
 	}
 
@@ -118,7 +118,8 @@ func (i *Index) Add(id uint64, coordinates *models.GeoCoordinates) error {
 // WithinGeoRange searches the index by the specified range. It is thread-safe
 // and can be called concurrently.
 func (i *Index) WithinRange(ctx context.Context,
-	geoRange filters.GeoRange) ([]uint64, error) {
+	geoRange filters.GeoRange,
+) ([]uint64, error) {
 	if geoRange.GeoCoordinates == nil {
 		return nil, fmt.Errorf("invalid arguments: GeoCoordinates in range must be set")
 	}

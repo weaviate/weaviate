@@ -27,7 +27,8 @@ import (
 
 // GetObject Class from the connected DB
 func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, class string,
-	id strfmt.UUID, additional additional.Properties) (*models.Object, error) {
+	id strfmt.UUID, additional additional.Properties,
+) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s", id)
 	if class != "" {
 		path = fmt.Sprintf("objects/%s/%s", class, id)
@@ -43,9 +44,16 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 	}
 	defer unlock()
 
+	m.metrics.GetObjectInc()
+	defer m.metrics.GetObjectDec()
+
 	res, err := m.getObjectFromRepo(ctx, class, id, additional)
 	if err != nil {
 		return nil, err
+	}
+
+	if additional.Vector {
+		m.trackUsageSingle(res)
 	}
 
 	return res.ObjectWithVector(additional.Vector), nil
@@ -53,7 +61,8 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	offset, limit *int64, sort, order *string, additional additional.Properties) ([]*models.Object, error) {
+	offset, limit *int64, sort, order *string, additional additional.Properties,
+) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
 		return nil, err
@@ -65,11 +74,14 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
+	m.metrics.GetObjectInc()
+	defer m.metrics.GetObjectDec()
 	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, additional)
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID) (*models.Class, error) {
+	id strfmt.UUID,
+) (*models.Class, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("objects/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -80,6 +92,8 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
+	m.metrics.GetObjectInc()
+	defer m.metrics.GetObjectDec()
 
 	res, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{})
 	if err != nil {
@@ -95,7 +109,8 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,
-	adds additional.Properties) (res *search.Result, err error) {
+	adds additional.Properties,
+) (res *search.Result, err error) {
 	if class != "" {
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds)
 	} else {
@@ -120,7 +135,8 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 }
 
 func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
-	sort, order *string, additional additional.Properties) ([]*models.Object, error) {
+	sort, order *string, additional additional.Properties,
+) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
@@ -136,6 +152,10 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
 		if err != nil {
 			return nil, NewErrInternal("list extend: %v", err)
 		}
+	}
+
+	if additional.Vector {
+		m.trackUsageList(res)
 	}
 
 	return res.ObjectsWithVector(additional.Vector), nil
@@ -200,4 +220,18 @@ func (m *Manager) localOffsetLimit(paramOffset *int64, paramLimit *int64) (int, 
 	}
 
 	return offset, limit, nil
+}
+
+func (m *Manager) trackUsageSingle(res *search.Result) {
+	if res == nil {
+		return
+	}
+	m.metrics.AddUsageDimensions(res.ClassName, "get_rest", "single_include_vector", res.Dims)
+}
+
+func (m *Manager) trackUsageList(res search.Results) {
+	if len(res) == 0 {
+		return
+	}
+	m.metrics.AddUsageDimensions(res[0].ClassName, "get_rest", "list_include_vector", res[0].Dims)
 }

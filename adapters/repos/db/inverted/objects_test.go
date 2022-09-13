@@ -317,9 +317,9 @@ func TestAnalyzeObject(t *testing.T) {
 				"descriptions": []interface{}{"I am great!", "I am also great!"},
 				"emails":       []interface{}{"john@doe.com", "john2@doe.com"},
 				"about_me":     []interface{}{"I like reading sci-fi books", "I like playing piano"},
-				"professions": []interface{}{"Mechanical Engineer", "	Marketing Analyst"},
-				"integers": []interface{}{int64(1), int64(2), int64(3), int64(4)},
-				"numbers":  []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
+				"professions":  []interface{}{"Mechanical Engineer", "Marketing Analyst"},
+				"integers":     []interface{}{int64(1), int64(2), int64(3), int64(4)},
+				"numbers":      []interface{}{float64(1.1), float64(2.2), float64(3.0), float64(4)},
 			}
 
 			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"

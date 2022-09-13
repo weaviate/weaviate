@@ -66,7 +66,8 @@ func NewWeaviateWellknownReadinessParamsWithHTTPClient(client *http.Client) *Wea
 	}
 }
 
-/*WeaviateWellknownReadinessParams contains all the parameters to send to the API endpoint
+/*
+WeaviateWellknownReadinessParams contains all the parameters to send to the API endpoint
 for the weaviate wellknown readiness operation typically these are written to a http.Request
 */
 type WeaviateWellknownReadinessParams struct {

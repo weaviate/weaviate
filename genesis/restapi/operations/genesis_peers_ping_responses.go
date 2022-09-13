@@ -25,12 +25,12 @@ import (
 // GenesisPeersPingOKCode is the HTTP code returned for type GenesisPeersPingOK
 const GenesisPeersPingOKCode int = 200
 
-/*GenesisPeersPingOK Ping received
+/*
+GenesisPeersPingOK Ping received
 
 swagger:response genesisPeersPingOK
 */
-type GenesisPeersPingOK struct {
-}
+type GenesisPeersPingOK struct{}
 
 // NewGenesisPeersPingOK creates GenesisPeersPingOK with default headers values
 func NewGenesisPeersPingOK() *GenesisPeersPingOK {
@@ -47,12 +47,12 @@ func (o *GenesisPeersPingOK) WriteResponse(rw http.ResponseWriter, producer runt
 // GenesisPeersPingUnauthorizedCode is the HTTP code returned for type GenesisPeersPingUnauthorized
 const GenesisPeersPingUnauthorizedCode int = 401
 
-/*GenesisPeersPingUnauthorized Unauthorized or invalid credentials.
+/*
+GenesisPeersPingUnauthorized Unauthorized or invalid credentials.
 
 swagger:response genesisPeersPingUnauthorized
 */
-type GenesisPeersPingUnauthorized struct {
-}
+type GenesisPeersPingUnauthorized struct{}
 
 // NewGenesisPeersPingUnauthorized creates GenesisPeersPingUnauthorized with default headers values
 func NewGenesisPeersPingUnauthorized() *GenesisPeersPingUnauthorized {
@@ -69,12 +69,12 @@ func (o *GenesisPeersPingUnauthorized) WriteResponse(rw http.ResponseWriter, pro
 // GenesisPeersPingForbiddenCode is the HTTP code returned for type GenesisPeersPingForbidden
 const GenesisPeersPingForbiddenCode int = 403
 
-/*GenesisPeersPingForbidden The used API-key has insufficient permissions.
+/*
+GenesisPeersPingForbidden The used API-key has insufficient permissions.
 
 swagger:response genesisPeersPingForbidden
 */
-type GenesisPeersPingForbidden struct {
-}
+type GenesisPeersPingForbidden struct{}
 
 // NewGenesisPeersPingForbidden creates GenesisPeersPingForbidden with default headers values
 func NewGenesisPeersPingForbidden() *GenesisPeersPingForbidden {
@@ -91,12 +91,12 @@ func (o *GenesisPeersPingForbidden) WriteResponse(rw http.ResponseWriter, produc
 // GenesisPeersPingNotFoundCode is the HTTP code returned for type GenesisPeersPingNotFound
 const GenesisPeersPingNotFoundCode int = 404
 
-/*GenesisPeersPingNotFound Successful query result but no such peer was found.
+/*
+GenesisPeersPingNotFound Successful query result but no such peer was found.
 
 swagger:response genesisPeersPingNotFound
 */
-type GenesisPeersPingNotFound struct {
-}
+type GenesisPeersPingNotFound struct{}
 
 // NewGenesisPeersPingNotFound creates GenesisPeersPingNotFound with default headers values
 func NewGenesisPeersPingNotFound() *GenesisPeersPingNotFound {

@@ -75,7 +75,8 @@ func NewGraphqlPostOK() *GraphqlPostOK {
 	return &GraphqlPostOK{}
 }
 
-/*GraphqlPostOK handles this case with default header values.
+/*
+GraphqlPostOK handles this case with default header values.
 
 Successful query (with select).
 */
@@ -108,7 +109,8 @@ func NewGraphqlPostUnauthorized() *GraphqlPostUnauthorized {
 	return &GraphqlPostUnauthorized{}
 }
 
-/*GraphqlPostUnauthorized handles this case with default header values.
+/*
+GraphqlPostUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -129,7 +131,8 @@ func NewGraphqlPostForbidden() *GraphqlPostForbidden {
 	return &GraphqlPostForbidden{}
 }
 
-/*GraphqlPostForbidden handles this case with default header values.
+/*
+GraphqlPostForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -162,7 +165,8 @@ func NewGraphqlPostUnprocessableEntity() *GraphqlPostUnprocessableEntity {
 	return &GraphqlPostUnprocessableEntity{}
 }
 
-/*GraphqlPostUnprocessableEntity handles this case with default header values.
+/*
+GraphqlPostUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -195,7 +199,8 @@ func NewGraphqlPostInternalServerError() *GraphqlPostInternalServerError {
 	return &GraphqlPostInternalServerError{}
 }
 
-/*GraphqlPostInternalServerError handles this case with default header values.
+/*
+GraphqlPostInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

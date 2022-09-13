@@ -14,14 +14,16 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
 )
@@ -98,7 +100,8 @@ type hnsw struct {
 	tombstones map[uint64]struct{}
 
 	// used for cancellation of the tombstone cleanup goroutine
-	cancel chan struct{}
+	cleanupInterval       time.Duration
+	tombstoneCleanupCycle *cyclemanager.CycleManager
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -109,16 +112,19 @@ type hnsw struct {
 	logger            logrus.FieldLogger
 	distancerProvider distancer.Provider
 
-	cleanupInterval time.Duration
-
 	pools *pools
 
 	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
 
-	metrics *Metrics
+	metrics       *Metrics
+	insertMetrics *insertMetrics
+
+	randFunc func() float64 // added to temporarily get rid on flakiness in tombstones related tests. to be removed after fixing WEAVIATE-179
 }
 
 type CommitLogger interface {
+	ID() string
+	Start()
 	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
@@ -129,9 +135,12 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	ClearLinksAtLevel(nodeid uint64, level uint16) error
 	Reset() error
-	Drop() error
+	Drop(ctx context.Context) error
 	Flush() error
-	Shutdown()
+	Shutdown(ctx context.Context) error
+	RootPath() string
+	SwitchCommitLogs(bool) error
+	MaintenanceInProgress() bool
 }
 
 type BufferedLinksLogger interface {
@@ -160,7 +169,7 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 
 	if cfg.Logger == nil {
 		logger := logrus.New()
-		logger.Out = ioutil.Discard
+		logger.Out = io.Discard
 		cfg.Logger = logger
 	}
 
@@ -192,7 +201,6 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		tombstones:        map[uint64]struct{}{},
 		logger:            cfg.Logger,
 		distancerProvider: cfg.DistanceProvider,
-		cancel:            make(chan struct{}),
 		deleteLock:        &sync.Mutex{},
 		tombstoneLock:     &sync.RWMutex{},
 		resetLock:         &sync.Mutex{},
@@ -207,7 +215,12 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 		efFactor: int64(uc.DynamicEFFactor),
 
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+
+		randFunc: rand.Float64,
 	}
+
+	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
+	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
@@ -316,7 +329,8 @@ func New(cfg Config, uc UserConfig) (*hnsw, error) {
 // }
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
-	entryPointID uint64, nodeVec []float32) (uint64, error) {
+	entryPointID uint64, nodeVec []float32,
+) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
@@ -351,58 +365,6 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	}
 
 	return entryPointID, nil
-}
-
-type vertex struct {
-	id uint64
-	sync.Mutex
-	level       int
-	connections map[int][]uint64 // map[level][]connectedId
-	maintenance bool
-}
-
-func (v *vertex) markAsMaintenance() {
-	v.Lock()
-	defer v.Unlock()
-
-	v.maintenance = true
-}
-
-func (v *vertex) unmarkAsMaintenance() {
-	v.Lock()
-	defer v.Unlock()
-
-	v.maintenance = false
-}
-
-func (v *vertex) isUnderMaintenance() bool {
-	v.Lock()
-	defer v.Unlock()
-
-	return v.maintenance
-}
-
-func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
-	return v.connections[level]
-}
-
-func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
-	v.Lock()
-	defer v.Unlock()
-
-	v.connections[level] = connections
-}
-
-// func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
-// 	v.connections[level] = connections
-// }
-
-func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64) {
-	v.connections[level] = append(v.connections[level], connection)
-}
-
-func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
-	v.connections[level] = v.connections[level][:0]
 }
 
 func min(a, b int) int {
@@ -538,29 +500,46 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
-func (h *hnsw) Drop() error {
-	// cancel commit log goroutine
-	err := h.commitLog.Drop()
-	if err != nil {
-		return errors.Wrap(err, "commit log drop")
-	}
-	// cancel vector cache goroutine
-	h.cache.drop()
+func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel tombstone cleanup goroutine
 
 	// if the interval is 0 we never started a cleanup cycle, therefore there is
 	// no loop running that could receive our cancel and we would be stuck. Thus,
 	// only cancel if we know it's been started.
 	if h.cleanupInterval != 0 {
-		h.cancel <- struct{}{}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+			return errors.Wrap(err, "hnsw drop")
+		}
 	}
+
+	// cancel vector cache goroutine
+	h.cache.drop()
+
+	// cancel commit logger last, as the tombstone cleanup cycle might still
+	// write while it's still running
+	err := h.commitLog.Drop(ctx)
+	if err != nil {
+		return errors.Wrap(err, "commit log drop")
+	}
+
 	return nil
 }
 
-func (h *hnsw) Shutdown() {
-	h.cancel <- struct{}{}
-	h.commitLog.Shutdown()
+func (h *hnsw) Shutdown(ctx context.Context) error {
+	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
+	}
+
+	if err := h.commitLog.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
+	}
+
 	h.cache.drop()
+
+	return nil
 }
 
 func (h *hnsw) Flush() error {

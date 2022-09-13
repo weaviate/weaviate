@@ -25,12 +25,14 @@ func (m *NERModule) ClassConfigDefaults() map[string]interface{} {
 }
 
 func (m *NERModule) PropertyConfigDefaults(
-	dt *schema.DataType) map[string]interface{} {
+	dt *schema.DataType,
+) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
 func (m *NERModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig) error {
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
 	return nil
 }
 

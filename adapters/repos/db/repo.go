@@ -53,7 +53,8 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver,
-	promMetrics *monitoring.PrometheusMetrics) *DB {
+	promMetrics *monitoring.PrometheusMetrics,
+) *DB {
 	return &DB{
 		logger:       logger,
 		config:       config,
@@ -71,6 +72,8 @@ type Config struct {
 	QueryMaximumResults       int64
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
+	MaxImportGoroutinesFactor float64
+	NodeName                  string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

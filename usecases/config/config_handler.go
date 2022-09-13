@@ -14,7 +14,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"regexp"
 
 	"github.com/go-openapi/swag"
@@ -24,6 +24,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
+
+// ServerVersion is set when the misc handlers are setup.
+// When misc handlers are setup, the entire swagger spec
+// is already being parsed for the server version. This is
+// a good time for us to set ServerVersion, so that the
+// spec only needs to be parsed once.
+var ServerVersion string
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -40,6 +47,7 @@ const (
 const (
 	DefaultDiskUseWarningPercentage  = uint64(80)
 	DefaultDiskUseReadonlyPercentage = uint64(90)
+	DefaultMaxImportGoroutinesFactor = float64(1.5)
 )
 
 // Flags are input options
@@ -49,23 +57,24 @@ type Flags struct {
 
 // Config outline of the config file
 type Config struct {
-	Name                    string         `json:"name" yaml:"name"`
-	Debug                   bool           `json:"debug" yaml:"debug"`
-	QueryDefaults           QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults     int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
-	Contextionary           Contextionary  `json:"contextionary" yaml:"contextionary"`
-	Authentication          Authentication `json:"authentication" yaml:"authentication"`
-	Authorization           Authorization  `json:"authorization" yaml:"authorization"`
-	Origin                  string         `json:"origin" yaml:"origin"`
-	Persistence             Persistence    `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	EnableModules           string         `json:"enable_modules" yaml:"enable_modules"`
-	ModulesPath             string         `json:"modules_path" yaml:"modules_path"`
-	AutoSchema              AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                 cluster.Config `json:"cluster" yaml:"cluster"`
-	Monitoring              Monitoring     `json:"monitoring" yaml:"monitoring"`
-	Profiling               Profiling      `json:"profiling" yaml:"profiling"`
-	DiskUse                 DiskUse        `json:"disk_use" yaml:"disk_use"`
+	Name                      string         `json:"name" yaml:"name"`
+	Debug                     bool           `json:"debug" yaml:"debug"`
+	QueryDefaults             QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults       int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
+	Contextionary             Contextionary  `json:"contextionary" yaml:"contextionary"`
+	Authentication            Authentication `json:"authentication" yaml:"authentication"`
+	Authorization             Authorization  `json:"authorization" yaml:"authorization"`
+	Origin                    string         `json:"origin" yaml:"origin"`
+	Persistence               Persistence    `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule   string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	EnableModules             string         `json:"enable_modules" yaml:"enable_modules"`
+	ModulesPath               string         `json:"modules_path" yaml:"modules_path"`
+	AutoSchema                AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                   cluster.Config `json:"cluster" yaml:"cluster"`
+	Monitoring                Monitoring     `json:"monitoring" yaml:"monitoring"`
+	Profiling                 Profiling      `json:"profiling" yaml:"profiling"`
+	DiskUse                   DiskUse        `json:"disk_use" yaml:"disk_use"`
+	MaxImportGoroutinesFactor float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 }
 
 type moduleProvider interface {
@@ -160,7 +169,7 @@ func (d DiskUse) Validate() error {
 	return nil
 }
 
-// GetConfigOptionGroup creates a option group for swagger
+// GetConfigOptionGroup creates an option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
 		ShortDescription: "Connector config & MQTT config",
@@ -196,7 +205,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	// Read config file
-	file, err := ioutil.ReadFile(configFileName)
+	file, err := os.ReadFile(configFileName)
 	_ = err // explicitly ignore
 
 	if len(file) > 0 {

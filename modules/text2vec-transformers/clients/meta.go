@@ -15,7 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -92,7 +92,7 @@ func (v *vectorizer) metaInfo(endpoint string) (map[string]interface{}, error) {
 		return nil, errors.Errorf("unexpected status code '%d' of meta request", res.StatusCode)
 	}
 
-	bodyBytes, err := ioutil.ReadAll(res.Body)
+	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read meta response body")
 	}

@@ -63,7 +63,8 @@ type immutableInt struct {
 }
 
 func validateImmutableIntField(u immutableInt,
-	previous, next UserConfig) error {
+	previous, next UserConfig,
+) error {
 	oldField := u.accessor(previous)
 	newField := u.accessor(next)
 	if oldField != newField {

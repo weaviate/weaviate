@@ -69,7 +69,8 @@ func (ga *groupedAggregator) identifyGroups(ctx context.Context) ([]group, error
 }
 
 func (ga *groupedAggregator) aggregateGroup(ctx context.Context,
-	in aggregation.Group, ids []uint64) (aggregation.Group, error) {
+	in aggregation.Group, ids []uint64,
+) (aggregation.Group, error) {
 	out := in
 	fa := newFilteredAggregator(ga.Aggregator)
 	props, err := fa.properties(ctx, ids)

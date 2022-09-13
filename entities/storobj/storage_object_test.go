@@ -76,6 +76,13 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		require.NotEmpty(t, prop)
 		assert.Equal(t, "MyName", prop[0])
 	})
+
+	t.Run("extract non-existing text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "IDoNotExist")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.Empty(t, prop)
+	})
 }
 
 func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
@@ -120,9 +127,14 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			// modify before to match expectations of after
 			before.Object.Additional = nil
 			before.Vector = nil
+			before.VectorLen = 3
 			assert.Equal(t, before, after)
 
 			assert.Equal(t, before.docID, after.docID)
+
+			// The vector length should always be returned (for usage metrics
+			// purposes) even if the vector itself is skipped
+			assert.Equal(t, after.VectorLen, 3)
 		})
 	})
 }

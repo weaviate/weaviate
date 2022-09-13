@@ -38,7 +38,8 @@ type shardingStateGetter interface {
 
 func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
-	client RemoteIndexClient) *RemoteIndex {
+	client RemoteIndexClient,
+) *RemoteIndex {
 	return &RemoteIndex{
 		class:        className,
 		stateGetter:  stateGetter,
@@ -79,10 +80,14 @@ type RemoteIndexClient interface {
 		filters *filters.LocalFilter) ([]uint64, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
+	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
+		targetStatus string) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
-	obj *storobj.Object) error {
+	obj *storobj.Object,
+) error {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -107,7 +112,8 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
-	objs []*storobj.Object) []error {
+	objs []*storobj.Object,
+) []error {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
@@ -124,7 +130,8 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
-	refs objects.BatchReferences) []error {
+	refs objects.BatchReferences,
+) []error {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
@@ -141,7 +148,8 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
-	id strfmt.UUID) (bool, error) {
+	id strfmt.UUID,
+) (bool, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return false, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -156,7 +164,8 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
-	id strfmt.UUID) error {
+	id strfmt.UUID,
+) error {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -171,7 +180,8 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
-	mergeDoc objects.MergeDocument) error {
+	mergeDoc objects.MergeDocument,
+) error {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -187,7 +197,8 @@ func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties) (*storobj.Object, error) {
+	additional additional.Properties,
+) (*storobj.Object, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -202,7 +213,8 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
-	ids []strfmt.UUID) ([]*storobj.Object, error) {
+	ids []strfmt.UUID,
+) ([]*storobj.Object, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -219,7 +231,8 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 	searchVector []float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return nil, nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -235,7 +248,8 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,
-	params aggregation.Params) (*aggregation.Result, error) {
+	params aggregation.Params,
+) (*aggregation.Result, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -250,7 +264,8 @@ func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
-	filters *filters.LocalFilter) ([]uint64, error) {
+	filters *filters.LocalFilter,
+) ([]uint64, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -265,7 +280,8 @@ func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
-	docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+	docIDs []uint64, dryRun bool,
+) objects.BatchSimpleObjects {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		err := errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
@@ -279,4 +295,32 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, docIDs, dryRun)
+}
+
+func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return "", errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return "", errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
+}
+
+func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	if !ok {
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+	}
+
+	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)
 }
