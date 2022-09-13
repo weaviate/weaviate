@@ -292,7 +292,7 @@ var companyIDs = []strfmt.UUID{
 var arrayTypes = []map[string]interface{}{
 	{
 		"strings": []string{"a", "b", "c"},
-		"numbers": []float64{1.0, 2.0, 3.0},
+		"numbers": []float64{1.0, 2.0, 2.0, 3.0, 3.0},
 	},
 	{
 		"strings": []string{"a"},

@@ -26,6 +26,7 @@ func addNumericalAggregations(prop *aggregation.Property,
 	if prop.NumericalAggregations == nil {
 		prop.NumericalAggregations = map[string]interface{}{}
 	}
+	agg.buildPairsFromCounts()
 
 	// if there are no elements to aggregate over because a filter does not match anything, calculating mean etc. makes
 	// no sense. Non-existent entries evaluate to nil with an interface{} map
@@ -98,24 +99,10 @@ type floatCountPair struct {
 }
 
 func (a *numericalAggregator) AddFloat64(value float64) error {
-	a.count++
-	a.sum += value
-	if value < a.min {
-		a.min = value
-	}
-
-	if value > a.max {
-		a.max = value
-	}
-
-	count := a.valueCounter[value]
-	count++
-	a.valueCounter[value] = count
-
-	return nil
+	return a.AddNumberRow(value, 1)
 }
 
-// turns the value counter into a sorted list, as well as identifying the mode
+// turns the value counter into a sorted list, as well as identifying the mode. Must be called before calling median etc
 func (a *numericalAggregator) buildPairsFromCounts() {
 	a.pairs = a.pairs[:0] // clear out old values in case this function called more than once
 	a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
@@ -168,16 +155,9 @@ func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
 		a.max = number
 	}
 
-	if count > a.maxCount {
-		a.maxCount = count
-		a.mode = number
-	}
-
 	currentCount := a.valueCounter[number]
 	currentCount += count
 	a.valueCounter[number] = currentCount
-
-	a.pairs = append(a.pairs, floatCountPair{value: number, count: count})
 
 	return nil
 }

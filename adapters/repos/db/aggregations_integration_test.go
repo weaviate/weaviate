@@ -1174,7 +1174,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 2,
+						Count: 3,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(2.0),
@@ -1182,7 +1182,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 1,
+						Count: 2,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(3.0),
@@ -1989,8 +1989,8 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 							aggregation.MaximumAggregator,
 							aggregation.MinimumAggregator,
 							aggregation.SumAggregator,
-							// aggregation.ModeAggregator,
-							// aggregation.MedianAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
 							aggregation.CountAggregator,
 							aggregation.TypeAggregator, // ignored in the repo, but can't block
 						},
@@ -2009,13 +2009,13 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 							"numbers": {
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]interface{}{
-									"mean":    1.8,
+									"mean":    2.0,
 									"maximum": 3.0,
 									"minimum": 1.0,
-									"sum":     9.0,
-									//"mode":    1.0,
-									//"median":  3.0,
-									"count": 5.,
+									"sum":     14.0,
+									"mode":    2.0,
+									"median":  2.0,
+									"count":   7.,
 								},
 							},
 						},
