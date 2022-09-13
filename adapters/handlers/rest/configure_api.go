@@ -48,6 +48,7 @@ import (
 	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
 	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
+	modcentroid "github.com/semi-technologies/weaviate/modules/ref2vec-centroid"
 	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
@@ -492,6 +493,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstggcs.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modcentroid.Name]; ok {
+		appState.Modules.Register(modcentroid.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modcentroid.Name).
 			Debug("enabled module")
 	}
 

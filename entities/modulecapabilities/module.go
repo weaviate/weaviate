@@ -21,13 +21,14 @@ import (
 type ModuleType string
 
 const (
-	Text2Vec      ModuleType = "Text2Vec"
-	Text2MultiVec ModuleType = "Text2MultiVec"
+	Backup        ModuleType = "Backup"
+	Extension     ModuleType = "Extension"
 	Img2Vec       ModuleType = "Img2Vec"
 	Multi2Vec     ModuleType = "Multi2Vec"
+	Ref2Vec       ModuleType = "Ref2Vec"
+	Text2MultiVec ModuleType = "Text2MultiVec"
 	Text2Text     ModuleType = "Text2Text"
-	Extension     ModuleType = "Extension"
-	Backup        ModuleType = "Backup"
+	Text2Vec      ModuleType = "Text2Vec"
 )
 
 type Module interface {
