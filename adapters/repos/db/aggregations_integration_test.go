@@ -71,6 +71,9 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("date aggregations without grouping",
 		testDateAggregationsWithoutGrouping(repo, true))
 
+	t.Run("date aggregations with filters",
+		testDateAggregationsWithFilters(repo))
+
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
 }
@@ -103,11 +106,18 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
+	// TODO: does not work currently, part of https://semi-technology.atlassian.net/browse/WEAVIATE-328
+	// t.Run("numerical aggregations with filters",
+	//	testNumericalAggregationsWithFilters(repo))
+
 	t.Run("date aggregations with grouping",
 		testDateAggregationsWithGrouping(repo, true))
 
 	t.Run("date aggregations without grouping",
 		testDateAggregationsWithoutGrouping(repo, true))
+
+	t.Run("date aggregations with filters",
+		testDateAggregationsWithFilters(repo))
 
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
@@ -1164,7 +1174,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 2,
+						Count: 3,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(2.0),
@@ -1172,7 +1182,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 1,
+						Count: 2,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(3.0),
@@ -1183,6 +1193,43 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 			}
 
 			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+		})
+	}
+}
+
+func testDateAggregationsWithFilters(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("Aggregations with filter that matches nothing", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(customerClass.Class),
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorGreaterThan,
+						Value: &filters.Value{
+							Type:  schema.DataTypeDate,
+							Value: "0312-06-16T17:30:17.231346Z", // hello roman empire!
+						},
+						On: &filters.Path{
+							Property: "timeArrived",
+						},
+					},
+				},
+				IncludeMetaCount: true,
+				Properties: []aggregation.ParamProperty{
+					{
+						Name:        schema.PropertyName("timeArrived"),
+						Aggregators: []aggregation.Aggregator{aggregation.MeanAggregator, aggregation.CountAggregator, aggregation.MaximumAggregator, aggregation.MedianAggregator, aggregation.MinimumAggregator, aggregation.ModeAggregator, aggregation.TypeAggregator},
+					},
+				},
+			}
+			res, err := repo.Aggregate(context.Background(), params)
+
+			// No results match the filter, so only a count of 0 is included
+			require.Nil(t, err)
+			require.Equal(t, 1, len(res.Groups))
+			require.Equal(t, 1, len(res.Groups[0].Properties))
+			require.Equal(t, 1, len(res.Groups[0].Properties["timeArrived"].DateAggregations))
+			require.Equal(t, int64(0), res.Groups[0].Properties["timeArrived"].DateAggregations["count"].(int64))
 		})
 	}
 }
@@ -1219,7 +1266,7 @@ func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
 			require.Equal(t, 1, len(res.Groups))
 			require.Equal(t, 1, len(res.Groups[0].Properties))
 			require.Equal(t, 1, len(res.Groups[0].Properties["dividendYield"].NumericalAggregations))
-			require.Equal(t, uint64(0), res.Groups[0].Properties["dividendYield"].NumericalAggregations["count"].(uint64))
+			require.Equal(t, float64(0), res.Groups[0].Properties["dividendYield"].NumericalAggregations["count"].(float64))
 		})
 	}
 }
@@ -1601,6 +1648,8 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			delete(res.Groups[0].Properties, "dividendYield")
 			actualPrice := res.Groups[0].Properties["price"]
 			delete(res.Groups[0].Properties, "price")
+			actualMakesProduct := res.Groups[0].Properties["makesProduct"]
+			delete(res.Groups[0].Properties, "makesProduct")
 
 			expectedDivYield := aggregation.Property{
 				Type: aggregation.PropertyTypeNumerical,
@@ -1625,6 +1674,13 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					"mode":    70.,
 					"median":  115.,
 					"count":   60.,
+				},
+			}
+
+			expectedMakesProduct := aggregation.Property{
+				Type: aggregation.PropertyTypeReference,
+				ReferenceAggregation: aggregation.Reference{
+					PointingTo: []string{"weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06"},
 				},
 			}
 
@@ -1721,6 +1777,9 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				actualDivYield.NumericalAggregations["count"], 0.1)
 			assert.InEpsilon(t, expectedPrice.NumericalAggregations["count"],
 				actualPrice.NumericalAggregations["count"], 0.1)
+
+			assert.Equal(t, expectedMakesProduct.ReferenceAggregation.PointingTo,
+				actualMakesProduct.ReferenceAggregation.PointingTo)
 		})
 
 		t.Run("multiple fields, multiple aggregators, ref filter", func(t *testing.T) {
@@ -1825,6 +1884,10 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					{
 						Count: 10,
 						Properties: map[string]aggregation.Property{
+							"makesProduct": {
+								Type:                 aggregation.PropertyTypeReference,
+								ReferenceAggregation: aggregation.Reference{PointingTo: []string{"weaviate://localhost/1295c052-263d-4aae-99dd-920c5a370d06"}},
+							},
 							"dividendYield": {
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]interface{}{
@@ -1914,55 +1977,54 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
 
-		// TODO: Flaky median result: https://github.com/semi-technologies/weaviate/issues/1693
-		// t.Run("array types, single aggregator numbers", func(t *testing.T) {
-		// 	params := aggregation.Params{
-		// 		ClassName: schema.ClassName(arrayTypesClass.Class),
-		// 		GroupBy:   nil, // explicitly set to nil
-		// 		Properties: []aggregation.ParamProperty{
-		// 			aggregation.ParamProperty{
-		// 				Name: schema.PropertyName("numbers"),
-		// 				Aggregators: []aggregation.Aggregator{
-		// 					aggregation.MeanAggregator,
-		// 					aggregation.MaximumAggregator,
-		// 					aggregation.MinimumAggregator,
-		// 					aggregation.SumAggregator,
-		// 					aggregation.ModeAggregator,
-		// 					aggregation.MedianAggregator,
-		// 					aggregation.CountAggregator,
-		// 					aggregation.TypeAggregator, // ignored in the repo, but can't block
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+		t.Run("array types, single aggregator numbers", func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName: schema.ClassName(arrayTypesClass.Class),
+				GroupBy:   nil, // explicitly set to nil
+				Properties: []aggregation.ParamProperty{
+					{
+						Name: schema.PropertyName("numbers"),
+						Aggregators: []aggregation.Aggregator{
+							aggregation.MeanAggregator,
+							aggregation.MaximumAggregator,
+							aggregation.MinimumAggregator,
+							aggregation.SumAggregator,
+							aggregation.ModeAggregator,
+							aggregation.MedianAggregator,
+							aggregation.CountAggregator,
+							aggregation.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+				},
+			}
 
-		// 	res, err := repo.Aggregate(context.Background(), params)
-		// 	require.Nil(t, err)
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
 
-		// 	expectedResult := &aggregation.Result{
-		// 		Groups: []aggregation.Group{
-		// 			aggregation.Group{
-		// 				GroupedBy: nil,
-		// 				Properties: map[string]aggregation.Property{
-		// 					"numbers": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]interface{}{
-		// 							"mean":    1.8,
-		// 							"maximum": 3.0,
-		// 							"minimum": 1.0,
-		// 							"sum":     9.0,
-		// 							"mode":    1.0,
-		// 							"median":  3.0,
-		// 							"count":   5.,
-		// 						},
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					{
+						GroupedBy: nil,
+						Properties: map[string]aggregation.Property{
+							"numbers": {
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]interface{}{
+									"mean":    2.0,
+									"maximum": 3.0,
+									"minimum": 1.0,
+									"sum":     14.0,
+									"mode":    2.0,
+									"median":  2.0,
+									"count":   7.,
+								},
+							},
+						},
+					},
+				},
+			}
 
-		// 	assert.Equal(t, expectedResult.Groups, res.Groups)
-		// })
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
 
 		t.Run("array types, single aggregator strings", func(t *testing.T) {
 			if !exact {
@@ -2066,7 +2128,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				"count":   int64(10),
 				"minimum": "2022-06-16T17:30:17.231346Z",
 				"maximum": "2022-06-16T17:30:26.451235Z",
-				"median":  "2022-06-16T17:30:20.123546Z",
+				"median":  "2022-06-16T17:30:21.1179905Z",
 				"mode":    "2022-06-16T17:30:17.231346Z",
 			}
 			receivedProperties := res.Groups[0].Properties["timeArrived"].DateAggregations
@@ -2110,7 +2172,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 							DateAggregations: map[string]interface{}{
 								"count":   int64(6),
 								"maximum": "2022-06-16T17:30:25.524536Z",
-								"median":  "2022-06-16T17:30:17.231346Z",
+								"median":  "2022-06-16T17:30:19.6718905Z",
 								"minimum": "2022-06-16T17:30:17.231346Z",
 								"mode":    "2022-06-16T17:30:17.231346Z",
 							},
@@ -2129,7 +2191,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 							DateAggregations: map[string]interface{}{
 								"count":   int64(4),
 								"maximum": "2022-06-16T17:30:26.451235Z",
-								"median":  "2022-06-16T17:30:20.123546Z",
+								"median":  "2022-06-16T17:30:22.224622Z",
 								"minimum": "2022-06-16T17:30:20.123546Z",
 								"mode":    "2022-06-16T17:30:20.123546Z",
 							},
