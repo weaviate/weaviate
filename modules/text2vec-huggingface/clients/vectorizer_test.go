@@ -181,6 +181,31 @@ func TestClient(t *testing.T) {
 			"neither in request header: X-HuggingFace-Api-Key "+
 			"nor in environment variable under HUGGINGFACE_APIKEY")
 	})
+
+	t.Run("when the server returns an error with warnings", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{
+			t:           t,
+			serverError: errors.Errorf("with warnings"),
+		})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "apiKey",
+			httpClient: &http.Client{},
+			urlBuilder: &huggingFaceUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/pipeline/feature-extraction/%s",
+			},
+			logger: nullLogger(),
+		}
+		_, err := c.Vectorize(context.Background(), "This is my text",
+			ent.VectorizationConfig{})
+
+		require.NotNil(t, err)
+		assert.Equal(t, err.Error(), "failed with status: 500 error: with warnings "+
+			"warnings: [There was an inference error: CUDA error: all CUDA-capable devices are busy or unavailable\n"+
+			"CUDA kernel errors might be asynchronously reported at some other API call,so the stacktrace below might be incorrect.\n"+
+			"For debugging consider passing CUDA_LAUNCH_BLOCKING=1.]")
+	})
 }
 
 type fakeHandler struct {
@@ -192,16 +217,34 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.serverError != nil {
-		embeddingError := map[string]interface{}{
-			"error":          f.serverError.Error(),
-			"estimated_time": 20.0,
-		}
-		outBytes, err := json.Marshal(embeddingError)
-		require.Nil(f.t, err)
+		switch f.serverError.Error() {
+		case "with warnings":
+			embeddingError := map[string]interface{}{
+				"error": f.serverError.Error(),
+				"warnings": []string{
+					"There was an inference error: CUDA error: all CUDA-capable devices are busy or unavailable\n" +
+						"CUDA kernel errors might be asynchronously reported at some other API call,so the stacktrace below might be incorrect.\n" +
+						"For debugging consider passing CUDA_LAUNCH_BLOCKING=1.",
+				},
+			}
+			outBytes, err := json.Marshal(embeddingError)
+			require.Nil(f.t, err)
 
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write(outBytes)
-		return
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(outBytes)
+			return
+		default:
+			embeddingError := map[string]interface{}{
+				"error":          f.serverError.Error(),
+				"estimated_time": 20.0,
+			}
+			outBytes, err := json.Marshal(embeddingError)
+			require.Nil(f.t, err)
+
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(outBytes)
+			return
+		}
 	}
 
 	bodyBytes, err := io.ReadAll(r.Body)

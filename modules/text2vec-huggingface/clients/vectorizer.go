@@ -42,6 +42,7 @@ type embeddingBert [][][][]float32
 type huggingFaceApiError struct {
 	Error         string   `json:"error"`
 	EstimatedTime *float32 `json:"estimated_time,omitempty"`
+	Warnings      []string `json:"warnings"`
 }
 
 type vectorizer struct {
@@ -118,6 +119,9 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 			message = fmt.Sprintf("%s error: %v", message, resBody.Error)
 			if resBody.EstimatedTime != nil {
 				message = fmt.Sprintf("%s estimated time: %v", message, *resBody.EstimatedTime)
+			}
+			if len(resBody.Warnings) > 0 {
+				message = fmt.Sprintf("%s warnings: %v", message, resBody.Warnings)
 			}
 		}
 		return nil, errors.New(message)
