@@ -320,7 +320,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "rate(batch_delete_durations_ms_sum[$__interval])/rate(batch_delete_durations_ms_count[$__interval])",
+          "expr": "rate(batch_delete_durations_ms_sum{}[$__interval])/rate(batch_delete_durations_ms_count{}[$__interval])",
           "interval": "",
           "legendFormat": "{{ operation }} ({{class_name}}/{{shard_name}})",
           "refId": "A"
