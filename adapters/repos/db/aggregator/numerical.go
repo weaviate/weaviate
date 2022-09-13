@@ -26,17 +26,29 @@ func addNumericalAggregations(prop *aggregation.Property,
 	if prop.NumericalAggregations == nil {
 		prop.NumericalAggregations = map[string]interface{}{}
 	}
+	agg.buildPairsFromCounts()
 
 	// if there are no elements to aggregate over because a filter does not match anything, calculating mean etc. makes
 	// no sense. Non-existent entries evaluate to nil with an interface{} map
 	if agg.count == 0 {
 		for _, entry := range aggs {
 			if entry == aggregation.CountAggregator {
-				prop.NumericalAggregations["count"] = agg.count
+				prop.NumericalAggregations["count"] = float64(agg.count)
 				break
 			}
 		}
 		return
+	}
+
+	// when combining the results from different shards, we need the raw numbers to recompute the mode, mean and median.
+	// Therefor we add a reference later which needs to be cleared out before returning the results to a user
+loop:
+	for _, aProp := range aggs {
+		switch aProp {
+		case aggregation.ModeAggregator, aggregation.MedianAggregator, aggregation.MeanAggregator:
+			prop.NumericalAggregations["_numericalAggregator"] = agg
+			break loop
+		}
 	}
 
 	for _, aProp := range aggs {
@@ -55,7 +67,6 @@ func addNumericalAggregations(prop *aggregation.Property,
 			prop.NumericalAggregations[aProp.String()] = agg.Sum()
 		case aggregation.CountAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Count()
-
 		default:
 			continue
 		}
@@ -67,6 +78,7 @@ func newNumericalAggregator() *numericalAggregator {
 		min:          math.MaxFloat64,
 		max:          math.SmallestNonzeroFloat64,
 		valueCounter: map[float64]uint64{},
+		pairs:        make([]floatCountPair, 0),
 	}
 }
 
@@ -87,30 +99,13 @@ type floatCountPair struct {
 }
 
 func (a *numericalAggregator) AddFloat64(value float64) error {
-	a.count++
-	a.sum += value
-	if value < a.min {
-		a.min = value
-	}
-
-	if value > a.max {
-		a.max = value
-	}
-
-	count := a.valueCounter[value]
-	count++
-	a.valueCounter[value] = count
-
-	return nil
+	return a.AddNumberRow(value, 1)
 }
 
-// turns the value counter into a sorted list, as well as identifying the mode
+// turns the value counter into a sorted list, as well as identifying the mode. Must be called before calling median etc
 func (a *numericalAggregator) buildPairsFromCounts() {
-	if a.pairs == nil {
-		a.pairs = make([]floatCountPair, 0, len(a.valueCounter))
-	} else {
-		a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
-	}
+	a.pairs = a.pairs[:0] // clear out old values in case this function called more than once
+	a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
 
 	for value, count := range a.valueCounter {
 		if count > a.maxCount {
@@ -160,12 +155,9 @@ func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
 		a.max = number
 	}
 
-	if count > a.maxCount {
-		a.maxCount = count
-		a.mode = number
-	}
-
-	a.pairs = append(a.pairs, floatCountPair{value: number, count: count})
+	currentCount := a.valueCounter[number]
+	currentCount += count
+	a.valueCounter[number] = currentCount
 
 	return nil
 }
