@@ -12,7 +12,10 @@
 package inverted
 
 import (
+	"fmt"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -569,6 +572,66 @@ func TestAnalyzeObject(t *testing.T) {
 	})
 }
 
+func TestConvertSliceToUntyped(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       interface{}
+		expectedErr error
+	}{
+		{
+			name:  "interface{} slice",
+			input: []interface{}{map[string]interface{}{}},
+		},
+		{
+			name:  "string slice",
+			input: []string{"some", "slice"},
+		},
+		{
+			name:  "int slice",
+			input: []int{1, 2, 3, 4, 5},
+		},
+		{
+			name:  "time slice",
+			input: []time.Time{time.Now(), time.Now(), time.Now()},
+		},
+		{
+			name:  "bool slice",
+			input: []bool{false},
+		},
+		{
+			name:  "float64 slice",
+			input: []float64{1.2, 53555, 4.123, 2, 7.8877887, 0.0001},
+		},
+		{
+			name:  "empty slice",
+			input: []string{},
+		},
+		{
+			name:        "unsupported uint8 slice",
+			input:       []uint8{1, 2, 3, 4, 5},
+			expectedErr: fmt.Errorf("unsupported type []uint8"),
+		},
+		{
+			name:        "unsupported struct{}",
+			input:       struct{}{},
+			expectedErr: fmt.Errorf("unsupported type struct {}"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := typedSliceToUntyped(test.input)
+			if test.expectedErr != nil {
+				assert.EqualError(t, err, test.expectedErr.Error())
+			} else {
+				require.Nil(t, err)
+				assert.Len(t, output, reflect.ValueOf(test.input).Len())
+				assert.IsType(t, []interface{}{}, output)
+			}
+		})
+	}
+}
+
 func mustGetByteIntNumber(in int) []byte {
 	out, err := LexicographicallySortableInt64(int64(in))
 	if err != nil {
@@ -578,7 +641,7 @@ func mustGetByteIntNumber(in int) []byte {
 }
 
 func mustGetByteFloatNumber(in float64) []byte {
-	out, err := LexicographicallySortableFloat64(float64(in))
+	out, err := LexicographicallySortableFloat64(in)
 	if err != nil {
 		panic(err)
 	}
