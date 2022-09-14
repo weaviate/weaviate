@@ -7,7 +7,9 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
-var featureFlag = true // TODO
+// TODO WEAVIATE-286, instead of this fake feature flag, this should be read
+// from the environment. See usecases/config/environment.go
+var temporaryFakeFeatureFlagForWeavite286 = true
 
 func (s *Shard) Dimensions() int {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
@@ -27,12 +29,14 @@ func (s *Shard) Dimensions() int {
 }
 
 func (s *Shard) initDimensionTracking() {
-	// TODO: check real feature flag and disable if not set
-	if !featureFlag {
+	// TODO WEAVIATE-286: check real feature flag and disable if not set
+	if !temporaryFakeFeatureFlagForWeavite286 {
 		return
 	}
 
-	// TODO cancel
+	// TODO WEAVIATE-286: cancel the cycle when the shard is shut down
+	// Does it make sense to use the more elaborate CycleManager here?
+	// See entities/cyclemanager/cyclemanager.go
 
 	go func() {
 		t := time.Tick(5 * time.Second)
@@ -40,7 +44,9 @@ func (s *Shard) initDimensionTracking() {
 		for {
 			<-t
 			_ = s.Dimensions()
-			// fmt.Print(s.Dimensions())
+
+			// TODO WEAVIATE-286: Track the dimensions using Prometheus Gauge with
+			// class name and shardname as labels
 		}
 	}()
 }

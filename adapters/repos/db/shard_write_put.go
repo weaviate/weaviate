@@ -249,7 +249,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "store field length values for props")
 	}
 
-	if featureFlag {
+	if temporaryFakeFeatureFlagForWeavite286 {
 		err = s.extendDimensionTrackerLSM(len(object.Vector), status.docID)
 		if err != nil {
 			return errors.Wrap(err, "track dimensions")
@@ -316,7 +316,7 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 		return errors.Wrap(err, "put inverted indices props")
 	}
 
-	if featureFlag {
+	if temporaryFakeFeatureFlagForWeavite286 {
 		err = s.removeDimensionsLSM(len(previousObject.Vector), status.oldDocID)
 		if err != nil {
 			return errors.Wrap(err, "track dimensions (delete)")
