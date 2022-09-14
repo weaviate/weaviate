@@ -110,6 +110,26 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
 }
 
+type fakeReferenceVectorizer struct {
+	mock.Mock
+}
+
+type fakeReferenceVectorizerProvider struct {
+	vectorizer *fakeReferenceVectorizer
+}
+
+func (f *fakeReferenceVectorizerProvider) ReferenceVectorizer(modName, className string) (ReferenceVectorizer, error) {
+	return f.vectorizer, nil
+}
+
+func (f *fakeReferenceVectorizer) UpdateObject(ctx context.Context,
+	object *models.Object, refVecs ...[]float32,
+) error {
+	args := f.Called(object)
+	object.Vector = args.Get(0).([]float32)
+	return args.Error(1)
+}
+
 type fakeVectorizerProvider struct {
 	vectorizer *fakeVectorizer
 }
@@ -286,6 +306,7 @@ func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
 type fakeModulesProvider struct {
 	customExtender  *fakeExtender
 	customProjector *fakeProjector
+	usingRef2Vec    bool
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
@@ -302,6 +323,14 @@ func (p *fakeModulesProvider) ListObjectsAdditionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
 ) (search.Results, error) {
 	return p.additionalExtend(ctx, in, moduleParams, "ObjectList")
+}
+
+func (p *fakeModulesProvider) UsingRef2Vec() bool {
+	return p.usingRef2Vec
+}
+
+func (p *fakeModulesProvider) TargetReferenceProperties(className string) (map[string]struct{}, error) {
+	return nil, nil
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
@@ -664,15 +693,33 @@ func getDefaultParam(name string) interface{} {
 	}
 }
 
-func getFakeModulesProvider() *fakeModulesProvider {
-	return &fakeModulesProvider{}
+func getFakeModulesProvider(opts ...func(p *fakeModulesProvider)) *fakeModulesProvider {
+	p := &fakeModulesProvider{}
+	p.applyOptions(opts...)
+	return p
 }
+
+func (p *fakeModulesProvider) applyOptions(opts ...func(provider *fakeModulesProvider)) {
+	for _, opt := range opts {
+		opt(p)
+	}
+}
+
+// TODO: use this when testing ref2vec
+//func withRef2Vec() func(p *fakeModulesProvider) {
+//	return func(p *fakeModulesProvider) {
+//		p.usingRef2Vec = true
+//	}
+//}
 
 func getFakeModulesProviderWithCustomExtenders(
 	customExtender *fakeExtender,
 	customProjector *fakeProjector,
+	opts ...func(provider *fakeModulesProvider),
 ) *fakeModulesProvider {
-	return &fakeModulesProvider{customExtender, customProjector}
+	p := &fakeModulesProvider{customExtender, customProjector, false}
+	p.applyOptions(opts...)
+	return p
 }
 
 type fakeMetrics struct {

@@ -104,23 +104,6 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	return object, nil
 }
 
-func (m *Manager) vectorizeAndPutObject(ctx context.Context, object *models.Object,
-	principal *models.Principal,
-) error {
-	err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
-		m.logger).Do(ctx, object, principal)
-	if err != nil {
-		return err
-	}
-
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector)
-	if err != nil {
-		return NewErrInternal("store: %v", err)
-	}
-
-	return nil
-}
-
 func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, object *models.Object) error {
 	// Validate schema given in body with the weaviate schema
 	if _, err := uuid.Parse(object.ID.String()); err != nil {

@@ -68,10 +68,13 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
+		refVectorizer := &fakeReferenceVectorizer{}
+		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
+			refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
 	}
 
 	reset := func() {
@@ -226,11 +229,14 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
+		refVectorizer := &fakeReferenceVectorizer{}
+		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
+			vecProvider, refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -330,10 +336,13 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
+		refVectorizer := &fakeReferenceVectorizer{}
+		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
+			vecProvider, refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -386,10 +395,13 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
+		refVectorizer := &fakeReferenceVectorizer{}
+		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
+			refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
 	}
 	reset()
 	ctx := context.Background()

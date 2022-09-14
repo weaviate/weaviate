@@ -61,11 +61,14 @@ func Test_GetAction(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
+		refVectorizer := &fakeReferenceVectorizer{}
+		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics = &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger,
+			authorizer, vecProvider, refVecProvider, vectorRepo,
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -699,11 +702,14 @@ func Test_GetThing(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
+		refVectorizer := &fakeReferenceVectorizer{}
+		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger,
+			authorizer, vecProvider, refVecProvider, vectorRepo,
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1092,8 +1098,11 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
 	logger, _ := test.NewNullLogger()
+	refVectorizer := &fakeReferenceVectorizer{}
+	refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider, r.metrics)
+	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer,
+		vecProvider, refVecProvider, r.repo, mProvider, r.metrics)
 	return r
 }

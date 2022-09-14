@@ -229,7 +229,8 @@ func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 	case modulecapabilities.Text2Vec,
 		modulecapabilities.Img2Vec,
 		modulecapabilities.Multi2Vec,
-		modulecapabilities.Text2MultiVec:
+		modulecapabilities.Text2MultiVec,
+		modulecapabilities.Ref2Vec:
 		return true
 	default:
 		return false

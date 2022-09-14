@@ -2,6 +2,7 @@ package modcentroid
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -42,7 +43,42 @@ func (m *CentroidModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *CentroidModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig, refVecs ...[]float32,
 ) error {
+	if len(refVecs) == 0 {
+		return nil
+	}
+
+	// TODO: abstract out mean calc for pluggable calculation methods
+
+	targetVecLen := len(refVecs[0])
+	meanVec := make([]float32, targetVecLen)
+
+	// TODO: find the efficient way of doing this
+	for _, vec := range refVecs {
+		if len(vec) != targetVecLen {
+			return fmt.Errorf("vectorize object: found vectors of different length: %d and %d",
+				targetVecLen, len(vec))
+		}
+
+		for i, val := range vec {
+			meanVec[i] += val
+		}
+	}
+
+	for i := range meanVec {
+		meanVec[i] /= float32(len(refVecs))
+	}
+
+	obj.Vector = meanVec
+
 	return nil
+}
+
+func (m *CentroidModule) TargetReferenceProperties(allProps map[string]interface{}) (refProps []string) {
+	iRefProps := allProps[referencePropertiesField].([]interface{})
+	for _, iProp := range iRefProps {
+		refProps = append(refProps, iProp.(string))
+	}
+	return
 }
