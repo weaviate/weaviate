@@ -179,7 +179,8 @@ func Test_DimensionTracking(t *testing.T) {
 	// TODO WEAVIATE-286 still missing:
 	//
 	// - add objects without vectors using Batch Objects
+	// - delete objects
 	// - add objects with vectors using Batch Objects
 	// - modify objects using Batch reference (this should not change the vector)
-	// - modify object (attach a vector, remove a vector, replace a vector) using Merge
+	// - modify object (attach a vector, remove a vector, replace a vector) using Merge // PATCH
 }
