@@ -155,7 +155,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 
 	if bytes == nil {
 		return nil, storobj.NewErrNotFoundf(indexID,
-			"uuid found for docID, but object is nil")
+			"no object for doc id, it could have been deleted")
 	}
 
 	return storobj.VectorFromBinary(bytes)
