@@ -185,6 +185,10 @@ func (s *Shard) extendDimensionTrackerLSM(
 	return b.MapSet(buf[0:4], pair)
 }
 
+// Key (dimensionality) | Value Doc IDs
+// 128 | 1,2,4,5,17
+// 128 | 1,2,4,5,17, Tombstone 4,
+
 func (s *Shard) removeDimensionsLSM(
 	count int, docID uint64,
 ) error {

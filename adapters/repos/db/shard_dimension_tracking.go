@@ -39,7 +39,7 @@ func (s *Shard) initDimensionTracking() {
 	// See entities/cyclemanager/cyclemanager.go
 
 	go func() {
-		t := time.Tick(5 * time.Second)
+		t := time.Tick(5 * time.Second) // 5 minutes
 
 		for {
 			<-t
