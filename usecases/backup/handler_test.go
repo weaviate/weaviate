@@ -20,11 +20,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type fakeSchemaManger struct{}
+type fakeSchemaManger struct {
+	errRestoreClass error
+}
 
 func (f *fakeSchemaManger) RestoreClass(context.Context, *models.Principal, *backup.ClassDescriptor,
 ) error {
-	return nil
+	return f.errRestoreClass
 }
 
 type fakeAuthorizer struct{}
