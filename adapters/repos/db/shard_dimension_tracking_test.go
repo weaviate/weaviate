@@ -175,4 +175,11 @@ func Test_DimensionTracking(t *testing.T) {
 			assert.Equal(t, 12800, shard.Dimensions())
 		}
 	})
+
+	// TODO WEAVIATE-286 still missing:
+	//
+	// - add objects without vectors using Batch Objects
+	// - add objects with vectors using Batch Objects
+	// - modify objects using Batch reference (this should not change the vector)
+	// - modify object (attach a vector, remove a vector, replace a vector) using Merge
 }
