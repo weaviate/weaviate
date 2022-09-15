@@ -2,10 +2,37 @@ package db
 
 import (
 	"encoding/binary"
+	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
+
+var transfer string
+
+func doThing(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintf(w, "%v\n", transfer)
+}
+
+func init() {
+	http.HandleFunc("/dothing", doThing)
+
+	go http.ListenAndServe("0.0.0.0:64000", nil)
+	fmt.Println(`!!!!!!!!!!!!!!!!!!
+	!!!!!!!!!!!!!!
+	!!!!!!!!!!!!!!
+	!!!!!!!!!!!!!!
+		
+		!!!!!!!!!!!!!!
+		!!!!!!!!!!!!!!
+		!!!!!!!!!!!!!!
+		!!!!!!!!!!!!!!
+			!!!!!!!!!!!!!!
+			!!!!!!!!!!!!!!
+			!!!!!!!!!!!!!!
+			!!!!!!!!!!!!!!`)
+}
 
 // TODO WEAVIATE-286, instead of this fake feature flag, this should be read
 // from the environment. See usecases/config/environment.go
@@ -25,6 +52,8 @@ func (s *Shard) Dimensions() int {
 	}
 	c.Close()
 
+	transfer = fmt.Sprintf("Dimensions: %d", sum)
+
 	return sum
 }
 
@@ -43,10 +72,12 @@ func (s *Shard) initDimensionTracking() {
 
 		for {
 			<-t
-			_ = s.Dimensions()
+			dimCount := s.Dimensions()
 
-			// TODO WEAVIATE-286: Track the dimensions using Prometheus Gauge with
-			// class name and shardname as labels
+			metric, _ := s.promMetrics.DimensionSum.GetMetricWithLabelValues("dimensions", s.index.Config.ClassName.String(), s.name)
+
+			metric.Set(float64(dimCount))
+
 		}
 	}()
 }
