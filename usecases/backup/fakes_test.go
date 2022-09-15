@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -49,7 +50,8 @@ func (s *fakeSourcer) ListBackupable() []string {
 
 func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string,
 ) <-chan backup.ClassDescriptor {
-	return nil
+	args := s.Called(ctx, bakid, classes)
+	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 
 func (s *fakeSourcer) ClassExists(name string) bool {
@@ -59,6 +61,7 @@ func (s *fakeSourcer) ClassExists(name string) bool {
 
 type fakeBackend struct {
 	mock.Mock
+	meta backup.BackupDescriptor
 }
 
 func (s *fakeBackend) HomeDir(backupID string) string {
@@ -67,11 +70,16 @@ func (s *fakeBackend) HomeDir(backupID string) string {
 }
 
 func (s *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	return nil
+	args := s.Called(ctx, backupID, key, srcPath)
+	return args.Error(0)
 }
 
-func (s *fakeBackend) PutObject(ctx context.Context, backupID, key string, _ []byte) error {
-	return nil
+func (s *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte) error {
+	if key == MetaDataFilename {
+		json.Unmarshal(bytes, &s.meta)
+	}
+	args := s.Called(ctx, backupID, key, bytes)
+	return args.Error(0)
 }
 
 func (s *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
