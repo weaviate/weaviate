@@ -35,8 +35,8 @@ type ReferenceVectorizer interface {
 	// with the reference vectors refVectors
 	VectorizeObject(ctx context.Context, obj *models.Object,
 		cfg moduletools.ClassConfig, refVectors ...[]float32) error
-	// TargetReferenceProperties takes in a map of a given class' module config, and
-	// returns a list of properties which were configured by the class to be used for
+	// TargetReferenceProperties takes in a given class' module config, and returns
+	// a list of properties which were configured by the class to be used for
 	// calculating an object's vector based only on the vectors of its references
-	TargetReferenceProperties(allProps map[string]interface{}) []string
+	TargetReferenceProperties(cfg moduletools.ClassConfig) []string
 }

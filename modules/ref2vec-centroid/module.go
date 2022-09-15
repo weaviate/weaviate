@@ -8,6 +8,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,7 +30,6 @@ func (m *CentroidModule) Name() string {
 
 func (m *CentroidModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.logger = params.GetLogger()
-
 	return nil
 }
 
@@ -50,36 +50,28 @@ func (m *CentroidModule) VectorizeObject(ctx context.Context,
 		return nil
 	}
 
-	// TODO: abstract out mean calc for pluggable calculation methods
+	vzr := m.vectorizer(cfg)
 
-	targetVecLen := len(refVecs[0])
-	meanVec := make([]float32, targetVecLen)
-
-	// TODO: find the efficient way of doing this
-	for _, vec := range refVecs {
-		if len(vec) != targetVecLen {
-			return fmt.Errorf("vectorize object: found vectors of different length: %d and %d",
-				targetVecLen, len(vec))
-		}
-
-		for i, val := range vec {
-			meanVec[i] += val
-		}
+	vec, err := vzr.CalculateVector(refVecs...)
+	if err != nil {
+		return fmt.Errorf("calculate vector: %w", err)
 	}
 
-	for i := range meanVec {
-		meanVec[i] /= float32(len(refVecs))
-	}
-
-	obj.Vector = meanVec
-
+	obj.Vector = vec
 	return nil
 }
 
-func (m *CentroidModule) TargetReferenceProperties(allProps map[string]interface{}) (refProps []string) {
-	iRefProps := allProps[referencePropertiesField].([]interface{})
+func (m *CentroidModule) TargetReferenceProperties(cfg moduletools.ClassConfig) (refProps []string) {
+	props := cfg.Class()
+	iRefProps := props[referencePropertiesField].([]interface{})
 	for _, iProp := range iRefProps {
 		refProps = append(refProps, iProp.(string))
 	}
 	return
+}
+
+func (m *CentroidModule) vectorizer(cfg moduletools.ClassConfig) *vectorizer.Vectorizer {
+	props := cfg.Class()
+	calcMethod := props[calculationMethodField].(vectorizer.CalculationMethod)
+	return vectorizer.New(calcMethod)
 }

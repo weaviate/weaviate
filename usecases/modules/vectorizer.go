@@ -116,7 +116,7 @@ func (m *Provider) TargetReferenceProperties(className string) (map[string]struc
 	}
 
 	cfg := NewClassBasedModuleConfig(class, found.Name())
-	targetProps := vectorizer.TargetReferenceProperties(cfg.Class())
+	targetProps := vectorizer.TargetReferenceProperties(cfg)
 
 	// pass on a set for more efficient lookups
 	propSet := make(map[string]struct{})

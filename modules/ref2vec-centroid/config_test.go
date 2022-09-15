@@ -7,6 +7,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/vectorizer"
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -14,7 +15,7 @@ import (
 func TestConfigDefaults(t *testing.T) {
 	def := New().ClassConfigDefaults()
 
-	assert.Equal(t, defaultCalculationMethod, def[calculationMethodField])
+	assert.Equal(t, vectorizer.MethodDefault, def[calculationMethodField])
 }
 
 func TestConfigValidator(t *testing.T) {

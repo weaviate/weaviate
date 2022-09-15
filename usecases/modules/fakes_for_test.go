@@ -96,7 +96,7 @@ func (m dummyRef2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 }
 
 func (m dummyRef2VecModuleNoCapabilities) TargetReferenceProperties(
-	allProps map[string]interface{},
+	cfg moduletools.ClassConfig,
 ) (refProps []string) {
 	return nil
 }

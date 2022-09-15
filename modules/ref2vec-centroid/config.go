@@ -9,12 +9,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	defaultCalculationMethod = "mean"
-
 	calculationMethodField   = "method"
 	referencePropertiesField = "referenceProperties"
 )
@@ -23,7 +22,7 @@ var errInvalidConfig = errors.New("invalid config")
 
 func (m *CentroidModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		calculationMethodField: defaultCalculationMethod,
+		calculationMethodField: vectorizer.MethodDefault,
 	}
 }
 
