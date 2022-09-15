@@ -19,19 +19,7 @@ func init() {
 	http.HandleFunc("/dothing", doThing)
 
 	go http.ListenAndServe("0.0.0.0:64000", nil)
-	fmt.Println(`!!!!!!!!!!!!!!!!!!
-	!!!!!!!!!!!!!!
-	!!!!!!!!!!!!!!
-	!!!!!!!!!!!!!!
-		
-		!!!!!!!!!!!!!!
-		!!!!!!!!!!!!!!
-		!!!!!!!!!!!!!!
-		!!!!!!!!!!!!!!
-			!!!!!!!!!!!!!!
-			!!!!!!!!!!!!!!
-			!!!!!!!!!!!!!!
-			!!!!!!!!!!!!!!`)
+
 }
 
 // TODO WEAVIATE-286, instead of this fake feature flag, this should be read
@@ -59,7 +47,7 @@ func (s *Shard) Dimensions() int {
 
 func (s *Shard) initDimensionTracking() {
 	// TODO WEAVIATE-286: check real feature flag and disable if not set
-	if !temporaryFakeFeatureFlagForWeavite286 {
+	if !s.config.TrackVectorDimesions {
 		return
 	}
 

@@ -60,7 +60,7 @@ func (d *DB) init(ctx context.Context) error {
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
-				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteClient, d.promMetrics)
+				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteClient, d.promMetrics, d.appConfig)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

@@ -36,6 +36,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
@@ -66,6 +67,7 @@ type Shard struct {
 	jobQueueCh          chan job
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
+	config              config.Config
 
 	status     storagestate.Status
 	statusLock sync.Mutex
@@ -80,7 +82,7 @@ type job struct {
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index,
+	shardName string, index *Index, config config.Config,
 ) (*Shard, error) {
 	before := time.Now()
 
@@ -106,6 +108,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		diskScanState:       newDiskScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		config:              config,
 	}
 	if s.maxNumberGoroutines == 0 {
 		return s, errors.New("no workers to add batch-jobs configured.")
