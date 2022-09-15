@@ -50,6 +50,7 @@ type PrometheusMetrics struct {
 	BackupRestoreFromStorageDurations  *prometheus.HistogramVec
 	BackupRestoreDataTransferred       *prometheus.CounterVec
 	BackupStoreDataTransferred         *prometheus.CounterVec
+	DimensionSum                       *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.HistogramVec
@@ -229,6 +230,10 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		DimensionSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "dimension_sum",
+			Help: "Total dimensions in a shard",
+		}, []string{"class_name", "shard_name"}),
 	}
 
 	return metrics
