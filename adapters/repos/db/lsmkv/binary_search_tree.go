@@ -21,8 +21,8 @@ type binarySearchTree struct {
 	root *binarySearchNode
 }
 
-// returns net additions of insert in bytes
-func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) int {
+// returns net additions of insert in bytes, and previous secondary keys
+func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) (int, [][]byte) {
 	if t.root == nil {
 		t.root = &binarySearchNode{
 			key:           key,
@@ -30,16 +30,16 @@ func (t *binarySearchTree) insert(key, value []byte, secondaryKeys [][]byte) int
 			secondaryKeys: secondaryKeys,
 			colourIsRed:   false, // root node is always black
 		}
-		return len(key) + len(value)
+		return len(key) + len(value), nil
 	}
 
-	addition, newRoot := t.root.insert(key, value, secondaryKeys)
+	addition, newRoot, previousSecondaryKeys := t.root.insert(key, value, secondaryKeys)
 	if newRoot != nil {
 		t.root = newRoot
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 
-	return addition
+	return addition, previousSecondaryKeys
 }
 
 func (t *binarySearchTree) get(key []byte) ([]byte, error) {
@@ -187,7 +187,7 @@ func addNewSearchNodeReceiver(nodePtr **binarySearchNode) {
 }
 
 // returns net additions of insert in bytes
-func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (netAdditions int, newRoot *binarySearchNode) {
+func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (netAdditions int, newRoot *binarySearchNode, previousSecondaryKeys [][]byte) {
 	if bytes.Equal(key, n.key) {
 		// since the key already exists, we only need to take the difference
 		// between the existing value and the new one to determine net change
@@ -201,6 +201,7 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 
 		// reset tombstone in case it had one
 		n.tombstone = false
+		previousSecondaryKeys = n.secondaryKeys
 		n.secondaryKeys = secondaryKeys
 
 		newRoot = nil // tree root does not change when replacing node
@@ -209,7 +210,7 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left != nil {
-			netAdditions, newRoot = n.left.insert(key, value, secondaryKeys)
+			netAdditions, newRoot, previousSecondaryKeys = n.left.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.left = &binarySearchNode{
@@ -225,7 +226,7 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 		}
 	} else {
 		if n.right != nil {
-			netAdditions, newRoot = n.right.insert(key, value, secondaryKeys)
+			netAdditions, newRoot, previousSecondaryKeys = n.right.insert(key, value, secondaryKeys)
 			return
 		} else {
 			n.right = &binarySearchNode{

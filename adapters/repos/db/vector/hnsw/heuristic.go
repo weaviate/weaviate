@@ -14,8 +14,10 @@ package hnsw
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
 func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
@@ -38,10 +40,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		i++
 	}
 
-	vecs, err := h.multiVectorForID(context.TODO(), ids)
-	if err != nil {
-		return err
-	}
+	vecs, errs := h.multiVectorForID(context.TODO(), ids)
 
 	returnList := h.pools.pqItemSlice.Get().([]priorityqueue.ItemWithIndex)
 
@@ -53,6 +52,17 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 		distToQuery := curr.Dist
 
 		currVec := vecs[curr.Index]
+		if err := errs[curr.Index]; err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return errors.Wrapf(err,
+					"unrecoverable error for docID %d", curr.ID)
+			}
+		}
 		good := true
 		for _, item := range returnList {
 			peerDist, _, _ := h.distancerProvider.SingleDist(currVec,
