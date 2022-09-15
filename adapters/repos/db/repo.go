@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -32,6 +33,7 @@ type DB struct {
 	nodeResolver nodeResolver
 	promMetrics  *monitoring.PrometheusMetrics
 	shutdown     chan struct{}
+	appConfig    config.Config
 
 	indexLock sync.Mutex
 }
