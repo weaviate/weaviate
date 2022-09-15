@@ -73,7 +73,7 @@ func (m *Manager) AddObjectReference(
 
 	if m.modulesProvider.UsingRef2Vec() {
 		if err := m.computeAndSetReferenceVector(
-			ctx, principal, input.Class, input.ID, input.Ref); err != nil {
+			ctx, principal, input.Class, input.ID, &input.Ref); err != nil {
 			return &Error{"compute and set ref vector", StatusInternalServerError, err}
 		}
 	}

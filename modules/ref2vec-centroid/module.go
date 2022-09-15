@@ -46,6 +46,7 @@ func (m *CentroidModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig, refVecs ...[]float32,
 ) error {
 	if len(refVecs) == 0 {
+		obj.Vector = nil
 		return nil
 	}
 

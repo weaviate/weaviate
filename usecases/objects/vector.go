@@ -151,7 +151,7 @@ func (vo *vectorObtainer) validateVectorPresent(obj *models.Object,
 
 func (m *Manager) computeAndSetReferenceVector(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID,
-	ref models.SingleRef,
+	ref *models.SingleRef,
 ) error {
 	// Get reference properties from module config
 
@@ -187,7 +187,7 @@ func (m *Manager) computeAndSetReferenceVector(ctx context.Context,
 }
 
 func (m *Manager) getReferenceVectorsFromParent(ctx context.Context,
-	parent *search.Result, ref models.SingleRef,
+	parent *search.Result, ref *models.SingleRef,
 	referencePropNames map[string]struct{},
 ) (refVecs [][]float32, err error) {
 	allProps := parent.Schema.(map[string]interface{})
@@ -244,9 +244,14 @@ func (m *Manager) vectorizeAndPutObject(ctx context.Context, object *models.Obje
 // so that we can use the contained id for finding the referenced objects
 // later
 func beaconsForVectorization(allProps map[string]interface{},
-	incomingRef models.SingleRef, targetRefProps map[string]struct{},
+	incomingRef *models.SingleRef, targetRefProps map[string]struct{},
 ) []string {
-	beacons := []string{incomingRef.Beacon.String()}
+	var beacons []string
+
+	if incomingRef != nil {
+		beacons = []string{incomingRef.Beacon.String()}
+	}
+
 	for prop, val := range allProps {
 		if _, ok := targetRefProps[prop]; ok {
 			refs := val.(models.MultipleRef)
