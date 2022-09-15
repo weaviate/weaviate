@@ -3,7 +3,7 @@ package vectorizer
 import "fmt"
 
 func CalculateMean(refVecs ...[]float32) ([]float32, error) {
-	if len(refVecs) == 0 {
+	if len(refVecs) == 0 || len(refVecs[0]) == 0 {
 		return nil, nil
 	}
 

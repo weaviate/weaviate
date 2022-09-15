@@ -84,13 +84,3 @@ func TestConfigValidator(t *testing.T) {
 		})
 	}
 }
-
-type fakeClassConfig map[string]interface{}
-
-func (cfg fakeClassConfig) Class() map[string]interface{} {
-	return cfg
-}
-
-func (cfg fakeClassConfig) Property(string) map[string]interface{} {
-	return nil
-}
