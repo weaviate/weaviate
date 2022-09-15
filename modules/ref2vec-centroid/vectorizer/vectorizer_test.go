@@ -18,6 +18,14 @@ func TestVectorizer(t *testing.T) {
 		assert.EqualValues(t, expected, received)
 	})
 
+	t.Run("no calcFunc set", func(t *testing.T) {
+		vzr := &Vectorizer{}
+
+		expectedErr := "vectorizer calcFunc not set"
+		_, err := vzr.CalculateVector([]float32{1, 2, 3})
+		assert.EqualError(t, err, expectedErr)
+	})
+
 	t.Run("calculate with mean", func(t *testing.T) {
 		tests := []struct {
 			name           string
