@@ -50,7 +50,6 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-
 	before.SetDocID(7)
 
 	asBinary, err := before.MarshalBinary()
@@ -85,6 +84,28 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 }
 
+func TestFilteringNilProperty(t *testing.T) {
+	object := FromObject(
+		&models.Object{
+			Class: "MyFavoriteClass",
+			ID:    "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			Properties: map[string]interface{}{
+				"IWillBeRemoved": nil,
+				"IWillStay":      float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+	)
+	props := object.Properties()
+	propsTyped, ok := props.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, propsTyped["IWillStay"], float64(17))
+
+	elem, ok := propsTyped["IWillBeRemoved"]
+	require.False(t, ok)
+	require.Nil(t, elem)
+}
+
 func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 	before := FromObject(
 		&models.Object{
@@ -113,7 +134,6 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-
 	before.SetDocID(7)
 
 	asBinary, err := before.MarshalBinary()
@@ -279,7 +299,6 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-
 	before.SetDocID(7)
 
 	asBinary, err := before.MarshalBinary()
