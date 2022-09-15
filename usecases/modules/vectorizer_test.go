@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -22,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestVectorizer(t *testing.T) {
+func TestProvider_Vectorizer(t *testing.T) {
 	t.Run("when there are no models registered", func(t *testing.T) {
 		p := NewProvider()
 		_, err := p.Vectorizer("some-module", "MyClass")
@@ -71,7 +72,7 @@ func TestVectorizer(t *testing.T) {
 	})
 }
 
-func TestReferenceVectorizer(t *testing.T) {
+func TestProvider_ReferenceVectorizer(t *testing.T) {
 	t.Run("when there are no models registered", func(t *testing.T) {
 		p := NewProvider()
 		_, err := p.ReferenceVectorizer("some-module", "MyClass")
@@ -117,5 +118,48 @@ func TestReferenceVectorizer(t *testing.T) {
 		require.Nil(t, err)
 
 		assert.Equal(t, models.C11yVector{1, 2, 3}, obj.Vector)
+	})
+}
+
+func TestProvider_ValidateVectorizer(t *testing.T) {
+	t.Run("with vectorizer module", func(t *testing.T) {
+		p := NewProvider()
+		vec := newDummyVectorizerModule("some-module", modulecapabilities.Text2Vec)
+		p.Register(vec)
+
+		err := p.ValidateVectorizer(vec.Name())
+		assert.Nil(t, err)
+	})
+
+	t.Run("with reference vectorizer module", func(t *testing.T) {
+		p := NewProvider()
+		refVec := newDummyVectorizerModule("some-module", modulecapabilities.Ref2Vec)
+		p.Register(refVec)
+
+		err := p.ValidateVectorizer(refVec.Name())
+		assert.Nil(t, err)
+	})
+
+	t.Run("with non-vectorizer module", func(t *testing.T) {
+		modName := "some-module"
+		p := NewProvider()
+		nonVec := newDummyVectorizerModule(modName, "")
+		p.Register(nonVec)
+
+		expectedErr := fmt.Sprintf(
+			"module %q exists, but does not provide the Vectorizer or ReferenceVectorizer capability",
+			modName)
+		err := p.ValidateVectorizer(nonVec.Name())
+		assert.EqualError(t, err, expectedErr)
+	})
+
+	t.Run("with unregistered module", func(t *testing.T) {
+		modName := "does-not-exist"
+		p := NewProvider()
+		expectedErr := fmt.Sprintf(
+			"no module with name %q present",
+			modName)
+		err := p.ValidateVectorizer(modName)
+		assert.EqualError(t, err, expectedErr)
 	})
 }
