@@ -35,7 +35,8 @@ func gettingObjects(t *testing.T) {
 			map[string]interface{}{"name": "Rotterdam"},
 			map[string]interface{}{"name": "Berlin"},
 			map[string]interface{}{"name": "Dusseldorf"},
-			map[string]interface{}{"name": "Null Island"},
+			map[string]interface{}{"name": "Missing Island"},
+			map[string]interface{}{"name": nil},
 		}
 
 		assert.ElementsMatch(t, expected, cities)
@@ -50,7 +51,8 @@ func gettingObjects(t *testing.T) {
     { "name": "Rotterdam",  "inCountry": [{ "name": "Netherlands" }] },
     { "name": "Berlin",     "inCountry": [{ "name": "Germany" }] },
     { "name": "Dusseldorf", "inCountry": [{ "name": "Germany" }] },
-    { "name": "Null Island", "inCountry": null }
+    { "name": "Missing Island", "inCountry": null },
+    { "name": null, "inCountry": null }
   ]`)
 
 		assert.ElementsMatch(t, expected, cities)
@@ -93,8 +95,8 @@ func gettingObjects(t *testing.T) {
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
-			map[string]interface{}{"name": "Amsterdam"},
-			map[string]interface{}{"name": "Null Island"},
+			map[string]interface{}{"name": "Missing Island"},
+			map[string]interface{}{"name": nil},
 		}
 
 		assert.ElementsMatch(t, expected, cities)
@@ -105,8 +107,9 @@ func gettingObjects(t *testing.T) {
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
+			map[string]interface{}{"name": "Missing Island"},
+			map[string]interface{}{"name": nil},
 			map[string]interface{}{"name": "Amsterdam"},
-			map[string]interface{}{"name": "Null Island"},
 			map[string]interface{}{"name": "Berlin"},
 		}
 
@@ -114,7 +117,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with offset and limit beyond results size", func(t *testing.T) {
-		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 4 limit: 10) { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 5 limit: 10) { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{
@@ -125,7 +128,7 @@ func gettingObjects(t *testing.T) {
 	})
 
 	t.Run("listing cities with offset beyond results size", func(t *testing.T) {
-		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 5) { name } } }")
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { City(offset: 6) { name } } }")
 		cities := result.Get("Get", "City").AsSlice()
 
 		expected := []interface{}{}

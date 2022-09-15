@@ -67,7 +67,7 @@ func aggregatesWithoutGroupingOrFilters(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("5")
+		expected := json.Number("6")
 		assert.Equal(t, expected, count)
 	})
 
@@ -132,7 +132,7 @@ func aggregatesWithoutGroupingOrFilters(t *testing.T) {
 				"occurs": json.Number("1"),
 			},
 			map[string]interface{}{
-				"value":  "Null Island",
+				"value":  "Missing Island",
 				"occurs": json.Number("1"),
 			},
 		}
@@ -308,7 +308,7 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("4")
+		expected := json.Number("5")
 		assert.Equal(t, expected, count)
 	})
 
