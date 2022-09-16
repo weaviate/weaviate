@@ -10,7 +10,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-func newDummyVectorizerModule(name string, t modulecapabilities.ModuleType) modulecapabilities.Module {
+func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabilities.Module {
 	switch t {
 	case modulecapabilities.Text2Vec:
 		return newDummyText2VecModule(name)
@@ -53,12 +53,6 @@ func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 ) error {
 	in.Vector = []float32{1, 2, 3}
 	return nil
-}
-
-type fakeSchemaGetter struct{ schema schema.Schema }
-
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
 }
 
 func newDummyRef2VecModule(name string) dummyRef2VecModuleNoCapabilities {
@@ -127,4 +121,14 @@ func (m dummyNonVectorizerModule) RootHandler() http.Handler {
 func (m dummyNonVectorizerModule) Type() modulecapabilities.ModuleType {
 	var non modulecapabilities.ModuleType = "NonVectorizer"
 	return non
+}
+
+type fakeSchemaGetter struct{ schema schema.Schema }
+
+func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
+	return f.schema
+}
+
+func newFakeSchemaGetter(sch schema.Schema) *fakeSchemaGetter {
+	return &fakeSchemaGetter{sch}
 }

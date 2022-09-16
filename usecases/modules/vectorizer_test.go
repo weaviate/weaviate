@@ -33,7 +33,7 @@ func TestProvider_Vectorizer(t *testing.T) {
 
 	t.Run("module exist, but doesn't provide vectorizer", func(t *testing.T) {
 		p := NewProvider()
-		p.Register(newDummyVectorizerModule("some-module", ""))
+		p.Register(newDummyModule("some-module", ""))
 		_, err := p.Vectorizer("some-module", "MyClass")
 		require.NotNil(t, err)
 		assert.Equal(t, "module \"some-module\" exists, but does not provide the "+
@@ -42,7 +42,7 @@ func TestProvider_Vectorizer(t *testing.T) {
 	t.Run("module exists, but the class doesn't", func(t *testing.T) {
 		p := NewProvider()
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
-		p.Register(newDummyVectorizerModule("some-module", modulecapabilities.Text2Vec))
+		p.Register(newDummyModule("some-module", modulecapabilities.Text2Vec))
 		_, err := p.Vectorizer("some-module", "MyClass")
 		require.NotNil(t, err)
 		assert.Equal(t, "class \"MyClass\" not found in schema", err.Error())
@@ -60,7 +60,7 @@ func TestProvider_Vectorizer(t *testing.T) {
 			},
 		}
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
-		p.Register(newDummyVectorizerModule("some-module", modulecapabilities.Text2Vec))
+		p.Register(newDummyModule("some-module", modulecapabilities.Text2Vec))
 		vec, err := p.Vectorizer("some-module", "MyClass")
 		require.Nil(t, err)
 
@@ -82,7 +82,7 @@ func TestProvider_ReferenceVectorizer(t *testing.T) {
 
 	t.Run("module exist, but doesn't provide reference vectorizer", func(t *testing.T) {
 		p := NewProvider()
-		p.Register(newDummyVectorizerModule("some-module", ""))
+		p.Register(newDummyModule("some-module", ""))
 		_, err := p.ReferenceVectorizer("some-module", "MyClass")
 		require.NotNil(t, err)
 		assert.Equal(t, "module \"some-module\" exists, but does not provide the "+
@@ -91,7 +91,7 @@ func TestProvider_ReferenceVectorizer(t *testing.T) {
 	t.Run("module exists, but the class doesn't", func(t *testing.T) {
 		p := NewProvider()
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
-		p.Register(newDummyVectorizerModule("some-module", modulecapabilities.Ref2Vec))
+		p.Register(newDummyModule("some-module", modulecapabilities.Ref2Vec))
 		_, err := p.ReferenceVectorizer("some-module", "MyClass")
 		require.NotNil(t, err)
 		assert.Equal(t, "class \"MyClass\" not found in schema", err.Error())
@@ -109,7 +109,7 @@ func TestProvider_ReferenceVectorizer(t *testing.T) {
 			},
 		}
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
-		p.Register(newDummyVectorizerModule("some-module", modulecapabilities.Ref2Vec))
+		p.Register(newDummyModule("some-module", modulecapabilities.Ref2Vec))
 		vec, err := p.ReferenceVectorizer("some-module", "MyClass")
 		require.Nil(t, err)
 
@@ -124,7 +124,7 @@ func TestProvider_ReferenceVectorizer(t *testing.T) {
 func TestProvider_ValidateVectorizer(t *testing.T) {
 	t.Run("with vectorizer module", func(t *testing.T) {
 		p := NewProvider()
-		vec := newDummyVectorizerModule("some-module", modulecapabilities.Text2Vec)
+		vec := newDummyModule("some-module", modulecapabilities.Text2Vec)
 		p.Register(vec)
 
 		err := p.ValidateVectorizer(vec.Name())
@@ -133,7 +133,7 @@ func TestProvider_ValidateVectorizer(t *testing.T) {
 
 	t.Run("with reference vectorizer module", func(t *testing.T) {
 		p := NewProvider()
-		refVec := newDummyVectorizerModule("some-module", modulecapabilities.Ref2Vec)
+		refVec := newDummyModule("some-module", modulecapabilities.Ref2Vec)
 		p.Register(refVec)
 
 		err := p.ValidateVectorizer(refVec.Name())
@@ -143,7 +143,7 @@ func TestProvider_ValidateVectorizer(t *testing.T) {
 	t.Run("with non-vectorizer module", func(t *testing.T) {
 		modName := "some-module"
 		p := NewProvider()
-		nonVec := newDummyVectorizerModule(modName, "")
+		nonVec := newDummyModule(modName, "")
 		p.Register(nonVec)
 
 		expectedErr := fmt.Sprintf(
@@ -161,5 +161,98 @@ func TestProvider_ValidateVectorizer(t *testing.T) {
 			modName)
 		err := p.ValidateVectorizer(modName)
 		assert.EqualError(t, err, expectedErr)
+	})
+}
+
+func TestProvider_UsingRef2Vec(t *testing.T) {
+	t.Run("with ReferenceVectorizer", func(t *testing.T) {
+		modName := "some-module"
+		mod := newDummyModule(modName, modulecapabilities.Ref2Vec)
+		p := NewProvider()
+		p.Register(mod)
+		assert.True(t, p.UsingRef2Vec(modName))
+	})
+
+	t.Run("with Vectorizer", func(t *testing.T) {
+		modName := "some-module"
+		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
+		p := NewProvider()
+		p.Register(mod)
+		assert.False(t, p.UsingRef2Vec(modName))
+	})
+
+	t.Run("with unregistered module", func(t *testing.T) {
+		modName := "some-module"
+		p := NewProvider()
+		assert.False(t, p.UsingRef2Vec(modName))
+	})
+}
+
+func TestProvider_TargetReferenceProperties(t *testing.T) {
+	moduleName := "some-mod"
+	className := "SomeClass"
+
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:      className,
+					Vectorizer: moduleName,
+					ModuleConfig: map[string]interface{}{
+						"mod": map[string]interface{}{
+							"some-config": "some-config-value",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("with non-ReferenceVectorizer", func(t *testing.T) {
+		mod := newDummyModule(moduleName, modulecapabilities.Text2Vec)
+		p := NewProvider()
+		p.Register(mod)
+		p.SetSchemaGetter(newFakeSchemaGetter(sch))
+
+		_, err := p.TargetReferenceProperties(className)
+		assert.EqualError(t, err, "no ref2vec module found")
+	})
+
+	t.Run("with non-existent class", func(t *testing.T) {
+		dneClass := "DoesNotExist"
+
+		mod := newDummyModule(moduleName, modulecapabilities.Ref2Vec)
+		p := NewProvider()
+		p.Register(mod)
+		p.SetSchemaGetter(newFakeSchemaGetter(sch))
+
+		_, err := p.TargetReferenceProperties(dneClass)
+		expectedErr := fmt.Sprintf("class %q not found in schema", dneClass)
+		assert.EqualError(t, err, expectedErr)
+	})
+
+	t.Run("expected success - ref2vec only", func(t *testing.T) {
+		mod := newDummyModule(moduleName, modulecapabilities.Ref2Vec)
+		p := NewProvider()
+		p.Register(mod)
+		p.SetSchemaGetter(newFakeSchemaGetter(sch))
+
+		props, err := p.TargetReferenceProperties(className)
+		assert.Nil(t, err)
+		assert.NotNil(t, props)
+	})
+
+	t.Run("expected success - multiple module types", func(t *testing.T) {
+		ref2Vec := newDummyModule(moduleName, modulecapabilities.Ref2Vec)
+		text2Vec := newDummyModule("some-other-module", modulecapabilities.Text2Vec)
+
+		p := NewProvider()
+		p.Register(ref2Vec)
+		p.Register(text2Vec)
+		p.SetSchemaGetter(newFakeSchemaGetter(sch))
+
+		props, err := p.TargetReferenceProperties(className)
+		assert.Nil(t, err)
+		assert.NotNil(t, props)
 	})
 }
