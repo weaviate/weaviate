@@ -98,7 +98,7 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 	})
 
 	// This test prevents a regression on gh-825
-	t.Run("Null island is displayed correctly", func(t *testing.T) {
+	t.Run("Missing island is displayed correctly", func(t *testing.T) {
 		query := `
 		{
 			Get {
@@ -121,7 +121,7 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 
 		expectedResults := []interface{}{
 			map[string]interface{}{
-				"name": "Null Island",
+				"name": "Missing Island",
 				"location": map[string]interface{}{
 					"latitude":  json.Number("0"),
 					"longitude": json.Number("0"),

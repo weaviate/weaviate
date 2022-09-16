@@ -90,7 +90,7 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
-				assert.Equal(t, json.Number("4"), getResult(result, "ArrayClass", "count", "meta"))
+				assert.Equal(t, json.Number("5"), getResult(result, "ArrayClass", "count", "meta"))
 				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "booleans"))
 				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "datesAsStrings"))
 				assert.Equal(t, json.Number("6"), getResult(result, "ArrayClass", "count", "dates"))
@@ -204,8 +204,9 @@ func runningAggregateArrayClassSanityCheck(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.filters))
-				// One city object (null island) has no entries for most properties (except population, isCapital and location)
-				assert.Equal(t, json.Number("5"), getResult(result, "City", "count", "meta"))
+				// One city object (missing island) has no entries for most properties (except population, isCapital and
+				// location) and another one (null island) has nil for every entry
+				assert.Equal(t, json.Number("6"), getResult(result, "City", "count", "meta"))
 				assert.Equal(t, json.Number("4"), getResult(result, "City", "count", "cityArea"))
 				assert.Equal(t, json.Number("5"), getResult(result, "City", "count", "isCapital"))
 				assert.Equal(t, json.Number("5"), getResult(result, "City", "count", "population"))

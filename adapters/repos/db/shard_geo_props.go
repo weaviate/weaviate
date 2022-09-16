@@ -51,7 +51,7 @@ func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
 	return func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
 		obj, err := s.objectByIndexID(ctx, id, true)
 		if err != nil {
-			return nil, errors.Wrap(err, "retrieve object")
+			return nil, storobj.NewErrNotFoundf(id, "retrieve object")
 		}
 
 		if obj.Properties() == nil {

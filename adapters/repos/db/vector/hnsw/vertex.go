@@ -46,6 +46,13 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 	return v.connections[level]
 }
 
+func (v *vertex) upgradeToLevelNoLock(level int) {
+	newConnections := make([][]uint64, level+1)
+	copy(newConnections, v.connections)
+	v.level = level
+	v.connections = newConnections
+}
+
 func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 	v.Lock()
 	defer v.Unlock()

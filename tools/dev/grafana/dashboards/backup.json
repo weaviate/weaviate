@@ -124,7 +124,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "backup_restore_ms_sum",
+          "expr": "backup_restore_ms_sum{}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -217,7 +217,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "backup_store_to_backend_ms_sum",
+          "expr": "backup_store_to_backend_ms_sum{}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -323,7 +323,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "backup_store_data_transferred",
+          "expr": "backup_store_data_transferred{}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -416,7 +416,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "backup_restore_data_transferred",
+          "expr": "backup_restore_data_transferred{}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"

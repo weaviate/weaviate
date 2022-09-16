@@ -39,7 +39,8 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects)
 			}
 
 			queue := byIndex[index.ID()]
-			queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Vector))
+			object := storobj.FromObject(item.Object, item.Vector)
+			queue.objects = append(queue.objects, object)
 			queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 			byIndex[index.ID()] = queue
 		}

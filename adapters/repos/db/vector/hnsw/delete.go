@@ -27,6 +27,9 @@ type breakCleanUpTombstonedNodesFunc func() bool
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
 func (h *hnsw) Delete(id uint64) error {
+	h.deleteVsInsertLock.Lock()
+	defer h.deleteVsInsertLock.Unlock()
+
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
 
@@ -305,7 +308,8 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		if h.isOnlyNode(&vertex{id: neighbor}, deleteList) {
 			neighborNode.Lock()
 			// delete all existing connections before re-assigning
-			neighborNode.connections = make([][]uint64, neighborNode.level+1)
+			neighborLevel = neighborNode.level
+			neighborNode.connections = make([][]uint64, neighborLevel+1)
 			neighborNode.Unlock()
 
 			if err := h.commitLog.ClearLinks(neighbor); err != nil {
@@ -319,7 +323,13 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 
 		alternative, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 			entryPointID)
-		neighborLevel = level // reduce in case no neighbor is at our level
+		if level > neighborLevel {
+			neighborNode.Lock()
+			// reset connections according to level
+			neighborNode.connections = make([][]uint64, level+1)
+			neighborNode.Unlock()
+		}
+		neighborLevel = level
 		entryPointID = alternative
 	}
 

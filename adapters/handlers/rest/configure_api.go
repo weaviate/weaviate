@@ -149,7 +149,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// var classifierRepo classification.Repo
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
-		promMetrics := monitoring.NewPrometheusMetrics()
+		promMetrics := monitoring.GetMetrics()
 		appState.Metrics = promMetrics
 	}
 
