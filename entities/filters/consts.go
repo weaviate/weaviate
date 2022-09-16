@@ -14,6 +14,12 @@ package filters
 const (
 	InternalPropBackwardsCompatID  = "id"
 	InternalPropID                 = "_id"
+	InternalNullIndex              = "_nullState"
 	InternalPropCreationTimeUnix   = "_creationTimeUnix"
 	InternalPropLastUpdateTimeUnix = "_lastUpdateTimeUnix"
+)
+
+const (
+	InternalNullState = iota
+	InternalNotNullState
 )

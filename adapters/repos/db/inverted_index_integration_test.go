@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIndexByTimestamps_AddClass(t *testing.T) {
+func TestIndexByTimestampsNullState_AddClass(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
@@ -65,6 +65,7 @@ func TestIndexByTimestamps_AddClass(t *testing.T) {
 					Preset: "none",
 				},
 				IndexTimestamps: true,
+				IndexNullState:  true,
 			},
 			Properties: []*models.Property{
 				{
@@ -93,6 +94,10 @@ func TestIndexByTimestamps_AddClass(t *testing.T) {
 
 				updateHashBucket := shd.store.Bucket("hash_property__lastUpdateTimeUnix")
 				assert.NotNil(t, updateHashBucket, "hash_property__creationTimeUnix bucket not found")
+
+				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+
 			}
 		}
 	})
