@@ -15,6 +15,8 @@ import (
 	"encoding/binary"
 	"math"
 
+	"github.com/semi-technologies/weaviate/entities/filters"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -31,7 +33,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if b == nil {
+		if hashBucket == nil {
 			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
 		}
 
@@ -51,9 +53,53 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 				}
 			}
 		}
+
+		if propIsNil := prop.Items == nil; propIsNil && s.index.invertedIndexConfig.IndexNullState {
+			bNullState := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name + filters.InternalNullIndex))
+			if bNullState == nil {
+				return errors.Errorf("no bucket for nil prop '%s' found", prop.Name+filters.InternalNullIndex)
+			}
+
+			hashBucketNullState := s.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name + filters.InternalNullIndex))
+			if b == nil {
+				return errors.Errorf("no nil-hash bucket for prop '%s' found", prop.Name+filters.InternalNullIndex)
+			}
+
+			err := s.addIndexedNullStateToProps(bNullState, hashBucketNullState, propIsNil, docID)
+			if err != nil {
+				return errors.Wrap(err, "add indexed null state")
+			}
+		}
 	}
 
 	return nil
+}
+
+func (s *Shard) addIndexedNullStateToProps(b, hashBucket *lsmkv.Bucket,
+	isNil bool, docID uint64,
+) error {
+	if b.Strategy() != lsmkv.StrategySetCollection {
+		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	}
+
+	hash, err := s.generateRowHash()
+	if err != nil {
+		return err
+	}
+
+	var key uint8
+	if isNil {
+		key = uint8(filters.InternalNullState)
+	} else {
+		key = uint8(filters.InternalNotNullState)
+	}
+	if err := hashBucket.Put([]byte{key}, hash); err != nil {
+		return err
+	}
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+	return b.SetAdd([]byte{key}, [][]byte{docIDBytes})
 }
 
 func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,

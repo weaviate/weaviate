@@ -74,6 +74,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		if err != nil {
 			return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
 		}
+
+		if class.InvertedIndexConfig.IndexNullState {
+			err = idx.addNullStateProperty(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
+			}
+		}
+
 	}
 
 	m.db.indices[idx.ID()] = idx
