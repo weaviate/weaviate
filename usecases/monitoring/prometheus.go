@@ -62,15 +62,15 @@ var (
 )
 
 func init() {
-	metrics = NewPrometheusMetrics()
+	metrics = newPrometheusMetrics()
 }
 
 func GetMetrics() *PrometheusMetrics {
 	return metrics
 }
 
-func NewPrometheusMetrics() *PrometheusMetrics {
-	metrics := &PrometheusMetrics{
+func newPrometheusMetrics() *PrometheusMetrics {
+	return &PrometheusMetrics{
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
@@ -231,8 +231,6 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
 	}
-
-	return metrics
 }
 
 type OnceUponATimer struct {
