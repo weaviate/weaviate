@@ -51,7 +51,7 @@ func (cv *ConfigValidator) Do(ctx context.Context, class *models.Class,
 ) error {
 	err := cv.validateClassName(ctx, class.Class, icheck.VectorizeClassName())
 	if err != nil {
-		return errors.Errorf("invalid class name")
+		return fmt.Errorf("invalid class name: %w", err)
 	}
 
 	for _, prop := range class.Properties {

@@ -71,10 +71,16 @@ func (m *Manager) AddObjectReference(
 		}
 	}
 
-	if m.modulesProvider.UsingRef2Vec() {
-		if err := m.computeAndSetReferenceVector(
+	shouldRecalc, err := m.shouldRecalculateVectorWithRefs(input.Class, principal)
+	if err != nil {
+		return &Error{"should recalculate ref vector", StatusInternalServerError, err}
+	}
+
+	if shouldRecalc {
+		if err := m.findParentAndVectorizeRefs(
 			ctx, principal, input.Class, input.ID, &input.Ref); err != nil {
-			return &Error{"compute and set ref vector", StatusInternalServerError, err}
+			return &Error{fmt.Sprintf("calculate ref vector for '%s/%s'",
+				input.Class, input.ID), StatusInternalServerError, err}
 		}
 	}
 

@@ -73,9 +73,10 @@ func Test_UpdateAction(t *testing.T) {
 		vectorizer = &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
+		modulesProvider := getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
+		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(locks, schemaManager, cfg,
-			logger, authorizer, vecProvider, refVecProvider, db,
-			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+			logger, authorizer, vecProvider, refVecProvider, db, modulesProvider, metrics)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {
@@ -170,6 +171,7 @@ func Test_UpdateObject(t *testing.T) {
 	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(result, nil).Once()
 	m.vectorizer.On("UpdateObject", mock.Anything).Return(vec, nil).Once()
 	m.repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
 	expected := &models.Object{
 		Class:            cls,

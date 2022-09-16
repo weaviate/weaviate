@@ -111,7 +111,8 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 ) (*models.Object, error) {
 	var merged map[string]interface{}
 	var vector []float32
-	vecObtainer := newVectorObtainer(m.vectorizerProvider, m.schemaManager, m.logger)
+	vecObtainer := newVectorObtainer(m.vectorizerProvider,
+		m.schemaManager, m.logger)
 	if old == nil {
 		merged = new
 		vector = newVec
@@ -129,7 +130,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		if newVec != nil {
 			vector = newVec
 		} else {
-			vectorizerName, _, err := vecObtainer.getVectorizerOfClass(className, principal)
+			vectorizerName, _, err := getVectorizerOfClass(vecObtainer.schemaManager, className, principal)
 			if err != nil {
 				return nil, err
 			}

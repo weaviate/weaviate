@@ -127,7 +127,7 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{}) (*search.Result, error)
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
-	UsingRef2Vec() bool
+	UsingRef2Vec(moduleName string) bool
 	TargetReferenceProperties(className string) (map[string]struct{}, error)
 }
 

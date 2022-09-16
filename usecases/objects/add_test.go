@@ -68,13 +68,13 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		refVectorizer := &fakeReferenceVectorizer{}
-		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
+		modulesProvider := getFakeModulesProvider()
+		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
-			refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+			nil, vectorRepo, modulesProvider, metrics)
 	}
 
 	reset := func() {
@@ -235,8 +235,10 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		metrics := &fakeMetrics{}
+		modulesProvider := getFakeModulesProvider()
+		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+			vecProvider, refVecProvider, vectorRepo, modulesProvider, metrics)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -340,9 +342,11 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
+		modulesProvider := getFakeModulesProvider()
+		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+			vecProvider, refVecProvider, vectorRepo, modulesProvider, metrics)
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -399,9 +403,11 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
+		modulesProvider := getFakeModulesProvider()
+		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider,
-			refVecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+			refVecProvider, vectorRepo, modulesProvider, metrics)
 	}
 	reset()
 	ctx := context.Background()

@@ -85,10 +85,16 @@ func (m *Manager) DeleteObjectReference(
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
 
-	if m.modulesProvider.UsingRef2Vec() {
-		err = m.computeAndSetReferenceVector(ctx, principal, input.Class, input.ID, nil)
-		if err != nil {
-			return &Error{"recalculate vector on ref removal", StatusInternalServerError, err}
+	shouldRecalc, err := m.shouldRecalculateVectorWithRefs(input.Class, principal)
+	if err != nil {
+		return &Error{"should recalculate ref vector", StatusInternalServerError, err}
+	}
+
+	if shouldRecalc {
+		if err := m.findParentAndVectorizeRefs(
+			ctx, principal, input.Class, input.ID); err != nil {
+			return &Error{fmt.Sprintf("calculate ref vector for '%s/%s'",
+				input.Class, input.ID), StatusInternalServerError, err}
 		}
 	}
 

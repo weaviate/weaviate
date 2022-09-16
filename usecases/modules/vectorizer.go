@@ -82,11 +82,14 @@ func (m *Provider) ReferenceVectorizer(moduleName, className string) (objects.Re
 	return NewObjectsReferenceVectorizer(vec, cfg), nil
 }
 
-func (m *Provider) UsingRef2Vec() bool {
-	for _, mod := range m.GetAll() {
-		if mod.Type() == modulecapabilities.Ref2Vec {
-			return true
-		}
+func (m *Provider) UsingRef2Vec(moduleName string) bool {
+	mod := m.GetByName(moduleName)
+	if m == nil {
+		return false
+	}
+
+	if _, ok := mod.(modulecapabilities.ReferenceVectorizer); ok {
+		return true
 	}
 
 	return false
