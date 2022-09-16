@@ -47,13 +47,13 @@ func (m *Manager) vectorizeRefsAndPutObject(ctx context.Context, parent *models.
 ) error {
 	ref2VecPropNames, err := m.modulesProvider.TargetReferenceProperties(parent.Class)
 	if err != nil {
-		return err
+		return fmt.Errorf("target reference props: %w", err)
 	}
 
 	refVecs, err := m.getReferenceVectorsFromParent(
 		ctx, parent.Properties, refs, ref2VecPropNames)
 	if err != nil {
-		return nil
+		return fmt.Errorf("get reference vectors: %w", err)
 	}
 
 	err = newReferenceVectorObtainer(
@@ -61,12 +61,12 @@ func (m *Manager) vectorizeRefsAndPutObject(ctx context.Context, parent *models.
 		m.logger).Do(ctx, parent, principal,
 		refVecs...)
 	if err != nil {
-		return err
+		return fmt.Errorf("obtain centroid: %w", err)
 	}
 
 	err = m.vectorRepo.PutObject(ctx, parent, parent.Vector)
 	if err != nil {
-		return NewErrInternal("store: %v", err)
+		return fmt.Errorf("put '%s/%s': %w", parent.Class, parent.ID, err)
 	}
 
 	return nil
