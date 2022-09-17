@@ -236,6 +236,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")

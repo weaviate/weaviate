@@ -141,7 +141,8 @@ type Profiling struct {
 }
 
 type Persistence struct {
-	DataPath string `json:"dataPath" yaml:"dataPath"`
+	DataPath                string `json:"dataPath" yaml:"dataPath"`
+	FlushIdleMemtablesAfter int    `json:"flushIdleMemtablesAfter" yaml:"flushIdleMemtablesAfter"`
 }
 
 func (p Persistence) Validate() error {
