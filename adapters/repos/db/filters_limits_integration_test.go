@@ -50,7 +50,6 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-		FlushIdleAfter:            60,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())

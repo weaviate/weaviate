@@ -47,7 +47,6 @@ func Test_Aggregations(t *testing.T) {
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-		FlushIdleAfter:            60,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
