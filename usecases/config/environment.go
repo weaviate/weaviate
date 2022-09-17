@@ -102,6 +102,17 @@ func FromEnv(config *Config) error {
 		config.Persistence.DataPath = v
 	}
 
+	if v := os.Getenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER as int")
+		}
+
+		config.Persistence.FlushIdleMemtablesAfter = asInt
+	} else {
+		config.Persistence.FlushIdleMemtablesAfter = DefaultPersistenceFlushIdleMemtablesAfter
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -216,6 +227,8 @@ func FromEnv(config *Config) error {
 }
 
 const DefaultQueryMaximumResults = int64(10000)
+
+const DefaultPersistenceFlushIdleMemtablesAfter = 60
 
 const VectorizerModuleNone = "none"
 

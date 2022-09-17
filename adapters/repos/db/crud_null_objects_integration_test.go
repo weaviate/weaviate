@@ -108,6 +108,7 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
