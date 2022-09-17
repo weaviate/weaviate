@@ -106,6 +106,8 @@ func FromEnv(config *Config) error {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
 			return errors.Wrapf(err, "parse PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER as int")
+		} else if asInt <= 0 {
+			return errors.New("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER must be a positive value larger 0")
 		}
 
 		config.Persistence.FlushIdleMemtablesAfter = asInt
