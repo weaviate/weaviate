@@ -2,12 +2,8 @@ package scaling
 
 import (
 	"context"
-	"fmt"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -30,9 +26,9 @@ type clusterState interface {
 }
 
 type Snapshotter interface {
-	CreateSnapshot(
-		ctx context.Context, className string, snap *snapshots.Snapshot,
-	) (*snapshots.Snapshot, error)
+	// CreateSnapshot(
+	// 	ctx context.Context, className string, snap *snapshots.Snapshot,
+	// ) (*snapshots.Snapshot, error)
 }
 
 func NewScaleOutManager(clusterState clusterState, snapshotter Snapshotter) *ScaleOutManager {
@@ -95,12 +91,12 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	//
 	// - create a snapshot
 
-	snapID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
-	snap := snapshots.New(className, snapID, time.Now())
-	snap, err := som.snapshotter.CreateSnapshot(ctx, className, snap)
-	if err != nil {
-		return errors.Wrap(err, "create snapshot")
-	}
+	// snapID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
+	// snap := snapshots.New(className, snapID, time.Now())
+	// snap, err := som.snapshotter.CreateSnapshot(ctx, className, snap)
+	// if err != nil {
+	// 	return errors.Wrap(err, "create snapshot")
+	// }
 
 	// TODO: relaese snapshot!!!
 
