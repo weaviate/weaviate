@@ -38,7 +38,11 @@ func Test_SUMTransformers(t *testing.T) {
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
 			{
 				Get {
-					Books{
+					Books(where: {
+						operator: Equal
+						path:["title"]
+						valueString: "Dune"
+					}){
 						title
 						_additional {
 							summary (properties:["description"]) {
@@ -55,9 +59,13 @@ func Test_SUMTransformers(t *testing.T) {
 			map[string]interface{}{
 				"title": "Dune",
 				"_additional": map[string]interface{}{
-					"summary": map[string]interface{}{
-						"property": "description",
-						"result":   "Dune is a 1965 epic science fiction novel by American author Frank Herbert.It is the first novel in the Dune series by Frank Herbert, and the first in the \"Dune\" series of books.It was published in the United States by Simon & Schuster in 1965.",
+					"summary": []interface{}{
+						map[string]interface{}{
+							"property": "description",
+							"result": "Dune is a 1965 epic science fiction novel by American author Frank Herbert." +
+								"It is the first novel in the Dune series by Frank Herbert, and the first in the \"Dune\" series of books." +
+								"It was published in the United States by Simon & Schuster in 1965.",
+						},
 					},
 				},
 			},
