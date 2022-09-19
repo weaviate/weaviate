@@ -55,6 +55,7 @@ type Compose struct {
 	withQnATransformers     bool
 	withWeaviate            bool
 	withSUMTransformers     bool
+	withCentroid            bool
 }
 
 func New() *Compose {
@@ -118,6 +119,12 @@ func (d *Compose) WithBackendGCS(bucket string) *Compose {
 func (d *Compose) WithSUMTransformers() *Compose {
 	d.withSUMTransformers = true
 	d.enableModules = append(d.enableModules, SUMTransformers)
+	return d
+}
+
+func (d *Compose) WithRef2VecCentroid() *Compose {
+	d.withCentroid = true
+	d.enableModules = append(d.enableModules, Ref2VecCentroid)
 	return d
 }
 
