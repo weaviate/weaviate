@@ -49,7 +49,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+		&fakeNodeResolver{}, nil, config.Config{})
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 

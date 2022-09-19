@@ -712,7 +712,7 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nil)
+	}, client, nodeResolver, nil, config.Config{})
 	n.schemaGetter = &fakeSchemaGetter{
 		shardState: shardState,
 		schema:     schema.Schema{Objects: &models.Schema{}},

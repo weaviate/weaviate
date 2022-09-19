@@ -47,11 +47,6 @@ func (s *Shard) initDimensionTracking() {
 	if !s.config.TrackVectorDimensions {
 		return
 	}
-
-	// TODO WEAVIATE-286: cancel the cycle when the shard is shut down
-	// Does it make sense to use the more elaborate CycleManager here?
-	// See entities/cyclemanager/cyclemanager.go
-
 	go func() {
 		fmt.Println("!!!Starting track vec dimensions counter")
 		t := time.NewTicker(5 * time.Second) // 5 minutes
@@ -65,10 +60,14 @@ func (s *Shard) initDimensionTracking() {
 			dimCount := s.Dimensions()
 
 			if s.promMetrics != nil {
-				metric, err := s.promMetrics.DimensionSum.GetMetricWithLabelValues("dimensions", s.index.Config.ClassName.String(), s.name)
+				metric, err := s.promMetrics.DimensionSum.GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
 				if err == nil {
 					metric.Set(float64(dimCount))
+				} else {
+					panic("ick")
 				}
+			} else {
+				panic("ick")
 			}
 			<-t.C
 		}

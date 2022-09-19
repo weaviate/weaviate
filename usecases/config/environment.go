@@ -29,8 +29,8 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = 2112
 	}
 
-	if enabled(os.Getenv("TRACK_VECTOR_DIMENSONS")) {
-		config.TrackVectorDimesions = true
+	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+		config.TrackVectorDimensions = true
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {

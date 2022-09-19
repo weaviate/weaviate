@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -81,6 +82,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
+	fmt.Println("!!!cleanupInvertedIndexOnDelete")
 	previousObject, err := storobj.FromBinary(previous)
 	if err != nil {
 		return errors.Wrap(err, "unmarshal previous object")
@@ -96,7 +98,7 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return errors.Wrap(err, "put inverted indices props")
 	}
 
-	if temporaryFakeFeatureFlagForWeavite286 {
+	if s.config.TrackVectorDimensions {
 		err = s.removeDimensionsLSM(len(previousObject.Vector), docID)
 		if err != nil {
 			return errors.Wrap(err, "track dimensions (delete)")

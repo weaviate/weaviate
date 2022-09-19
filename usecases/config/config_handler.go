@@ -75,7 +75,7 @@ type Config struct {
 	Profiling                 Profiling      `json:"profiling" yaml:"profiling"`
 	DiskUse                   DiskUse        `json:"disk_use" yaml:"disk_use"`
 	MaxImportGoroutinesFactor float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	TrackVectorDimesions	  bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	TrackVectorDimensions     bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 }
 
 type moduleProvider interface {

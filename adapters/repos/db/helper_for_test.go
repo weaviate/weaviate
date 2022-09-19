@@ -27,6 +27,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
+
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -226,7 +228,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx)
+	shd, err := NewShard(ctx, nil, shardName, idx, config.Config{})
 	if err != nil {
 		panic(err)
 	}
