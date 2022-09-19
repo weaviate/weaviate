@@ -76,7 +76,7 @@ func (s *Shard) initProperties() error {
 		})
 	}
 
-	if temporaryFakeFeatureFlagForWeavite286 { // TODO: proper feature flag
+	if s.config.TrackVectorDimensions {
 		eg.Go(func() error {
 			if err := s.addDimensionsProperty(context.TODO()); err != nil {
 				return errors.Wrap(err, "init id property")

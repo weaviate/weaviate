@@ -75,7 +75,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 	}
 
-	if temporaryFakeFeatureFlagForWeavite286 { // TODO: proper feature flag
+	if m.db.appConfig.TrackVectorDimensions {
 		if err := idx.addDimensionsProperty(context.TODO()); err != nil {
 			return errors.Wrap(err, "init id property")
 		}

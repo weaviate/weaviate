@@ -279,7 +279,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil, config.Config{})
 
 	return repo, logger
 }

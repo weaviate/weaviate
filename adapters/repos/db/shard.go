@@ -69,8 +69,9 @@ type Shard struct {
 	maxNumberGoroutines int
 	config              config.Config
 
-	status     storagestate.Status
-	statusLock sync.Mutex
+	status      storagestate.Status
+	statusLock  sync.Mutex
+	stopMetrics bool
 }
 
 type job struct {
@@ -257,6 +258,8 @@ func (s *Shard) drop(force bool) error {
 	}
 
 	s.cancel <- struct{}{}
+
+	s.stopMetrics = true
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
@@ -455,6 +458,8 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 
 func (s *Shard) shutdown(ctx context.Context) error {
 	s.cancel <- struct{}{}
+
+	s.stopMetrics = true
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
