@@ -81,10 +81,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 		// filters - which happens after the RowReader has completed - this can lead
 		// to segfault crashes. Now is the time to safely copy it, creating a new
 		// and immutable slice.
-		hashCopy := make([]byte, len(currHash))
-		copy(hashCopy, currHash)
-
-		hashes = append(hashes, hashCopy)
+		hashes = append(hashes, copyBytes(currHash))
 		if limit > 0 && pointers.count >= uint64(limit) {
 			return false, nil
 		}
@@ -149,10 +146,7 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 		// filters - which happens after the RowReader has completed - this can lead
 		// to segfault crashes. Now is the time to safely copy it, creating a new
 		// and immutable slice.
-		hashCopy := make([]byte, len(currHash))
-		copy(hashCopy, currHash)
-
-		hashes = append(hashes, hashCopy)
+		hashes = append(hashes, copyBytes(currHash))
 		if limit > 0 && pointers.count >= uint64(limit) {
 			return false, nil
 		}
@@ -274,4 +268,10 @@ func docPointerChecksum(pointers []uint64) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func copyBytes(in []byte) []byte {
+	out := make([]byte, len(in))
+	copy(out, in)
+	return out
 }
