@@ -23,14 +23,16 @@ import (
 )
 
 type shardedLockCache struct {
-	shardedLocks    []sync.RWMutex
-	cache           [][]float32
-	vectorForID     VectorForID
-	normalizeOnRead bool
-	maxSize         int64
-	count           int64
-	cancel          chan bool
-	logger          logrus.FieldLogger
+	shardedLocks        []sync.RWMutex
+	cache               [][]float32
+	vectorForID         VectorForID
+	normalizeOnRead     bool
+	maxSize             int64
+	count               int64
+	cancel              chan bool
+	logger              logrus.FieldLogger
+	dims                int32
+	trackDimensionsOnce sync.Once
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -91,6 +93,10 @@ func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]fl
 		return nil, err
 	}
 
+	n.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&n.dims, int32(len(vec)))
+	})
+
 	if n.normalizeOnRead {
 		vec = distancer.Normalize(vec)
 	}
@@ -103,8 +109,10 @@ func (n *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]fl
 	return vec, nil
 }
 
-func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]float32, error) {
+func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]float32, []error) {
 	out := make([][]float32, len(ids))
+	errs := make([]error, len(ids))
+
 	for i, id := range ids {
 		n.shardedLocks[id%shardFactor].RLock()
 		vec := n.cache[id]
@@ -112,17 +120,14 @@ func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]floa
 
 		if vec == nil {
 			vecFromDisk, err := n.handleCacheMiss(ctx, id)
-			if err != nil {
-				return nil, err
-			}
-
+			errs[i] = err
 			vec = vecFromDisk
 		}
 
 		out[i] = vec
 	}
 
-	return out, nil
+	return out, errs
 }
 
 var prefetchFunc func(in uintptr) = func(in uintptr) {
@@ -142,6 +147,10 @@ func (n *shardedLockCache) preload(id uint64, vec []float32) {
 	defer n.shardedLocks[id%shardFactor].RUnlock()
 
 	atomic.AddInt64(&n.count, 1)
+	n.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&n.dims, int32(len(vec)))
+	})
+
 	n.cache[id] = vec
 }
 
@@ -223,6 +232,31 @@ func (c *shardedLockCache) obtainAllLocks() {
 	}
 
 	wg.Wait()
+}
+
+// dimensions makes a best-effort guess at the dimensions of a vector. If the
+// vector is in cache it serves it from cache. If the vector is not in the
+// cache it tries to load it. If it can't load it (for example because it had
+// been deleted in the underlying object stores) it picks another vector as it
+// runs under the assumption that all vectors in the cache have the same
+// dimensionality
+func (c *shardedLockCache) dimensions(id uint64) int {
+	c.shardedLocks[id%shardFactor].RLock()
+	vec := c.cache[id]
+	c.shardedLocks[id%shardFactor].RUnlock()
+
+	if vec != nil {
+		return len(vec)
+	}
+
+	vec, err := c.handleCacheMiss(context.Background(), id)
+	if err != nil && vec != nil {
+		return len(vec)
+	}
+
+	// this vector does not exist anymore, so we need to guess by taking another
+	// vector
+	return int(atomic.LoadInt32(&c.dims))
 }
 
 func (c *shardedLockCache) releaseAllLocks() {

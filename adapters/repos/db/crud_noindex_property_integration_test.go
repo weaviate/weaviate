@@ -16,9 +16,7 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -38,12 +36,7 @@ import (
 
 func TestCRUD_NoIndexProp(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
@@ -67,6 +60,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -106,6 +100,20 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 
 	t.Run("all props are present when getting by id", func(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID,
+			search.SelectProperties{}, additional.Properties{})
+		expectedSchema := map[string]interface{}{
+			"stringProp":       "some value",
+			"hiddenStringProp": "some hidden value",
+			"id":               thingID,
+		}
+
+		require.Nil(t, err)
+		assert.Equal(t, expectedSchema, res.Schema)
+	})
+
+	//Same as above, but with Object()
+	t.Run("all props are present when getting by id and class", func(t *testing.T) {
+		res, err := repo.Object(context.Background(), "ThingClassWithNoIndexProps", thingID,
 			search.SelectProperties{}, additional.Properties{})
 		expectedSchema := map[string]interface{}{
 			"stringProp":       "some value",

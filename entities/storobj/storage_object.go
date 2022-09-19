@@ -33,6 +33,7 @@ type Object struct {
 	MarshallerVersion uint8
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
+	VectorLen         int           `json:"-"`
 	docID             uint64
 }
 
@@ -44,10 +45,22 @@ func New(docID uint64) *Object {
 }
 
 func FromObject(object *models.Object, vector []float32) *Object {
+	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
+	properties, ok := object.Properties.(map[string]interface{})
+	if ok {
+		for key, prop := range properties {
+			if prop == nil {
+				delete(properties, key)
+			}
+		}
+		object.Properties = properties
+	}
+
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
+		VectorLen:         len(vector),
 	}
 }
 
@@ -98,6 +111,7 @@ func FromBinaryOptional(data []byte,
 	ec.AddWrap(binary.Read(r, le, &createTime), "create time")
 	ec.AddWrap(binary.Read(r, le, &updateTime), "update time")
 	ec.AddWrap(binary.Read(r, le, &vectorLength), "vector length")
+	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
 		ko.Vector = make([]float32, vectorLength)
 		ec.AddWrap(binary.Read(r, le, &ko.Vector), "read vector")
@@ -258,6 +272,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
+		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
@@ -422,18 +437,18 @@ func UnmarshalPropertiesFromObject(data []byte, properties *models.PropertySchem
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
 
-	startPos := uint32(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
 	byteOps := byte_operations.ByteOperations{Position: startPos, Buffer: data}
 	// get the length of the vector, each element is a float32 (4 bytes)
-	vectorLength := byteOps.ReadUint16()
-	byteOps.MoveBufferPositionForward(uint32(vectorLength) * 4)
+	vectorLength := uint64(byteOps.ReadUint16())
+	byteOps.MoveBufferPositionForward(vectorLength * 4)
 
 	// length of class name
-	classnameLength := byteOps.ReadUint16()
-	byteOps.MoveBufferPositionForward(uint32(classnameLength))
+	classnameLength := uint64(byteOps.ReadUint16())
+	byteOps.MoveBufferPositionForward(classnameLength)
 
 	// property schema length
-	propertyLength := byteOps.ReadUint32()
+	propertyLength := uint64(byteOps.ReadUint32())
 	if err := json.Unmarshal(data[byteOps.Position:byteOps.Position+propertyLength], properties); err != nil {
 		return err
 	}
@@ -464,31 +479,32 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	updateTime := int64(byteOps.ReadUint64())
 
 	vectorLength := byteOps.ReadUint16()
+	ko.VectorLen = int(vectorLength)
 	ko.Vector = make([]float32, vectorLength)
 	for j := 0; j < int(vectorLength); j++ {
 		ko.Vector[j] = math.Float32frombits(byteOps.ReadUint32())
 	}
 
-	classNameLength := uint32(byteOps.ReadUint16())
-	className, err := byteOps.CopyBytesFromBuffer(classNameLength)
+	classNameLength := uint64(byteOps.ReadUint16())
+	className, err := byteOps.CopyBytesFromBuffer(classNameLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy class name")
 	}
 
-	schemaLength := byteOps.ReadUint32()
-	schema, err := byteOps.CopyBytesFromBuffer(schemaLength)
+	schemaLength := uint64(byteOps.ReadUint32())
+	schema, err := byteOps.CopyBytesFromBuffer(schemaLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy schema")
 	}
 
-	metaLength := byteOps.ReadUint32()
-	meta, err := byteOps.CopyBytesFromBuffer(metaLength)
+	metaLength := uint64(byteOps.ReadUint32())
+	meta, err := byteOps.CopyBytesFromBuffer(metaLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy meta")
 	}
 
-	vectorWeightsLength := byteOps.ReadUint32()
-	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength)
+	vectorWeightsLength := uint64(byteOps.ReadUint32())
+	vectorWeights, err := byteOps.CopyBytesFromBuffer(vectorWeightsLength, nil)
 	if err != nil {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}

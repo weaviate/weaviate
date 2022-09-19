@@ -24,6 +24,9 @@ fi
 if [[ "$*" == *--qna* ]]; then
   ADDITIONAL_SERVICES+=('qna-transformers')
 fi
+if [[ "$*" == *--sum* ]]; then
+  ADDITIONAL_SERVICES+=('sum-transformers')
+fi
 if [[ "$*" == *--image* ]]; then
   ADDITIONAL_SERVICES+=('i2v-neural')
 fi
@@ -41,7 +44,10 @@ if [[ "$*" == *--prometheus* ]]; then
   ADDITIONAL_SERVICES+=('grafana')
 fi
 if [[ "$*" == *--s3* ]]; then
-  ADDITIONAL_SERVICES+=('storage-aws-s3')
+  ADDITIONAL_SERVICES+=('backup-s3')
+fi
+if [[ "$*" == *--gcs* ]]; then
+  ADDITIONAL_SERVICES+=('backup-gcs')
 fi
 
 docker compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
@@ -79,7 +85,12 @@ fi
 
 if [[ "$*" == *--s3* ]]; then
   echo "You have specified the --s3 option. Starting up"
-  echo "the text2vec-contextionary model container with storage-aws-s3 module"
+  echo "the text2vec-contextionary model container with backup-s3 module"
+fi
+
+if [[ "$*" == *--s3* ]]; then
+  echo "You have specified the --gcs option. Starting up"
+  echo "the text2vec-contextionary model container with backup-gcs module"
 fi
 
 echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh or ./tools/dev/run_dev_server_no_network.sh"

@@ -36,7 +36,6 @@ func NewGenesisPeersLeaveParams() GenesisPeersLeaveParams {
 //
 // swagger:parameters genesis.peers.leave
 type GenesisPeersLeaveParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

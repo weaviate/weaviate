@@ -27,12 +27,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSnapshot_PauseMaintenance(t *testing.T) {
+func TestBackup_PauseMaintenance(t *testing.T) {
 	t.Run("assert that context timeout works for long maintenance cycle", func(t *testing.T) {
-		indexID := "snapshot-pause-maintenance-test"
+		indexID := "backup-pause-maintenance-test"
 
 		dirName := makeTestDir(t)
-		defer removeTestDir(t, dirName)
 
 		userConfig := NewDefaultUserConfig()
 		userConfig.CleanupIntervalSeconds = 1
@@ -65,12 +64,9 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 	t.Run("assert tombstone maintenance is successfully paused", func(t *testing.T) {
 		ctx := context.Background()
 
-		dirName := makeTestDir(t)
-		defer removeTestDir(t, dirName)
-
 		idx, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "snapshot-pause-maintenance-test",
+			ID:                    "backup-pause-maintenance-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk:      testVectorForID,
@@ -88,13 +84,12 @@ func TestSnapshot_PauseMaintenance(t *testing.T) {
 	})
 }
 
-func TestSnapshot_SwitchCommitLogs(t *testing.T) {
+func TestBackup_SwitchCommitLogs(t *testing.T) {
 	ctx := context.Background()
 
-	indexID := "snapshot-switch-commitlogs-test"
+	indexID := "backup-switch-commitlogs-test"
 
 	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
 
 	idx, err := New(Config{
 		RootPath: dirName,
@@ -118,13 +113,12 @@ func TestSnapshot_SwitchCommitLogs(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestSnapshot_ListFiles(t *testing.T) {
+func TestBackup_ListFiles(t *testing.T) {
 	ctx := context.Background()
 
 	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
 
-	indexID := "snapshot-list-files-test"
+	indexID := "backup-list-files-test"
 
 	idx, err := New(Config{
 		RootPath: dirName,
@@ -163,18 +157,17 @@ func TestSnapshot_ListFiles(t *testing.T) {
 	require.Nil(t, err)
 }
 
-func TestSnapshot_ResumeMaintenance(t *testing.T) {
+func TestBackup_ResumeMaintenance(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	indexID := "snapshot-resume-maintenance-test"
+	indexID := "backup-resume-maintenance-test"
 
 	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
 
 	idx, err := New(Config{
 		RootPath: dirName,
-		ID:       "snapshot-pause-maintenance-test",
+		ID:       "backup-pause-maintenance-test",
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
 				logrus.New())
@@ -185,7 +178,7 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("insert vector into index", func(t *testing.T) {
-		first := &vertex{level: 0, id: 0, connections: make(map[int][]uint64)}
+		first := &vertex{level: 0, id: 0, connections: make([][]uint64, 1)}
 		err := idx.insert(first, []float32{1, 2, 3})
 		require.Nil(t, err)
 	})
@@ -206,15 +199,5 @@ func TestSnapshot_ResumeMaintenance(t *testing.T) {
 
 func makeTestDir(t *testing.T) string {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	if err := os.MkdirAll(dirName, 0o777); err != nil {
-		t.Fatalf("failed to make test dir '%s': %s", dirName, err)
-	}
-	return dirName
-}
-
-func removeTestDir(t *testing.T, dirName string) {
-	if err := os.RemoveAll(dirName); err != nil {
-		t.Errorf("failed to remove test dir '%s': %s", dirName, err)
-	}
+	return t.TempDir()
 }

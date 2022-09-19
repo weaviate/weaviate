@@ -12,6 +12,8 @@
 package monitoring
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -32,20 +34,42 @@ type PrometheusMetrics struct {
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
 	VectorIndexOperations              *prometheus.GaugeVec
+	VectorIndexDimensionOperations     *prometheus.CounterVec
 	VectorIndexDurations               *prometheus.HistogramVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
 	ObjectCount                        *prometheus.GaugeVec
 	QueriesCount                       *prometheus.GaugeVec
+	QueryDimensions                    *prometheus.CounterVec
+	GoroutinesCount                    *prometheus.GaugeVec
+	BackupRestoreDurations             *prometheus.HistogramVec
+	BackupStoreDurations               *prometheus.HistogramVec
+	BucketPauseDurations               *prometheus.HistogramVec
+	BackupRestoreClassDurations        *prometheus.HistogramVec
+	BackupRestoreBackupInitDurations   *prometheus.HistogramVec
+	BackupRestoreFromStorageDurations  *prometheus.HistogramVec
+	BackupRestoreDataTransferred       *prometheus.CounterVec
+	BackupStoreDataTransferred         *prometheus.CounterVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.HistogramVec
 	StartupDiskIO    *prometheus.HistogramVec
 }
 
-var msBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
+var (
+	msBuckets                    = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
+	metrics   *PrometheusMetrics = nil
+)
 
-func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global state for registration
+func init() {
+	metrics = newPrometheusMetrics()
+}
+
+func GetMetrics() *PrometheusMetrics {
+	return metrics
+}
+
+func newPrometheusMetrics() *PrometheusMetrics {
 	return &PrometheusMetrics{
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
@@ -71,6 +95,11 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 		QueriesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "concurrent_queries_count",
 			Help: "Number of concurrently running query operations",
+		}, []string{"class_name", "query_type"}),
+
+		GoroutinesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "concurrent_goroutines",
+			Help: "Number of concurrently running goroutines",
 		}, []string{"class_name", "query_type"}),
 
 		AsyncOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -125,6 +154,10 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Name: "vector_index_operations",
 			Help: "Total number of mutating operations on the vector index",
 		}, []string{"operation", "class_name", "shard_name"}),
+		VectorIndexDimensionOperations: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "vector_index_dimensions_total",
+			Help: "Total number of mutating operations multiplied with dimensions on the vector index",
+		}, []string{"operation", "class_name", "shard_name"}),
 		VectorIndexSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_size",
 			Help: "The size of the vector index. Typically larger than number of vectors, as it grows proactively.",
@@ -154,5 +187,65 @@ func NewPrometheusMetrics() *PrometheusMetrics { // TODO don't rely on global st
 			Help:    "Disk I/O throuhput in bytes per second",
 			Buckets: prometheus.ExponentialBuckets(1, 2, 40),
 		}, []string{"operation", "class_name", "shard_name"}),
+		QueryDimensions: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "query_dimensions_total",
+			Help: "The vector dimensions used by any read-query that involves vectors",
+		}, []string{"query_type", "operation", "class_name"}),
+
+		BackupRestoreDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "backup_restore_ms",
+			Help:    "Duration of a backup restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"backend_name", "class_name"}),
+		BackupRestoreClassDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "backup_restore_class_ms",
+			Help:    "Duration restoring class",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"class_name"}),
+		BackupRestoreBackupInitDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "backup_restore_init_ms",
+			Help:    "startup phase of a backup restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"backend_name", "class_name"}),
+		BackupRestoreFromStorageDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "backup_restore_from_backend_ms",
+			Help:    "file transfer stage of a backup restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"backend_name", "class_name"}),
+		BackupStoreDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "backup_store_to_backend_ms",
+			Help:    "file transfer stage of a backup restore",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"backend_name", "class_name"}),
+		BucketPauseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "bucket_pause_durations_ms",
+			Help:    "bucket pause durations",
+			Buckets: prometheus.ExponentialBuckets(1, 1.5, 30),
+		}, []string{"bucket_dir"}),
+		BackupRestoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "backup_restore_data_transferred",
+			Help: "Total number of bytes transferred during a backup restore",
+		}, []string{"backend_name", "class_name"}),
+		BackupStoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "backup_store_data_transferred",
+			Help: "Total number of bytes transferred during a backup store",
+		}, []string{"backend_name", "class_name"}),
 	}
+}
+
+type OnceUponATimer struct {
+	sync.Once
+	Timer *prometheus.Timer
+}
+
+func NewOnceTimer(promTimer *prometheus.Timer) *OnceUponATimer {
+	o := OnceUponATimer{}
+	o.Timer = promTimer
+	return &o
+}
+
+func (o *OnceUponATimer) ObserveDurationOnce() {
+	o.Do(func() {
+		o.Timer.ObserveDuration()
+	})
 }

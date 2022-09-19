@@ -120,6 +120,26 @@ type hnsw struct {
 	insertMetrics *insertMetrics
 
 	randFunc func() float64 // added to temporarily get rid on flakiness in tombstones related tests. to be removed after fixing WEAVIATE-179
+
+	// The deleteVsInsertLock makes sure that there are no concurrent delete and
+	// insert operations happening. It uses an RW-Mutex with:
+	//
+	// RLock -> Insert operations, this means any number of import operations can
+	// happen concurrently.
+	//
+	// Lock -> Delete operation. This means only a single delete operation can
+	// occur at a time, no insert operation can occur simultaneously with a
+	// delete. Since the delete is cheap (just marking the node as deleted), the
+	// single-threadedness of deletes is not a big problem.
+	//
+	// This lock was introduced as part of
+	// https://github.com/semi-technologies/weaviate/issues/2194
+	//
+	// See
+	// https://github.com/semi-technologies/weaviate/pull/2191#issuecomment-1242726787
+	// where we ran performance tests to make sure introducing this lock has no
+	// negative impact on performance.
+	deleteVsInsertLock sync.RWMutex
 }
 
 type CommitLogger interface {
@@ -153,7 +173,7 @@ type MakeCommitLogger func() (CommitLogger, error)
 
 type (
 	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
-	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, error)
+	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
@@ -365,58 +385,6 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	}
 
 	return entryPointID, nil
-}
-
-type vertex struct {
-	id uint64
-	sync.Mutex
-	level       int
-	connections map[int][]uint64 // map[level][]connectedId
-	maintenance bool
-}
-
-func (v *vertex) markAsMaintenance() {
-	v.Lock()
-	defer v.Unlock()
-
-	v.maintenance = true
-}
-
-func (v *vertex) unmarkAsMaintenance() {
-	v.Lock()
-	defer v.Unlock()
-
-	v.maintenance = false
-}
-
-func (v *vertex) isUnderMaintenance() bool {
-	v.Lock()
-	defer v.Unlock()
-
-	return v.maintenance
-}
-
-func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
-	return v.connections[level]
-}
-
-func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
-	v.Lock()
-	defer v.Unlock()
-
-	v.connections[level] = connections
-}
-
-// func (v *vertex) setConnectionsAtLevelNoLock(level int, connections []uint64) {
-// 	v.connections[level] = connections
-// }
-
-func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64) {
-	v.connections[level] = append(v.connections[level], connection)
-}
-
-func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
-	v.connections[level] = v.connections[level][:0]
 }
 
 func min(a, b int) int {

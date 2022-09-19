@@ -30,8 +30,7 @@ GenesisPeersPingOK Ping received
 
 swagger:response genesisPeersPingOK
 */
-type GenesisPeersPingOK struct {
-}
+type GenesisPeersPingOK struct{}
 
 // NewGenesisPeersPingOK creates GenesisPeersPingOK with default headers values
 func NewGenesisPeersPingOK() *GenesisPeersPingOK {
@@ -53,8 +52,7 @@ GenesisPeersPingUnauthorized Unauthorized or invalid credentials.
 
 swagger:response genesisPeersPingUnauthorized
 */
-type GenesisPeersPingUnauthorized struct {
-}
+type GenesisPeersPingUnauthorized struct{}
 
 // NewGenesisPeersPingUnauthorized creates GenesisPeersPingUnauthorized with default headers values
 func NewGenesisPeersPingUnauthorized() *GenesisPeersPingUnauthorized {
@@ -76,8 +74,7 @@ GenesisPeersPingForbidden The used API-key has insufficient permissions.
 
 swagger:response genesisPeersPingForbidden
 */
-type GenesisPeersPingForbidden struct {
-}
+type GenesisPeersPingForbidden struct{}
 
 // NewGenesisPeersPingForbidden creates GenesisPeersPingForbidden with default headers values
 func NewGenesisPeersPingForbidden() *GenesisPeersPingForbidden {
@@ -99,8 +96,7 @@ GenesisPeersPingNotFound Successful query result but no such peer was found.
 
 swagger:response genesisPeersPingNotFound
 */
-type GenesisPeersPingNotFound struct {
-}
+type GenesisPeersPingNotFound struct{}
 
 // NewGenesisPeersPingNotFound creates GenesisPeersPingNotFound with default headers values
 func NewGenesisPeersPingNotFound() *GenesisPeersPingNotFound {

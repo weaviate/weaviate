@@ -79,13 +79,6 @@ func classFields(databaseSchema []*models.Class,
 func classField(class *models.Class, description string,
 	config config.Config, modulesProvider ModulesProvider,
 ) (*graphql.Field, error) {
-	if len(class.Properties) == 0 {
-		// if we don't have class properties, we can't build this particular class,
-		// as it would not have any fields. So we have to return (without an
-		// error), so as not to block the creation of other classes
-		return nil, nil
-	}
-
 	metaClassName := fmt.Sprintf("Aggregate%s", class.Class)
 
 	fields := graphql.ObjectConfig{

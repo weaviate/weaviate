@@ -66,6 +66,9 @@ func (v *Validator) properties(ctx context.Context, object interface{}) error {
 	returnSchema := map[string]interface{}{}
 
 	for propertyKey, propertyValue := range inputSchema {
+		if propertyValue == nil {
+			continue // nil values are removed and filtered out
+		}
 		dataType, err := schema.GetPropertyDataType(class, propertyKey)
 		if err != nil {
 			return err

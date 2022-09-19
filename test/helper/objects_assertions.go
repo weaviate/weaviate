@@ -67,11 +67,11 @@ func AssertGetObjectEventually(t *testing.T, class string, uuid strfmt.UUID) *mo
 	return object
 }
 
-func AssertGetObjectFailsEventually(t *testing.T, uuid strfmt.UUID) error {
+func AssertGetObjectFailsEventually(t *testing.T, class string, uuid strfmt.UUID) error {
 	var err error
 
 	checkThunk := func() interface{} {
-		_, err = Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(uuid), nil)
+		_, err = Client(t).Objects.ObjectsClassGet(objects.NewObjectsClassGetParams().WithClassName(class).WithID(uuid), nil)
 		return err != nil
 	}
 

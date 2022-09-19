@@ -114,7 +114,7 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 	}
 
 	// remove active log from list, as
-	// it is not part of the snapshot
+	// it is not part of the backup
 	path, err := filepath.Rel(h.commitLog.RootPath(), filepath.Join(logRoot, curr))
 	if err != nil {
 		return nil, errors.Wrap(err, "delete active log")

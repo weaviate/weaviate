@@ -19,6 +19,8 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkDeserializer2ReadUint64(b *testing.B) {
@@ -171,26 +173,246 @@ func TestDeserializerReadClearLinks(t *testing.T) {
 	}
 }
 
-func TestDeserializerReadClearLinksAtLevel(t *testing.T) {
-	nodes := generateDummyVertices(4)
-	res := &DeserializationResult{
-		Nodes: nodes,
+func dummyInitialDeserializerState() *DeserializationResult {
+	return &DeserializationResult{
+		LinksReplaced: make(map[uint64]map[uint16]struct{}),
+		Nodes: []*vertex{
+			nil,
+			nil,
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level: 1,
+			},
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level:       8,
+				connections: make([][]uint64, 16),
+			},
+		},
 	}
+}
+
+func TestDeserializerReadNode(t *testing.T) {
+	res := dummyInitialDeserializerState()
 	ids := []uint64{2, 3, 4, 5, 6}
 
 	for _, id := range ids {
 		val := make([]byte, 10)
-		binary.LittleEndian.PutUint64(val, id)
-		binary.LittleEndian.PutUint16(val, uint16(id))
+		level := uint16(id * 2)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
 		data := bytes.NewReader(val)
 		logger, _ := test.NewNullLogger()
 		d := NewDeserializer(logger)
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadClearLinksAtLevel(reader, res, false)
-		if err != nil {
-			t.Errorf("Error reading links at level: %v", err)
+		err := d.ReadNode(reader, res)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		assert.Equal(t, int(level), res.Nodes[id].level)
+	}
+}
+
+func TestDeserializerReadEP(t *testing.T) {
+	ids := []uint64{2, 3, 4, 5, 6}
+
+	for _, id := range ids {
+		val := make([]byte, 10)
+		level := uint16(id * 2)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		ep, l, err := d.ReadEP(reader)
+		require.Nil(t, err)
+		assert.Equal(t, id, ep)
+		assert.Equal(t, level, l)
+	}
+}
+
+func TestDeserializerReadLink(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	ids := []uint64{2, 3, 4, 5, 6}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		target := id * 3
+		val := make([]byte, 18)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		binary.LittleEndian.PutUint64(val[10:18], target)
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		err := d.ReadLink(reader, res)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		assert.Equal(t, target, lastAddedConnection)
+	}
+}
+
+func TestDeserializerReadLinks(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	ids := []uint64{2, 3, 4, 5, 6}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		connLen := uint16(id * 4)
+		val := make([]byte, 12+connLen*8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		binary.LittleEndian.PutUint16(val[10:12], connLen)
+		for i := 0; i < int(connLen); i++ {
+			target := id + uint64(i)
+			binary.LittleEndian.PutUint64(val[12+(i*8):12+(i*8+8)], target)
 		}
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		_, err := d.ReadLinks(reader, res, true)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
+	}
+}
+
+func TestDeserializerReadAddLinks(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	ids := []uint64{2, 3, 4, 5, 6}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		connLen := uint16(id * 4)
+		val := make([]byte, 12+connLen*8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		binary.LittleEndian.PutUint16(val[10:12], connLen)
+		for i := 0; i < int(connLen); i++ {
+			target := id + uint64(i)
+			binary.LittleEndian.PutUint64(val[12+(i*8):12+(i*8+8)], target)
+		}
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		_, err := d.ReadAddLinks(reader, res)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
+	}
+}
+
+func TestDeserializerAddTombstone(t *testing.T) {
+	tombstones := map[uint64]struct{}{}
+	ids := []uint64{2, 3, 4, 5, 6}
+
+	for _, id := range ids {
+		val := make([]byte, 8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		err := d.ReadAddTombstone(reader, tombstones)
+		require.Nil(t, err)
+	}
+
+	expected := map[uint64]struct{}{
+		2: {},
+		3: {},
+		4: {},
+		5: {},
+		6: {},
+	}
+
+	assert.Equal(t, expected, tombstones)
+}
+
+func TestDeserializerRemoveTombstone(t *testing.T) {
+	tombstones := map[uint64]struct{}{
+		1: {},
+		2: {},
+		3: {},
+		4: {},
+		5: {},
+	}
+	ids := []uint64{2, 3, 4, 5, 6}
+
+	for _, id := range ids {
+		val := make([]byte, 8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		err := d.ReadRemoveTombstone(reader, tombstones)
+		require.Nil(t, err)
+	}
+
+	expected := map[uint64]struct{}{
+		1: {},
+	}
+
+	assert.Equal(t, expected, tombstones)
+}
+
+func TestDeserializerClearLinksAtLevel(t *testing.T) {
+	res := &DeserializationResult{
+		LinksReplaced: make(map[uint64]map[uint16]struct{}),
+		Nodes: []*vertex{
+			nil,
+			nil,
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level: 1,
+			},
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level:       4,
+				connections: make([][]uint64, 4),
+			},
+			nil,
+			nil,
+		},
+	}
+	ids := []uint64{2, 3, 4, 5, 6}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		val := make([]byte, 10)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		err := d.ReadClearLinksAtLevel(reader, res, true)
+		require.Nil(t, err)
 	}
 }

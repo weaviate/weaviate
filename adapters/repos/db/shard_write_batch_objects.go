@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"runtime"
 	"sync"
 	"time"
 
@@ -32,7 +31,72 @@ func (s *Shard) putObjectBatch(ctx context.Context,
 		return []error{storagestate.ErrStatusReadOnly}
 	}
 
-	return newObjectsBatcher(s).Objects(ctx, objects)
+	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
+	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
+	// When the last batch finishes, all workers receive a shutdown signal and exit
+	s.startBatch()
+	batcher := newObjectsBatcher(s)
+	err := batcher.Objects(ctx, objects)
+
+	// block until all objects of batch have been added
+	batcher.wg.Wait()
+	s.endBatch()
+
+	return err
+}
+
+func (s *Shard) startBatch() {
+	s.activeBatchesLock.Lock()
+	s.numActiveBatches += 1
+
+	// start workers in go routines that can be used by all batches
+	if s.numActiveBatches == 1 {
+		s.shutDownWg.Wait() // wait until any shutdown job is completed
+		if s.promMetrics != nil {
+			metric, err := s.promMetrics.GoroutinesCount.GetMetricWithLabelValues("object batcher", "")
+			if err == nil {
+				metric.Add(float64(s.maxNumberGoroutines))
+			}
+		}
+		for i := 0; i < s.maxNumberGoroutines; i++ {
+			go s.worker()
+		}
+		s.shutDownWg.Add(s.maxNumberGoroutines)
+	}
+	s.activeBatchesLock.Unlock()
+}
+
+func (s *Shard) endBatch() {
+	s.activeBatchesLock.Lock()
+	s.numActiveBatches -= 1
+
+	// send abort jobs and wait for all workers to end (and finish all jobs before)
+	if s.numActiveBatches == 0 {
+		for i := 0; i < s.maxNumberGoroutines; i++ {
+			s.jobQueueCh <- job{
+				index: -1,
+			}
+		}
+		if s.promMetrics != nil {
+			metric, err := s.promMetrics.GoroutinesCount.GetMetricWithLabelValues("object batcher", "")
+			if err == nil {
+				metric.Sub(float64(s.maxNumberGoroutines))
+			}
+		}
+	}
+
+	s.activeBatchesLock.Unlock()
+}
+
+func (s *Shard) worker() {
+	for job := range s.jobQueueCh {
+		if job.index < 0 {
+			s.shutDownWg.Done()
+			return
+		}
+		job.batcher.storeSingleObjectInAdditionalStorage(job.ctx, job.object, job.status, job.index)
+		job.batcher.wg.Done()
+	}
 }
 
 // objectsBatcher is a helper type wrapping around an underlying shard that can
@@ -45,6 +109,7 @@ type objectsBatcher struct {
 	errs       []error
 	duplicates map[int]struct{}
 	objects    []*storobj.Object
+	wg         sync.WaitGroup
 }
 
 func newObjectsBatcher(s *Shard) *objectsBatcher {
@@ -157,12 +222,6 @@ func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUI
 	b.statuses[id] = status
 }
 
-type job struct {
-	object *storobj.Object
-	status objectInsertStatus
-	index  int
-}
-
 // storeAdditionalStorageWithWorkers stores the object in all non-key-value
 // stores, such as the main vector index as well as the property-specific
 // indices, such as the geo-index.
@@ -173,38 +232,24 @@ func (b *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) 
 		return
 	}
 
-	wg := &sync.WaitGroup{}
-	worker := func(jobs <-chan job) {
-		defer wg.Done()
-		for job := range jobs {
-			b.storeSingleObjectInAdditionalStorage(ctx, job.object, job.status, job.index)
-		}
-	}
-
 	beforeVectorIndex := time.Now()
-
-	jobs := make(chan job, len(b.objects))
-
-	// spawn one worker per thread
-	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
-		wg.Add(1)
-		go worker(jobs)
-	}
 
 	for i, object := range b.objects {
 		if b.shouldSkipInAdditionalStorage(i) {
 			continue
 		}
 
+		b.wg.Add(1)
 		status := b.statuses[object.ID()]
-		jobs <- job{
-			object: object,
-			status: status,
-			index:  i,
+		b.shard.jobQueueCh <- job{
+			object:  object,
+			status:  status,
+			index:   i,
+			ctx:     ctx,
+			batcher: b,
 		}
 	}
-	close(jobs)
-	wg.Wait()
+
 	b.shard.metrics.VectorIndex(beforeVectorIndex)
 }
 

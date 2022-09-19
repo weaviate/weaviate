@@ -160,7 +160,7 @@ func Test_Resolve(t *testing.T) {
 					Properties: map[string]aggregation.Property{
 						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"mean": 275.7773,
 							},
 						},
@@ -192,7 +192,7 @@ func Test_Resolve(t *testing.T) {
 					Properties: map[string]aggregation.Property{
 						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"mean": 275.7773,
 							},
 						},
@@ -402,7 +402,7 @@ func Test_Resolve(t *testing.T) {
 						"horsepower": {
 							Type:       aggregation.PropertyTypeNumerical,
 							SchemaType: "int",
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"mean": 275.7773,
 							},
 						},
@@ -442,7 +442,7 @@ func Test_Resolve(t *testing.T) {
 					Properties: map[string]aggregation.Property{
 						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"mean": 275.7773,
 							},
 						},
@@ -497,7 +497,7 @@ func Test_Resolve(t *testing.T) {
 					Properties: map[string]aggregation.Property{
 						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"mean": 275.7773,
 							},
 						},
@@ -548,7 +548,7 @@ func Test_Resolve(t *testing.T) {
 					Properties: map[string]aggregation.Property{
 						"horsepower": {
 							Type: aggregation.PropertyTypeNumerical,
-							NumericalAggregations: map[string]float64{
+							NumericalAggregations: map[string]interface{}{
 								"maximum": 610.0,
 								"minimum": 89.0,
 								"mean":    275.7,

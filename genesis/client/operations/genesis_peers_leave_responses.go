@@ -71,8 +71,7 @@ GenesisPeersLeaveNoContent handles this case with default header values.
 
 Successful left the network.
 */
-type GenesisPeersLeaveNoContent struct {
-}
+type GenesisPeersLeaveNoContent struct{}
 
 func (o *GenesisPeersLeaveNoContent) Error() string {
 	return fmt.Sprintf("[DELETE /peers/{peerId}][%d] genesisPeersLeaveNoContent ", 204)
@@ -92,8 +91,7 @@ GenesisPeersLeaveUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type GenesisPeersLeaveUnauthorized struct {
-}
+type GenesisPeersLeaveUnauthorized struct{}
 
 func (o *GenesisPeersLeaveUnauthorized) Error() string {
 	return fmt.Sprintf("[DELETE /peers/{peerId}][%d] genesisPeersLeaveUnauthorized ", 401)
@@ -113,8 +111,7 @@ GenesisPeersLeaveForbidden handles this case with default header values.
 
 The used API-key has insufficient permissions.
 */
-type GenesisPeersLeaveForbidden struct {
-}
+type GenesisPeersLeaveForbidden struct{}
 
 func (o *GenesisPeersLeaveForbidden) Error() string {
 	return fmt.Sprintf("[DELETE /peers/{peerId}][%d] genesisPeersLeaveForbidden ", 403)
@@ -134,8 +131,7 @@ GenesisPeersLeaveNotFound handles this case with default header values.
 
 Successful query result but no such peer was found.
 */
-type GenesisPeersLeaveNotFound struct {
-}
+type GenesisPeersLeaveNotFound struct{}
 
 func (o *GenesisPeersLeaveNotFound) Error() string {
 	return fmt.Sprintf("[DELETE /peers/{peerId}][%d] genesisPeersLeaveNotFound ", 404)

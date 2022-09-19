@@ -70,7 +70,8 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
 	}
 
 	reset := func() {
@@ -228,7 +229,8 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -330,7 +332,8 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), nil)
+		metrics := &fakeMetrics{}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -349,4 +352,53 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 
 		assert.Equal(t, []float32{9, 9, 9}, vec, "check that vector was overridden")
 	})
+}
+
+func Test_AddObjectEmptyProperties(t *testing.T) {
+	var (
+		vectorRepo *fakeVectorRepo
+		manager    *Manager
+	)
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "TestClass",
+					VectorIndexConfig: hnsw.UserConfig{},
+
+					Properties: []*models.Property{
+						{
+							Name:     "strings",
+							DataType: []string{"string[]"},
+						},
+					},
+				},
+			},
+		},
+	}
+	reset := func() {
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+		schemaManager := &fakeSchemaManager{
+			GetSchemaResponse: schema,
+		}
+		locks := &fakeLocks{}
+		cfg := &config.WeaviateConfig{}
+		authorizer := &fakeAuthorizer{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vecProvider := &fakeVectorizerProvider{vectorizer}
+		metrics := &fakeMetrics{}
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vecProvider, vectorRepo, getFakeModulesProvider(), metrics)
+	}
+	reset()
+	ctx := context.Background()
+	object := &models.Object{
+		Class:  "TestClass",
+		Vector: []float32{9, 9, 9},
+	}
+	assert.Nil(t, object.Properties)
+	addedObject, err := manager.AddObject(ctx, nil, object)
+	assert.Nil(t, err)
+	assert.NotNil(t, addedObject.Properties)
 }

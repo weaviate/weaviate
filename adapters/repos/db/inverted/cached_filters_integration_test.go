@@ -17,9 +17,7 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -38,12 +36,7 @@ const (
 )
 
 func Test_CachedFilters_String(t *testing.T) {
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, "", logger, nil)
@@ -386,12 +379,7 @@ func Test_CachedFilters_String(t *testing.T) {
 }
 
 func Test_CachedFilters_Int(t *testing.T) {
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, "", logger, nil)
@@ -814,12 +802,7 @@ func allowList(in ...uint64) helpers.AllowList {
 // This prevents a regression on
 // https://github.com/semi-technologies/weaviate/issues/1772
 func Test_DuplicateEntriesInAnd_String(t *testing.T) {
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	store, err := lsmkv.New(dirName, "", logger, nil)

@@ -72,6 +72,8 @@ type Config struct {
 	QueryMaximumResults       int64
 	DiskUseWarningPercentage  uint64
 	DiskUseReadOnlyPercentage uint64
+	MaxImportGoroutinesFactor float64
+	NodeName                  string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

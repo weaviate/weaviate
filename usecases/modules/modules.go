@@ -215,7 +215,8 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 			m.hasMultipleVectorizers = true
 		}
 		for _, moduleName := range modules {
-			if m.moduleProvidesMultipleVectorizers(moduleName) {
+			moduleType := m.GetByName(moduleName).Type()
+			if m.moduleProvidesMultipleVectorizers(moduleType) {
 				m.hasMultipleVectorizers = true
 			}
 		}
@@ -225,15 +226,18 @@ func (m *Provider) validateModules(name string, properties map[string][]string, 
 
 func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
 	switch moduleType {
-	case modulecapabilities.Text2Vec, modulecapabilities.Img2Vec, modulecapabilities.Multi2Vec:
+	case modulecapabilities.Text2Vec,
+		modulecapabilities.Img2Vec,
+		modulecapabilities.Multi2Vec,
+		modulecapabilities.Text2MultiVec:
 		return true
 	default:
 		return false
 	}
 }
 
-func (m *Provider) moduleProvidesMultipleVectorizers(module string) bool {
-	return module == "text2vec-openai"
+func (m *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
+	return moduleType == modulecapabilities.Text2MultiVec
 }
 
 func (m *Provider) shouldIncludeClassArgument(class *models.Class, module string,
@@ -700,13 +704,13 @@ func (m *Provider) HasMultipleVectorizers() bool {
 	return m.hasMultipleVectorizers
 }
 
-func (m *Provider) BackupStorage(storageName string) (modulecapabilities.SnapshotStorage, error) {
-	if module := m.GetByName(storageName); module != nil {
-		if module.Type() == modulecapabilities.Storage {
-			if storage, ok := module.(modulecapabilities.SnapshotStorage); ok {
-				return storage, nil
+func (m *Provider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
+	if module := m.GetByName(backend); module != nil {
+		if module.Type() == modulecapabilities.Backup {
+			if backend, ok := module.(modulecapabilities.BackupBackend); ok {
+				return backend, nil
 			}
 		}
 	}
-	return nil, errors.Errorf("storage: %s not found", storageName)
+	return nil, errors.Errorf("backup: %s not found", backend)
 }

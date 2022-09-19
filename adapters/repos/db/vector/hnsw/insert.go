@@ -26,6 +26,7 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 	}
 
 	h.metrics.InsertVector()
+	h.metrics.InsertVectorDimensions(len(vector))
 	defer h.insertMetrics.total(before)
 
 	node := &vertex{
@@ -51,8 +52,8 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
-	node.connections = map[int][]uint64{
-		0: make([]uint64, 0, h.maximumConnections),
+	node.connections = [][]uint64{
+		make([]uint64, 0, h.maximumConnectionsLayerZero),
 	}
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
@@ -71,6 +72,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
+	h.deleteVsInsertLock.RLock()
+	defer h.deleteVsInsertLock.RUnlock()
+
 	before := time.Now()
 
 	wasFirst := false
@@ -101,7 +105,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// before = time.Now()
 	// m.addBuildingItemLocking(before)
 	node.level = targetLevel
-	node.connections = map[int][]uint64{}
+	node.connections = make([][]uint64, targetLevel+1)
 
 	for i := targetLevel; i >= 0; i-- {
 		capacity := h.maximumConnections
