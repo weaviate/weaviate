@@ -31,6 +31,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
@@ -65,6 +66,18 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
+		}),
+		BackupsBackupsCreateHandler: backups.BackupsCreateHandlerFunc(func(params backups.BackupsCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsCreate has not yet been implemented")
+		}),
+		BackupsBackupsCreateStatusHandler: backups.BackupsCreateStatusHandlerFunc(func(params backups.BackupsCreateStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsCreateStatus has not yet been implemented")
+		}),
+		BackupsBackupsRestoreHandler: backups.BackupsRestoreHandlerFunc(func(params backups.BackupsRestoreParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsRestore has not yet been implemented")
+		}),
+		BackupsBackupsRestoreStatusHandler: backups.BackupsRestoreStatusHandlerFunc(func(params backups.BackupsRestoreStatusParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsRestoreStatus has not yet been implemented")
 		}),
 		BatchBatchObjectsCreateHandler: batch.BatchObjectsCreateHandlerFunc(func(params batch.BatchObjectsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation batch.BatchObjectsCreate has not yet been implemented")
@@ -168,18 +181,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsShardsUpdateHandler: schema.SchemaObjectsShardsUpdateHandlerFunc(func(params schema.SchemaObjectsShardsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsUpdate has not yet been implemented")
 		}),
-		SchemaSchemaObjectsSnapshotsCreateHandler: schema.SchemaObjectsSnapshotsCreateHandlerFunc(func(params schema.SchemaObjectsSnapshotsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation schema.SchemaObjectsSnapshotsCreate has not yet been implemented")
-		}),
-		SchemaSchemaObjectsSnapshotsCreateStatusHandler: schema.SchemaObjectsSnapshotsCreateStatusHandlerFunc(func(params schema.SchemaObjectsSnapshotsCreateStatusParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation schema.SchemaObjectsSnapshotsCreateStatus has not yet been implemented")
-		}),
-		SchemaSchemaObjectsSnapshotsRestoreHandler: schema.SchemaObjectsSnapshotsRestoreHandlerFunc(func(params schema.SchemaObjectsSnapshotsRestoreParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation schema.SchemaObjectsSnapshotsRestore has not yet been implemented")
-		}),
-		SchemaSchemaObjectsSnapshotsRestoreStatusHandler: schema.SchemaObjectsSnapshotsRestoreStatusHandlerFunc(func(params schema.SchemaObjectsSnapshotsRestoreStatusParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation schema.SchemaObjectsSnapshotsRestoreStatus has not yet been implemented")
-		}),
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
 		}),
@@ -243,6 +244,14 @@ type WeaviateAPI struct {
 
 	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
+	// BackupsBackupsCreateHandler sets the operation handler for the backups create operation
+	BackupsBackupsCreateHandler backups.BackupsCreateHandler
+	// BackupsBackupsCreateStatusHandler sets the operation handler for the backups create status operation
+	BackupsBackupsCreateStatusHandler backups.BackupsCreateStatusHandler
+	// BackupsBackupsRestoreHandler sets the operation handler for the backups restore operation
+	BackupsBackupsRestoreHandler backups.BackupsRestoreHandler
+	// BackupsBackupsRestoreStatusHandler sets the operation handler for the backups restore status operation
+	BackupsBackupsRestoreStatusHandler backups.BackupsRestoreStatusHandler
 	// BatchBatchObjectsCreateHandler sets the operation handler for the batch objects create operation
 	BatchBatchObjectsCreateHandler batch.BatchObjectsCreateHandler
 	// BatchBatchObjectsDeleteHandler sets the operation handler for the batch objects delete operation
@@ -311,14 +320,6 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
 	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
-	// SchemaSchemaObjectsSnapshotsCreateHandler sets the operation handler for the schema objects snapshots create operation
-	SchemaSchemaObjectsSnapshotsCreateHandler schema.SchemaObjectsSnapshotsCreateHandler
-	// SchemaSchemaObjectsSnapshotsCreateStatusHandler sets the operation handler for the schema objects snapshots create status operation
-	SchemaSchemaObjectsSnapshotsCreateStatusHandler schema.SchemaObjectsSnapshotsCreateStatusHandler
-	// SchemaSchemaObjectsSnapshotsRestoreHandler sets the operation handler for the schema objects snapshots restore operation
-	SchemaSchemaObjectsSnapshotsRestoreHandler schema.SchemaObjectsSnapshotsRestoreHandler
-	// SchemaSchemaObjectsSnapshotsRestoreStatusHandler sets the operation handler for the schema objects snapshots restore status operation
-	SchemaSchemaObjectsSnapshotsRestoreStatusHandler schema.SchemaObjectsSnapshotsRestoreStatusHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
@@ -402,6 +403,18 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
+	}
+	if o.BackupsBackupsCreateHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsCreateHandler")
+	}
+	if o.BackupsBackupsCreateStatusHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsCreateStatusHandler")
+	}
+	if o.BackupsBackupsRestoreHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsRestoreHandler")
+	}
+	if o.BackupsBackupsRestoreStatusHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsRestoreStatusHandler")
 	}
 	if o.BatchBatchObjectsCreateHandler == nil {
 		unregistered = append(unregistered, "batch.BatchObjectsCreateHandler")
@@ -504,18 +517,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsShardsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsUpdateHandler")
-	}
-	if o.SchemaSchemaObjectsSnapshotsCreateHandler == nil {
-		unregistered = append(unregistered, "schema.SchemaObjectsSnapshotsCreateHandler")
-	}
-	if o.SchemaSchemaObjectsSnapshotsCreateStatusHandler == nil {
-		unregistered = append(unregistered, "schema.SchemaObjectsSnapshotsCreateStatusHandler")
-	}
-	if o.SchemaSchemaObjectsSnapshotsRestoreHandler == nil {
-		unregistered = append(unregistered, "schema.SchemaObjectsSnapshotsRestoreHandler")
-	}
-	if o.SchemaSchemaObjectsSnapshotsRestoreStatusHandler == nil {
-		unregistered = append(unregistered, "schema.SchemaObjectsSnapshotsRestoreStatusHandler")
 	}
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
@@ -633,6 +634,22 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/.well-known/openid-configuration"] = well_known.NewGetWellKnownOpenidConfiguration(o.context, o.WellKnownGetWellKnownOpenidConfigurationHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/backups/{backend}"] = backups.NewBackupsCreate(o.context, o.BackupsBackupsCreateHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/backups/{backend}/{id}"] = backups.NewBackupsCreateStatus(o.context, o.BackupsBackupsCreateStatusHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestore(o.context, o.BackupsBackupsRestoreHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/backups/{backend}/{id}/restore"] = backups.NewBackupsRestoreStatus(o.context, o.BackupsBackupsRestoreStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -769,22 +786,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}/shards/{shardName}"] = schema.NewSchemaObjectsShardsUpdate(o.context, o.SchemaSchemaObjectsShardsUpdateHandler)
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/schema/{className}/snapshots/{storageName}/{id}"] = schema.NewSchemaObjectsSnapshotsCreate(o.context, o.SchemaSchemaObjectsSnapshotsCreateHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/schema/{className}/snapshots/{storageName}/{id}"] = schema.NewSchemaObjectsSnapshotsCreateStatus(o.context, o.SchemaSchemaObjectsSnapshotsCreateStatusHandler)
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/schema/{className}/snapshots/{storageName}/{id}/restore"] = schema.NewSchemaObjectsSnapshotsRestore(o.context, o.SchemaSchemaObjectsSnapshotsRestoreHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/schema/{className}/snapshots/{storageName}/{id}/restore"] = schema.NewSchemaObjectsSnapshotsRestoreStatus(o.context, o.SchemaSchemaObjectsSnapshotsRestoreStatusHandler)
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}

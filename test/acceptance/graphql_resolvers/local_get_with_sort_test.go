@@ -60,10 +60,11 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "name",
 				order:    "asc",
 				expected: []interface{}{
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Rotterdam"},
 				},
 			},
@@ -73,10 +74,11 @@ func gettingObjectsWithSort(t *testing.T) {
 				order:    "desc",
 				expected: []interface{}{
 					map[string]interface{}{"name": "Rotterdam"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -84,7 +86,8 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "population",
 				order:    "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": nil},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Amsterdam"},
@@ -100,7 +103,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -108,11 +112,12 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "isCapital",
 				order:    "asc",
 				expected: []interface{}{
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 				},
 			},
 			{
@@ -120,11 +125,12 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "isCapital",
 				order:    "desc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -132,7 +138,8 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "cityArea",
 				order:    "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Amsterdam"},
@@ -148,16 +155,17 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
-
 			{
 				name:     "sort by cityRights asc",
 				property: "cityRights",
 				order:    "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Amsterdam"},
@@ -173,7 +181,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -181,7 +190,8 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "timezones",
 				order:    "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Amsterdam"},
@@ -197,7 +207,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Berlin"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -205,7 +216,8 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "museums",
 				order:    "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
@@ -221,7 +233,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Berlin"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -229,7 +242,8 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "history",
 				order:    "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Berlin"},
@@ -245,7 +259,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Amsterdam"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -253,7 +268,8 @@ func gettingObjectsWithSort(t *testing.T) {
 				property: "phoneNumber",
 				order:    "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Berlin"},
@@ -269,7 +285,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -278,8 +295,9 @@ func gettingObjectsWithSort(t *testing.T) {
 				order:    "asc",
 				expected: []interface{}{
 					map[string]interface{}{"name": "Rotterdam"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Berlin"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
 				},
@@ -291,8 +309,9 @@ func gettingObjectsWithSort(t *testing.T) {
 				expected: []interface{}{
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Amsterdam"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Rotterdam"},
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Berlin"},
 				},
 			},
@@ -332,7 +351,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"name"}, "asc"),
 				},
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": nil},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Amsterdam"},
@@ -346,15 +366,16 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"population"}, "desc"),
 				},
 				expected: []interface{}{
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Rotterdam"},
 				},
 			},
 			{
-				name: "sort by population abd name desc",
+				name: "sort by population and name desc",
 				sort: []string{
 					buildSort([]string{"population"}, "desc"),
 					buildSort([]string{"name"}, "desc"),
@@ -364,7 +385,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -375,7 +397,8 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"name"}, "asc"),
 				},
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": nil},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Berlin"},
@@ -424,7 +447,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				name:  "location asc",
 				order: "asc",
 				expected: []interface{}{
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 					map[string]interface{}{"name": "Dusseldorf"},
 				},
 			},
@@ -433,7 +456,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				order: "desc",
 				expected: []interface{}{
 					map[string]interface{}{"name": "Dusseldorf"},
-					map[string]interface{}{"name": "Null Island"},
+					map[string]interface{}{"name": "Missing Island"},
 				},
 			},
 		}
@@ -498,6 +521,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"name"}, "asc"),
 				},
 				expected: []interface{}{
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Dusseldorf"},
@@ -514,6 +538,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -522,6 +547,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"population"}, "asc"),
 				},
 				expected: []interface{}{
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Amsterdam"},
@@ -538,6 +564,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 		}
@@ -579,6 +606,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"name"}, "asc"),
 				},
 				expected: []interface{}{
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Dusseldorf"},
@@ -595,6 +623,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Berlin"},
 					map[string]interface{}{"name": "Amsterdam"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 			{
@@ -603,6 +632,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					buildSort([]string{"population"}, "asc"),
 				},
 				expected: []interface{}{
+					map[string]interface{}{"name": nil},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
 					map[string]interface{}{"name": "Amsterdam"},
@@ -619,6 +649,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					map[string]interface{}{"name": "Amsterdam"},
 					map[string]interface{}{"name": "Dusseldorf"},
 					map[string]interface{}{"name": "Rotterdam"},
+					map[string]interface{}{"name": nil},
 				},
 			},
 		}

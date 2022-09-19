@@ -38,6 +38,11 @@ type Explorer struct {
 	modulesProvider  ModulesProvider
 	schemaGetter     uc.SchemaGetter
 	nearParamsVector *nearParamsVector
+	metrics          explorerMetrics
+}
+
+type explorerMetrics interface {
+	AddUsageDimensions(className, queryType, operation string, dims int)
 }
 
 type ModulesProvider interface {
@@ -68,12 +73,13 @@ type vectorClassSearch interface {
 
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
-	modulesProvider ModulesProvider,
+	modulesProvider ModulesProvider, metrics explorerMetrics,
 ) *Explorer {
 	return &Explorer{
 		search:           search,
 		logger:           logger,
 		modulesProvider:  modulesProvider,
+		metrics:          metrics,
 		schemaGetter:     nil, // schemaGetter is set later
 		nearParamsVector: newNearParamsVector(modulesProvider, search),
 	}
@@ -107,7 +113,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
-		return e.getClassExploration(ctx, params)
+		return e.getClassVectorSearch(ctx, params)
 	}
 
 	return e.getClassList(ctx, params)
@@ -168,7 +174,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, nil, params)
 }
 
-func (e *Explorer) getClassExploration(ctx context.Context,
+func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
@@ -207,12 +213,20 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		}
 	}
 
+	e.trackUsageGet(res, params)
+
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
+	// we will modiry the params because of the workaround outlined below,
+	// however, we only want to track what the user actually set for the usage
+	// metrics, not our own workaround, so hwere's a copy of the original user
+	// input
+	userSetAdditionalVector := params.AdditionalProperties.Vector
+
 	// if both grouping and whereFilter/sort are present, the below
 	// class search will eventually call storobj.FromBinaryOptional
 	// to unmarshal the record. in this case, we must manually set
@@ -245,6 +259,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 		if err != nil {
 			return nil, errors.Errorf("explorer: list class: extend: %v", err)
 		}
+	}
+
+	if userSetAdditionalVector {
+		e.trackUsageGetExplicitVector(res, params)
 	}
 
 	return e.searchResultsToGetResponse(ctx, res, nil, params)
@@ -378,7 +396,7 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 	}
 }
 
-func (e *Explorer) Concepts(ctx context.Context,
+func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 	params ExploreParams,
 ) ([]search.Result, error) {
 	if err := e.validateExploreParams(params); err != nil {
@@ -394,6 +412,8 @@ func (e *Explorer) Concepts(ctx context.Context,
 	if err != nil {
 		return nil, errors.Errorf("vector search: %v", err)
 	}
+
+	e.trackUsageExplore(res, params)
 
 	results := []search.Result{}
 	for _, item := range res {
@@ -616,4 +636,65 @@ func extractDistanceFromModuleParams(moduleParams map[string]interface{}) (dista
 	}
 
 	return
+}
+
+func (e *Explorer) trackUsageGet(res search.Results, params GetParams) {
+	if len(res) == 0 {
+		return
+	}
+
+	op := e.usageOperationFromGetParams(params)
+	e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", op, res[0].Dims)
+}
+
+func (e *Explorer) trackUsageGetExplicitVector(res search.Results, params GetParams) {
+	if len(res) == 0 {
+		return
+	}
+
+	e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", "_additional.vector",
+		res[0].Dims)
+}
+
+func (e *Explorer) usageOperationFromGetParams(params GetParams) string {
+	if params.NearObject != nil {
+		return "nearObject"
+	}
+
+	if params.NearVector != nil {
+		return "nearVector"
+	}
+
+	// there is at most one module param, so we can return the first we find
+	for param := range params.ModuleParams {
+		return param
+	}
+
+	return "n/a"
+}
+
+func (e *Explorer) trackUsageExplore(res search.Results, params ExploreParams) {
+	if len(res) == 0 {
+		return
+	}
+
+	op := e.usageOperationFromExploreParams(params)
+	e.metrics.AddUsageDimensions("n/a", "explore_graphql", op, res[0].Dims)
+}
+
+func (e *Explorer) usageOperationFromExploreParams(params ExploreParams) string {
+	if params.NearObject != nil {
+		return "nearObject"
+	}
+
+	if params.NearVector != nil {
+		return "nearVector"
+	}
+
+	// there is at most one module param, so we can return the first we find
+	for param := range params.ModuleParams {
+		return param
+	}
+
+	return "n/a"
 }

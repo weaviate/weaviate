@@ -30,8 +30,7 @@ GenesisPeersLeaveNoContent Successful left the network.
 
 swagger:response genesisPeersLeaveNoContent
 */
-type GenesisPeersLeaveNoContent struct {
-}
+type GenesisPeersLeaveNoContent struct{}
 
 // NewGenesisPeersLeaveNoContent creates GenesisPeersLeaveNoContent with default headers values
 func NewGenesisPeersLeaveNoContent() *GenesisPeersLeaveNoContent {
@@ -53,8 +52,7 @@ GenesisPeersLeaveUnauthorized Unauthorized or invalid credentials.
 
 swagger:response genesisPeersLeaveUnauthorized
 */
-type GenesisPeersLeaveUnauthorized struct {
-}
+type GenesisPeersLeaveUnauthorized struct{}
 
 // NewGenesisPeersLeaveUnauthorized creates GenesisPeersLeaveUnauthorized with default headers values
 func NewGenesisPeersLeaveUnauthorized() *GenesisPeersLeaveUnauthorized {
@@ -76,8 +74,7 @@ GenesisPeersLeaveForbidden The used API-key has insufficient permissions.
 
 swagger:response genesisPeersLeaveForbidden
 */
-type GenesisPeersLeaveForbidden struct {
-}
+type GenesisPeersLeaveForbidden struct{}
 
 // NewGenesisPeersLeaveForbidden creates GenesisPeersLeaveForbidden with default headers values
 func NewGenesisPeersLeaveForbidden() *GenesisPeersLeaveForbidden {
@@ -99,8 +96,7 @@ GenesisPeersLeaveNotFound Successful query result but no such peer was found.
 
 swagger:response genesisPeersLeaveNotFound
 */
-type GenesisPeersLeaveNotFound struct {
-}
+type GenesisPeersLeaveNotFound struct{}
 
 // NewGenesisPeersLeaveNotFound creates GenesisPeersLeaveNotFound with default headers values
 func NewGenesisPeersLeaveNotFound() *GenesisPeersLeaveNotFound {

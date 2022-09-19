@@ -39,7 +39,7 @@ type SingleRef struct {
 	// Additional Meta information about classifications if the item was part of one
 	Classification *ReferenceMetaClassification `json:"classification,omitempty"`
 
-	// If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.
+	// If using a direct reference, this read-only fields provides a link to the referenced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.
 	// Format: uri
 	Href strfmt.URI `json:"href,omitempty"`
 

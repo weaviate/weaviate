@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -101,9 +102,21 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
-					// We can't return an error in this FieldsThunk function, so we need to panic
-					panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s; %s",
-						class.Class, property.Name, err.Error()))
+					if errors.Is(err, schema.ErrRefToNonexistentClass) {
+						// This is a common case when a class which is referenced
+						// by another class is deleted, leaving the referencing
+						// class with an invalid reference property. Panicking
+						// is not necessary here
+						b.logger.WithField("action", "graphql_rebuild").
+							Warnf("ignoring ref prop %q on class %q, because it contains reference to nonexistent class %q",
+								property.Name, class.Class, property.DataType)
+
+						continue
+					} else {
+						// We can't return an error in this FieldsThunk function, so we need to panic
+						panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s; %s",
+							class.Class, property.Name, err.Error()))
+					}
 				}
 
 				if propertyType.IsPrimitive() {

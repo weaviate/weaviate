@@ -367,7 +367,10 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 				sg := &fakeSchemaGetter{
 					schema: schemaForFiltersValidation(),
 				}
-				explorer := NewExplorer(search, log, getFakeModulesProvider())
+				metrics := &fakeMetrics{}
+				metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything,
+					mock.Anything)
+				explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
 				explorer.SetSchemaGetter(sg)
 
 				if test.expectedError == nil {

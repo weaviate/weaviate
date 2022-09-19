@@ -13,51 +13,54 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/snapshots"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"golang.org/x/sync/errgroup"
 )
 
-func (s *Shard) createSnapshot(ctx context.Context, snap *snapshots.Snapshot) error {
-	var g errgroup.Group
-
-	g.Go(func() error {
-		files, err := s.createStoreLevelSnapshot(ctx)
+// beginBackup stops compaction, and flushing memtable and commit log to begin with the backup
+func (s *Shard) beginBackup(ctx context.Context) (err error) {
+	defer func() {
 		if err != nil {
-			return err
+			err = fmt.Errorf("pause compaction: %w", err)
+			if err2 := s.resumeMaintenanceCycles(ctx); err2 != nil {
+				err = fmt.Errorf("%w: resume maintenance: %v", err, err2)
+			}
 		}
-		snap.Lock()
-		defer snap.Unlock()
-		snap.Files = append(snap.Files, files...)
-		return nil
-	})
+	}()
+	if err = s.store.PauseCompaction(ctx); err != nil {
+		return errors.Wrap(err, "pause compaction")
+	}
+	if err = s.store.FlushMemtables(ctx); err != nil {
+		return errors.Wrap(err, "flush memtables")
+	}
+	if err = s.vectorIndex.PauseMaintenance(ctx); err != nil {
+		return errors.Wrap(err, "pause maintenance")
+	}
+	if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
+		return errors.Wrap(err, "switch commit logs")
+	}
+	return nil
+}
 
-	g.Go(func() error {
-		files, err := s.createVectorIndexLevelSnapshot(ctx)
-		if err != nil {
-			return err
-		}
-		snap.Lock()
-		defer snap.Unlock()
-		snap.Files = append(snap.Files, files...)
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
+// listBackupFiles lists all files used to backup a shard
+func (s *Shard) listBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+	var err error
+	if err := s.readBackupMetadata(ret); err != nil {
 		return err
 	}
-
-	shardMeta, err := s.readSnapshotMetadata()
-	if err != nil {
-		return errors.Wrap(err, "create snapshot")
+	if ret.Files, err = s.store.ListFiles(ctx); err != nil {
+		return err
 	}
-
-	snap.Lock()
-	snap.ShardMetadata[s.name] = shardMeta
-	snap.Unlock()
-
+	files2, err := s.vectorIndex.ListFiles(ctx)
+	if err != nil {
+		return err
+	}
+	ret.Files = append(ret.Files, files2...)
 	return nil
 }
 
@@ -80,98 +83,25 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) createStoreLevelSnapshot(ctx context.Context) ([]string, error) {
-	var g errgroup.Group
-
-	g.Go(func() error {
-		if err := s.store.PauseCompaction(ctx); err != nil {
-			return errors.Wrap(err, "create snapshot")
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if err := s.store.FlushMemtables(ctx); err != nil {
-			return errors.Wrap(err, "create snapshot")
-		}
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
+func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
+	d.Name = s.name
+	d.Node = s.index.Config.NodeName
+	fpath := s.counter.FileName()
+	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
+		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
 	}
+	d.DocIDCounterPath = path.Base(fpath)
 
-	files, err := s.store.ListFiles(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "create snapshot")
+	fpath = s.propLengths.FileName()
+	if d.PropLengthTracker, err = os.ReadFile(fpath); err != nil {
+		return fmt.Errorf("read shard prop-lengths %s: %w", fpath, err)
 	}
+	d.PropLengthTrackerPath = path.Base(fpath)
 
-	return files, nil
-}
-
-func (s *Shard) createVectorIndexLevelSnapshot(ctx context.Context) ([]string, error) {
-	var g errgroup.Group
-
-	g.Go(func() error {
-		if err := s.vectorIndex.PauseMaintenance(ctx); err != nil {
-			return errors.Wrap(err, "create snapshot")
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if err := s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-			return errors.Wrap(err, "create snapshot")
-		}
-		return nil
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
+	fpath = s.versioner.path
+	if d.Version, err = os.ReadFile(fpath); err != nil {
+		return fmt.Errorf("read shard version %s: %w", fpath, err)
 	}
-
-	files, err := s.vectorIndex.ListFiles(ctx)
-	if err != nil {
-		return nil, errors.Wrap(err, "create snapshot")
-	}
-
-	return files, nil
-}
-
-func (s *Shard) readSnapshotMetadata() (*snapshots.ShardMetadata, error) {
-	counterContents, err := s.readIndexCounter()
-	if err != nil {
-		return nil, errors.Wrapf(err,
-			"failed to read index counter for shard '%s'", s.name)
-	}
-
-	propLenContents, err := s.readPropLengthTracker()
-	if err != nil {
-		return nil, errors.Wrapf(err,
-			"failed to read prop length tracker for shard '%s'", s.name)
-	}
-
-	shardVersion, err := s.readShardVersion()
-	if err != nil {
-		return nil, errors.Wrapf(err,
-			"failed to read shard version for shard '%s'", s.name)
-	}
-
-	return &snapshots.ShardMetadata{
-		DocIDCounter:      counterContents,
-		PropLengthTracker: propLenContents,
-		ShardVersion:      shardVersion,
-	}, nil
-}
-
-func (s *Shard) readIndexCounter() ([]byte, error) {
-	return os.ReadFile(s.counter.FileName())
-}
-
-func (s *Shard) readPropLengthTracker() ([]byte, error) {
-	return os.ReadFile(s.propLengths.FileName())
-}
-
-func (s *Shard) readShardVersion() ([]byte, error) {
-	return os.ReadFile(s.versioner.path)
+	d.ShardVersionPath = path.Base(fpath)
+	return nil
 }

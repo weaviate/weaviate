@@ -24,7 +24,31 @@ func addNumericalAggregations(prop *aggregation.Property,
 	aggs []aggregation.Aggregator, agg *numericalAggregator,
 ) {
 	if prop.NumericalAggregations == nil {
-		prop.NumericalAggregations = map[string]float64{}
+		prop.NumericalAggregations = map[string]interface{}{}
+	}
+	agg.buildPairsFromCounts()
+
+	// if there are no elements to aggregate over because a filter does not match anything, calculating mean etc. makes
+	// no sense. Non-existent entries evaluate to nil with an interface{} map
+	if agg.count == 0 {
+		for _, entry := range aggs {
+			if entry == aggregation.CountAggregator {
+				prop.NumericalAggregations["count"] = float64(agg.count)
+				break
+			}
+		}
+		return
+	}
+
+	// when combining the results from different shards, we need the raw numbers to recompute the mode, mean and median.
+	// Therefor we add a reference later which needs to be cleared out before returning the results to a user
+loop:
+	for _, aProp := range aggs {
+		switch aProp {
+		case aggregation.ModeAggregator, aggregation.MedianAggregator, aggregation.MeanAggregator:
+			prop.NumericalAggregations["_numericalAggregator"] = agg
+			break loop
+		}
 	}
 
 	for _, aProp := range aggs {
@@ -43,7 +67,6 @@ func addNumericalAggregations(prop *aggregation.Property,
 			prop.NumericalAggregations[aProp.String()] = agg.Sum()
 		case aggregation.CountAggregator:
 			prop.NumericalAggregations[aProp.String()] = agg.Count()
-
 		default:
 			continue
 		}
@@ -55,6 +78,7 @@ func newNumericalAggregator() *numericalAggregator {
 		min:          math.MaxFloat64,
 		max:          math.SmallestNonzeroFloat64,
 		valueCounter: map[float64]uint64{},
+		pairs:        make([]floatCountPair, 0),
 	}
 }
 
@@ -75,25 +99,14 @@ type floatCountPair struct {
 }
 
 func (a *numericalAggregator) AddFloat64(value float64) error {
-	a.count++
-	a.sum += value
-	if value < a.min {
-		a.min = value
-	}
-
-	if value > a.max {
-		a.max = value
-	}
-
-	count := a.valueCounter[value]
-	count++
-	a.valueCounter[value] = count
-
-	return nil
+	return a.AddNumberRow(value, 1)
 }
 
-// turns the value counter into a sorted list, as well as identifying the mode
+// turns the value counter into a sorted list, as well as identifying the mode. Must be called before calling median etc
 func (a *numericalAggregator) buildPairsFromCounts() {
+	a.pairs = a.pairs[:0] // clear out old values in case this function called more than once
+	a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
+
 	for value, count := range a.valueCounter {
 		if count > a.maxCount {
 			a.maxCount = count
@@ -142,12 +155,9 @@ func (a *numericalAggregator) AddNumberRow(number float64, count uint64) error {
 		a.max = number
 	}
 
-	if count > a.maxCount {
-		a.maxCount = count
-		a.mode = number
-	}
-
-	a.pairs = append(a.pairs, floatCountPair{value: number, count: count})
+	currentCount := a.valueCounter[number]
+	currentCount += count
+	a.valueCounter[number] = currentCount
 
 	return nil
 }
@@ -182,25 +192,34 @@ func (a *numericalAggregator) Mode() float64 {
 }
 
 // Median does not require preparation if build from rows, but requires a call of
-// buildPairsFromCounts() if it was built using individual objects
+// buildPairsFromCounts() if it was built using individual objects. The call will panic
+// if called without adding at least one element or without calling buildPairsFromCounts()
+//
+// since the pairs are read from an inverted index, which is in turn
+// lexicographically sorted, we know that our pairs must also be sorted
+//
+// There are two cases:
+// a) There is an uneven number of elements, then the median element is at index N/2
+// b) There is an even number of elements, then the median element is (elem_(N/2) + elem_(N/2+1))/2.
+//
+//	with two sub-cases:
+//	  b1) element N/2 and N/2 + 1 are within the same pair, then the median is the value of this pair
+//	  b2) element N/2 and N/2 are part of different pairs, then the average of these pairs is the median and the
+//	      median value is not part of the collection itself
 func (a *numericalAggregator) Median() float64 {
-	var index uint64
-	if a.count%2 == 0 {
-		index = a.count / 2
-	} else {
-		index = a.count/2 + 1
-	}
-
-	// since the pairs are read from an inverted index, which is in turn
-	// lexicographically sorted, we know that our pairs must also be sorted
-	var median float64
-	for _, pair := range a.pairs {
-		if index <= pair.count {
-			median = pair.value
-			break
+	middleIndex := a.count / 2
+	count := uint64(0)
+	for index, pair := range a.pairs {
+		count += pair.count
+		if a.count%2 == 1 && count > middleIndex {
+			return pair.value // case a)
+		} else if a.count%2 == 0 {
+			if count == middleIndex {
+				return (pair.value + a.pairs[index+1].value) / 2 // case b2)
+			} else if count > middleIndex {
+				return pair.value // case b1)
+			}
 		}
-		index -= pair.count
 	}
-
-	return median
+	panic("Couldn't determine median. This should never happen. Did you add values and call buildRows before?")
 }

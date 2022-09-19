@@ -88,11 +88,18 @@ data-node2/
 /snapshots-fs/
 /snapshots-node2/
 /snapshots-s3/
+/snapshots-gcs/
+/backups/
+/backups-fs/
+/backups-node2/
+/backups-s3/
+/backups-gcs/
 docker-compose/runtime-stable/data
 docker-compose/runtime-unstable/data
 c.out
 
 esbackups/
+adapters/repos/backups/testdata/
 adapters/repos/db/testdata/
 adapters/repos/db/vector/hnsw/testdata
 adapters/repos/db/lsmkv/testdata
@@ -112,3 +119,6 @@ vendor/
 test/benchmark/benchmark_results.json
 # benchmark results files copied from a remote run
 benchmark_results_*.json
+
+# local credentials
+creds.json

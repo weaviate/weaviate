@@ -50,7 +50,6 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-
 	before.SetDocID(7)
 
 	asBinary, err := before.MarshalBinary()
@@ -76,6 +75,35 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		require.NotEmpty(t, prop)
 		assert.Equal(t, "MyName", prop[0])
 	})
+
+	t.Run("extract non-existing text prop", func(t *testing.T) {
+		prop, ok, err := ParseAndExtractTextProp(asBinary, "IDoNotExist")
+		require.Nil(t, err)
+		require.True(t, ok)
+		require.Empty(t, prop)
+	})
+}
+
+func TestFilteringNilProperty(t *testing.T) {
+	object := FromObject(
+		&models.Object{
+			Class: "MyFavoriteClass",
+			ID:    "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			Properties: map[string]interface{}{
+				"IWillBeRemoved": nil,
+				"IWillStay":      float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+	)
+	props := object.Properties()
+	propsTyped, ok := props.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, propsTyped["IWillStay"], float64(17))
+
+	elem, ok := propsTyped["IWillBeRemoved"]
+	require.False(t, ok)
+	require.Nil(t, elem)
 }
 
 func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
@@ -106,7 +134,6 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-
 	before.SetDocID(7)
 
 	asBinary, err := before.MarshalBinary()
@@ -120,9 +147,14 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			// modify before to match expectations of after
 			before.Object.Additional = nil
 			before.Vector = nil
+			before.VectorLen = 3
 			assert.Equal(t, before, after)
 
 			assert.Equal(t, before.docID, after.docID)
+
+			// The vector length should always be returned (for usage metrics
+			// purposes) even if the vector itself is skipped
+			assert.Equal(t, after.VectorLen, 3)
 		})
 	})
 }
@@ -267,7 +299,6 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-
 	before.SetDocID(7)
 
 	asBinary, err := before.MarshalBinary()

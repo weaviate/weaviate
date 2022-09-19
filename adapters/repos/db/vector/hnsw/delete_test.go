@@ -19,6 +19,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -651,59 +652,59 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	index.nodes = make([]*vertex, 50)
 	index.nodes[0] = &vertex{
 		id: 0,
-		connections: map[int][]uint64{
-			0: {1, 2, 3, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{1, 2, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[1] = &vertex{
 		id: 1,
-		connections: map[int][]uint64{
-			0: {0, 2, 3, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{0, 2, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[2] = &vertex{
 		id: 2,
-		connections: map[int][]uint64{
-			0: {1, 0, 3, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{1, 0, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[3] = &vertex{
 		id: 3,
-		connections: map[int][]uint64{
-			0: {2, 1, 0, 4, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{2, 1, 0, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[4] = &vertex{
 		id: 4,
-		connections: map[int][]uint64{
-			0: {3, 2, 1, 0, 5, 6, 7, 8},
+		connections: [][]uint64{
+			{3, 2, 1, 0, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[5] = &vertex{
 		id: 5,
-		connections: map[int][]uint64{
-			0: {3, 4, 2, 1, 0, 6, 7, 8},
+		connections: [][]uint64{
+			{3, 4, 2, 1, 0, 6, 7, 8},
 		},
 	}
 	index.nodes[6] = &vertex{
 		id: 6,
-		connections: map[int][]uint64{
-			0: {4, 3, 1, 3, 5, 0, 7, 8},
-			1: {7},
+		connections: [][]uint64{
+			{4, 3, 1, 3, 5, 0, 7, 8},
+			{7},
 		},
 		level: 1,
 	}
 	index.nodes[7] = &vertex{
 		id: 7,
-		connections: map[int][]uint64{
-			0: {6, 4, 3, 5, 2, 1, 0, 8},
-			1: {6},
+		connections: [][]uint64{
+			{6, 4, 3, 5, 2, 1, 0, 8},
+			{6},
 		},
 		level: 1,
 	}
 	index.nodes[8] = &vertex{
 		id: 8,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			8: {7, 6, 4, 3, 5, 2, 1, 0},
 		},
 	}
@@ -798,20 +799,20 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	index.nodes = make([]*vertex, 50)
 	index.nodes[0] = &vertex{
 		id: 0,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			0: {1},
 		},
 	}
 	index.nodes[1] = &vertex{
 		id: 1,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			0: {0, 2},
 			1: {2},
 		},
 	}
 	index.nodes[2] = &vertex{
 		id: 2,
-		connections: map[int][]uint64{
+		connections: [][]uint64{
 			0: {1},
 			1: {1},
 		},
@@ -889,9 +890,9 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 		return vectors[int(id)], nil
 	}
 
-	index, err := NewFromJSONDump(snapshotBefore, vecForID)
-	index.forbidFlat = true
+	index, err := NewFromJSONDumpMap(snapshotBefore, vecForID)
 	require.Nil(t, err)
+	index.forbidFlat = true
 
 	var control []uint64
 	t.Run("control search before delete with the respective allow list", func(t *testing.T) {
@@ -994,4 +995,67 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 
 func neverStop() bool {
 	return false
+}
+
+// This test simulates what happens when the EP is removed from the
+// VectorForID-serving store
+func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
+	var vectorIndex *hnsw
+
+	vectors := [][]float32{
+		{1, 1},
+		{2, 2},
+		{3, 3},
+	}
+
+	vectorErrors := []error{
+		nil,
+		nil,
+		nil,
+	}
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-ep-in-underlying-store-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewL2SquaredProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				fmt.Printf("vec for pos=%d is %v\n", id, vectors[int(id)])
+				return vectors[int(id)], vectorErrors[int(id)]
+			},
+		}, UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+		})
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		fmt.Printf("ep is %d\n", vectorIndex.entryPointID)
+	})
+
+	t.Run("simulate ep vec deletion in object store", func(t *testing.T) {
+		vectors[0] = nil
+		vectorErrors[0] = storobj.NewErrNotFoundf(0, "deleted")
+		vectorIndex.cache.delete(context.Background(), 0)
+	})
+
+	t.Run("try to insert a fourth vector", func(t *testing.T) {
+		vectors = append(vectors, []float32{4, 4})
+		vectorErrors = append(vectorErrors, nil)
+
+		pos := len(vectors) - 1
+		err := vectorIndex.Add(uint64(pos), vectors[pos])
+		require.Nil(t, err)
+	})
 }

@@ -36,8 +36,8 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      STORAGE_FS_SNAPSHOTS_PATH="${PWD}/snapshots" \
-      ENABLE_MODULES="text2vec-contextionary,storage-filesystem" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_HOSTNAME="node1" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -51,14 +51,14 @@ case $CONFIG in
   second-node)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node2" \
-      STORAGE_FS_SNAPSHOTS_PATH="${PWD}/snapshots-node2" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-node2" \
       CLUSTER_HOSTNAME="node2" \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
       CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,storage-filesystem" \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -103,6 +103,20 @@ case $CONFIG in
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,qna-transformers" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+  local-sum)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      SUM_INFERENCE_API="http://localhost:8008" \
+      CLUSTER_HOSTNAME="node1" \
+      ENABLE_MODULES="text2vec-contextionary,sum-transformers" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -199,10 +213,22 @@ case $CONFIG in
     ;;
 
   local-openai)
-      CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-openai \
       ENABLE_MODULES="text2vec-openai" \
+      CLUSTER_HOSTNAME="node1" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-huggingface)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-huggingface \
+      ENABLE_MODULES="text2vec-huggingface" \
       CLUSTER_HOSTNAME="node1" \
       go run ./cmd/weaviate-server \
         --scheme http \
@@ -230,10 +256,11 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      STORAGE_S3_ENDPOINT="localhost:9000" \
+      BACKUP_S3_ENDPOINT="localhost:9000" \
+      BACKUP_S3_BUCKET="weaviate-backups" \
       AWS_ACCESS_KEY_ID="aws_access_key" \
       AWS_SECRET_KEY="aws_secret_key" \
-      ENABLE_MODULES="text2vec-contextionary,storage-aws-s3" \
+      ENABLE_MODULES="text2vec-contextionary,backup-s3" \
       CLUSTER_HOSTNAME="node1" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -244,9 +271,29 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
+
+  local-gcs)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      GOOGLE_CLOUD_PROJECT=project-id \
+      STORAGE_EMULATOR_HOST=localhost:9090 \
+      BACKUP_GCS_ENDPOINT=localhost:9090 \
+      BACKUP_GCS_BUCKET=weaviate-backups \
+      ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+      CLUSTER_HOSTNAME="node1" \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
+
   *) 
     echo "Invalid config" 2>&1
     exit 1
     ;;
 esac
-

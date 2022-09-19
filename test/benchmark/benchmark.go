@@ -34,15 +34,15 @@ type batch struct {
 	Objects []*models.Object
 }
 
-type benchmarkResult map[string](map[string]int64)
+type benchmarkResult map[string]map[string]int64
 
 func main() {
 	var benchmarkName string
-	var failPercentage int
-	var maxEntries int
+	var numBatches, failPercentage, maxEntries int
 
 	flag.StringVar(&benchmarkName, "name", "SIFT", "Which benchmark should be run. Currently only SIFT is available.")
 	flag.IntVar(&maxEntries, "numberEntries", 100000, "Maximum number of entries read from the dataset")
+	flag.IntVar(&numBatches, "numBatches", 1, "With how many parallel batches objects should be added")
 	flag.IntVar(&failPercentage, "fail", -1, "Fail if regression is larger")
 	flag.Parse()
 
@@ -67,7 +67,7 @@ func main() {
 	var err error
 	switch benchmarkName {
 	case "SIFT":
-		newRuntime, err = benchmarkSift(c, url, maxEntries)
+		newRuntime, err = benchmarkSift(c, url, maxEntries, numBatches)
 	default:
 		panic("Unknown benchmark " + benchmarkName)
 	}
@@ -84,7 +84,7 @@ func main() {
 		panic(errors.Wrap(err, "Error occurred during benchmarking"))
 	}
 
-	FullBenchmarkName := benchmarkName + "-" + fmt.Sprint(maxEntries)
+	FullBenchmarkName := benchmarkName + "-" + fmt.Sprint(maxEntries) + "_Entries-" + fmt.Sprint(numBatches) + "_Batch(es)"
 
 	// Write results to file, keeping existing entries
 	oldBenchmarkRunTimes := readCurrentBenchmarkResults()

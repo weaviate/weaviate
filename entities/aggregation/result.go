@@ -23,7 +23,7 @@ type Group struct {
 
 type Property struct {
 	Type                  PropertyType           `json:"type"`
-	NumericalAggregations map[string]float64     `json:"numericalAggregations"`
+	NumericalAggregations map[string]interface{} `json:"numericalAggregations"`
 	TextAggregation       Text                   `json:"textAggregation"`
 	BooleanAggregation    Boolean                `json:"booleanAggregation"`
 	SchemaType            string                 `json:"schemaType"`

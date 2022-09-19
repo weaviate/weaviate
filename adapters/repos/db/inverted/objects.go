@@ -146,15 +146,21 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 		return nil
 	}
 
+	var err error
+	value, err = typedSliceToUntyped(value)
+	if err != nil {
+		return fmt.Errorf("extend properties with array type: %w", err)
+	}
+
 	values, ok := value.([]interface{})
 	if !ok {
 		// skip any primitive prop that's not set
-		errors.New("analyze array prop: expected array prop")
+		return errors.New("analyze array prop: expected array prop")
 	}
 
 	property, err := a.analyzeArrayProp(prop, values)
 	if err != nil {
-		errors.Wrap(err, "analyze primitive prop")
+		return errors.Wrap(err, "analyze primitive prop")
 	}
 	if property == nil {
 		return nil
@@ -179,7 +185,7 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	}
 	property, err = a.analyzePrimitiveProp(prop, value)
 	if err != nil {
-		errors.Wrap(err, "analyze primitive prop")
+		return errors.Wrap(err, "analyze primitive prop")
 	}
 	if property == nil {
 		return nil
@@ -221,6 +227,14 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
+			if asJsonNumber, ok := value.(json.Number); ok {
+				var err error
+				value, err = asJsonNumber.Float64()
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			if asFloat, ok := value.(float64); ok {
 				// unmarshaling from json into a dynamic schema will assume every number
 				// is a float64
@@ -243,6 +257,14 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		hasFrequency = HasFrequency(dt)
 		in := make([]float64, len(values))
 		for i, value := range values {
+			if asJsonNumber, ok := value.(json.Number); ok {
+				var err error
+				value, err = asJsonNumber.Float64()
+				if err != nil {
+					return nil, err
+				}
+			}
+
 			asFloat, ok := value.(float64)
 			if !ok {
 				return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", prop.Name, value)
@@ -275,11 +297,18 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
 		for i, value := range values {
-			asTime, ok := value.(time.Time)
-			if !ok {
-				return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
+			// dates can be either a date-string or directly a time object. Try to parse both
+			if asTime, okTime := value.(time.Time); okTime {
+				in[i] = asTime.UnixNano()
+			} else if asString, okString := value.(string); okString {
+				parsedTime, err := time.Parse(time.RFC3339Nano, asString)
+				if err != nil {
+					return nil, errors.Wrapf(err, "Time parsing")
+				}
+				in[i] = parsedTime.UnixNano()
+			} else {
+				return nil, fmt.Errorf("expected property %s to be a time-string or time object, but got %T", prop.Name, value)
 			}
-			in[i] = asTime.UnixNano()
 		}
 
 		var err error
@@ -339,6 +368,11 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			value = int64(asFloat)
 		}
 
+		if asInt, ok := value.(int); ok {
+			// when merging an existing object we may retrieve an untyped int
+			value = int64(asInt)
+		}
+
 		asInt, ok := value.(int64)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type int64, but got %T", prop.Name, value)
@@ -375,12 +409,19 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		}
 	case schema.DataTypeDate:
 		hasFrequency = HasFrequency(dt)
+		var err error
+		if asString, ok := value.(string); ok {
+			// for example when patching the date may have been loaded as a string
+			value, err = time.Parse(time.RFC3339Nano, asString)
+			if err != nil {
+				return nil, errors.Wrap(err, "parse stringified timestamp")
+			}
+		}
 		asTime, ok := value.(time.Time)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
 		}
 
-		var err error
 		items, err = a.Int(asTime.UnixNano())
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
@@ -465,4 +506,32 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 		Items:        items,
 		HasFrequency: false,
 	}, nil
+}
+
+func typedSliceToUntyped(in interface{}) ([]interface{}, error) {
+	switch typed := in.(type) {
+	case []interface{}:
+		// nothing to do
+		return typed, nil
+	case []string:
+		return convertToUntyped[string](typed), nil
+	case []int:
+		return convertToUntyped[int](typed), nil
+	case []time.Time:
+		return convertToUntyped[time.Time](typed), nil
+	case []bool:
+		return convertToUntyped[bool](typed), nil
+	case []float64:
+		return convertToUntyped[float64](typed), nil
+	default:
+		return nil, errors.Errorf("unsupported type %T", in)
+	}
+}
+
+func convertToUntyped[T comparable](in []T) []interface{} {
+	out := make([]interface{}, len(in))
+	for i := range out {
+		out[i] = in[i]
+	}
+	return out
 }

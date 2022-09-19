@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"sort"
 	"testing"
 	"time"
@@ -41,12 +40,7 @@ import (
 
 func TestBatchPutObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -55,6 +49,7 @@ func TestBatchPutObjects(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{},
 		&fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -72,12 +67,7 @@ func TestBatchPutObjects(t *testing.T) {
 
 func TestBatchDeleteObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
@@ -86,6 +76,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -101,12 +92,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
-	defer func() {
-		err := os.RemoveAll(dirName)
-		fmt.Println(err)
-	}()
+	dirName := t.TempDir()
 
 	queryMaximumResults := int64(20)
 	logger := logrus.New()
@@ -116,6 +102,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 		QueryMaximumResults:       queryMaximumResults,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -130,7 +117,8 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 }
 
 func testAddBatchObjectClass(repo *DB, migrator *Migrator,
-	schemaGetter *fakeSchemaGetter) func(t *testing.T) {
+	schemaGetter *fakeSchemaGetter,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		class := &models.Class{
 			Class:               "ThingForBatching",
@@ -555,7 +543,6 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						return
 					}
 					recall := float32(relevant) / float32(retrieved)
-					fmt.Printf("recall is %f\n", recall)
 					assert.True(t, recall >= 0.99)
 				})
 			}

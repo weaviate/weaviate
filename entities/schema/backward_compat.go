@@ -29,17 +29,6 @@ type WeaviateSchema struct {
 	ThingSchema  schemaProperties
 }
 
-const (
-	// ErrorNoSuchClass message
-	ErrorNoSuchClass string = "no such class with name '%s' found in the schema. Check your schema files for which classes are available"
-	// ErrorNoSuchProperty message
-	ErrorNoSuchProperty string = "no such prop with name '%s' found in class '%s' in the schema. Check your schema files for which properties in this class are available"
-	// ErrorNoSuchDatatype message
-	ErrorNoSuchDatatype string = "given value-DataType does not exist."
-	// ErrorInvalidRefType message
-	ErrorInvalidRefType string = "given ref type is not valid"
-)
-
 // GetClassByName returns the class by its name
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	if s == nil {

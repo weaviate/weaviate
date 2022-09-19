@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"sort"
 	"testing"
 	"time"
@@ -46,13 +45,9 @@ import (
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
-	repo, logger, dirName := setupMultiShardTest()
+	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
 	}()
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
@@ -85,13 +80,9 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
-	repo, logger, dirName := setupMultiShardTest()
+	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
 	}()
 
 	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
@@ -159,13 +150,9 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
-	repo, logger, dirName := setupMultiShardTest()
+	repo, logger := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
-		err := os.RemoveAll(dirName)
-		if err != nil {
-			fmt.Println(err)
-		}
 	}()
 
 	className := "RacecarPosts"
@@ -281,10 +268,9 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	})
 }
 
-func setupMultiShardTest() (*DB, *logrus.Logger, string) {
+func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 	rand.Seed(time.Now().UnixNano())
-	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0o777)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 	repo := New(logger, Config{
@@ -292,9 +278,10 @@ func setupMultiShardTest() (*DB, *logrus.Logger, string) {
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 
-	return repo, logger, dirName
+	return repo, logger
 }
 
 func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
@@ -327,7 +314,8 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 }
 
 func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
-	queryVec []float32, groundTruth []*models.Object) func(t *testing.T) {
+	queryVec []float32, groundTruth []*models.Object,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("retrieve all individually", func(t *testing.T) {
 			for _, desired := range data {
@@ -549,12 +537,12 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 				{
 					name:                   "textArrayProp desc",
 					sort:                   []filters.Sort{{Path: []string{"textArrayProp"}, Order: "desc"}},
-					expectedTextArrayProps: [][]string{[]string{"s19", "19"}, []string{"s18", "18"}, []string{"s17", "17"}, []string{"s16", "16"}, []string{"s15", "15"}, []string{"s14", "14"}, []string{"s13", "13"}, []string{"s12", "12"}, []string{"s11", "11"}, []string{"s10", "10"}, []string{"s09", "09"}, []string{"s08", "08"}, []string{"s07", "07"}, []string{"s06", "06"}, []string{"s05", "05"}, []string{"s04", "04"}, []string{"s03", "03"}, []string{"s02", "02"}, []string{"s01", "01"}, []string{"s00", "00"}},
+					expectedTextArrayProps: [][]string{{"s19", "19"}, {"s18", "18"}, {"s17", "17"}, {"s16", "16"}, {"s15", "15"}, {"s14", "14"}, {"s13", "13"}, {"s12", "12"}, {"s11", "11"}, {"s10", "10"}, {"s09", "09"}, {"s08", "08"}, {"s07", "07"}, {"s06", "06"}, {"s05", "05"}, {"s04", "04"}, {"s03", "03"}, {"s02", "02"}, {"s01", "01"}, {"s00", "00"}},
 				},
 				{
 					name:                   "textArrayProp asc",
 					sort:                   []filters.Sort{{Path: []string{"textArrayProp"}, Order: "asc"}},
-					expectedTextArrayProps: [][]string{[]string{"s00", "00"}, []string{"s01", "01"}, []string{"s02", "02"}, []string{"s03", "03"}, []string{"s04", "04"}, []string{"s05", "05"}, []string{"s06", "06"}, []string{"s07", "07"}, []string{"s08", "08"}, []string{"s09", "09"}, []string{"s10", "10"}, []string{"s11", "11"}, []string{"s12", "12"}, []string{"s13", "13"}, []string{"s14", "14"}, []string{"s15", "15"}, []string{"s16", "16"}, []string{"s17", "17"}, []string{"s18", "18"}, []string{"s19", "19"}},
+					expectedTextArrayProps: [][]string{{"s00", "00"}, {"s01", "01"}, {"s02", "02"}, {"s03", "03"}, {"s04", "04"}, {"s05", "05"}, {"s06", "06"}, {"s07", "07"}, {"s08", "08"}, {"s09", "09"}, {"s10", "10"}, {"s11", "11"}, {"s12", "12"}, {"s13", "13"}, {"s14", "14"}, {"s15", "15"}, {"s16", "16"}, {"s17", "17"}, {"s18", "18"}, {"s19", "19"}},
 				},
 				{
 					name:              "boolProp desc",
@@ -763,7 +751,8 @@ func multiShardRefClassData(targets []*models.Object) []*models.Object {
 }
 
 func bruteForceObjectsByQuery(objs []*models.Object,
-	query []float32) []*models.Object {
+	query []float32,
+) []*models.Object {
 	type distanceAndObj struct {
 		distance float32
 		obj      *models.Object

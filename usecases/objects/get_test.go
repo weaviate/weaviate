@@ -35,6 +35,7 @@ func Test_GetAction(t *testing.T) {
 		manager       *Manager
 		extender      *fakeExtender
 		projectorFake *fakeProjector
+		metrics       *fakeMetrics
 	)
 
 	schema := schema.Schema{
@@ -62,8 +63,9 @@ func Test_GetAction(t *testing.T) {
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
+		metrics = &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), nil)
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -99,6 +101,64 @@ func Test_GetAction(t *testing.T) {
 		assert.Equal(t, expected, res)
 	})
 
+	t.Run("get existing object by id with vector without classname (deprecated)", func(t *testing.T) {
+		reset()
+		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+
+		result := &search.Result{
+			ID:        id,
+			ClassName: "ActionClass",
+			Schema:    map[string]interface{}{"foo": "bar"},
+			Vector:    []float32{1, 2, 3},
+			Dims:      3,
+		}
+		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+
+		expected := &models.Object{
+			ID:            id,
+			Class:         "ActionClass",
+			Properties:    map[string]interface{}{"foo": "bar"},
+			VectorWeights: (map[string]string)(nil),
+			Vector:        []float32{1, 2, 3},
+		}
+
+		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "single_include_vector", 3)
+
+		res, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{Vector: true})
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("get existing object by id with vector with classname", func(t *testing.T) {
+		reset()
+		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+
+		result := &search.Result{
+			ID:        id,
+			ClassName: "ActionClass",
+			Schema:    map[string]interface{}{"foo": "bar"},
+			Vector:    []float32{1, 2, 3},
+			Dims:      3,
+		}
+		vectorRepo.On("Object", "ActionClass", id, mock.Anything, mock.Anything).
+			Return(result, nil).Once()
+
+		expected := &models.Object{
+			ID:            id,
+			Class:         "ActionClass",
+			Properties:    map[string]interface{}{"foo": "bar"},
+			VectorWeights: (map[string]string)(nil),
+			Vector:        []float32{1, 2, 3},
+		}
+
+		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "single_include_vector", 3)
+
+		res, err := manager.GetObject(context.Background(), &models.Principal{},
+			"ActionClass", id, additional.Properties{Vector: true})
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
 	t.Run("list all existing actions with all default pagination settings", func(t *testing.T) {
 		reset()
 		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
@@ -123,6 +183,39 @@ func Test_GetAction(t *testing.T) {
 		}
 
 		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("list all existing objects with vectors", func(t *testing.T) {
+		reset()
+		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
+
+		results := []search.Result{
+			{
+				ID:        id,
+				ClassName: "ActionClass",
+				Schema:    map[string]interface{}{"foo": "bar"},
+				Vector:    []float32{1, 2, 3},
+				Dims:      3,
+			},
+		}
+		vectorRepo.On("ObjectSearch", 0, 20, mock.Anything, mock.Anything, mock.Anything,
+			mock.Anything).Return(results, nil).Once()
+
+		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "list_include_vector", 3)
+
+		expected := []*models.Object{
+			{
+				ID:            id,
+				Class:         "ActionClass",
+				Properties:    map[string]interface{}{"foo": "bar"},
+				VectorWeights: (map[string]string)(nil),
+				Vector:        []float32{1, 2, 3},
+			},
+		}
+
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{Vector: true})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -608,8 +701,9 @@ func Test_GetThing(t *testing.T) {
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
+		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), nil)
+			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -978,6 +1072,7 @@ type fakeGetManager struct {
 	vectorizer *fakeVectorizer
 	authorizer *fakeAuthorizer
 	locks      *fakeLocks
+	metrics    *fakeMetrics
 }
 
 func newFakeGetManager(schema schema.Schema) fakeGetManager {
@@ -988,6 +1083,7 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 		vectorizer: new(fakeVectorizer),
 		authorizer: new(fakeAuthorizer),
 		locks:      new(fakeLocks),
+		metrics:    new(fakeMetrics),
 	}
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema,
@@ -998,6 +1094,6 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	logger, _ := test.NewNullLogger()
 	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider, nil)
+	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider, r.metrics)
 	return r
 }

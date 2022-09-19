@@ -23,8 +23,10 @@ type Metrics struct {
 	tombstones       prometheus.Gauge
 	threads          prometheus.Gauge
 	insert           prometheus.Gauge
+	insertDimensions prometheus.Counter
 	insertTime       prometheus.ObserverVec
 	delete           prometheus.Gauge
+	deleteDimensions prometheus.Counter
 	deleteTime       prometheus.ObserverVec
 	cleaned          prometheus.Counter
 	size             prometheus.Gauge
@@ -62,6 +64,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"operation":  "create",
 	})
 
+	insertDimensions := prom.VectorIndexDimensionOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "create",
+	})
+
 	insertTime := prom.VectorIndexDurations.MustCurryWith(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
@@ -69,6 +77,12 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 	})
 
 	del := prom.VectorIndexOperations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "delete",
+	})
+
+	delDimensions := prom.VectorIndexDimensionOperations.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
 		"operation":  "delete",
@@ -113,8 +127,10 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		threads:          threads,
 		cleaned:          cleaned,
 		insert:           insert,
+		insertDimensions: insertDimensions,
 		insertTime:       insertTime,
 		delete:           del,
+		deleteDimensions: delDimensions,
 		deleteTime:       deleteTime,
 		size:             size,
 		grow:             grow,
@@ -172,12 +188,28 @@ func (m *Metrics) InsertVector() {
 	m.insert.Inc()
 }
 
+func (m *Metrics) InsertVectorDimensions(d int) {
+	if !m.enabled {
+		return
+	}
+
+	m.insertDimensions.Add(float64(d))
+}
+
 func (m *Metrics) DeleteVector() {
 	if !m.enabled {
 		return
 	}
 
 	m.delete.Inc()
+}
+
+func (m *Metrics) DeleteVectorDimensions(d int) {
+	if !m.enabled {
+		return
+	}
+
+	m.deleteDimensions.Add(float64(d))
 }
 
 func (m *Metrics) SetSize(size int) {

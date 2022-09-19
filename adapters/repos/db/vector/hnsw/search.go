@@ -198,6 +198,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		}
 
 		candidateNode.Lock()
+		if candidateNode.level < level {
+			// a node level could have been downgraded as part of a delete-reassign,
+			// but the connections pointing to it not yet cleaned up. In this case
+			// the node doesn't have any outgoing connections at this level and we
+			// must discard it.
+			candidateNode.Unlock()
+			continue
+		}
 
 		var connections *[]uint64
 
@@ -288,7 +296,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue, level int,
-	visitedList *visited.List, allowList helpers.AllowList,
+	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
@@ -407,9 +415,25 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		// that particular level, so instead we're keeping whatever entrypoint we
 		// had before (i.e. either from a previous level or even the main
 		// entrypoint)
+		//
+		// If we do, however, have results, any candidate that's not nil (not
+		// deleted), and not under maintenance is a viable candidate
 		for res.Len() > 0 {
 			cand := res.Pop()
-			if !h.nodeByID(cand.ID).isUnderMaintenance() {
+			n := h.nodeByID(cand.ID)
+			if n == nil {
+				// we have found a node in results that is nil. This means it was
+				// deleted, but not cleaned up properly. Make sure to add a tombstone to
+				// this node, so it can be cleaned up in the next cycle.
+				if err := h.addTombstone(cand.ID); err != nil {
+					return nil, nil, err
+				}
+
+				// skip the nil node, as it does not make a valid entrypoint
+				continue
+			}
+
+			if !n.isUnderMaintenance() {
 				entryPointID = cand.ID
 				entryPointDistance = cand.Dist
 				break

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.14.1"
+    "version": "1.15.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -131,6 +131,253 @@ func init() {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
         }
+      }
+    },
+    "/backups/{backend}": {
+      "post": {
+        "description": "Starts a process of creating a backup for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.create",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/BackupCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup create process successfully started.",
+            "schema": {
+              "$ref": "#/definitions/BackupCreateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup creation attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      }
+    },
+    "/backups/{backend}/{id}": {
+      "get": {
+        "description": "Returns status of backup creation attempt for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.create.status",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup creation status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/BackupCreateStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      }
+    },
+    "/backups/{backend}/{id}/restore": {
+      "get": {
+        "description": "Returns status of a backup restoration attempt for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.restore.status",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup restoration status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/BackupRestoreStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
+      "post": {
+        "description": "Starts a process of restoring a backup for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.restore",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/BackupRestoreRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup restoration process successfully started.",
+            "schema": {
+              "$ref": "#/definitions/BackupRestoreResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
       }
     },
     "/batch/objects": {
@@ -292,7 +539,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "description": "Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
             "schema": {
               "type": "array",
               "items": {
@@ -2187,264 +2434,6 @@ func init() {
           "weaviate.local.manipulate.meta"
         ]
       }
-    },
-    "/schema/{className}/snapshots/{storageName}/{id}": {
-      "get": {
-        "description": "Returns status of creation attempt of a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.create.status",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot creation status successfully returned",
-            "schema": {
-              "$ref": "#/definitions/SnapshotMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Not Found - Snapshot does not exist",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.add.snapshot.status"
-        ]
-      },
-      "post": {
-        "description": "Starts a process of creation a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.create",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot process successfully started.",
-            "schema": {
-              "$ref": "#/definitions/SnapshotMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid create snapshot attempt.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.add.snapshot"
-        ]
-      }
-    },
-    "/schema/{className}/snapshots/{storageName}/{id}/restore": {
-      "get": {
-        "description": "Returns status of restoration attempt of a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.restore.status",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot restoration status successfully returned",
-            "schema": {
-              "$ref": "#/definitions/SnapshotRestoreMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Not Found - Snapshot does not exist",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.restore.snapshot.status"
-        ]
-      },
-      "post": {
-        "description": "Starts a process of restoring a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.restore",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot restoring process successfully started.",
-            "schema": {
-              "$ref": "#/definitions/SnapshotRestoreMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Not Found - Snapshot does not exist",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid restore snapshot attempt.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.restore.snapshot"
-        ]
-      }
     }
   },
   "definitions": {
@@ -2468,6 +2457,202 @@ func init() {
           "description": "calibrates term-weight scaling based on the term frequency within a document",
           "type": "number",
           "format": "float"
+        }
+      }
+    },
+    "BackupCreateRequest": {
+      "description": "Request body for creating a backup of a set of classes",
+      "properties": {
+        "config": {
+          "description": "Custom configuration for the backup creation process",
+          "type": "object"
+        },
+        "exclude": {
+          "description": "List of classes to exclude from the backup creation process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "include": {
+          "description": "List of classes to include in the backup creation process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "BackupCreateResponse": {
+      "description": "The definition of a backup create response body",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "classes": {
+          "description": "The list of classes for which the backup creation process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupCreateStatusResponse": {
+      "description": "The definition of a backup create metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupRestoreRequest": {
+      "description": "Request body for restoring a backup for a set of classes",
+      "properties": {
+        "config": {
+          "description": "Custom configuration for the backup restoration process",
+          "type": "object"
+        },
+        "exclude": {
+          "description": "List of classes to exclude from the backup restoration process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include": {
+          "description": "List of classes to include in the backup restoration process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "BackupRestoreResponse": {
+      "description": "The definition of a backup restore response body",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "classes": {
+          "description": "The list of classes for which the backup restoration process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupRestoreStatusResponse": {
+      "description": "The definition of a backup restore metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backup backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -2554,7 +2739,7 @@ func init() {
               "x-omitempty": false
             },
             "objects": {
-              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be ommitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
+              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
               "type": "array",
               "items": {
                 "description": "Results for this specific Object.",
@@ -2896,7 +3081,7 @@ func init() {
           "example": "running"
         },
         "type": {
-          "description": "which algorythim to use for classifications",
+          "description": "which algorithm to use for classifications",
           "type": "string"
         }
       }
@@ -3601,79 +3786,13 @@ func init() {
           "$ref": "#/definitions/ReferenceMetaClassification"
         },
         "href": {
-          "description": "If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
+          "description": "If using a direct reference, this read-only fields provides a link to the referenced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
           "type": "string",
           "format": "uri"
         },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
-        }
-      }
-    },
-    "SnapshotMeta": {
-      "description": "The definition of a snapshot metadata",
-      "properties": {
-        "error": {
-          "description": "error message if creation failed",
-          "type": "string"
-        },
-        "id": {
-          "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of snapshot files proper to selected storage",
-          "type": "string"
-        },
-        "status": {
-          "description": "phase of snapshot creation process",
-          "type": "string",
-          "default": "STARTED",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "TRANSFERRED",
-            "SUCCESS",
-            "FAILED"
-          ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
-        }
-      }
-    },
-    "SnapshotRestoreMeta": {
-      "description": "The definition of a snapshot metadata",
-      "properties": {
-        "error": {
-          "description": "error message if restoration failed",
-          "type": "string"
-        },
-        "id": {
-          "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of snapshot files proper to selected storage",
-          "type": "string"
-        },
-        "status": {
-          "description": "phase of snapshot restoration process",
-          "type": "string",
-          "default": "STARTED",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "TRANSFERRED",
-            "SUCCESS",
-            "FAILED"
-          ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },
@@ -3917,7 +4036,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.14.1"
+    "version": "1.15.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -4000,6 +4119,253 @@ func init() {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
         }
+      }
+    },
+    "/backups/{backend}": {
+      "post": {
+        "description": "Starts a process of creating a backup for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.create",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/BackupCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup create process successfully started.",
+            "schema": {
+              "$ref": "#/definitions/BackupCreateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup creation attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      }
+    },
+    "/backups/{backend}/{id}": {
+      "get": {
+        "description": "Returns status of backup creation attempt for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.create.status",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup creation status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/BackupCreateStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      }
+    },
+    "/backups/{backend}/{id}/restore": {
+      "get": {
+        "description": "Returns status of a backup restoration attempt for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.restore.status",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup restoration status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/BackupRestoreStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
+      },
+      "post": {
+        "description": "Starts a process of restoring a backup for a set of classes",
+        "tags": [
+          "backups"
+        ],
+        "operationId": "backups.restore",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Backup backend name e.g. filesystem, gcs, s3.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/BackupRestoreRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Backup restoration process successfully started.",
+            "schema": {
+              "$ref": "#/definitions/BackupRestoreResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
       }
     },
     "/batch/objects": {
@@ -4161,7 +4527,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "description": "Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
             "schema": {
               "type": "array",
               "items": {
@@ -6083,264 +6449,6 @@ func init() {
           "weaviate.local.manipulate.meta"
         ]
       }
-    },
-    "/schema/{className}/snapshots/{storageName}/{id}": {
-      "get": {
-        "description": "Returns status of creation attempt of a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.create.status",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot creation status successfully returned",
-            "schema": {
-              "$ref": "#/definitions/SnapshotMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Not Found - Snapshot does not exist",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.add.snapshot.status"
-        ]
-      },
-      "post": {
-        "description": "Starts a process of creation a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.create",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot process successfully started.",
-            "schema": {
-              "$ref": "#/definitions/SnapshotMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid create snapshot attempt.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.add.snapshot"
-        ]
-      }
-    },
-    "/schema/{className}/snapshots/{storageName}/{id}/restore": {
-      "get": {
-        "description": "Returns status of restoration attempt of a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.restore.status",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot restoration status successfully returned",
-            "schema": {
-              "$ref": "#/definitions/SnapshotRestoreMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Not Found - Snapshot does not exist",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.restore.snapshot.status"
-        ]
-      },
-      "post": {
-        "description": "Starts a process of restoring a snapshot for a class",
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.objects.snapshots.restore",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "The name of the class",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Storage name e.g. filesystem, gcs, s3.",
-            "name": "storageName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Snapshot restoring process successfully started.",
-            "schema": {
-              "$ref": "#/definitions/SnapshotRestoreMeta"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "Not Found - Snapshot does not exist",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid restore snapshot attempt.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.restore.snapshot"
-        ]
-      }
     }
   },
   "definitions": {
@@ -6364,6 +6472,202 @@ func init() {
           "description": "calibrates term-weight scaling based on the term frequency within a document",
           "type": "number",
           "format": "float"
+        }
+      }
+    },
+    "BackupCreateRequest": {
+      "description": "Request body for creating a backup of a set of classes",
+      "properties": {
+        "config": {
+          "description": "Custom configuration for the backup creation process",
+          "type": "object"
+        },
+        "exclude": {
+          "description": "List of classes to exclude from the backup creation process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "include": {
+          "description": "List of classes to include in the backup creation process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "BackupCreateResponse": {
+      "description": "The definition of a backup create response body",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "classes": {
+          "description": "The list of classes for which the backup creation process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupCreateStatusResponse": {
+      "description": "The definition of a backup create metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if creation failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup creation process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupRestoreRequest": {
+      "description": "Request body for restoring a backup for a set of classes",
+      "properties": {
+        "config": {
+          "description": "Custom configuration for the backup restoration process",
+          "type": "object"
+        },
+        "exclude": {
+          "description": "List of classes to exclude from the backup restoration process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include": {
+          "description": "List of classes to include in the backup restoration process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "BackupRestoreResponse": {
+      "description": "The definition of a backup restore response body",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "classes": {
+          "description": "The list of classes for which the backup restoration process was started",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    "BackupRestoreStatusResponse": {
+      "description": "The definition of a backup restore metadata",
+      "properties": {
+        "backend": {
+          "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "error": {
+          "description": "error message if restoration failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "path": {
+          "description": "destination path of backup files proper to selected backup backend",
+          "type": "string"
+        },
+        "status": {
+          "description": "phase of backup restoration process",
+          "type": "string",
+          "default": "STARTED",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -6466,7 +6770,7 @@ func init() {
               "x-omitempty": false
             },
             "objects": {
-              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be ommitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
+              "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
               "type": "array",
               "items": {
                 "$ref": "#/definitions/BatchDeleteResponseResultsObjectsItems0"
@@ -6520,7 +6824,7 @@ func init() {
           "x-omitempty": false
         },
         "objects": {
-          "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be ommitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
+          "description": "With output set to \"minimal\" only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to \"verbose\" will list all of the objets with their respective statuses.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/BatchDeleteResponseResultsObjectsItems0"
@@ -6925,7 +7229,7 @@ func init() {
           "example": "running"
         },
         "type": {
-          "description": "which algorythim to use for classifications",
+          "description": "which algorithm to use for classifications",
           "type": "string"
         }
       }
@@ -7674,79 +7978,13 @@ func init() {
           "$ref": "#/definitions/ReferenceMetaClassification"
         },
         "href": {
-          "description": "If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
+          "description": "If using a direct reference, this read-only fields provides a link to the referenced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
           "type": "string",
           "format": "uri"
         },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
-        }
-      }
-    },
-    "SnapshotMeta": {
-      "description": "The definition of a snapshot metadata",
-      "properties": {
-        "error": {
-          "description": "error message if creation failed",
-          "type": "string"
-        },
-        "id": {
-          "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of snapshot files proper to selected storage",
-          "type": "string"
-        },
-        "status": {
-          "description": "phase of snapshot creation process",
-          "type": "string",
-          "default": "STARTED",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "TRANSFERRED",
-            "SUCCESS",
-            "FAILED"
-          ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
-        }
-      }
-    },
-    "SnapshotRestoreMeta": {
-      "description": "The definition of a snapshot metadata",
-      "properties": {
-        "error": {
-          "description": "error message if restoration failed",
-          "type": "string"
-        },
-        "id": {
-          "description": "The ID of a snapshot. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of snapshot files proper to selected storage",
-          "type": "string"
-        },
-        "status": {
-          "description": "phase of snapshot restoration process",
-          "type": "string",
-          "default": "STARTED",
-          "enum": [
-            "STARTED",
-            "TRANSFERRING",
-            "TRANSFERRED",
-            "SUCCESS",
-            "FAILED"
-          ]
-        },
-        "storageName": {
-          "description": "Storage name e.g. filesystem, gcs, s3.",
-          "type": "string"
         }
       }
     },

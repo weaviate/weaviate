@@ -119,6 +119,11 @@ func (s *State) PhysicalShard(in []byte) string {
 	return virtual.AssignedToPhysical
 }
 
+// CountPhysicalShards return a count of pysical shards
+func (s *State) CountPhysicalShards() int {
+	return len(s.Physical)
+}
+
 func (s *State) AllPhysicalShards() []string {
 	var names []string
 	for _, physical := range s.Physical {

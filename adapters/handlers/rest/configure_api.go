@@ -41,18 +41,19 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
+	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
+	modstggcs "github.com/semi-technologies/weaviate/modules/backup-gcs"
+	modstgs3 "github.com/semi-technologies/weaviate/modules/backup-s3"
 	modimage "github.com/semi-technologies/weaviate/modules/img2vec-neural"
 	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
 	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
-	modstgs3 "github.com/semi-technologies/weaviate/modules/storage-aws-s3"
-	modstgfs "github.com/semi-technologies/weaviate/modules/storage-filesystem"
-	modstggcs "github.com/semi-technologies/weaviate/modules/storage-gcs"
+	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
+	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
-	"github.com/semi-technologies/weaviate/usecases/backups"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -89,7 +90,7 @@ type vectorRepo interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
+	CrossClassVectorSearch(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 	SetSchemaGetter(schemaUC.SchemaGetter)
 }
 
@@ -149,7 +150,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// var classifierRepo classification.Repo
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
-		promMetrics := monitoring.NewPrometheusMetrics()
+		promMetrics := monitoring.GetMetrics()
 		appState.Metrics = promMetrics
 	}
 
@@ -161,11 +162,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
 		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
 		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
+		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		NodeName:                  appState.Cluster.LocalName(),
 	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules)
+	explorer = traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics))
 	schemaRepo, err = schemarepo.NewRepo(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
@@ -184,12 +187,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	// SchemaManager is not set at that point, so it is passed as a callback
-	shardingStateFunc := func(className string) *sharding.State {
-		return appState.SchemaManager.ShardingState(className)
-	}
-	backupManager := backups.NewBackupManager(repo, appState.Modules, shardingStateFunc)
-
 	// TODO: configure http transport for efficient intra-cluster comm
 	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
 	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
@@ -203,8 +200,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		hnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient, backupManager,
-		scaleoutManager,
+		appState.Modules, appState.Cluster, schemaTxClient, scaleoutManager,
 	)
 	if err != nil {
 		appState.Logger.
@@ -234,7 +230,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules,
-		appState.Metrics)
+		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
@@ -423,6 +419,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules["sum-transformers"]; ok {
+		appState.Modules.Register(modsum.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "sum-transformers").
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules["img2vec-neural"]; ok {
 		appState.Modules.Register(modimage.New())
 		appState.Logger.
@@ -460,6 +464,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "text2vec-openai").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modhuggingface.Name]; ok {
+		appState.Modules.Register(modhuggingface.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modhuggingface.Name).
 			Debug("enabled module")
 	}
 

@@ -39,8 +39,7 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
 
-	err := idx.putObject(ctx, object)
-	if err != nil {
+	if err := idx.putObject(ctx, object); err != nil {
 		return errors.Wrapf(err, "import into index %s", idx.ID())
 	}
 

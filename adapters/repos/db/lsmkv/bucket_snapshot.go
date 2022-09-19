@@ -17,19 +17,26 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
 // PauseCompaction waits for all ongoing compactions to finish,
 // then makes sure that no new compaction can be started.
 //
-// This is a preparatory stage for taking snapshots.
+// This is a preparatory stage for creating backups.
 //
 // A timeout should be specified for the input context as some
 // compactions are long-running, in which case it may be better
 // to fail the backup attempt and retry later, than to block
 // indefinitely.
 func (b *Bucket) PauseCompaction(ctx context.Context) error {
+	metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(b.dir)
+	if err == nil {
+		b.pauseTimer = prometheus.NewTimer(metric)
+	}
+
 	if err := b.disk.compactionCycle.StopAndWait(ctx); err != nil {
 		return errors.Wrap(err, "long-running compaction in progress")
 	}
@@ -39,7 +46,7 @@ func (b *Bucket) PauseCompaction(ctx context.Context) error {
 // FlushMemtable flushes any active memtable and returns only once the memtable
 // has been fully flushed and a stable state on disk has been reached.
 //
-// This is a preparatory stage for taking snapshots.
+// This is a preparatory stage for creating backups.
 //
 // A timeout should be specified for the input context as some
 // flushes are long-running, in which case it may be better
@@ -70,7 +77,22 @@ func (b *Bucket) FlushMemtable(ctx context.Context) error {
 	}
 	b.flushLock.Unlock()
 
-	return b.FlushAndSwitch()
+	stat, err := b.active.commitlog.file.Stat()
+	if err != nil {
+		b.logger.WithField("action", "lsm_wal_stat").
+			WithField("path", b.dir).
+			WithError(err).
+			Fatal("bucket backup memtable flush failed")
+	}
+
+	// attempting a flush&switch on when the active memtable
+	// or WAL is empty results in a corrupted backup attempt
+	if b.active.Size() > 0 || stat.Size() > 0 {
+		if err := b.FlushAndSwitch(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListFiles lists all files that currently exist in the Bucket. The files are only
@@ -87,7 +109,8 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 			return nil
 		}
 		path, err2 := filepath.Rel(b.rootDir, path)
-		if err2 != nil {
+		// ignore .wal files because they are not immutable
+		if err2 != nil || filepath.Ext(path) == ".wal" {
 			return err2
 		}
 		files = append(files, path)
@@ -104,5 +127,8 @@ func (b *Bucket) ListFiles(ctx context.Context) ([]string, error) {
 // It errors if compactions were not paused
 func (b *Bucket) ResumeCompaction(ctx context.Context) error {
 	b.disk.compactionCycle.Start()
+	if b.pauseTimer != nil {
+		b.pauseTimer.ObserveDuration()
+	}
 	return nil
 }

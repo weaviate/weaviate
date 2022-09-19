@@ -92,6 +92,9 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	now := m.timeSource.Now()
 	object.CreationTimeUnix = now
 	object.LastUpdateTimeUnix = now
+	if object.Properties == nil {
+		object.Properties = map[string]interface{}{}
+	}
 
 	err = m.vectorizeAndPutObject(ctx, object, principal)
 	if err != nil {

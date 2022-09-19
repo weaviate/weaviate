@@ -27,6 +27,9 @@ type breakCleanUpTombstonedNodesFunc func() bool
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
 func (h *hnsw) Delete(id uint64) error {
+	h.deleteVsInsertLock.Lock()
+	defer h.deleteVsInsertLock.Unlock()
+
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
 
@@ -34,6 +37,7 @@ func (h *hnsw) Delete(id uint64) error {
 	defer h.metrics.TrackDelete(before, "total")
 
 	h.metrics.DeleteVector()
+	h.metrics.DeleteVectorDimensions(h.cache.dimensions(id))
 	if err := h.addTombstone(id); err != nil {
 		return err
 	}
@@ -304,7 +308,8 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		if h.isOnlyNode(&vertex{id: neighbor}, deleteList) {
 			neighborNode.Lock()
 			// delete all existing connections before re-assigning
-			neighborNode.connections = map[int][]uint64{}
+			neighborLevel = neighborNode.level
+			neighborNode.connections = make([][]uint64, neighborLevel+1)
 			neighborNode.Unlock()
 
 			if err := h.commitLog.ClearLinks(neighbor); err != nil {
@@ -318,14 +323,22 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 
 		alternative, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 			entryPointID)
-		neighborLevel = level // reduce in case no neighbor is at our level
+		if level > neighborLevel {
+			neighborNode.Lock()
+			// reset connections according to level
+			neighborNode.connections = make([][]uint64, level+1)
+			neighborNode.Unlock()
+		}
+		neighborLevel = level
 		entryPointID = alternative
 	}
 
 	neighborNode.markAsMaintenance()
 	neighborNode.Lock()
 	// delete all existing connections before re-assigning
-	neighborNode.connections = map[int][]uint64{}
+	for level := range neighborNode.connections {
+		neighborNode.connections[level] = neighborNode.connections[level][:0]
+	}
 	neighborNode.Unlock()
 	if err := h.commitLog.ClearLinks(neighbor); err != nil {
 		return false, err
@@ -341,7 +354,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	return true, nil
 }
 
-func connectionsPointTo(connections map[int][]uint64, needles helpers.AllowList) bool {
+func connectionsPointTo(connections [][]uint64, needles helpers.AllowList) bool {
 	for _, atLevel := range connections {
 		for _, pointer := range atLevel {
 			if needles.Contains(pointer) {

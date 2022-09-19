@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
+	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +36,7 @@ import (
 // (i.e. get, getmeta, aggreagate, etc.).  Additionally we have (a few) e2e
 // tests.
 
-func Test_GraphQLNetworkBuild(t *testing.T) {
+func TestBuild_GraphQLNetwork(t *testing.T) {
 	tests := testCases{
 		// This tests asserts that an action-only schema doesn't lead to errors.
 		testCase{
@@ -102,6 +103,97 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 	tests.AssertNoError(t)
 }
 
+func TestBuild_RefProps(t *testing.T) {
+	t.Run("expected error logs", func(t *testing.T) {
+		tests := testCases{
+			{
+				name: "build class with nonexistent ref prop",
+				localSchema: schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{
+							{
+								Class: "ThisClassExists",
+								Properties: []*models.Property{
+									{
+										DataType: []string{"ThisClassDoesNotExist"},
+										Name:     "ofNonexistentClass",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		expectedLogMsg := "ignoring ref prop \"ofNonexistentClass\" on class \"ThisClassExists\", " +
+			"because it contains reference to nonexistent class [\"ThisClassDoesNotExist\"]"
+
+		tests.AssertErrorLogs(t, expectedLogMsg)
+	})
+
+	t.Run("expected success", func(t *testing.T) {
+		tests := testCases{
+			{
+				name: "build class with existing non-circular ref prop",
+				localSchema: schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{
+							{
+								Class: "ThisClassExists",
+								Properties: []*models.Property{
+									{
+										DataType: []string{"ThisClassAlsoExists"},
+										Name:     "ofExistingClass",
+									},
+								},
+							},
+							{
+								Class: "ThisClassAlsoExists",
+								Properties: []*models.Property{
+									{
+										DataType: []string{"string"},
+										Name:     "stringProp",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				name: "build class with existing circular ref prop",
+				localSchema: schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{
+							{
+								Class: "ThisClassExists",
+								Properties: []*models.Property{
+									{
+										DataType: []string{"ThisClassAlsoExists"},
+										Name:     "ofExistingClass",
+									},
+								},
+							},
+							{
+								Class: "ThisClassAlsoExists",
+								Properties: []*models.Property{
+									{
+										DataType: []string{"ThisClassExists"},
+										Name:     "ofExistingClass",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		tests.AssertNoError(t)
+	})
+}
+
 type testCase struct {
 	name        string
 	localSchema schema.Schema
@@ -135,6 +227,42 @@ func (tests testCases) AssertNoError(t *testing.T) {
 			}()
 
 			assert.Nil(t, err, test.name)
+		})
+	}
+}
+
+// AssertErrorLogs still expects the test to pass without errors,
+// but does expect the Build logger to contain errors messages
+// from the GQL schema rebuilding thunk
+func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			modules := modules.NewProvider()
+			logger, logsHook := logrus.NewNullLogger()
+			localSchema, err := Build(&test.localSchema, logger, config.Config{}, modules)
+			require.Nil(t, err, test.name)
+
+			schemaObject := graphql.ObjectConfig{
+				Name:        "WeaviateObj",
+				Description: "Location of the root query",
+				Fields:      localSchema,
+			}
+
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						err = fmt.Errorf("%v at %s", r, debug.Stack())
+					}
+				}()
+
+				_, err = graphql.NewSchema(graphql.SchemaConfig{
+					Query: graphql.NewObject(schemaObject),
+				})
+			}()
+
+			last := logsHook.LastEntry()
+			assert.Contains(t, last.Message, expectedMsg)
+			assert.Nil(t, err)
 		})
 	}
 }

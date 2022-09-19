@@ -67,7 +67,7 @@ func aggregatesWithoutGroupingOrFilters(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "City").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("5")
+		expected := json.Number("6")
 		assert.Equal(t, expected, count)
 	})
 
@@ -132,7 +132,7 @@ func aggregatesWithoutGroupingOrFilters(t *testing.T) {
 				"occurs": json.Number("1"),
 			},
 			map[string]interface{}{
-				"value":  "Null Island",
+				"value":  "Missing Island",
 				"occurs": json.Number("1"),
 			},
 		}
@@ -308,12 +308,12 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 	t.Run("meta count", func(t *testing.T) {
 		meta := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["meta"]
 		count := meta.(map[string]interface{})["count"]
-		expected := json.Number("3")
+		expected := json.Number("5")
 		assert.Equal(t, expected, count)
 	})
 
 	t.Run("int[]/number[] props", func(t *testing.T) {
-		isCapital := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["numbers"]
+		numbers := result.Get("Aggregate", "ArrayClass").AsSlice()[0].(map[string]interface{})["numbers"]
 		expected := map[string]interface{}{
 			"mean":    json.Number("1.6666666666666667"),
 			"count":   json.Number("6"),
@@ -322,7 +322,7 @@ func aggregatesArrayClassWithoutGroupingOrFilters(t *testing.T) {
 			"sum":     json.Number("10"),
 			"type":    "number[]",
 		}
-		assert.Equal(t, expected, isCapital)
+		assert.Equal(t, expected, numbers)
 	})
 
 	t.Run("string[]/text[] prop", func(t *testing.T) {
@@ -1745,7 +1745,6 @@ func aggregatesOnDateFields(t *testing.T) {
 						minimum
 						maximum
 						median
-						mode
 					}
 				}
 			}
@@ -1758,9 +1757,8 @@ func aggregatesOnDateFields(t *testing.T) {
 				"timestamp": map[string]interface{}{
 					"count":   json.Number("10"),
 					"maximum": "2022-06-16T22:19:11.837473Z",
-					"median":  "2022-06-16T22:19:05.894857Z",
+					"median":  "2022-06-16T22:19:06.1449075Z",
 					"minimum": "2022-06-16T22:18:59.640162Z",
-					"mode":    "2022-06-16T22:18:59.640162Z",
 				},
 			},
 		}
@@ -1914,7 +1912,7 @@ func aggregatesOnDateFields(t *testing.T) {
 				"timestamp": map[string]interface{}{
 					"count":   json.Number("10"),
 					"maximum": "2022-06-16T22:19:11.837473Z",
-					"median":  "2022-06-16T22:19:05.894857Z",
+					"median":  "2022-06-16T22:19:06.1449075Z",
 					"minimum": "2022-06-16T22:18:59.640162Z",
 				},
 			},

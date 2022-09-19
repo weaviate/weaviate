@@ -13,14 +13,18 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -36,6 +40,69 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	return m.addClass(ctx, principal, class)
 }
 
+func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
+	d *backup.ClassDescriptor,
+) error {
+	// get schema and sharding state
+	class := &models.Class{}
+	if err := json.Unmarshal(d.Schema, &class); err != nil {
+		return fmt.Errorf("marshal class schema: %w", err)
+	}
+	var shardingState *sharding.State
+	if d.ShardingState != nil {
+		shardingState = &sharding.State{}
+		err := json.Unmarshal(d.ShardingState, shardingState)
+		if err != nil {
+			return fmt.Errorf("marshal sharding state: %w", err)
+		}
+	}
+
+	m.Lock()
+	defer m.Unlock()
+	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)
+	if err == nil {
+		timer := prometheus.NewTimer(metric)
+		defer timer.ObserveDuration()
+	}
+
+	class.Class = upperCaseClassName(class.Class)
+	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	m.setClassDefaults(class)
+
+	err = m.validateCanAddClass(ctx, principal, class, true)
+	if err != nil {
+		return err
+	}
+
+	err = m.parseShardingConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.parseVectorIndexConfig(ctx, class)
+	if err != nil {
+		return err
+	}
+
+	err = m.invertedConfigValidator(class.InvertedIndexConfig)
+	if err != nil {
+		return err
+	}
+
+	semanticSchema := m.state.ObjectSchema
+	semanticSchema.Classes = append(semanticSchema.Classes, class)
+
+	m.state.ShardingState[class.Class] = shardingState
+	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
+	err = m.saveSchema(ctx)
+	if err != nil {
+		return err
+	}
+
+	out := m.migrator.AddClass(ctx, class, shardingState)
+	return out
+}
+
 func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) error {
@@ -46,7 +113,7 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err := m.validateCanAddClass(ctx, principal, class)
+	err := m.validateCanAddClass(ctx, principal, class, false)
 	if err != nil {
 		return err
 	}
@@ -161,7 +228,10 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 	}
 }
 
-func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, class *models.Class) error {
+func (m *Manager) validateCanAddClass(
+	ctx context.Context, principal *models.Principal, class *models.Class,
+	relaxCrossRefValidation bool,
+) error {
 	if err := m.validateClassNameUniqueness(class.Class); err != nil {
 		return err
 	}
@@ -172,7 +242,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class, existingPropertyNames, principal); err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, principal, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[property.Name] = true
@@ -190,7 +260,11 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	return nil
 }
 
-func (m *Manager) validateProperty(property *models.Property, class *models.Class, existingPropertyNames map[string]bool, principal *models.Principal) error {
+func (m *Manager) validateProperty(
+	property *models.Property, class *models.Class,
+	existingPropertyNames map[string]bool, principal *models.Principal,
+	relaxCrossRefValidation bool,
+) error {
 	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
 		return err
 	}
@@ -209,7 +283,8 @@ func (m *Manager) validateProperty(property *models.Property, class *models.Clas
 		return err
 	}
 
-	propertyDataType, err := (&schema).FindPropertyDataType(property.DataType)
+	propertyDataType, err := (&schema).FindPropertyDataTypeWithRefs(property.DataType,
+		relaxCrossRefValidation)
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}

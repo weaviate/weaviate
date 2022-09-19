@@ -63,6 +63,10 @@ services:
     image: semitechnologies/ner-transformers:latest
     ports:
       - "8003:8080"
+  sum-transformers:
+    image: semitechnologies/sum-transformers:facebook-bart-large-cnn-1.0.0
+    ports:
+      - "8008:8080"
   text-spellcheck:
     image: semitechnologies/text-spellcheck-model:pyspellchecker-d933122
     ports:
@@ -79,13 +83,19 @@ services:
     image: semitechnologies/transformers-inference:facebook-dpr-question_encoder-single-nq-base
     ports: 
       - "8007:8080"
-  storage-aws-s3:
+  backup-s3:
     image: minio/minio
     ports:
       - "9000:9000"
     volumes:
-      - ./snapshots-s3:/data
+      - ./backups-s3:/data
     environment:
       MINIO_ROOT_USER: aws_access_key
       MINIO_ROOT_PASSWORD: aws_secret_key
     command: server /data
+  backup-gcs:
+    image: oittaa/gcp-storage-emulator
+    ports:
+      - "9090:8080"
+    volumes:
+          - ./backups-gcs:/storage
