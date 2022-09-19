@@ -63,11 +63,7 @@ func (s *Shard) initDimensionTracking() {
 				metric, err := s.promMetrics.DimensionSum.GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
 				if err == nil {
 					metric.Set(float64(dimCount))
-				} else {
-					panic("ick")
 				}
-			} else {
-				panic("ick")
 			}
 			<-t.C
 		}
