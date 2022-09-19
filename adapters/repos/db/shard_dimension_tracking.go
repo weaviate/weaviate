@@ -9,22 +9,18 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
+// FIXME: Debugging code, remove
 var transfer string
 
 func doThing(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(w, "%v\n", transfer)
+	fmt.Fprintf(w, "Data: %v\n", transfer)
 }
 
 func init() {
 	http.HandleFunc("/dothing", doThing)
 
 	go http.ListenAndServe("0.0.0.0:64000", nil)
-
 }
-
-// TODO WEAVIATE-286, instead of this fake feature flag, this should be read
-// from the environment. See usecases/config/environment.go
-var temporaryFakeFeatureFlagForWeavite286 = true
 
 func (s *Shard) Dimensions() int {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
@@ -40,14 +36,15 @@ func (s *Shard) Dimensions() int {
 	}
 	c.Close()
 
-	transfer = fmt.Sprintf("Dimensions: %d", sum)
+	transfer = fmt.Sprintf("Dimensions: %d,\n\nConfig: %+v\n", sum, s.config)
 
 	return sum
 }
 
 func (s *Shard) initDimensionTracking() {
-	// TODO WEAVIATE-286: check real feature flag and disable if not set
-	if !s.config.TrackVectorDimesions {
+	fmt.Println("!!!initting track vec dimensions", s.config.TrackVectorDimensions)
+
+	if !s.config.TrackVectorDimensions {
 		return
 	}
 
@@ -56,16 +53,24 @@ func (s *Shard) initDimensionTracking() {
 	// See entities/cyclemanager/cyclemanager.go
 
 	go func() {
-		t := time.Tick(5 * time.Second) // 5 minutes
+		fmt.Println("!!!Starting track vec dimensions counter")
+		t := time.NewTicker(5 * time.Second) // 5 minutes
 
 		for {
-			<-t
+
+			if s.stopMetrics {
+				return
+			}
+			fmt.Println("!!!Counting  dimensions ")
 			dimCount := s.Dimensions()
 
-			metric, _ := s.promMetrics.DimensionSum.GetMetricWithLabelValues("dimensions", s.index.Config.ClassName.String(), s.name)
-
-			metric.Set(float64(dimCount))
-
+			if s.promMetrics != nil {
+				metric, err := s.promMetrics.DimensionSum.GetMetricWithLabelValues("dimensions", s.index.Config.ClassName.String(), s.name)
+				if err == nil {
+					metric.Set(float64(dimCount))
+				}
+			}
+			<-t.C
 		}
 	}()
 }
