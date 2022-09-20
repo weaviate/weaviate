@@ -274,6 +274,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 
 	logger, _ := test.NewNullLogger()
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,

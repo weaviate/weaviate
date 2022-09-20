@@ -40,6 +40,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
 			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
 			NodeName:                  m.db.config.NodeName,
+			FlushIdleAfter:            m.db.config.FlushIdleAfter,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
