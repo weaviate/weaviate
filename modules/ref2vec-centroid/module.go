@@ -43,8 +43,16 @@ func (m *CentroidModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *CentroidModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig, refVecs ...[]float32,
+	obj *models.Object, cfg moduletools.ClassConfig,
+	findRefVecsFn modulecapabilities.FindRefVectorsFn,
 ) error {
+	props := targetReferenceProperties(cfg)
+
+	refVecs, err := findRefVecsFn(ctx, obj, props)
+	if err != nil {
+		return fmt.Errorf("find ref vectors: %w", err)
+	}
+
 	if len(refVecs) == 0 {
 		obj.Vector = nil
 		return nil
@@ -61,17 +69,20 @@ func (m *CentroidModule) VectorizeObject(ctx context.Context,
 	return nil
 }
 
-func (m *CentroidModule) TargetReferenceProperties(cfg moduletools.ClassConfig) (refProps []string) {
-	props := cfg.Class()
-	iRefProps := props[referencePropertiesField].([]interface{})
-	for _, iProp := range iRefProps {
-		refProps = append(refProps, iProp.(string))
-	}
-	return
-}
-
 func (m *CentroidModule) vectorizer(cfg moduletools.ClassConfig) *vectorizer.Vectorizer {
 	props := cfg.Class()
-	calcMethod := props[calculationMethodField].(vectorizer.CalculationMethod)
+	calcMethod := props[calculationMethodField].(string)
 	return vectorizer.New(calcMethod)
+}
+
+func targetReferenceProperties(cfg moduletools.ClassConfig) map[string]struct{} {
+	refProps := map[string]struct{}{}
+	props := cfg.Class()
+
+	iRefProps := props[referencePropertiesField].([]interface{})
+	for _, iProp := range iRefProps {
+		refProps[iProp.(string)] = struct{}{}
+	}
+
+	return refProps
 }

@@ -61,13 +61,11 @@ func Test_GetAction(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		refVectorizer := &fakeReferenceVectorizer{}
-		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics = &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vecProvider, refVecProvider, vectorRepo,
+			authorizer, vecProvider, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
@@ -702,13 +700,11 @@ func Test_GetThing(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		refVectorizer := &fakeReferenceVectorizer{}
-		refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: refVectorizer}
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vecProvider, refVecProvider, vectorRepo,
+			authorizer, vecProvider, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
@@ -1072,28 +1068,26 @@ func ptInt64(in int64) *int64 {
 
 type fakeGetManager struct {
 	*Manager
-	repo                *fakeVectorRepo
-	extender            *fakeExtender
-	projector           *fakeProjector
-	vectorizer          *fakeVectorizer
-	referenceVectorizer *fakeReferenceVectorizer
-	authorizer          *fakeAuthorizer
-	locks               *fakeLocks
-	metrics             *fakeMetrics
-	modulesProvider     *fakeModulesProvider
+	repo            *fakeVectorRepo
+	extender        *fakeExtender
+	projector       *fakeProjector
+	vectorizer      *fakeVectorizer
+	authorizer      *fakeAuthorizer
+	locks           *fakeLocks
+	metrics         *fakeMetrics
+	modulesProvider *fakeModulesProvider
 }
 
 func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fakeGetManager {
 	r := fakeGetManager{
-		repo:                new(fakeVectorRepo),
-		extender:            new(fakeExtender),
-		projector:           new(fakeProjector),
-		vectorizer:          new(fakeVectorizer),
-		referenceVectorizer: new(fakeReferenceVectorizer),
-		authorizer:          new(fakeAuthorizer),
-		locks:               new(fakeLocks),
-		metrics:             new(fakeMetrics),
-		modulesProvider:     new(fakeModulesProvider),
+		repo:            new(fakeVectorRepo),
+		extender:        new(fakeExtender),
+		projector:       new(fakeProjector),
+		vectorizer:      new(fakeVectorizer),
+		authorizer:      new(fakeAuthorizer),
+		locks:           new(fakeLocks),
+		metrics:         new(fakeMetrics),
+		modulesProvider: new(fakeModulesProvider),
 	}
 
 	for _, opt := range opts {
@@ -1107,17 +1101,10 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
 	logger, _ := test.NewNullLogger()
-	refVecProvider := &fakeReferenceVectorizerProvider{vectorizer: r.referenceVectorizer}
 	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer,
-		vecProvider, refVecProvider, r.repo, r.modulesProvider, r.metrics)
+		vecProvider, r.repo, r.modulesProvider, r.metrics)
 
 	return r
-}
-
-func withRef2VecModule() func(*fakeGetManager) {
-	return func(mgr *fakeGetManager) {
-		mgr.referenceVectorizer = &fakeReferenceVectorizer{}
-	}
 }

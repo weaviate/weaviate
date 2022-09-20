@@ -26,17 +26,22 @@ type Vectorizer interface {
 		cfg moduletools.ClassConfig) error
 }
 
+type ReferenceVectorRepo interface {
+	PutObject(ctx context.Context, object *models.Object, vector []float32) error
+	ReferenceVectorSearch(ctx context.Context, obj *models.Object,
+		refProps map[string]struct{}) ([][]float32, error)
+}
+
+type FindRefVectorsFn = func(ctx context.Context, object *models.Object,
+	refProps map[string]struct{}) ([][]float32, error)
+
 // ReferenceVectorizer is implemented by ref2vec modules, which calculate a target
 // object's vector based only on the vectors of its references. If the object has
 // no references, the object will have a nil vector
 type ReferenceVectorizer interface {
 	// VectorizeObject should mutate the object which is passed in as a pointer-type
 	// by extending it with the desired vector, which is calculated by the module
-	// with the reference vectors refVectors
-	VectorizeObject(ctx context.Context, obj *models.Object,
-		cfg moduletools.ClassConfig, refVectors ...[]float32) error
-	// TargetReferenceProperties takes in a given class' module config, and returns
-	// a list of properties which were configured by the class to be used for
-	// calculating an object's vector based only on the vectors of its references
-	TargetReferenceProperties(cfg moduletools.ClassConfig) []string
+	// with the reference vectors found with findRefVecFn
+	VectorizeObject(ctx context.Context, object *models.Object,
+		cfg moduletools.ClassConfig, findRefVecsFn FindRefVectorsFn) error
 }

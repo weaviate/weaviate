@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
@@ -33,18 +34,17 @@ import (
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	config                  *config.WeaviateConfig
-	locks                   locks
-	schemaManager           schemaManager
-	logger                  logrus.FieldLogger
-	authorizer              authorizer
-	vectorizerProvider      VectorizerProvider
-	referenceVectorProvider ReferenceVectorizerProvider
-	vectorRepo              VectorRepo
-	timeSource              timeSource
-	modulesProvider         ModulesProvider
-	autoSchemaManager       *autoSchemaManager
-	metrics                 objectsMetrics
+	config             *config.WeaviateConfig
+	locks              locks
+	schemaManager      schemaManager
+	logger             logrus.FieldLogger
+	authorizer         authorizer
+	vectorizerProvider VectorizerProvider
+	vectorRepo         VectorRepo
+	timeSource         timeSource
+	modulesProvider    ModulesProvider
+	autoSchemaManager  *autoSchemaManager
+	metrics            objectsMetrics
 }
 
 type objectsMetrics interface {
@@ -77,14 +77,6 @@ type objectsMetrics interface {
 
 type timeSource interface {
 	Now() int64
-}
-
-type ReferenceVectorizerProvider interface {
-	ReferenceVectorizer(moduleName, className string) (ReferenceVectorizer, error)
-}
-
-type ReferenceVectorizer interface {
-	UpdateObject(ctx context.Context, obj *models.Object, refVecs ...[]float32) error
 }
 
 type VectorizerProvider interface {
@@ -120,6 +112,8 @@ type VectorRepo interface {
 		source strfmt.UUID, propName string, ref *models.SingleRef) error
 	Merge(ctx context.Context, merge MergeDocument) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)
+	ReferenceVectorSearch(ctx context.Context, obj *models.Object,
+		refProps map[string]struct{}) ([][]float32, error)
 }
 
 type ModulesProvider interface {
@@ -127,30 +121,30 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{}) (*search.Result, error)
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
-	UsingRef2Vec(moduleName string) bool
-	TargetReferenceProperties(className string) (map[string]struct{}, error)
+	UsingRef2Vec(className string) bool
+	UpdateReferenceVector(ctx context.Context, object *models.Object,
+		repo modulecapabilities.ReferenceVectorRepo) error
 }
 
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorizer VectorizerProvider,
-	refVectorizer ReferenceVectorizerProvider, vectorRepo VectorRepo,
-	modulesProvider ModulesProvider, metrics objectsMetrics,
+	vectorRepo VectorRepo, modulesProvider ModulesProvider,
+	metrics objectsMetrics,
 ) *Manager {
 	return &Manager{
-		config:                  config,
-		locks:                   locks,
-		schemaManager:           schemaManager,
-		logger:                  logger,
-		vectorizerProvider:      vectorizer,
-		referenceVectorProvider: refVectorizer,
-		authorizer:              authorizer,
-		vectorRepo:              vectorRepo,
-		timeSource:              defaultTimeSource{},
-		modulesProvider:         modulesProvider,
-		autoSchemaManager:       newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
-		metrics:                 metrics,
+		config:             config,
+		locks:              locks,
+		schemaManager:      schemaManager,
+		logger:             logger,
+		vectorizerProvider: vectorizer,
+		authorizer:         authorizer,
+		vectorRepo:         vectorRepo,
+		timeSource:         defaultTimeSource{},
+		modulesProvider:    modulesProvider,
+		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		metrics:            metrics,
 	}
 }
 

@@ -71,23 +71,15 @@ func (m *Manager) AddObjectReference(
 		}
 	}
 
-	shouldRecalc, err := m.shouldRecalculateVectorWithRefs(input.Class, principal)
-	if err != nil {
-		return &Error{"should recalculate ref vector", StatusInternalServerError, err}
-	}
-
-	if shouldRecalc {
-		if err := m.findParentAndVectorizeRefs(
-			ctx, principal, input.Class, input.ID, &input.Ref); err != nil {
-			return &Error{fmt.Sprintf("calculate ref vector for '%s/%s'",
-				input.Class, input.ID), StatusInternalServerError, err}
-		}
-	}
-
 	if err := m.vectorRepo.AddReference(
 		ctx, input.Class, input.ID, input.Property, &input.Ref); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
+
+	if err := m.updateRefVector(ctx, input.Class, input.ID); err != nil {
+		return &Error{"update ref vector", StatusInternalServerError, err}
+	}
+
 	return nil
 }
 

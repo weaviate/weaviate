@@ -586,7 +586,7 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	m := newFakeGetManager(articleSchemaForTest(), withRef2VecModule())
+	m := newFakeGetManager(articleSchemaForTest())
 
 	req := AddReferenceInput{
 		Class:    "Article",
@@ -611,8 +611,8 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 
 	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
-	m.repo.On("ObjectByID", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
-	m.repo.On("ObjectByID", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
+	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
+	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
 	m.repo.On("PutObject", parent.Object(), []float32(nil)).Return(nil)
 	m.repo.On("AddReference", req.Class, req.ID, req.Property, &req.Ref).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
@@ -627,7 +627,7 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	m := newFakeGetManager(articleSchemaForTest(), withRef2VecModule())
+	m := newFakeGetManager(articleSchemaForTest())
 
 	req := DeleteReferenceInput{
 		Class:    "Article",

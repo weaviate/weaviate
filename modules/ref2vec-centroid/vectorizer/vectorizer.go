@@ -2,11 +2,9 @@ package vectorizer
 
 import "fmt"
 
-type CalculationMethod string
-
 const (
-	MethodMean    CalculationMethod = "mean"
-	MethodDefault                   = MethodMean
+	MethodMean    = "mean"
+	MethodDefault = MethodMean
 )
 
 type CalcFunc func(vecs ...[]float32) ([]float32, error)
@@ -15,7 +13,7 @@ type Vectorizer struct {
 	calcFunc CalcFunc
 }
 
-func New(method CalculationMethod) *Vectorizer {
+func New(method string) *Vectorizer {
 	v := &Vectorizer{}
 	switch method {
 	case MethodMean:

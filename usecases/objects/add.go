@@ -96,7 +96,12 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	err = m.vectorizeAndPutObject(ctx, object, principal)
+	if m.modulesProvider.UsingRef2Vec(object.Class) {
+		err = m.modulesProvider.UpdateReferenceVector(ctx, object, m.vectorRepo)
+	} else {
+		err = m.vectorizeAndPutObject(ctx, object, principal)
+	}
+
 	if err != nil {
 		return nil, err
 	}

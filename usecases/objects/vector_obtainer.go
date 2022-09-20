@@ -95,56 +95,6 @@ func newVectorObtainer(vectorizerProvider VectorizerProvider,
 	}
 }
 
-type referenceVectorObtainer struct {
-	referenceVectorizerProvider ReferenceVectorizerProvider
-	schemaManager               schemaManager
-	logger                      logrus.FieldLogger
-}
-
-func (vo *referenceVectorObtainer) SchemaManager() schemaManager {
-	return vo.schemaManager
-}
-
-func (vo *referenceVectorObtainer) Logger() logrus.FieldLogger {
-	return vo.logger
-}
-
-func newReferenceVectorObtainer(referenceVectorizerProvider ReferenceVectorizerProvider,
-	schemaManager schemaManager, logger logrus.FieldLogger,
-) *referenceVectorObtainer {
-	return &referenceVectorObtainer{
-		referenceVectorizerProvider: referenceVectorizerProvider,
-		schemaManager:               schemaManager,
-		logger:                      logger,
-	}
-}
-
-// Do retrieves the correct vector and makes sure it is set on the passed-in
-// *models.Object. (This method mutates its parameter)
-func (vo *referenceVectorObtainer) Do(ctx context.Context, obj *models.Object,
-	principal *models.Principal, refVecs ...[]float32,
-) error {
-	vectorizerName, err := validateVectorizer(vo, principal, obj)
-	if err != nil {
-		return err
-	}
-
-	if vectorizerName == config.VectorizerModuleNone {
-		return nil
-	}
-
-	vectorizer, err := vo.referenceVectorizerProvider.ReferenceVectorizer(vectorizerName, obj.Class)
-	if err != nil {
-		return err
-	}
-
-	if err := vectorizer.UpdateObject(ctx, obj, refVecs...); err != nil {
-		return NewErrInternal("%v", err)
-	}
-
-	return nil
-}
-
 // Do retrieves the correct vector and makes sure it is set on the passed-in
 // *models.Object. (This method mutates its parameter)
 func (vo *vectorObtainer) Do(ctx context.Context, obj *models.Object,

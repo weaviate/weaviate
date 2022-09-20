@@ -13,7 +13,6 @@ package modules
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -60,74 +59,25 @@ func (m *Provider) Vectorizer(moduleName, className string) (objects.Vectorizer,
 	return NewObjectsVectorizer(vec, cfg), nil
 }
 
-func (m *Provider) ReferenceVectorizer(moduleName, className string) (objects.ReferenceVectorizer, error) {
-	mod := m.GetByName(moduleName)
-	if mod == nil {
-		return nil, errors.Errorf("no module with name %q present", moduleName)
-	}
-
-	vec, ok := mod.(modulecapabilities.ReferenceVectorizer)
-	if !ok {
-		return nil, errors.Errorf("module %q exists, but does not provide the "+
-			"ReferenceVectorizer capability", moduleName)
-	}
-
-	sch := m.schemaGetter.GetSchemaSkipAuth()
-	class := sch.FindClassByName(schema.ClassName(className))
-	if class == nil {
-		return nil, errors.Errorf("class %q not found in schema", className)
-	}
-
-	cfg := NewClassBasedModuleConfig(class, moduleName)
-	return NewObjectsReferenceVectorizer(vec, cfg), nil
-}
-
-func (m *Provider) UsingRef2Vec(moduleName string) bool {
-	mod := m.GetByName(moduleName)
-	if m == nil {
+func (m *Provider) UsingRef2Vec(className string) bool {
+	class, err := m.getClass(className)
+	if err != nil {
 		return false
 	}
 
-	if _, ok := mod.(modulecapabilities.ReferenceVectorizer); ok {
-		return true
+	cfg := class.ModuleConfig
+	if cfg == nil {
+		return false
 	}
 
-	return false
-}
-
-func (m *Provider) TargetReferenceProperties(className string) (map[string]struct{}, error) {
-	var found modulecapabilities.Module
-	for _, mod := range m.GetAll() {
-		if mod.Type() == modulecapabilities.Ref2Vec {
-			found = mod
+	for modName := range cfg.(map[string]interface{}) {
+		mod := m.GetByName(modName)
+		if _, ok := mod.(modulecapabilities.ReferenceVectorizer); ok {
+			return true
 		}
 	}
 
-	if found == nil {
-		return nil, fmt.Errorf("no ref2vec module found")
-	}
-
-	vectorizer, ok := found.(modulecapabilities.ReferenceVectorizer)
-	if !ok {
-		return nil, fmt.Errorf("module %q exists, but does not provide the "+
-			"ReferenceVectorizer capability", found.Name())
-	}
-
-	class, err := m.getClass(className)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := NewClassBasedModuleConfig(class, found.Name())
-	targetProps := vectorizer.TargetReferenceProperties(cfg)
-
-	// pass on a set for more efficient lookups
-	propSet := make(map[string]struct{})
-	for _, prop := range targetProps {
-		propSet[prop] = struct{}{}
-	}
-
-	return propSet, nil
+	return false
 }
 
 type ObjectsVectorizer struct {
@@ -159,7 +109,7 @@ func NewObjectsReferenceVectorizer(vec modulecapabilities.ReferenceVectorizer,
 }
 
 func (ov *ObjectsReferenceVectorizer) UpdateObject(ctx context.Context,
-	obj *models.Object, refVecs ...[]float32,
+	obj *models.Object, findRefVecsFn modulecapabilities.FindRefVectorsFn,
 ) error {
-	return ov.modVectorizer.VectorizeObject(ctx, obj, ov.cfg, refVecs...)
+	return ov.modVectorizer.VectorizeObject(ctx, obj, ov.cfg, findRefVecsFn)
 }

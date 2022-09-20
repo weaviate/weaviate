@@ -225,9 +225,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Modules, appState.Modules,
-		vectorRepo, appState.Modules,
-		objects.NewMetrics(appState.Metrics))
+		appState.Authorizer, appState.Modules, vectorRepo,
+		appState.Modules, objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)

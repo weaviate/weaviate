@@ -83,15 +83,10 @@ func (m dummyRef2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType {
 }
 
 func (m dummyRef2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
-	in *models.Object, cfg moduletools.ClassConfig, refVecs ...[]float32,
+	in *models.Object, cfg moduletools.ClassConfig,
+	findRefVecsFn modulecapabilities.FindRefVectorsFn,
 ) error {
 	in.Vector = []float32{1, 2, 3}
-	return nil
-}
-
-func (m dummyRef2VecModuleNoCapabilities) TargetReferenceProperties(
-	cfg moduletools.ClassConfig,
-) (refProps []string) {
 	return nil
 }
 
@@ -127,8 +122,4 @@ type fakeSchemaGetter struct{ schema schema.Schema }
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
-}
-
-func newFakeSchemaGetter(sch schema.Schema) *fakeSchemaGetter {
-	return &fakeSchemaGetter{sch}
 }

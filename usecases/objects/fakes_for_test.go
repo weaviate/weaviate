@@ -110,22 +110,6 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
 }
 
-type fakeReferenceVectorizer struct{}
-
-type fakeReferenceVectorizerProvider struct {
-	vectorizer *fakeReferenceVectorizer
-}
-
-func (f *fakeReferenceVectorizerProvider) ReferenceVectorizer(modName, className string) (ReferenceVectorizer, error) {
-	return f.vectorizer, nil
-}
-
-func (f *fakeReferenceVectorizer) UpdateObject(ctx context.Context,
-	object *models.Object, refVecs ...[]float32,
-) error {
-	return nil
-}
-
 type fakeVectorizerProvider struct {
 	vectorizer *fakeVectorizer
 }
@@ -242,6 +226,12 @@ func (f *fakeVectorRepo) AddReference(ctx context.Context,
 	return args.Error(0)
 }
 
+func (f *fakeVectorRepo) ReferenceVectorSearch(ctx context.Context,
+	obj *models.Object, refProps map[string]struct{},
+) ([][]float32, error) {
+	return nil, nil
+}
+
 type fakeExtender struct {
 	multi []search.Result
 }
@@ -326,8 +316,10 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 	return args.Bool(0)
 }
 
-func (p *fakeModulesProvider) TargetReferenceProperties(className string) (map[string]struct{}, error) {
-	return nil, nil
+func (p *fakeModulesProvider) UpdateReferenceVector(ctx context.Context, object *models.Object,
+	repo modulecapabilities.ReferenceVectorRepo,
+) error {
+	return nil
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,

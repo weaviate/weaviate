@@ -715,3 +715,41 @@ func (m *Provider) BackupBackend(backend string) (modulecapabilities.BackupBacke
 	}
 	return nil, errors.Errorf("backup: %s not found", backend)
 }
+
+func (m *Provider) UpdateReferenceVector(ctx context.Context, object *models.Object,
+	repo modulecapabilities.ReferenceVectorRepo,
+) error {
+	var found modulecapabilities.Module
+	for _, mod := range m.GetAll() {
+		if mod.Type() == modulecapabilities.Ref2Vec {
+			found = mod
+		}
+	}
+
+	if found == nil {
+		return fmt.Errorf("no ref2vec module found")
+	}
+
+	vectorizer, ok := found.(modulecapabilities.ReferenceVectorizer)
+	if !ok {
+		return fmt.Errorf("module %q exists, but does not provide the "+
+			"ReferenceVectorizer capability", found.Name())
+	}
+
+	class, err := m.getClass(object.Class)
+	if err != nil {
+		return err
+	}
+
+	cfg := NewClassBasedModuleConfig(class, found.Name())
+
+	if err := vectorizer.VectorizeObject(ctx, object, cfg, repo.ReferenceVectorSearch); err != nil {
+		return fmt.Errorf("update reference vector: %w", err)
+	}
+
+	if err := repo.PutObject(ctx, object, object.Vector); err != nil {
+		return fmt.Errorf("put reference vector: %w", err)
+	}
+
+	return nil
+}
