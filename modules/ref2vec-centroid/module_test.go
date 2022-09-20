@@ -10,6 +10,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/vectorizer"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -23,9 +24,10 @@ func TestRef2VecCentroid(t *testing.T) {
 	params := moduletools.NewInitParams(sp, nil, logger)
 
 	mod := New()
-	cfg := fakeClassConfig(mod.ClassConfigDefaults())
+	classConfig := fakeClassConfig(mod.ClassConfigDefaults())
 	refProp := "someRef"
-	cfg[referencePropertiesField] = []interface{}{refProp}
+	classConfig[vectorizer.ReferencePropertiesField] = []interface{}{refProp}
+	classSettings := vectorizer.NewClassSettings(classConfig)
 
 	t.Run("Init", func(t *testing.T) {
 		err := mod.Init(ctx, params)
@@ -57,7 +59,7 @@ func TestRef2VecCentroid(t *testing.T) {
 		t.Run("expected success", func(t *testing.T) {
 			class := &models.Class{}
 
-			err := mod.ValidateClass(ctx, class, cfg)
+			err := mod.ValidateClass(ctx, class, classConfig)
 			assert.Nil(t, err)
 		})
 
@@ -67,7 +69,7 @@ func TestRef2VecCentroid(t *testing.T) {
 
 			expectedErr := fmt.Sprintf(
 				"invalid config: must have at least one value in the %q field for class %q",
-				referencePropertiesField, class.Class)
+				vectorizer.ReferencePropertiesField, class.Class)
 			err := mod.ValidateClass(ctx, class, cfg)
 			assert.EqualError(t, err, expectedErr)
 		})
@@ -80,10 +82,10 @@ func TestRef2VecCentroid(t *testing.T) {
 				obj := &models.Object{}
 
 				repo.On("ReferenceVectorSearch",
-					ctx, obj, targetReferenceProperties(cfg)).
+					ctx, obj, classSettings.ReferenceProperties()).
 					Return([][]float32{{1, 2, 3}}, nil)
 
-				err := mod.VectorizeObject(ctx, obj, cfg, repo.ReferenceVectorSearch)
+				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
 				assert.Nil(t, err)
 				expectedVec := []float32{1, 2, 3}
 				assert.EqualValues(t, expectedVec, obj.Vector)
@@ -94,10 +96,10 @@ func TestRef2VecCentroid(t *testing.T) {
 				obj := &models.Object{}
 
 				repo.On("ReferenceVectorSearch",
-					ctx, obj, targetReferenceProperties(cfg)).
+					ctx, obj, classSettings.ReferenceProperties()).
 					Return(nil, nil)
 
-				err := mod.VectorizeObject(ctx, obj, cfg, repo.ReferenceVectorSearch)
+				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
 				assert.Nil(t, err)
 				assert.Nil(t, nil, obj.Vector)
 			})
@@ -111,10 +113,10 @@ func TestRef2VecCentroid(t *testing.T) {
 					"calculate mean: found vectors of different length: 3 and 2")
 
 				repo.On("ReferenceVectorSearch",
-					ctx, obj, targetReferenceProperties(cfg)).
+					ctx, obj, classSettings.ReferenceProperties()).
 					Return(nil, expectedErr)
 
-				err := mod.VectorizeObject(ctx, obj, cfg, repo.ReferenceVectorSearch)
+				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
 				assert.EqualError(t, err, fmt.Sprintf(
 					"find ref vectors: %s", expectedErr.Error()))
 			})

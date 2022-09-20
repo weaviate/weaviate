@@ -9,10 +9,11 @@ import (
 )
 
 func TestVectorizer(t *testing.T) {
+	repo := &fakeRefVecRepo{}
 	t.Run("default is set correctly", func(t *testing.T) {
-		vzr := New("")
+		vzr := New(fakeClassConfig(DefaultConfig()), repo.ReferenceVectorSearch)
 
-		expected := reflect.ValueOf(CalculateMean).Pointer()
+		expected := reflect.ValueOf(calculateMean).Pointer()
 		received := reflect.ValueOf(vzr.calcFunc).Pointer()
 
 		assert.EqualValues(t, expected, received)
@@ -22,7 +23,7 @@ func TestVectorizer(t *testing.T) {
 		vzr := &Vectorizer{}
 
 		expectedErr := "vectorizer calcFunc not set"
-		_, err := vzr.CalculateVector([]float32{1, 2, 3})
+		_, err := vzr.calculateVector([]float32{1, 2, 3})
 		assert.EqualError(t, err, expectedErr)
 	})
 
@@ -83,10 +84,14 @@ func TestVectorizer(t *testing.T) {
 			},
 		}
 
-		vzr := New(MethodMean)
+		cfg := fakeClassConfig{
+			CalculationMethodField: MethodMean,
+		}
+
+		vzr := New(cfg, repo.ReferenceVectorSearch)
 
 		for _, test := range tests {
-			res, err := vzr.CalculateVector(test.refVecs...)
+			res, err := vzr.calculateVector(test.refVecs...)
 			if test.expectedError != nil {
 				assert.EqualError(t, err, test.expectedError.Error())
 			} else {

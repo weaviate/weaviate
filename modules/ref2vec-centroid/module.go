@@ -2,7 +2,6 @@ package modcentroid
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -42,47 +41,21 @@ func (m *CentroidModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Ref2Vec
 }
 
+func (m *CentroidModule) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{}, nil
+}
+
 func (m *CentroidModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 	findRefVecsFn modulecapabilities.FindRefVectorsFn,
 ) error {
-	props := targetReferenceProperties(cfg)
-
-	refVecs, err := findRefVecsFn(ctx, obj, props)
-	if err != nil {
-		return fmt.Errorf("find ref vectors: %w", err)
-	}
-
-	if len(refVecs) == 0 {
-		obj.Vector = nil
-		return nil
-	}
-
-	vzr := m.vectorizer(cfg)
-
-	vec, err := vzr.CalculateVector(refVecs...)
-	if err != nil {
-		return fmt.Errorf("calculate vector: %w", err)
-	}
-
-	obj.Vector = vec
-	return nil
+	vzr := vectorizer.New(cfg, findRefVecsFn)
+	return vzr.Object(ctx, obj)
 }
 
-func (m *CentroidModule) vectorizer(cfg moduletools.ClassConfig) *vectorizer.Vectorizer {
-	props := cfg.Class()
-	calcMethod := props[calculationMethodField].(string)
-	return vectorizer.New(calcMethod)
-}
-
-func targetReferenceProperties(cfg moduletools.ClassConfig) map[string]struct{} {
-	refProps := map[string]struct{}{}
-	props := cfg.Class()
-
-	iRefProps := props[referencePropertiesField].([]interface{})
-	for _, iProp := range iRefProps {
-		refProps[iProp.(string)] = struct{}{}
-	}
-
-	return refProps
-}
+// verify we implement the modules.Module interface
+var (
+	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.ReferenceVectorizer(New())
+	_ = modulecapabilities.MetaProvider(New())
+)

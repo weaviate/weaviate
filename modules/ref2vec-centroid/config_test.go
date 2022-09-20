@@ -15,11 +15,12 @@ import (
 func TestConfigDefaults(t *testing.T) {
 	def := New().ClassConfigDefaults()
 
-	assert.Equal(t, vectorizer.MethodDefault, def[calculationMethodField])
+	assert.Equal(t, vectorizer.MethodDefault, def[vectorizer.CalculationMethodField])
 }
 
 func TestConfigValidator(t *testing.T) {
 	class := &models.Class{Class: "CentroidClass"}
+	refPropsField := vectorizer.ReferencePropertiesField
 
 	tests := []struct {
 		name        string
@@ -39,7 +40,7 @@ func TestConfigValidator(t *testing.T) {
 			class:       class,
 			classConfig: fakeClassConfig{},
 			expectedErr: fmt.Errorf("invalid config: must have at least one value in the %q field for class %q",
-				referencePropertiesField, class.Class),
+				refPropsField, class.Class),
 		},
 		{
 			name:  "invalid config - wrong type for referenceProperties",
@@ -48,7 +49,7 @@ func TestConfigValidator(t *testing.T) {
 				"referenceProperties": "someRef",
 			},
 			expectedErr: fmt.Errorf("invalid config: expected array for field %q, got string for class %q",
-				referencePropertiesField, class.Class),
+				refPropsField, class.Class),
 		},
 		{
 			name:  "invalid config - empty referenceProperties slice",
@@ -57,7 +58,7 @@ func TestConfigValidator(t *testing.T) {
 				"referenceProperties": []interface{}{},
 			},
 			expectedErr: fmt.Errorf("invalid config: must have at least one value in the %q field for class %q",
-				referencePropertiesField, class.Class),
+				refPropsField, class.Class),
 		},
 		{
 			name:  "invalid config - non-string value in referenceProperties array",
@@ -66,7 +67,7 @@ func TestConfigValidator(t *testing.T) {
 				"referenceProperties": []interface{}{"someRef", 123},
 			},
 			expectedErr: fmt.Errorf("invalid config: expected %q to contain strings, found int: [someRef 123] for class %q",
-				referencePropertiesField, class.Class),
+				refPropsField, class.Class),
 		},
 	}
 

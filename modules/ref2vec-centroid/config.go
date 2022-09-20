@@ -13,17 +13,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	calculationMethodField   = "method"
-	referencePropertiesField = "referenceProperties"
-)
-
 var errInvalidConfig = errors.New("invalid config")
 
 func (m *CentroidModule) ClassConfigDefaults() map[string]interface{} {
-	return map[string]interface{}{
-		calculationMethodField: vectorizer.MethodDefault,
-	}
+	return vectorizer.DefaultConfig()
 }
 
 func (m *CentroidModule) PropertyConfigDefaults(dataType *schema.DataType) map[string]interface{} {
@@ -52,30 +45,32 @@ func (v *configValidator) do(ctx context.Context, class *models.Class,
 ) error {
 	// referencePropertiesField is a required field
 	cfg := classConfig.Class()
-	refProps, ok := cfg[referencePropertiesField]
+	refProps, ok := cfg[vectorizer.ReferencePropertiesField]
 	if !ok {
 		return fmt.Errorf("%w: must have at least one value in the %q field for class %q",
-			errInvalidConfig, referencePropertiesField, class.Class)
+			errInvalidConfig, vectorizer.ReferencePropertiesField, class.Class)
 	}
 
 	propSlice, ok := refProps.([]interface{})
 	if !ok {
 		return fmt.Errorf("%w: expected array for field %q, got %T for class %q",
-			errInvalidConfig, referencePropertiesField, refProps, class.Class)
+			errInvalidConfig, vectorizer.ReferencePropertiesField, refProps, class.Class)
 	}
 
 	if len(propSlice) == 0 {
 		return fmt.Errorf("%w: must have at least one value in the %q field for class %q",
-			errInvalidConfig, referencePropertiesField, class.Class)
+			errInvalidConfig, vectorizer.ReferencePropertiesField, class.Class)
 	}
 
 	// all provided property names must be strings
 	for _, prop := range propSlice {
 		if _, ok := prop.(string); !ok {
 			return fmt.Errorf("%w: expected %q to contain strings, found %T: %+v for class %q",
-				errInvalidConfig, referencePropertiesField, prop, refProps, class.Class)
+				errInvalidConfig, vectorizer.ReferencePropertiesField, prop, refProps, class.Class)
 		}
 	}
 
 	return nil
 }
+
+var _ = modulecapabilities.ClassConfigurator(New())
