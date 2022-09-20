@@ -7,20 +7,19 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/vectorizer"
-	logrus "github.com/sirupsen/logrus/hooks/test"
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestConfigDefaults(t *testing.T) {
 	def := New().ClassConfigDefaults()
+	cfg := config.New(fakeClassConfig(def))
 
-	assert.Equal(t, vectorizer.MethodDefault, def[vectorizer.CalculationMethodField])
+	assert.Equal(t, config.MethodDefault, cfg.CalculationMethod())
 }
 
 func TestConfigValidator(t *testing.T) {
 	class := &models.Class{Class: "CentroidClass"}
-	refPropsField := vectorizer.ReferencePropertiesField
 
 	tests := []struct {
 		name        string
@@ -39,8 +38,9 @@ func TestConfigValidator(t *testing.T) {
 			name:        "invalid config - required fields omitted",
 			class:       class,
 			classConfig: fakeClassConfig{},
-			expectedErr: fmt.Errorf("invalid config: must have at least one value in the %q field for class %q",
-				refPropsField, class.Class),
+			expectedErr: fmt.Errorf("validate %q: invalid config: must have at least "+
+				"one value in the \"referenceProperties\" field",
+				class.Class),
 		},
 		{
 			name:  "invalid config - wrong type for referenceProperties",
@@ -48,8 +48,9 @@ func TestConfigValidator(t *testing.T) {
 			classConfig: fakeClassConfig{
 				"referenceProperties": "someRef",
 			},
-			expectedErr: fmt.Errorf("invalid config: expected array for field %q, got string for class %q",
-				refPropsField, class.Class),
+			expectedErr: fmt.Errorf("validate %q: invalid config: expected array for "+
+				"field \"referenceProperties\", got string",
+				class.Class),
 		},
 		{
 			name:  "invalid config - empty referenceProperties slice",
@@ -57,8 +58,9 @@ func TestConfigValidator(t *testing.T) {
 			classConfig: fakeClassConfig{
 				"referenceProperties": []interface{}{},
 			},
-			expectedErr: fmt.Errorf("invalid config: must have at least one value in the %q field for class %q",
-				refPropsField, class.Class),
+			expectedErr: fmt.Errorf("validate %q: invalid config: must have at least "+
+				"one value in the \"referenceProperties\" field",
+				class.Class),
 		},
 		{
 			name:  "invalid config - non-string value in referenceProperties array",
@@ -66,17 +68,16 @@ func TestConfigValidator(t *testing.T) {
 			classConfig: fakeClassConfig{
 				"referenceProperties": []interface{}{"someRef", 123},
 			},
-			expectedErr: fmt.Errorf("invalid config: expected %q to contain strings, found int: [someRef 123] for class %q",
-				refPropsField, class.Class),
+			expectedErr: fmt.Errorf("validate %q: invalid config: expected \"referenceProperties\" "+
+				"to contain strings, found int: [someRef 123]",
+				class.Class),
 		},
 	}
 
-	logger, _ := logrus.NewNullLogger()
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			v := newConfigValidator(logger)
-			err := v.do(context.Background(), test.class, test.classConfig)
+			mod := New()
+			err := mod.ValidateClass(context.Background(), test.class, test.classConfig)
 			if test.expectedErr != nil {
 				assert.EqualError(t, err, test.expectedErr.Error())
 			} else {

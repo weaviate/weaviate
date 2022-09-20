@@ -7,29 +7,25 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-)
-
-const (
-	MethodMean    = "mean"
-	MethodDefault = MethodMean
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
 )
 
 type calcFunc func(vecs ...[]float32) ([]float32, error)
 
 type Vectorizer struct {
-	config          *ClassSettings
+	config          *config.Config
 	calcFunc        calcFunc
 	findRefVecsFunc modulecapabilities.FindRefVectorsFn
 }
 
 func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindRefVectorsFn) *Vectorizer {
 	v := &Vectorizer{
-		config:          NewClassSettings(cfg),
+		config:          config.New(cfg),
 		findRefVecsFunc: findFn,
 	}
 
 	switch v.config.CalculationMethod() {
-	case MethodMean:
+	case config.MethodMean:
 		v.calcFunc = calculateMean
 	default:
 		v.calcFunc = calculateMean

@@ -5,13 +5,14 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestVectorizer(t *testing.T) {
 	repo := &fakeRefVecRepo{}
 	t.Run("default is set correctly", func(t *testing.T) {
-		vzr := New(fakeClassConfig(DefaultConfig()), repo.ReferenceVectorSearch)
+		vzr := New(fakeClassConfig(config.Default()), repo.ReferenceVectorSearch)
 
 		expected := reflect.ValueOf(calculateMean).Pointer()
 		received := reflect.ValueOf(vzr.calcFunc).Pointer()
@@ -84,10 +85,7 @@ func TestVectorizer(t *testing.T) {
 			},
 		}
 
-		cfg := fakeClassConfig{
-			CalculationMethodField: MethodMean,
-		}
-
+		cfg := fakeClassConfig{"method": "mean"}
 		vzr := New(cfg, repo.ReferenceVectorSearch)
 
 		for _, test := range tests {

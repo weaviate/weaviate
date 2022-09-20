@@ -10,7 +10,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/vectorizer"
+	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -26,8 +26,8 @@ func TestRef2VecCentroid(t *testing.T) {
 	mod := New()
 	classConfig := fakeClassConfig(mod.ClassConfigDefaults())
 	refProp := "someRef"
-	classConfig[vectorizer.ReferencePropertiesField] = []interface{}{refProp}
-	classSettings := vectorizer.NewClassSettings(classConfig)
+	classConfig["referenceProperties"] = []interface{}{refProp}
+	cfg := config.New(classConfig)
 
 	t.Run("Init", func(t *testing.T) {
 		err := mod.Init(ctx, params)
@@ -68,8 +68,9 @@ func TestRef2VecCentroid(t *testing.T) {
 			cfg := fakeClassConfig{}
 
 			expectedErr := fmt.Sprintf(
-				"invalid config: must have at least one value in the %q field for class %q",
-				vectorizer.ReferencePropertiesField, class.Class)
+				"validate %q: invalid config: must have at least one "+
+					"value in the \"referenceProperties\" field",
+				class.Class)
 			err := mod.ValidateClass(ctx, class, cfg)
 			assert.EqualError(t, err, expectedErr)
 		})
@@ -82,7 +83,7 @@ func TestRef2VecCentroid(t *testing.T) {
 				obj := &models.Object{}
 
 				repo.On("ReferenceVectorSearch",
-					ctx, obj, classSettings.ReferenceProperties()).
+					ctx, obj, cfg.ReferenceProperties()).
 					Return([][]float32{{1, 2, 3}}, nil)
 
 				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
@@ -96,7 +97,7 @@ func TestRef2VecCentroid(t *testing.T) {
 				obj := &models.Object{}
 
 				repo.On("ReferenceVectorSearch",
-					ctx, obj, classSettings.ReferenceProperties()).
+					ctx, obj, cfg.ReferenceProperties()).
 					Return(nil, nil)
 
 				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
@@ -113,7 +114,7 @@ func TestRef2VecCentroid(t *testing.T) {
 					"calculate mean: found vectors of different length: 3 and 2")
 
 				repo.On("ReferenceVectorSearch",
-					ctx, obj, classSettings.ReferenceProperties()).
+					ctx, obj, cfg.ReferenceProperties()).
 					Return(nil, expectedErr)
 
 				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
