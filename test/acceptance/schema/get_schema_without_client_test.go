@@ -73,6 +73,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"additions": nil,
 						"removals":  nil,
 					},
+					"indexNullState": false,
 				},
 				"moduleConfig": map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{

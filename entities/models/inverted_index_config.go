@@ -37,7 +37,7 @@ type InvertedIndexConfig struct {
 
 	// stopwords
 	Stopwords      *StopwordConfig `json:"stopwords,omitempty"`
-	IndexNullState bool            `json:"indexnullstate"`
+	IndexNullState bool            `json:"indexNullState"`
 }
 
 // Validate validates this inverted index config

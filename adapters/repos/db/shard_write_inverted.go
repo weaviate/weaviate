@@ -20,11 +20,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
-func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {
+func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []string, error) {
 	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Objects
 	c, err := schema.GetClassByName(schemaModel, object.Class().String())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var schemaMap map[string]interface{}
@@ -34,9 +34,21 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 	} else {
 		maybeSchemaMap, ok := object.Properties().(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("expected schema to be map, but got %T", object.Properties())
+			return nil, nil, fmt.Errorf("expected schema to be map, but got %T", object.Properties())
 		}
 		schemaMap = maybeSchemaMap
+	}
+
+	// add nil for all properties that are not part of the object so that they can be added to the inverted index for
+	// the null state (if enabled)
+	var nilProps []string
+	if s.index.invertedIndexConfig.IndexNullState {
+		for _, prop := range c.Properties {
+			_, ok := schemaMap[prop.Name]
+			if !ok {
+				nilProps = append(nilProps, prop.Name)
+			}
+		}
 	}
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
@@ -47,5 +59,6 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
-	return inverted.NewAnalyzer(s.index.stopwords).Object(schemaMap, c.Properties, object.ID())
+	props, err := inverted.NewAnalyzer(s.index.stopwords).Object(schemaMap, c.Properties, object.ID())
+	return props, nilProps, err
 }
