@@ -52,6 +52,7 @@ func TestRestartJourney(t *testing.T) {
 	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
@@ -172,6 +173,7 @@ func TestRestartJourney(t *testing.T) {
 		repo = nil
 
 		newRepo = New(logger, Config{
+			FlushIdleAfter:            60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
