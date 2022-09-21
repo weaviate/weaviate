@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -89,25 +90,25 @@ func Test_UserConfig(t *testing.T) {
 	type test struct {
 		name     string
 		input    interface{}
-		expected UserConfig
+		expected ent.UserConfig
 	}
 
 	tests := []test{
 		{
 			name:  "nothing specified, all defaults",
 			input: nil,
-			expected: UserConfig{
-				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
-				MaxConnections:         DefaultMaxConnections,
-				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
-				EF:                     DefaultEF,
-				Skip:                   DefaultSkip,
-				FlatSearchCutoff:       DefaultFlatSearchCutoff,
-				DynamicEFMin:           DefaultDynamicEFMin,
-				DynamicEFMax:           DefaultDynamicEFMax,
-				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               DefaultDistanceMetric,
+			expected: ent.UserConfig{
+				CleanupIntervalSeconds: ent.DefaultCleanupIntervalSeconds,
+				MaxConnections:         ent.DefaultMaxConnections,
+				EFConstruction:         ent.DefaultEFConstruction,
+				VectorCacheMaxObjects:  ent.DefaultVectorCacheMaxObjects,
+				EF:                     ent.DefaultEF,
+				Skip:                   ent.DefaultSkip,
+				FlatSearchCutoff:       ent.DefaultFlatSearchCutoff,
+				DynamicEFMin:           ent.DefaultDynamicEFMin,
+				DynamicEFMax:           ent.DefaultDynamicEFMax,
+				DynamicEFFactor:        ent.DefaultDynamicEFFactor,
+				Distance:               ent.DefaultDistanceMetric,
 			},
 		},
 
@@ -116,17 +117,17 @@ func Test_UserConfig(t *testing.T) {
 			input: map[string]interface{}{
 				"maxConnections": json.Number("100"),
 			},
-			expected: UserConfig{
-				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+			expected: ent.UserConfig{
+				CleanupIntervalSeconds: ent.DefaultCleanupIntervalSeconds,
 				MaxConnections:         100,
-				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
-				EF:                     DefaultEF,
-				FlatSearchCutoff:       DefaultFlatSearchCutoff,
-				DynamicEFMin:           DefaultDynamicEFMin,
-				DynamicEFMax:           DefaultDynamicEFMax,
-				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               DefaultDistanceMetric,
+				EFConstruction:         ent.DefaultEFConstruction,
+				VectorCacheMaxObjects:  ent.DefaultVectorCacheMaxObjects,
+				EF:                     ent.DefaultEF,
+				FlatSearchCutoff:       ent.DefaultFlatSearchCutoff,
+				DynamicEFMin:           ent.DefaultDynamicEFMin,
+				DynamicEFMax:           ent.DefaultDynamicEFMax,
+				DynamicEFFactor:        ent.DefaultDynamicEFFactor,
+				Distance:               ent.DefaultDistanceMetric,
 			},
 		},
 
@@ -145,7 +146,7 @@ func Test_UserConfig(t *testing.T) {
 				"skip":                   true,
 				"distance":               "l2-squared",
 			},
-			expected: UserConfig{
+			expected: ent.UserConfig{
 				CleanupIntervalSeconds: 11,
 				MaxConnections:         12,
 				EFConstruction:         13,
@@ -175,7 +176,7 @@ func Test_UserConfig(t *testing.T) {
 				"skip":                   true,
 				"distance":               "manhattan",
 			},
-			expected: UserConfig{
+			expected: ent.UserConfig{
 				CleanupIntervalSeconds: 11,
 				MaxConnections:         12,
 				EFConstruction:         13,
@@ -205,7 +206,7 @@ func Test_UserConfig(t *testing.T) {
 				"skip":                   true,
 				"distance":               "hamming",
 			},
-			expected: UserConfig{
+			expected: ent.UserConfig{
 				CleanupIntervalSeconds: 11,
 				MaxConnections:         12,
 				EFConstruction:         13,
@@ -234,7 +235,7 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 			},
-			expected: UserConfig{
+			expected: ent.UserConfig{
 				CleanupIntervalSeconds: 11,
 				MaxConnections:         12,
 				EFConstruction:         13,
@@ -244,7 +245,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               ent.DefaultDistanceMetric,
 			},
 		},
 	}

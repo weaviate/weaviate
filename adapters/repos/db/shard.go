@@ -36,6 +36,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
@@ -113,7 +114,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
 
-	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
 	if !ok {
 		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
 			index.vectorIndexUserConfig)
@@ -125,15 +126,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		var distProv distancer.Provider
 
 		switch hnswUserConfig.Distance {
-		case "", hnsw.DistanceCosine:
+		case "", hnswent.DistanceCosine:
 			distProv = distancer.NewCosineDistanceProvider()
-		case hnsw.DistanceDot:
+		case hnswent.DistanceDot:
 			distProv = distancer.NewDotProductProvider()
-		case hnsw.DistanceL2Squared:
+		case hnswent.DistanceL2Squared:
 			distProv = distancer.NewL2SquaredProvider()
-		case hnsw.DistanceManhattan:
+		case hnswent.DistanceManhattan:
 			distProv = distancer.NewManhattanProvider()
-		case hnsw.DistanceHamming:
+		case hnswent.DistanceHamming:
 			distProv = distancer.NewHammingProvider()
 		default:
 			return nil, errors.Errorf("unrecognized distance metric %q,"+
