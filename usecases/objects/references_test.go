@@ -18,12 +18,19 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+<<<<<<< HEAD
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/assert"
+=======
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+>>>>>>> master
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )

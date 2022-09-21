@@ -4,8 +4,15 @@ import (
 	"context"
 	"fmt"
 
+<<<<<<< HEAD:usecases/objects/vector_obtainer.go
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
+=======
+	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+>>>>>>> master:usecases/objects/obtain_vector.go
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 )

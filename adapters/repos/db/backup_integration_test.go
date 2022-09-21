@@ -209,6 +209,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	db := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,

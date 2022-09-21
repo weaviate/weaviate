@@ -127,8 +127,11 @@ func (f *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []f
 func (f *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
 	additional additional.Properties, className schema.ClassName,
 ) ([]uint64, error) {
-	return sorter.NewLSMSorter(f.store, f.schema, className).
-		SortDocIDs(ctx, limit, sort, docIDs, additional)
+	lsmSorter, err := sorter.NewLSMSorter(f.store, f.schema, className)
+	if err != nil {
+		return nil, err
+	}
+	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
 func (f *Searcher) objectsByDocID(ids []uint64,
