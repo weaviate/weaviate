@@ -3849,7 +3849,8 @@ func init() {
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
-            "WithinGeoRange"
+            "WithinGeoRange",
+            "IsNull"
           ],
           "example": "GreaterThanEqual"
         },
@@ -8041,7 +8042,8 @@ func init() {
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
-            "WithinGeoRange"
+            "WithinGeoRange",
+            "IsNull"
           ],
           "example": "GreaterThanEqual"
         },

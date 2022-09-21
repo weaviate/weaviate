@@ -36,8 +36,7 @@ type InvertedIndexConfig struct {
 	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
 
 	// stopwords
-	Stopwords      *StopwordConfig `json:"stopwords,omitempty"`
-	IndexNullState bool            `json:"indexNullState"`
+	Stopwords *StopwordConfig `json:"stopwords,omitempty"`
 }
 
 // Validate validates this inverted index config
