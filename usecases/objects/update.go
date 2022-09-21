@@ -78,16 +78,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	//if m.modulesProvider.UsingRef2Vec(class) {
-	//	err = m.modulesProvider.UpdateReferenceVector(ctx, updates, m.vectorRepo)
-	//} else {
-	//	err = m.vectorizeAndPutObject(ctx, updates, principal)
-	//}
-
-	//if err != nil {
-	//	return nil, NewErrInternal("update object: %v", err)
-	//}
-
 	err = m.modulesProvider.UpdateVector(ctx, updates, m.vectorRepo, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
@@ -95,7 +85,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector)
 	if err != nil {
-		return nil, fmt.Errorf("put object: %s", err)
+		return nil, NewErrInternal("put object: %s", err)
 	}
 
 	return updates, nil
