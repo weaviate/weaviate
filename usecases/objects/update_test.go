@@ -68,13 +68,13 @@ func Test_UpdateAction(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		vectorizer = &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
+		//vectorizer = &fakeVectorizer{}
+		//vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
 		modulesProvider := getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(locks, schemaManager, cfg,
-			logger, authorizer, vecProvider, db, modulesProvider, metrics)
+			logger, authorizer, db, modulesProvider, metrics)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {

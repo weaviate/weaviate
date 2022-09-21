@@ -111,8 +111,8 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 ) (*models.Object, error) {
 	var merged map[string]interface{}
 	var vector []float32
-	vecObtainer := newVectorObtainer(m.vectorizerProvider,
-		m.schemaManager, m.logger)
+	//vecObtainer := newVectorObtainer(m.vectorizerProvider,
+	//	m.schemaManager, m.logger)
 	if old == nil {
 		merged = new
 		vector = newVec
@@ -130,9 +130,9 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		if newVec != nil {
 			vector = newVec
 		} else {
-			vectorizerName, _, err := getVectorizerOfClass(vecObtainer.schemaManager, className, principal)
+			vectorizerName, err := m.modulesProvider.VectorizerName(className)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("find vectorzer name: %w", err)
 			}
 			if vectorizerName == config.VectorizerModuleNone {
 				vector = oldVec
@@ -143,7 +143,10 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	// Note: vector could be a nil vector in case a vectorizer is configered,
 	// then the obtainer will set it
 	obj := &models.Object{Class: className, Properties: merged, Vector: vector}
-	if err := vecObtainer.Do(ctx, obj, principal); err != nil {
+	//if err := vecObtainer.Do(ctx, obj, principal); err != nil {
+	//	return nil, err
+	//}
+	if err := m.modulesProvider.UpdateVector(ctx, obj, m.vectorRepo, m.logger); err != nil {
 		return nil, err
 	}
 

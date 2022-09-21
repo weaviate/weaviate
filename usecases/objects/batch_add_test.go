@@ -67,9 +67,10 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewBatchManager(vectorRepo, vecProvider, locks,
+		//vectorizer := &fakeVectorizer{}
+		//vecProvider := &fakeVectorizerProvider{vectorizer}
+		modulesProvider := getFakeModulesProvider()
+		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
 	}
 
@@ -266,10 +267,11 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewBatchManager(vectorRepo, vecProvider, locks,
+		//vectorizer := &fakeVectorizer{}
+		//vecProvider := &fakeVectorizerProvider{vectorizer}
+		//vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
+		modulesProvider := getFakeModulesProvider()
+		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
 	}
 
@@ -395,10 +397,11 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewBatchManager(vectorRepo, vecProvider, locks,
+		//vectorizer := &fakeVectorizer{}
+		//vecProvider := &fakeVectorizerProvider{vectorizer}
+		//vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
+		modulesProvider := getFakeModulesProvider()
+		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
 	}
 	reset()

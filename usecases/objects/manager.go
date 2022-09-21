@@ -34,17 +34,17 @@ import (
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	config             *config.WeaviateConfig
-	locks              locks
-	schemaManager      schemaManager
-	logger             logrus.FieldLogger
-	authorizer         authorizer
-	vectorizerProvider VectorizerProvider
-	vectorRepo         VectorRepo
-	timeSource         timeSource
-	modulesProvider    ModulesProvider
-	autoSchemaManager  *autoSchemaManager
-	metrics            objectsMetrics
+	config        *config.WeaviateConfig
+	locks         locks
+	schemaManager schemaManager
+	logger        logrus.FieldLogger
+	authorizer    authorizer
+	//vectorizerProvider VectorizerProvider
+	vectorRepo        VectorRepo
+	timeSource        timeSource
+	modulesProvider   ModulesProvider
+	autoSchemaManager *autoSchemaManager
+	metrics           objectsMetrics
 }
 
 type objectsMetrics interface {
@@ -122,29 +122,29 @@ type ModulesProvider interface {
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
 	UsingRef2Vec(className string) bool
-	UpdateReferenceVector(ctx context.Context, object *models.Object,
-		repo modulecapabilities.ReferenceVectorRepo) error
+	UpdateVector(ctx context.Context, object *models.Object,
+		repo modulecapabilities.VectorRepo, logger logrus.FieldLogger) error
+	VectorizerName(className string) (string, error)
 }
 
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorizer VectorizerProvider,
-	vectorRepo VectorRepo, modulesProvider ModulesProvider,
-	metrics objectsMetrics,
+	authorizer authorizer, vectorRepo VectorRepo,
+	modulesProvider ModulesProvider, metrics objectsMetrics,
 ) *Manager {
 	return &Manager{
-		config:             config,
-		locks:              locks,
-		schemaManager:      schemaManager,
-		logger:             logger,
-		vectorizerProvider: vectorizer,
-		authorizer:         authorizer,
-		vectorRepo:         vectorRepo,
-		timeSource:         defaultTimeSource{},
-		modulesProvider:    modulesProvider,
-		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
-		metrics:            metrics,
+		config:        config,
+		locks:         locks,
+		schemaManager: schemaManager,
+		logger:        logger,
+		//vectorizerProvider: vectorizer,
+		authorizer:        authorizer,
+		vectorRepo:        vectorRepo,
+		timeSource:        defaultTimeSource{},
+		modulesProvider:   modulesProvider,
+		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		metrics:           metrics,
 	}
 }
 

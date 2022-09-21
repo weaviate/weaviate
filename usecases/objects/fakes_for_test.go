@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"net/http"
 
 	"github.com/go-openapi/strfmt"
@@ -110,13 +111,13 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
 }
 
-type fakeVectorizerProvider struct {
-	vectorizer *fakeVectorizer
-}
+//type fakeVectorizerProvider struct {
+//	vectorizer *fakeVectorizer
+//}
 
-func (f *fakeVectorizerProvider) Vectorizer(modName, className string) (Vectorizer, error) {
-	return f.vectorizer, nil
-}
+//func (f *fakeVectorizerProvider) Vectorizer(modName, className string) (Vectorizer, error) {
+//	return f.vectorizer, nil
+//}
 
 type fakeVectorizer struct {
 	mock.Mock
@@ -316,10 +317,14 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 	return args.Bool(0)
 }
 
-func (p *fakeModulesProvider) UpdateReferenceVector(ctx context.Context, object *models.Object,
-	repo modulecapabilities.ReferenceVectorRepo,
+func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object,
+	repo modulecapabilities.VectorRepo, logger logrus.FieldLogger,
 ) error {
 	return nil
+}
+
+func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
+	return "", nil
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,

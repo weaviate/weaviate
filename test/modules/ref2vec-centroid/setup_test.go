@@ -2,11 +2,10 @@ package test
 
 import (
 	"context"
-	"os"
-	"testing"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/test/docker"
+	"os"
+	"testing"
 )
 
 const weaviateEndpoint = "WEAVIATE_ENDPOINT"

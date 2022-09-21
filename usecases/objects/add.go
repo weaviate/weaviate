@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -96,14 +97,20 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	if m.modulesProvider.UsingRef2Vec(object.Class) {
-		err = m.modulesProvider.UpdateReferenceVector(ctx, object, m.vectorRepo)
-	} else {
-		err = m.vectorizeAndPutObject(ctx, object, principal)
-	}
+	//if m.modulesProvider.UsingRef2Vec(object.Class) {
+	//	err = m.modulesProvider.UpdateReferenceVector(ctx, object, m.vectorRepo)
+	//} else {
+	//	//err = m.vectorizeAndPutObject(ctx, object, principal)
+	//}
 
+	err = m.modulesProvider.UpdateVector(ctx, object, m.vectorRepo, m.logger)
 	if err != nil {
 		return nil, err
+	}
+
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector)
+	if err != nil {
+		return nil, fmt.Errorf("put object: %s", err)
 	}
 
 	return object, nil

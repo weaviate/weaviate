@@ -26,8 +26,7 @@ type Vectorizer interface {
 		cfg moduletools.ClassConfig) error
 }
 
-type ReferenceVectorRepo interface {
-	PutObject(ctx context.Context, object *models.Object, vector []float32) error
+type VectorRepo interface {
 	ReferenceVectorSearch(ctx context.Context, obj *models.Object,
 		refProps map[string]struct{}) ([][]float32, error)
 }
