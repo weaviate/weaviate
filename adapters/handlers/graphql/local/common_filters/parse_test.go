@@ -108,6 +108,31 @@ func TestExtractFilterLike_ValueText(t *testing.T) {
 	resolver.AssertResolve(t, query)
 }
 
+func TestExtractFilterIsNull(t *testing.T) {
+	resolver := newMockResolver(t, mockParams{reportFilter: true})
+	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorIsNull,
+		On: &filters.Path{
+			Class:    schema.AssertValidClassName("SomeAction"),
+			Property: schema.AssertValidPropertyName("name"),
+		},
+		Value: &filters.Value{
+			Value: "true",
+			Type:  schema.DataTypeText,
+		},
+	}}
+
+	resolver.On("ReportFilters", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := `{ SomeAction(where: {
+			path: ["name"],
+			operator: IsNull,
+			valueText: "true",
+		}) }`
+	resolver.AssertResolve(t, query)
+}
+
 func TestExtractFilterGeoLocation(t *testing.T) {
 	t.Parallel()
 
