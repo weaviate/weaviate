@@ -548,12 +548,36 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 				{
 					name:              "boolProp desc",
 					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "desc"}},
-					expectedBoolProps: []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
+					expectedBoolProps: []bool{true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false},
 				},
 				{
 					name:              "boolProp asc",
 					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "asc"}},
-					expectedBoolProps: []bool{true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false},
+					expectedBoolProps: []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
+				},
+				{
+					name:                "boolProp asc stringProp asc",
+					sort:                []filters.Sort{{Path: []string{"boolProp"}, Order: "asc"}, {Path: []string{"stringProp"}, Order: "asc"}},
+					expectedBoolProps:   []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
+					expectedStringProps: []string{"s01", "s03", "s05", "s07", "s09", "s11", "s13", "s15", "s17", "s19", "s00", "s02", "s04", "s06", "s08", "s10", "s12", "s14", "s16", "s18"},
+				},
+				{
+					name:                "boolProp desc stringProp asc",
+					sort:                []filters.Sort{{Path: []string{"boolProp"}, Order: "desc"}, {Path: []string{"stringProp"}, Order: "asc"}},
+					expectedBoolProps:   []bool{true, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false, false, false},
+					expectedStringProps: []string{"s00", "s02", "s04", "s06", "s08", "s10", "s12", "s14", "s16", "s18", "s01", "s03", "s05", "s07", "s09", "s11", "s13", "s15", "s17", "s19"},
+				},
+				{
+					name:              "boolProp asc indexProp asc",
+					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "asc"}, {Path: []string{"indexProp"}, Order: "asc"}},
+					expectedBoolProps: []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
+					expectedIndexes:   []float64{1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18},
+				},
+				{
+					name:              "boolProp asc indexProp desc",
+					sort:              []filters.Sort{{Path: []string{"boolProp"}, Order: "asc"}, {Path: []string{"indexProp"}, Order: "desc"}},
+					expectedBoolProps: []bool{false, false, false, false, false, false, false, false, false, false, true, true, true, true, true, true, true, true, true, true},
+					expectedIndexes:   []float64{19, 17, 15, 13, 11, 9, 7, 5, 3, 1, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0},
 				},
 				{
 					name:            "index property doesn't exist in testrefclass",
