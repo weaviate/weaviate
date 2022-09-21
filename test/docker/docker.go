@@ -54,6 +54,10 @@ func (d *DockerCompose) GetWeaviate() *DockerContainer {
 	return d.getContainerByName(Weaviate)
 }
 
+func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
+	return d.getContainerByName(WeaviateNode2)
+}
+
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {
 	return d.getContainerByName(Text2VecTransformers)
 }

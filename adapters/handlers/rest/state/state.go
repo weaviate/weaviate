@@ -43,6 +43,7 @@ type State struct {
 	SchemaManager      *schema.Manager
 	Cluster            *cluster.State
 	RemoteIncoming     *sharding.RemoteIndexIncoming
+	RemoteNodeIncoming *sharding.RemoteNodeIncoming
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
 	BackupManager      *backup.Manager

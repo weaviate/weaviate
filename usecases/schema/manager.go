@@ -54,6 +54,9 @@ type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 type SchemaGetter interface {
 	GetSchemaSkipAuth() schema.Schema
 	ShardingState(class string) *sharding.State
+	Nodes() []string
+	NodeName() string
+	ClusterHealthScore() int
 }
 
 type VectorizerValidator interface {
@@ -84,6 +87,9 @@ type clusterState interface {
 	AllNames() []string
 	LocalName() string
 	NodeCount() int
+
+	// ClusterHealthScore gets the whole cluster health, the lower number the better
+	ClusterHealthScore() int
 }
 
 // NewManager creates a new manager

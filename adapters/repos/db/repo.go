@@ -31,6 +31,7 @@ type DB struct {
 	indices      map[string]*Index
 	remoteClient sharding.RemoteIndexClient
 	nodeResolver nodeResolver
+	remoteNode   *sharding.RemoteNode
 	promMetrics  *monitoring.PrometheusMetrics
 	shutdown     chan struct{}
 
@@ -54,6 +55,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteNodesClient sharding.RemoteNodeClient,
 	promMetrics *monitoring.PrometheusMetrics,
 ) *DB {
 	return &DB{
@@ -62,6 +64,7 @@ func New(logger logrus.FieldLogger, config Config,
 		indices:      map[string]*Index{},
 		remoteClient: remoteClient,
 		nodeResolver: nodeResolver,
+		remoteNode:   sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
 		promMetrics:  promMetrics,
 		shutdown:     make(chan struct{}),
 	}
@@ -75,6 +78,8 @@ type Config struct {
 	MaxImportGoroutinesFactor float64
 	FlushIdleAfter            int
 	TrackVectorDimensions     bool
+	ServerVersion             string
+	GitHash                   string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
