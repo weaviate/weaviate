@@ -34,12 +34,11 @@ import (
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	config        *config.WeaviateConfig
-	locks         locks
-	schemaManager schemaManager
-	logger        logrus.FieldLogger
-	authorizer    authorizer
-	//vectorizerProvider VectorizerProvider
+	config            *config.WeaviateConfig
+	locks             locks
+	schemaManager     schemaManager
+	logger            logrus.FieldLogger
+	authorizer        authorizer
 	vectorRepo        VectorRepo
 	timeSource        timeSource
 	modulesProvider   ModulesProvider
@@ -134,11 +133,10 @@ func NewManager(locks locks, schemaManager schemaManager,
 	modulesProvider ModulesProvider, metrics objectsMetrics,
 ) *Manager {
 	return &Manager{
-		config:        config,
-		locks:         locks,
-		schemaManager: schemaManager,
-		logger:        logger,
-		//vectorizerProvider: vectorizer,
+		config:            config,
+		locks:             locks,
+		schemaManager:     schemaManager,
+		logger:            logger,
 		authorizer:        authorizer,
 		vectorRepo:        vectorRepo,
 		timeSource:        defaultTimeSource{},

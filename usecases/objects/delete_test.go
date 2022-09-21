@@ -86,7 +86,6 @@ func Test_DeleteObject(t *testing.T) {
 func newDeleteDependency() (*Manager, *fakeVectorRepo) {
 	vectorRepo := new(fakeVectorRepo)
 	logger, _ := test.NewNullLogger()
-	//vecProvider := fakeVectorizerProvider{new(fakeVectorizer)}
 	manager := NewManager(
 		new(fakeLocks),
 		new(fakeSchemaManager),

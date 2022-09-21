@@ -61,8 +61,6 @@ func Test_GetAction(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		//vectorizer := &fakeVectorizer{}
-		//vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics = &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
 			authorizer, vectorRepo,
@@ -700,8 +698,6 @@ func Test_GetThing(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		//vectorizer := &fakeVectorizer{}
-		//vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
 			authorizer, vectorRepo,

@@ -13,7 +13,6 @@ import (
 )
 
 func TestCentroid(t *testing.T) {
-	//helper.SetupClient("localhost:8080")
 	helper.SetupClient(os.Getenv(weaviateEndpoint))
 
 	paragraphClass := articles.ParagraphsClass()

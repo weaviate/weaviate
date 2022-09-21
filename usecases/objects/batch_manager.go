@@ -22,13 +22,12 @@ import (
 // BatchManager manages kind changes in batch at a use-case level , i.e.
 // agnostic of underlying databases or storage providers
 type BatchManager struct {
-	config        *config.WeaviateConfig
-	locks         locks
-	schemaManager schemaManager
-	logger        logrus.FieldLogger
-	authorizer    authorizer
-	vectorRepo    BatchVectorRepo
-	//vectorizerProvider VectorizerProvider
+	config            *config.WeaviateConfig
+	locks             locks
+	schemaManager     schemaManager
+	logger            logrus.FieldLogger
+	authorizer        authorizer
+	vectorRepo        BatchVectorRepo
 	modulesProvider   ModulesProvider
 	autoSchemaManager *autoSchemaManager
 	metrics           *Metrics
@@ -52,12 +51,11 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 	prom *monitoring.PrometheusMetrics,
 ) *BatchManager {
 	return &BatchManager{
-		config:        config,
-		locks:         locks,
-		schemaManager: schemaManager,
-		logger:        logger,
-		vectorRepo:    vectorRepo,
-		//vectorizerProvider: vectorizer,
+		config:            config,
+		locks:             locks,
+		schemaManager:     schemaManager,
+		logger:            logger,
+		vectorRepo:        vectorRepo,
 		modulesProvider:   modulesProvider,
 		authorizer:        authorizer,
 		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),

@@ -112,20 +112,6 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
 }
 
-type fakeVectorizer struct {
-	mock.Mock
-}
-
-func (f *fakeVectorizer) UpdateObject(ctx context.Context, object *models.Object) error {
-	args := f.Called(object)
-	object.Vector = args.Get(0).([]float32)
-	return args.Error(1)
-}
-
-func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
-	panic("not implemented")
-}
-
 type fakeAuthorizer struct {
 	Err error
 }
