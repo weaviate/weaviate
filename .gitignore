@@ -99,16 +99,7 @@ docker-compose/runtime-unstable/data
 c.out
 
 esbackups/
-adapters/repos/backups/testdata/
-adapters/repos/db/testdata/
-adapters/repos/db/vector/hnsw/testdata
-adapters/repos/db/lsmkv/testdata
-adapters/repos/db/inverted/testdata
-adapters/repos/db/clusterintegrationtest/testdata
-adapters/repos/classifications/testdata
-usecases/classification/integrationtest/testdata
-adapters/repos/schema/testdata
-adapters/repos/modules/testdata/
+**/testdata/
 
 # coverage files
 coverage*.txt
