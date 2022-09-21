@@ -18,19 +18,12 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-<<<<<<< HEAD
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/stretchr/testify/assert"
-=======
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
->>>>>>> master
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -616,13 +609,16 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 		Vector:    []float32{2, 4, 6},
 	}
 
+	parentObj := parent.Object()
+
 	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
 	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
 	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
-	m.repo.On("PutObject", parent.Object(), []float32(nil)).Return(nil)
 	m.repo.On("AddReference", req.Class, req.ID, req.Property, &req.Ref).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
+	m.modulesProvider.On("UpdateVector", parentObj, m.repo).Return(ref1.Vector, nil)
+	m.repo.On("PutObject", mock.Anything, ref1.Vector).Return(nil)
 
 	err := m.Manager.AddObjectReference(ctx, nil, &req)
 	assert.Nil(t, err)

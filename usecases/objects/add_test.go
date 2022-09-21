@@ -28,8 +28,9 @@ import (
 
 func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
-		manager    *Manager
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *Manager
 	)
 
 	schema := schema.Schema{
@@ -68,10 +69,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		//vectorizer := &fakeVectorizer{}
-		//vecProvider := &fakeVectorizerProvider{vectorizer}
-		modulesProvider := getFakeModulesProvider()
-		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics)
@@ -89,6 +87,8 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			Vector: []float32{0.1, 0.2, 0.3},
 			Class:  "Foo",
 		}
+
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		res, err := manager.AddObject(ctx, nil, class)
 		require.Nil(t, err)
@@ -109,6 +109,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			Class:  "Foo",
 		}
 		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		res, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
@@ -132,6 +133,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			},
 		}
 		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		res, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
@@ -152,6 +154,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		vectorRepo.On("Exists", "Foo", id).Return(true, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		_, err := manager.AddObject(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -184,6 +187,8 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			Class: "Foo",
 		}
 
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+
 		_, err := manager.AddObject(ctx, nil, class)
 		assert.Nil(t, err)
 	})
@@ -196,6 +201,8 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 			Class: "FooSkipped",
 		}
 
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+
 		_, err := manager.AddObject(ctx, nil, class)
 		assert.Nil(t, err)
 	})
@@ -203,8 +210,9 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 
 func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
-		manager    *Manager
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *Manager
 	)
 
 	schema := schema.Schema{
@@ -229,11 +237,8 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		//vectorizer := &fakeVectorizer{}
-		//vecProvider := &fakeVectorizerProvider{vectorizer}
-		//vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		metrics := &fakeMetrics{}
-		modulesProvider := getFakeModulesProvider()
+		modulesProvider = getFakeModulesProvider()
 		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
 			vectorRepo, modulesProvider, metrics)
@@ -246,6 +251,8 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		object := &models.Object{
 			Class: "Foo",
 		}
+
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		res, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
@@ -266,6 +273,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 			Class: "Foo",
 		}
 		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		res, err := manager.AddObject(ctx, nil, object)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
@@ -286,6 +294,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		vectorRepo.On("Exists", "Foo", id).Return(true, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -302,6 +311,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 
 		_, err := manager.AddObject(ctx, nil, object)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
@@ -310,8 +320,9 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 
 func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
-		manager    *Manager
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *Manager
 	)
 
 	schema := schema.Schema{
@@ -336,10 +347,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		//vectorizer := &fakeVectorizer{}
-		//vecProvider := &fakeVectorizerProvider{vectorizer}
-		modulesProvider := getFakeModulesProvider()
-		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics)
@@ -354,6 +362,8 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 			Vector: []float32{9, 9, 9},
 		}
 
+		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(object.Vector, nil)
+
 		_, err := manager.AddObject(ctx, nil, object)
 		require.Nil(t, err)
 
@@ -365,8 +375,9 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 
 func Test_AddObjectEmptyProperties(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
-		manager    *Manager
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *Manager
 	)
 	schema := schema.Schema{
 		Objects: &models.Schema{
@@ -395,10 +406,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		//vectorizer := &fakeVectorizer{}
-		//vecProvider := &fakeVectorizerProvider{vectorizer}
-		modulesProvider := getFakeModulesProvider()
-		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
 			authorizer, vectorRepo, modulesProvider, metrics)
@@ -410,6 +418,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		Vector: []float32{9, 9, 9},
 	}
 	assert.Nil(t, object.Properties)
+	modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
 	addedObject, err := manager.AddObject(ctx, nil, object)
 	assert.Nil(t, err)
 	assert.NotNil(t, addedObject.Properties)

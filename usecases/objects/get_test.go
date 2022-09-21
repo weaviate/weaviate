@@ -1071,7 +1071,6 @@ type fakeGetManager struct {
 	repo            *fakeVectorRepo
 	extender        *fakeExtender
 	projector       *fakeProjector
-	vectorizer      *fakeVectorizer
 	authorizer      *fakeAuthorizer
 	locks           *fakeLocks
 	metrics         *fakeMetrics
@@ -1080,10 +1079,9 @@ type fakeGetManager struct {
 
 func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fakeGetManager {
 	r := fakeGetManager{
-		repo:      new(fakeVectorRepo),
-		extender:  new(fakeExtender),
-		projector: new(fakeProjector),
-		//vectorizer:      new(fakeVectorizer),
+		repo:            new(fakeVectorRepo),
+		extender:        new(fakeExtender),
+		projector:       new(fakeProjector),
 		authorizer:      new(fakeAuthorizer),
 		locks:           new(fakeLocks),
 		metrics:         new(fakeMetrics),
@@ -1101,7 +1099,6 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
 	logger, _ := test.NewNullLogger()
-	//vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(r.locks, schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics)

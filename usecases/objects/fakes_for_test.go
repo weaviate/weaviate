@@ -14,8 +14,9 @@ package objects
 import (
 	"context"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"net/http"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql"
@@ -110,14 +111,6 @@ func (f *fakeLocks) LockConnector() (func() error, error) {
 func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
 }
-
-//type fakeVectorizerProvider struct {
-//	vectorizer *fakeVectorizer
-//}
-
-//func (f *fakeVectorizerProvider) Vectorizer(modName, className string) (Vectorizer, error) {
-//	return f.vectorizer, nil
-//}
 
 type fakeVectorizer struct {
 	mock.Mock
@@ -320,11 +313,22 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object,
 	repo modulecapabilities.VectorRepo, logger logrus.FieldLogger,
 ) error {
-	return nil
+	args := p.Called(object, repo)
+	switch vec := args.Get(0).(type) {
+	case models.C11yVector:
+		object.Vector = vec
+		return args.Error(1)
+	case []float32:
+		object.Vector = vec
+		return args.Error(1)
+	default:
+		return args.Error(1)
+	}
 }
 
 func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
-	return "", nil
+	args := p.Called(className)
+	return args.String(0), args.Error(1)
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
