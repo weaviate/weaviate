@@ -13,6 +13,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/pkg/errors"
@@ -55,6 +56,7 @@ type Compose struct {
 	withContextionary       bool
 	withQnATransformers     bool
 	withWeaviate            bool
+	withWeaviateCluster     bool
 	withSUMTransformers     bool
 	withCentroid            bool
 }
@@ -131,6 +133,12 @@ func (d *Compose) WithRef2VecCentroid() *Compose {
 
 func (d *Compose) WithWeaviate() *Compose {
 	d.withWeaviate = true
+	return d
+}
+
+func (d *Compose) WithWeaviateCluster() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateCluster = true
 	return d
 }
 
@@ -222,10 +230,30 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withWeaviate {
 		image := os.Getenv(envTestWeaviateImage)
+		hostname := Weaviate
+		if d.withWeaviateCluster {
+			envSettings["CLUSTER_HOSTNAME"] = "node1"
+			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
+			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
+		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image)
+			envSettings, networkName, image, hostname)
 		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", Weaviate)
+			return nil, errors.Wrapf(err, "start %s", hostname)
+		}
+		containers = append(containers, container)
+	}
+	if d.withWeaviateCluster {
+		image := os.Getenv(envTestWeaviateImage)
+		hostname := WeaviateNode2
+		envSettings["CLUSTER_HOSTNAME"] = "node2"
+		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
+		envSettings["CLUSTER_DATA_BIND_PORT"] = "7103"
+		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+			envSettings, networkName, image, hostname)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
 	}

@@ -36,6 +36,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/well_known"
@@ -102,6 +103,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation meta.MetaGet has not yet been implemented")
+		}),
+		NodesNodesGetHandler: nodes.NodesGetHandlerFunc(func(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation nodes.NodesGet has not yet been implemented")
 		}),
 		ObjectsObjectsClassDeleteHandler: objects.ObjectsClassDeleteHandlerFunc(func(params objects.ObjectsClassDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsClassDelete has not yet been implemented")
@@ -268,6 +272,8 @@ type WeaviateAPI struct {
 	GraphqlGraphqlPostHandler graphql.GraphqlPostHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
 	MetaMetaGetHandler meta.MetaGetHandler
+	// NodesNodesGetHandler sets the operation handler for the nodes get operation
+	NodesNodesGetHandler nodes.NodesGetHandler
 	// ObjectsObjectsClassDeleteHandler sets the operation handler for the objects class delete operation
 	ObjectsObjectsClassDeleteHandler objects.ObjectsClassDeleteHandler
 	// ObjectsObjectsClassGetHandler sets the operation handler for the objects class get operation
@@ -439,6 +445,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.MetaMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
+	}
+	if o.NodesNodesGetHandler == nil {
+		unregistered = append(unregistered, "nodes.NodesGetHandler")
 	}
 	if o.ObjectsObjectsClassDeleteHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsClassDeleteHandler")
@@ -682,6 +691,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/meta"] = meta.NewMetaGet(o.context, o.MetaMetaGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/nodes"] = nodes.NewNodesGet(o.context, o.NodesNodesGetHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
