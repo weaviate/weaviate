@@ -21,9 +21,11 @@ tools/
 **/*.fvecs  # sift data
 **/*.png  # profiling
 **/*.out
-**/*.txt
 **/*.csv
 **/*.md
 **/*_test.go
 **/.DS_Store
 **/testdata/
+coverage-integration.txt
+coverage-unit.txt
+
