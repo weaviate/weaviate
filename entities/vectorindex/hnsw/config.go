@@ -1,5 +1,7 @@
 package hnsw
 
+import "math"
+
 const (
 	DistanceCosine    = "cosine"
 	DistanceDot       = "dot"
@@ -16,7 +18,7 @@ const (
 	DefaultDynamicEFMin           = 100
 	DefaultDynamicEFMax           = 500
 	DefaultDynamicEFFactor        = 8
-	DefaultVectorCacheMaxObjects  = 2000000
+	DefaultVectorCacheMaxObjects  = math.MaxInt64
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine
