@@ -63,6 +63,15 @@ func validateClause(sch schema.Schema, clause *Clause) error {
 		return err
 	}
 
+	if clause.Operator == OperatorIsNull {
+		if clause.Value.Type == schema.DataTypeBoolean {
+			return nil
+		} else {
+			errors.Errorf("operator IsNull requires a booleanValue, got %q instead",
+				valueNameFromDataType(clause.Value.Type))
+		}
+	}
+
 	if schema.IsRefDataType(prop.DataType) {
 		// bit of an edge case, directly on refs (i.e. not on a primitive prop of a
 		// ref) we only allow valueInt which is what's used to count references
