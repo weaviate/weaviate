@@ -21,7 +21,6 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -29,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/mock"
 )
 

@@ -42,6 +42,7 @@ func TestIndexByTimestamps_AddClass(t *testing.T) {
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
@@ -128,6 +129,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		},
 	}}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,

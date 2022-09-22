@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"time"
 
 	"github.com/pkg/errors"
@@ -57,18 +58,6 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 }
 
 func (n *neighborFinderConnector) Do() error {
-	dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
-	if err != nil {
-		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-	}
-	if !ok {
-		if err := n.replaceEntrypointsIfUnderMaintenance(); err != nil {
-			return err
-		}
-	}
-
-	n.entryPointDist = dist
-
 	for level := min(n.targetLevel, n.currentMaxLevel); level >= 0; level-- {
 		err := n.doAtLevel(level)
 		if err != nil {
@@ -81,8 +70,8 @@ func (n *neighborFinderConnector) Do() error {
 
 func (n *neighborFinderConnector) doAtLevel(level int) error {
 	before := time.Now()
-	if err := n.replaceEntrypointsIfUnderMaintenance(); err != nil {
-		return errors.Wrap(err, "replace ep under maintenance")
+	if err := n.pickEntrypoint(); err != nil {
+		return errors.Wrap(err, "pick entrypoint at level beginning")
 	}
 
 	eps := priorityqueue.NewMin(1)
@@ -136,46 +125,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		}
 
 		n.entryPointID = nextEntryPointID
-		dist, ok, err := n.graph.distBetweenNodeAndVec(n.entryPointID, n.nodeVec)
-		if err != nil {
-			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-		}
-		if !ok {
-			return errors.Errorf("entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-		}
-
-		n.entryPointDist = dist
 	}
 
 	n.graph.insertMetrics.findAndConnectUpdateConnections(before)
-	return nil
-}
-
-func (n *neighborFinderConnector) replaceEntrypointsIfUnderMaintenance() error {
-	node := n.graph.nodeByID(n.entryPointID)
-	if node == nil || node.isUnderMaintenance() {
-		alternativeEP := n.graph.entryPointID
-		if alternativeEP == n.node.id || alternativeEP == n.entryPointID {
-			tmpDenyList := n.denyList.DeepCopy()
-			tmpDenyList.Insert(alternativeEP)
-
-			alternative, _ := n.graph.findNewLocalEntrypoint(tmpDenyList, n.graph.currentMaximumLayer,
-				n.entryPointID)
-			alternativeEP = alternative
-		}
-		dist, ok, err := n.graph.distBetweenNodeAndVec(alternativeEP, n.nodeVec)
-		if err != nil {
-			return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
-		}
-		if !ok {
-			return errors.Errorf("replace entrypoint: entrypoint was deleted in the object store, " +
-				"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-		}
-		n.entryPointID = alternativeEP
-		n.entryPointDist = dist
-	}
-
 	return nil
 }
 
@@ -189,6 +141,10 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 	neighbor.Lock()
 	defer neighbor.Unlock()
+	if level > neighbor.level {
+		// upgrade neighbor level if the level is out of sync due to a delete re-assign
+		neighbor.upgradeToLevelNoLock(level)
+	}
 	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
 	maximumConnections := n.maximumConnections(level)
@@ -276,4 +232,76 @@ func (n *neighborFinderConnector) maximumConnections(level int) int {
 	}
 
 	return n.graph.maximumConnections
+}
+
+func (n *neighborFinderConnector) pickEntrypoint() error {
+	// the neighborFinderConnector always has a suggestion for an entrypoint that
+	// it got from the outside, most of the times we can use this, but in some
+	// cases we can't. To see if we can use it, three conditions need to be met:
+	//
+	// 1. it needs to exist in the graph, i.e. be not nil
+	//
+	// 2. it can't be under maintenance
+	//
+	// 3. we need to be able to obtain a vector for it
+
+	localDeny := n.denyList.DeepCopy()
+	candidate := n.entryPointID
+
+	// make sure the loop cannot block forever. In most cases, results should be
+	// found within micro to milliseconds, this is just a last resort to handle
+	// the unknown somewhat gracefully, for example if there is a bug in the
+	// underlying object store and we cannot retrieve the vector in time, etc.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		success, err := n.tryEpCandidate(candidate)
+		if err != nil {
+			return err
+		}
+
+		if success {
+			return nil
+		}
+
+		// no success so far, we need to keep going and find a better candidate
+		// make sure we never visit this candidate again
+		localDeny.Insert(candidate)
+		// now find a new one
+
+		alternative, _ := n.graph.findNewLocalEntrypoint(localDeny,
+			n.graph.currentMaximumLayer, candidate)
+		candidate = alternative
+	}
+}
+
+func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
+	node := n.graph.nodeByID(candidate)
+	if node == nil {
+		return false, nil
+	}
+
+	if node.isUnderMaintenance() {
+		return false, nil
+	}
+
+	dist, ok, err := n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+	if err != nil {
+		// not an error we could recover from - fail!
+		return false, errors.Wrapf(err,
+			"calculate distance between insert node and entrypoint")
+	}
+	if !ok {
+		return false, nil
+	}
+
+	// we were able to calculate a distance, we're good
+	n.entryPointDist = dist
+	n.entryPointID = candidate
+	return true, nil
 }

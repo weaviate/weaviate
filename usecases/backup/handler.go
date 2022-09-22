@@ -172,6 +172,11 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		Status:  &status,
 		Path:    destPath,
 	}
+	// make sure there is no active restore
+	if prevID := m.restorer.lastStatus.renew(req.ID, time.Now(), destPath); prevID != "" {
+		err := fmt.Errorf("restore %s already in progress", prevID)
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	go func() {
 		var err error
 		status := RestoreStatus{
@@ -189,7 +194,9 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 				status.Status = backup.Failed
 			}
 			m.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
+			m.restorer.lastStatus.reset()
 		}()
+
 		err = m.restorer.restoreAll(context.Background(), pr, meta, store)
 		if err != nil {
 			m.logger.WithField("action", "restore").WithField("backup_id", meta.ID).Error(err)
@@ -255,10 +262,10 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, 
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
 	_, err := store.Meta(ctx, req.ID)
 	if err == nil {
-		return nil, fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
 	if _, ok := err.(backup.ErrNotFound); !ok {
-		return nil, fmt.Errorf("backup %s already exists at %s", req.ID, destPath)
+		return nil, fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
 	}
 	return classes, nil
 }

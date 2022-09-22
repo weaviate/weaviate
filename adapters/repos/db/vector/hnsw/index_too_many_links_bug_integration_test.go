@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,7 +73,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections:         m,
 			EFConstruction:         128,
 			CleanupIntervalSeconds: 0,
@@ -155,7 +156,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return data[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections:         m,
 			EFConstruction:         128,
 			CleanupIntervalSeconds: 1,

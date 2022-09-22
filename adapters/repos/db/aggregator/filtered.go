@@ -250,7 +250,34 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 		default:
 			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
 		}
+	case aggregation.PropertyTypeReference:
+		if prop.dataType != schema.DataTypeCRef {
+			return errors.New(string("unknown datatype for aggregation type reference: " + prop.dataType))
+		}
+
+		analyzeRef := func(value interface{}) error {
+			referenceList, ok := value.([]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type reference, received %T", value)
+			}
+			if len(referenceList) != 1 {
+				return fmt.Errorf("expected list with length 1, got %T", len(referenceList))
+			}
+			refMap, ok := referenceList[0].(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("expected property type reference, received %T", value)
+			}
+
+			if err := prop.refAgg.AddReference(refMap); err != nil {
+				return err
+			}
+			return nil
+		}
+		if err := analyzeRef(value); err != nil {
+			return err
+		}
 	default:
+		return errors.New(string("Unknown aggregation type " + prop.aggType))
 
 	}
 
@@ -274,6 +301,7 @@ type propAgg struct {
 	textAgg      *textAggregator
 	numericalAgg *numericalAggregator
 	dateAgg      *dateAggregator
+	refAgg       *refAggregator
 }
 
 // propAggs groups propAgg helpers by prop name
@@ -290,7 +318,10 @@ func (pa *propAgg) initAggregator() {
 		pa.numericalAgg = newNumericalAggregator()
 	case aggregation.PropertyTypeDate:
 		pa.dateAgg = newDateAggregator()
+	case aggregation.PropertyTypeReference:
+		pa.refAgg = newRefAggregator()
 	default:
+		panic("Unknown aggregation type: " + pa.aggType)
 	}
 }
 
@@ -306,23 +337,23 @@ func (pa propAggs) results() (map[string]aggregation.Property, error) {
 		case aggregation.PropertyTypeBoolean:
 			aggProp.BooleanAggregation = prop.boolAgg.Res()
 			out[prop.name.String()] = aggProp
-
 		case aggregation.PropertyTypeText:
 			aggProp.TextAggregation = prop.textAgg.Res()
 			out[prop.name.String()] = aggProp
-
 		case aggregation.PropertyTypeNumerical:
-			prop.numericalAgg.buildPairsFromCounts()
 			addNumericalAggregations(&aggProp, prop.specifiedAggregators,
 				prop.numericalAgg)
 			out[prop.name.String()] = aggProp
-
 		case aggregation.PropertyTypeDate:
-			prop.dateAgg.buildPairsFromCounts()
 			addDateAggregations(&aggProp, prop.specifiedAggregators,
 				prop.dateAgg)
 			out[prop.name.String()] = aggProp
+		case aggregation.PropertyTypeReference:
+			addReferenceAggregations(&aggProp, prop.specifiedAggregators,
+				prop.refAgg)
+			out[prop.name.String()] = aggProp
 		default:
+			return nil, errors.New(string("unknown aggregation type " + prop.aggType))
 		}
 	}
 

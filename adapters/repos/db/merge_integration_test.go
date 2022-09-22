@@ -44,6 +44,7 @@ func Test_MergingObjects(t *testing.T) {
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
@@ -382,7 +383,7 @@ func Test_MergingObjects(t *testing.T) {
 // merge (and therefore only loaded from disk) failed during the
 // inverted-indexing for the new doc id. This was then hidden by the fact that
 // error handling was broken inside the inverted.Analyzer. This test tries to
-// make sure that every possible property type stays in tact if untouched
+// make sure that every possible property type stays intact if untouched
 // during a Merge operation
 //
 // To achieve this, every prop in this class exists twice, once with the prefix
@@ -398,6 +399,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,

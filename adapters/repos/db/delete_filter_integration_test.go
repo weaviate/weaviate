@@ -60,6 +60,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
@@ -176,6 +177,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,

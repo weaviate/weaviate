@@ -45,6 +45,17 @@ func New(docID uint64) *Object {
 }
 
 func FromObject(object *models.Object, vector []float32) *Object {
+	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
+	properties, ok := object.Properties.(map[string]interface{})
+	if ok {
+		for key, prop := range properties {
+			if prop == nil {
+				delete(properties, key)
+			}
+		}
+		object.Properties = properties
+	}
+
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
