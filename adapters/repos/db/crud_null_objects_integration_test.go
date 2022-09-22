@@ -10,13 +10,15 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
 import (
 	"context"
 	"testing"
+
+	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -32,8 +34,46 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Cannot filter for null state without enabling in the InvertedIndexConfig
+func TestFilterNullStateError(t *testing.T) {
+	class := createClassWithEverything(false)
+	migrator, repo, schemaGetter := createRepo(t)
+	defer repo.Shutdown(context.Background())
+	err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	require.Nil(t, err)
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	nilFilter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			On: &filters.Path{
+				Class:    schema.ClassName(carClass.Class),
+				Property: schema.PropertyName(class.Properties[0].Name),
+			},
+			Value: &filters.Value{
+				Value: true,
+				Type:  schema.DataTypeBoolean,
+			},
+		},
+	}
+
+	params := traverser.GetParams{
+		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+		ClassName:    class.Class,
+		Pagination:   &filters.Pagination{Limit: 5},
+		Filters:      nilFilter,
+	}
+	_, err = repo.ClassSearch(context.Background(), params)
+	require.NotNil(t, err)
+}
+
 func TestNullArrayClass(t *testing.T) {
-	arrayClass := createClassWithEverything()
+	arrayClass := createClassWithEverything(true)
 
 	names := []string{"elements", "batches"}
 	for _, name := range names {
@@ -121,11 +161,17 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 	return NewMigrator(repo, logger), repo, schemaGetter
 }
 
-func createClassWithEverything() *models.Class {
+func createClassWithEverything(IndexNullState bool) *models.Class {
 	return &models.Class{
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Class:               "EverythingClass",
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords: &models.StopwordConfig{
+				Preset: "none",
+			},
+			IndexNullState: IndexNullState,
+		},
+		Class: "EverythingClass",
 		Properties: []*models.Property{
 			{
 				Name:         "strings",

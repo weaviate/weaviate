@@ -55,6 +55,11 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 
 		b := s.store.Bucket(id)
 
+		if b == nil && pv.operator == filters.OperatorIsNull {
+			return errors.Errorf("Nullstate must be indexed to be filterable! " +
+				"add `indexNullState: true` to the invertedIndexConfig")
+		}
+
 		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
 			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
 			return errors.Errorf("timestamps must be indexed to be filterable! " +
