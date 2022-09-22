@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/backup"
@@ -50,20 +49,9 @@ func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor,
 	store objectStore,
 ) (err error) {
-	backupID := desc.ID
-	// make sure there is no active restore
-	dst := store.HomeDir(backupID)
-	if prevID := r.lastStatus.renew(backupID, time.Now(), dst); prevID != "" {
-		err := fmt.Errorf("restore %s already in progress", prevID)
-		return err
-	}
-	defer func() {
-		r.lastStatus.reset()
-	}()
-
 	r.lastStatus.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, pr, backupID, &cdesc, store); err != nil {
+		if err := r.restoreOne(ctx, pr, desc.ID, &cdesc, store); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").

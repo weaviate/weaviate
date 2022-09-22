@@ -498,20 +498,21 @@ func addTestSchema(t *testing.T) {
 }
 
 const (
-	netherlands strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
-	germany     strfmt.UUID = "561eea29-b733-4079-b50b-cfabd78190b7"
-	amsterdam   strfmt.UUID = "8f5f8e44-d348-459c-88b1-c1a44bb8f8be"
-	rotterdam   strfmt.UUID = "660db307-a163-41d2-8182-560782cd018f"
-	berlin      strfmt.UUID = "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
-	dusseldorf  strfmt.UUID = "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13"
-	nullisland  strfmt.UUID = "823abeca-eef3-41c7-b587-7a6977b08003"
-	airport1    strfmt.UUID = "4770bb19-20fd-406e-ac64-9dac54c27a0f"
-	airport2    strfmt.UUID = "cad6ab9b-5bb9-4388-a933-a5bdfd23db37"
-	airport3    strfmt.UUID = "55a4dbbb-e2af-4b2a-901d-98146d1eeca7"
-	airport4    strfmt.UUID = "62d15920-b546-4844-bc87-3ae33268fab5"
-	cvc1        strfmt.UUID = "1ffeb3e1-1258-4c2a-afc3-55543f6c44b8"
-	cvc2        strfmt.UUID = "df22e5c4-5d17-49f9-a71d-f392a82bc086"
-	cvc3        strfmt.UUID = "c28a039a-d509-4c2e-940a-8b109e5bebf4"
+	netherlands   strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
+	germany       strfmt.UUID = "561eea29-b733-4079-b50b-cfabd78190b7"
+	amsterdam     strfmt.UUID = "8f5f8e44-d348-459c-88b1-c1a44bb8f8be"
+	rotterdam     strfmt.UUID = "660db307-a163-41d2-8182-560782cd018f"
+	berlin        strfmt.UUID = "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
+	dusseldorf    strfmt.UUID = "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13"
+	missingisland strfmt.UUID = "823abeca-eef3-41c7-b587-7a6977b08003"
+	nullisland    strfmt.UUID = "823abeca-eef3-41c7-b587-7a6977b08067"
+	airport1      strfmt.UUID = "4770bb19-20fd-406e-ac64-9dac54c27a0f"
+	airport2      strfmt.UUID = "cad6ab9b-5bb9-4388-a933-a5bdfd23db37"
+	airport3      strfmt.UUID = "55a4dbbb-e2af-4b2a-901d-98146d1eeca7"
+	airport4      strfmt.UUID = "62d15920-b546-4844-bc87-3ae33268fab5"
+	cvc1          strfmt.UUID = "1ffeb3e1-1258-4c2a-afc3-55543f6c44b8"
+	cvc2          strfmt.UUID = "df22e5c4-5d17-49f9-a71d-f392a82bc086"
+	cvc3          strfmt.UUID = "c28a039a-d509-4c2e-940a-8b109e5bebf4"
 
 	quattroFormaggi strfmt.UUID = "152500c6-4a8a-4732-aede-9fcab7e43532"
 	fruttiDiMare    strfmt.UUID = "a828e9aa-d1b6-4644-8569-30d404e31a0d"
@@ -636,15 +637,33 @@ func addTestDataCityAirport(t *testing.T) {
 
 	createObject(t, &models.Object{
 		Class: "City",
-		ID:    nullisland,
+		ID:    missingisland,
 		Properties: map[string]interface{}{
-			"name":       "Null Island",
+			"name":       "Missing Island",
 			"population": 0,
 			"location": map[string]interface{}{
 				"latitude":  0,
 				"longitude": 0,
 			},
 			"isCapital": false,
+		},
+	})
+
+	createObject(t, &models.Object{
+		Class: "City",
+		ID:    nullisland,
+		Properties: map[string]interface{}{
+			"name":        nil,
+			"population":  nil,
+			"inCountry":   nil,
+			"location":    nil,
+			"isCapital":   nil,
+			"cityArea":    nil,
+			"cityRights":  nil,
+			"timezones":   nil,
+			"museums":     nil,
+			"history":     nil,
+			"phoneNumber": nil,
 		},
 	})
 
@@ -923,6 +942,7 @@ func addTestDataArrayClasses(t *testing.T) {
 		arrayClassID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
 		arrayClassID3 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534c"
 		arrayClassID4 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534d"
+		arrayClassID5 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534e"
 	)
 	createObject(t, &models.Object{
 		Class: "ArrayClass",
@@ -993,6 +1013,22 @@ func addTestDataArrayClasses(t *testing.T) {
 		ID:    arrayClassID4,
 	})
 	assertGetObjectEventually(t, arrayClassID4)
+
+	// object with nil properties
+	createObject(t, &models.Object{
+		Class: "ArrayClass",
+		ID:    arrayClassID5,
+		Properties: map[string]interface{}{
+			"strings":        nil,
+			"texts":          nil,
+			"numbers":        nil,
+			"ints":           nil,
+			"booleans":       nil,
+			"datesAsStrings": nil,
+			"dates":          nil,
+		},
+	})
+	assertGetObjectEventually(t, arrayClassID5)
 }
 
 func addTestDataRansomNotes(t *testing.T) {

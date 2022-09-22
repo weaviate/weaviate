@@ -58,19 +58,20 @@ type PrometheusMetrics struct {
 }
 
 var (
-	msBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
-	metrics   *PrometheusMetrics
+	msBuckets                    = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
+	metrics   *PrometheusMetrics = nil
 )
 
+func init() {
+	metrics = newPrometheusMetrics()
+}
+
 func GetMetrics() *PrometheusMetrics {
-	if metrics == nil {
-		NewPrometheusMetrics()
-	}
 	return metrics
 }
 
-func NewPrometheusMetrics() *PrometheusMetrics {
-	metrics = &PrometheusMetrics{
+func newPrometheusMetrics() *PrometheusMetrics {
+	return &PrometheusMetrics{
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
@@ -235,8 +236,6 @@ func NewPrometheusMetrics() *PrometheusMetrics {
 			Help: "Total dimensions in a shard",
 		}, []string{"class_name", "shard_name"}),
 	}
-
-	return metrics
 }
 
 type OnceUponATimer struct {

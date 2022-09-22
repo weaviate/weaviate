@@ -176,6 +176,9 @@ func newFileWriter(sourcer Sourcer, backend objectStore,
 
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (rollback func() error, err error) {
+	if len(desc.Shards) == 0 { // nothing to copy
+		return func() error { return nil }, nil
+	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 	defer func() {
 		if err != nil {

@@ -148,13 +148,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// var classifierRepo classification.Repo
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
-		promMetrics := monitoring.NewPrometheusMetrics()
+		promMetrics := monitoring.GetMetrics()
 		appState.Metrics = promMetrics
 	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
+		FlushIdleAfter:            appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,

@@ -297,7 +297,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "lsm_memtable_size",
+          "expr": "lsm_memtable_size{}",
           "legendFormat": "{{path}}",
           "range": true,
           "refId": "A"
@@ -386,7 +386,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(lsm_memtable_durations_ms_sum[$__interval])/rate(lsm_memtable_durations_ms_count[$__interval])",
+          "expr": "rate(lsm_memtable_durations_ms_sum{}[$__interval])/rate(lsm_memtable_durations_ms_count{}[$__interval])",
           "legendFormat": "{{operation}} ({{path}})",
           "range": true,
           "refId": "A"

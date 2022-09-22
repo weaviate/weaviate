@@ -206,6 +206,7 @@ type IndexConfig struct {
 	DiskUseReadOnlyPercentage uint64
 	MaxImportGoroutinesFactor float64
 	NodeName                  string
+	FlushIdleAfter            int
 }
 
 func indexID(class schema.ClassName) string {
@@ -769,7 +770,7 @@ func (i *Index) sortKeywordRanking(objects []*storobj.Object,
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
 	sort []filters.Sort, limit int,
 ) ([]*storobj.Object, []float32, error) {
-	return sorter.New(i.getSchema.GetSchemaSkipAuth()).
+	return sorter.NewObjectsSorter(i.getSchema.GetSchemaSkipAuth()).
 		Sort(objects, scores, limit, sort)
 }
 

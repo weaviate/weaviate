@@ -19,6 +19,8 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/entities/storobj"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +38,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
 
@@ -128,7 +130,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
 
@@ -241,7 +243,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
 
@@ -359,7 +361,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 
@@ -634,7 +636,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 
@@ -777,7 +779,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		VectorForIDThunk:      vecForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 
@@ -850,7 +852,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 		// explicitly turn off, so we only focus on the tombstoned periods
@@ -994,4 +996,67 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 
 func neverStop() bool {
 	return false
+}
+
+// This test simulates what happens when the EP is removed from the
+// VectorForID-serving store
+func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
+	var vectorIndex *hnsw
+
+	vectors := [][]float32{
+		{1, 1},
+		{2, 2},
+		{3, 3},
+	}
+
+	vectorErrors := []error{
+		nil,
+		nil,
+		nil,
+	}
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-ep-in-underlying-store-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewL2SquaredProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				fmt.Printf("vec for pos=%d is %v\n", id, vectors[int(id)])
+				return vectors[int(id)], vectorErrors[int(id)]
+			},
+		}, ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+		})
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		fmt.Printf("ep is %d\n", vectorIndex.entryPointID)
+	})
+
+	t.Run("simulate ep vec deletion in object store", func(t *testing.T) {
+		vectors[0] = nil
+		vectorErrors[0] = storobj.NewErrNotFoundf(0, "deleted")
+		vectorIndex.cache.delete(context.Background(), 0)
+	})
+
+	t.Run("try to insert a fourth vector", func(t *testing.T) {
+		vectors = append(vectors, []float32{4, 4})
+		vectorErrors = append(vectorErrors, nil)
+
+		pos := len(vectors) - 1
+		err := vectorIndex.Add(uint64(pos), vectors[pos])
+		require.Nil(t, err)
+	})
 }

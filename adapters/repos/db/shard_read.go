@@ -237,7 +237,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	var sortTook uint64
 	if len(sort) > 0 {
 		beforeSort := time.Now()
-		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort, additional,
+		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort,
 			s.index.Config.ClassName, ids, dists)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search sort")
@@ -306,7 +306,7 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
-		docIDs, err := s.sortedObjectList(ctx, limit, sort, additional, className)
+		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
 		if err != nil {
 			return nil, err
 		}
@@ -340,10 +340,13 @@ func (s *Shard) allObjectList(ctx context.Context, limit int,
 }
 
 func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
-	additional additional.Properties, className schema.ClassName,
+	className schema.ClassName,
 ) ([]uint64, error) {
-	lsmSorter := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
-	docIDs, err := lsmSorter.Sort(ctx, limit, sort, additional)
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
+	if err != nil {
+		return nil, errors.Wrap(err, "sort object list")
+	}
+	docIDs, err := lsmSorter.Sort(ctx, limit, sort)
 	if err != nil {
 		return nil, errors.Wrap(err, "sort object list")
 	}
@@ -351,11 +354,13 @@ func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.
 }
 
 func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
-	additional additional.Properties, className schema.ClassName,
-	docIDs []uint64, dists []float32,
+	className schema.ClassName, docIDs []uint64, dists []float32,
 ) ([]uint64, []float32, error) {
-	lsmSorter := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
-	sortedDocIDs, sortedDists, err := lsmSorter.SortDocIDsAndDists(ctx, limit, sort, docIDs, dists, additional)
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "sort objects with distances")
+	}
+	sortedDocIDs, sortedDists, err := lsmSorter.SortDocIDsAndDists(ctx, limit, sort, docIDs, dists)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "sort objects with distances")
 	}

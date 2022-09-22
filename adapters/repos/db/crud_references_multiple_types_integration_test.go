@@ -38,6 +38,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,

@@ -159,6 +159,7 @@ func referencePropertyFields(class *models.Class,
 
 				return ref.PointingTo, nil
 			},
+			DeprecationReason: "Experimental, the format will change",
 		},
 	}
 

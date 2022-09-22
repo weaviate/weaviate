@@ -79,7 +79,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum(object_count)",
+          "expr": "sum(object_count{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -378,7 +378,7 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "object_count",
+          "expr": "object_count{}",
           "interval": "",
           "legendFormat": "{{ class_name }} / {{ shard_name }}",
           "refId": "A"

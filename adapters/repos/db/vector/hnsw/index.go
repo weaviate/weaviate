@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 )
 
@@ -121,7 +122,24 @@ type hnsw struct {
 
 	randFunc func() float64 // added to temporarily get rid on flakiness in tombstones related tests. to be removed after fixing WEAVIATE-179
 
-	// TODO: validate that this is not a performance problem
+	// The deleteVsInsertLock makes sure that there are no concurrent delete and
+	// insert operations happening. It uses an RW-Mutex with:
+	//
+	// RLock -> Insert operations, this means any number of import operations can
+	// happen concurrently.
+	//
+	// Lock -> Delete operation. This means only a single delete operation can
+	// occur at a time, no insert operation can occur simultaneously with a
+	// delete. Since the delete is cheap (just marking the node as deleted), the
+	// single-threadedness of deletes is not a big problem.
+	//
+	// This lock was introduced as part of
+	// https://github.com/semi-technologies/weaviate/issues/2194
+	//
+	// See
+	// https://github.com/semi-technologies/weaviate/pull/2191#issuecomment-1242726787
+	// where we ran performance tests to make sure introducing this lock has no
+	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 }
 
@@ -165,7 +183,7 @@ type (
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc UserConfig) (*hnsw, error) {
+func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
