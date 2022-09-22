@@ -17,7 +17,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -33,7 +32,6 @@ type DB struct {
 	nodeResolver nodeResolver
 	promMetrics  *monitoring.PrometheusMetrics
 	shutdown     chan struct{}
-	appConfig    config.Config
 
 	indexLock sync.Mutex
 }
@@ -55,7 +53,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver,
-	promMetrics *monitoring.PrometheusMetrics, appConfig config.Config,
+	promMetrics *monitoring.PrometheusMetrics,
 ) *DB {
 	return &DB{
 		logger:       logger,
@@ -65,7 +63,6 @@ func New(logger logrus.FieldLogger, config Config,
 		nodeResolver: nodeResolver,
 		promMetrics:  promMetrics,
 		shutdown:     make(chan struct{}),
-		appConfig:    appConfig,
 	}
 }
 
@@ -78,6 +75,7 @@ type Config struct {
 	MaxImportGoroutinesFactor float64
 	NodeName                  string
 	FlushIdleAfter            int
+	TrackVectorDimensions     bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

@@ -34,7 +34,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -80,7 +79,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
-	promMetrics *monitoring.PrometheusMetrics, appConfig config.Config,
+	promMetrics *monitoring.PrometheusMetrics,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -112,7 +111,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, appConfig)
+		shard, err := NewShard(ctx, promMetrics, shardName, index)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
 		}
@@ -207,6 +206,7 @@ type IndexConfig struct {
 	MaxImportGoroutinesFactor float64
 	NodeName                  string
 	FlushIdleAfter            int
+	TrackVectorDimensions     bool
 }
 
 func indexID(class schema.ClassName) string {

@@ -216,7 +216,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 		NodeName:                  "testNode",
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil, config.Config{})
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	db.SetSchemaGetter(schemaGetter)
 	err := db.WaitForStartup(testCtx())
 	require.Nil(t, err)
