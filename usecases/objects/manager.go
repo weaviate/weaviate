@@ -78,14 +78,6 @@ type timeSource interface {
 	Now() int64
 }
 
-type VectorizerProvider interface {
-	Vectorizer(moduleName, className string) (Vectorizer, error)
-}
-
-type Vectorizer interface {
-	UpdateObject(ctx context.Context, obj *models.Object) error
-}
-
 type locks interface {
 	LockConnector() (func() error, error)
 	LockSchema() (func() error, error)
