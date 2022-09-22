@@ -19,7 +19,8 @@ const (
 	InternalPropLastUpdateTimeUnix = "_lastUpdateTimeUnix"
 )
 
+// NotNullState is encoded as 0, so it can be read with the IsNull operator and value false.
 const (
-	InternalNullState = iota
-	InternalNotNullState
+	InternalNotNullState = iota
+	InternalNullState
 )

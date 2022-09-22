@@ -52,6 +52,15 @@ func (s *Shard) initProperties() error {
 						return errors.Wrapf(err, "init property %s", prop.Name)
 					}
 				}
+				if s.index.invertedIndexConfig.IndexNullState {
+					eg.Go(func() error {
+						if err := s.addNullState(context.TODO(), prop); err != nil {
+							return errors.Wrapf(err, "init property %s null state", prop.Name)
+						}
+
+						return nil
+					})
+				}
 
 				return nil
 			})

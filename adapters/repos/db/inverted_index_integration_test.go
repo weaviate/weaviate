@@ -195,7 +195,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 
 	tests := map[string]strfmt.UUID{"filterNull": testID1, "filterNonNull": testID2}
 	for name, searchVal := range tests {
-		t.Run("test "+name+"directly on nullState property", func(t *testing.T) {
+		t.Run("test "+name+" directly on nullState property", func(t *testing.T) {
 			createTimeStringFilter := &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorEqual,
@@ -204,7 +204,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 						Property: "name_nullState",
 					},
 					Value: &filters.Value{
-						Value: searchVal == testID1,
+						Value: searchVal != testID1,
 						Type:  "boolean",
 					},
 				},
