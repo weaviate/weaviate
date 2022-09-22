@@ -47,18 +47,11 @@ func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) error {
 		return nil
 	}
 
-	vec, err := v.calculateVector(refVecs...)
+	vec, err := v.calcFunc(refVecs...)
 	if err != nil {
 		return fmt.Errorf("calculate vector: %w", err)
 	}
 
 	obj.Vector = vec
 	return nil
-}
-
-func (v *Vectorizer) calculateVector(vecs ...[]float32) ([]float32, error) {
-	if v.calcFunc == nil {
-		return nil, fmt.Errorf("vectorizer calcFunc not set")
-	}
-	return v.calcFunc(vecs...)
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/stretchr/testify/mock"
 )
 
 func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabilities.Module {
@@ -122,4 +123,18 @@ type fakeSchemaGetter struct{ schema schema.Schema }
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
+}
+
+type fakeRefVecRepo struct {
+	mock.Mock
+}
+
+func (r *fakeRefVecRepo) ReferenceVectorSearch(ctx context.Context, obj *models.Object,
+	refProps map[string]struct{},
+) ([][]float32, error) {
+	args := r.Called(ctx, obj, refProps)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([][]float32), args.Error(1)
 }

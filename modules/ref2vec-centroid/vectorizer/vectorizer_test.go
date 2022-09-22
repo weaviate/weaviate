@@ -1,15 +1,19 @@
 package vectorizer
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-func TestVectorizer(t *testing.T) {
+func TestVectorizer_New(t *testing.T) {
 	repo := &fakeRefVecRepo{}
 	t.Run("default is set correctly", func(t *testing.T) {
 		vzr := New(fakeClassConfig(config.Default()), repo.ReferenceVectorSearch)
@@ -20,20 +24,25 @@ func TestVectorizer(t *testing.T) {
 		assert.EqualValues(t, expected, received)
 	})
 
-	t.Run("no calcFunc set", func(t *testing.T) {
-		vzr := &Vectorizer{}
+	t.Run("default calcFunc is used when none provided", func(t *testing.T) {
+		cfg := fakeClassConfig{"method": ""}
+		vzr := New(cfg, repo.ReferenceVectorSearch)
 
-		expectedErr := "vectorizer calcFunc not set"
-		_, err := vzr.calculateVector([]float32{1, 2, 3})
-		assert.EqualError(t, err, expectedErr)
+		expected := reflect.ValueOf(calculateMean).Pointer()
+		received := reflect.ValueOf(vzr.calcFunc).Pointer()
+
+		assert.EqualValues(t, expected, received)
 	})
+}
 
+func TestVectorizer_Object(t *testing.T) {
 	t.Run("calculate with mean", func(t *testing.T) {
 		tests := []struct {
-			name           string
-			refVecs        [][]float32
-			expectedResult []float32
-			expectedError  error
+			name              string
+			refVecs           [][]float32
+			expectedResult    []float32
+			expectedCalcError error
+			expectedSearchErr error
 		}{
 			{
 				name: "expected success 1",
@@ -81,20 +90,42 @@ func TestVectorizer(t *testing.T) {
 					{1, 2, 3, 4, 5, 6, 7, 8, 9},
 					{1, 2, 3, 4, 5, 6, 7, 8},
 				},
-				expectedError: errors.New("calculate mean: found vectors of different length: 9 and 8"),
+				expectedCalcError: errors.New(
+					"calculate vector: calculate mean: found vectors of different length: 9 and 8"),
+			},
+			{
+				name:              "expected error - failed ref vec search",
+				expectedSearchErr: errors.New("not found"),
 			},
 		}
 
-		cfg := fakeClassConfig{"method": "mean"}
-		vzr := New(cfg, repo.ReferenceVectorSearch)
-
 		for _, test := range tests {
-			res, err := vzr.calculateVector(test.refVecs...)
-			if test.expectedError != nil {
-				assert.EqualError(t, err, test.expectedError.Error())
-			} else {
-				assert.Equal(t, test.expectedResult, res)
-			}
+			t.Run(test.name, func(t *testing.T) {
+				ctx := context.Background()
+				repo := &fakeRefVecRepo{}
+				refProps := []interface{}{"toRef"}
+				cfg := fakeClassConfig{"method": "mean", "referenceProperties": refProps}
+				vzr := New(cfg, repo.ReferenceVectorSearch)
+
+				if test.expectedSearchErr != nil {
+					repo.On("ReferenceVectorSearch", ctx, mock.Anything, mock.Anything).
+						Return(nil, test.expectedSearchErr)
+				} else {
+					repo.On("ReferenceVectorSearch", ctx, mock.Anything, mock.Anything).
+						Return(test.refVecs, nil)
+				}
+
+				obj := &models.Object{}
+				err := vzr.Object(ctx, obj)
+				if test.expectedCalcError != nil {
+					assert.EqualError(t, err, test.expectedCalcError.Error())
+				} else if test.expectedSearchErr != nil {
+					expectedErr := fmt.Errorf("find ref vectors: %w", test.expectedSearchErr)
+					assert.EqualError(t, err, expectedErr.Error())
+				} else {
+					assert.EqualValues(t, test.expectedResult, obj.Vector)
+				}
+			})
 		}
 	})
 }

@@ -193,13 +193,9 @@ func (d *DB) getReferenceVectorsFromParent(ctx context.Context,
 	// use the ids from parent's beacons to find the referenced objects
 	beacons := beaconsForVectorization(props, referencePropNames)
 	for _, beacon := range beacons {
-		rest, id := path.Split(beacon)
-		_, class := path.Split(path.Clean(rest))
-
-		res, searchErr := d.Object(ctx, class, strfmt.UUID(id),
-			search.SelectProperties{}, additional.Properties{})
-		if searchErr != nil {
-			err = fmt.Errorf("find object with beacon %q': %w", beacon, searchErr)
+		res, findErr := d.findReferenceObject(ctx, beacon)
+		if findErr != nil {
+			err = findErr
 			return
 		}
 
@@ -231,6 +227,21 @@ func beaconsForVectorization(allProps map[string]interface{},
 	}
 
 	return beacons
+}
+
+func (d *DB) findReferenceObject(ctx context.Context, beacon string) (res *search.Result, err error) {
+	rest, id := path.Split(beacon)
+	_, class := path.Split(path.Clean(rest))
+
+	res, err = d.Object(ctx, class, strfmt.UUID(id),
+		search.SelectProperties{}, additional.Properties{})
+	if err != nil || res == nil {
+		if err == nil {
+			err = fmt.Errorf("not found")
+		}
+		err = fmt.Errorf("find object with beacon %q': %w", beacon, err)
+	}
+	return
 }
 
 // Query a specific class

@@ -49,6 +49,12 @@ func TestRef2VecCentroid(t *testing.T) {
 		assert.Equal(t, Name, name)
 	})
 
+	t.Run("MetaInfo", func(t *testing.T) {
+		meta, err := mod.MetaInfo()
+		assert.Nil(t, err)
+		assert.Empty(t, meta)
+	})
+
 	t.Run("PropertyConfigDefaults", func(t *testing.T) {
 		dt := schema.DataType("dataType")
 		props := mod.PropertyConfigDefaults(&dt)
