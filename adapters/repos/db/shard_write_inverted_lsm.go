@@ -54,11 +54,15 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []s
 			}
 		}
 
-		// add non-nil properties to the nullstate inverted index
-		if s.index.invertedIndexConfig.IndexNullState && prop.Name[0] != '_' { // do not add "internal" properties (_id etc.)
-			if err := s.addIndexedNullStateToProps(docID, prop.Name, false); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
+		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
+		if (len(prop.Name) > 12 && prop.Name[len(prop.Name)-12:] == "__meta_count") ||
+			prop.Name[0] == '_' ||
+			!s.index.invertedIndexConfig.IndexNullState {
+			continue
+		}
+
+		if err := s.addIndexedNullStateToProps(docID, prop.Name, false); err != nil {
+			return errors.Wrap(err, "add indexed null state")
 		}
 	}
 

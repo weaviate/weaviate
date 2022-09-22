@@ -48,6 +48,11 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 			pv.prop = filters.InternalPropID
 			pv.hasFrequency = false
 		}
+
+		if pv.operator == filters.OperatorIsNull {
+			id += filters.InternalNullIndex
+		}
+
 		b := s.store.Bucket(id)
 
 		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
