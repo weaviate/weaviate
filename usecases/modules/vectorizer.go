@@ -128,8 +128,10 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
 	cfg := NewClassBasedModuleConfig(class, found.Name())
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
-		if err := vectorizer.VectorizeObject(ctx, object, cfg); err != nil {
-			return fmt.Errorf("update vector: %w", err)
+		if object.Vector == nil {
+			if err := vectorizer.VectorizeObject(ctx, object, cfg); err != nil {
+				return fmt.Errorf("update vector: %w", err)
+			}
 		}
 	} else {
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
