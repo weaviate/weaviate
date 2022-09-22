@@ -492,4 +492,47 @@ func gettingObjectsWithFilters(t *testing.T) {
 			assert.Equal(t, id.String(), resultID)
 		})
 	})
+
+	t.Run("with nul filter", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			value   bool
+			Results []interface{}
+		}{
+			{
+				name:    "Null values",
+				value:   true,
+				Results: []interface{}{"Missing Island", nil}, // one entry with null history has no name
+			},
+			{
+				name:    "Non-null values",
+				value:   false,
+				Results: []interface{}{"Amsterdam", "Rotterdam", "Berlin", "Dusseldorf"},
+			},
+		}
+		query := `
+			{
+				Get {
+					City(where:{
+						valueBoolean: %v,
+						operator:IsNull,
+						path:["history"]
+					}) {
+						name
+					}
+				}
+			}
+		`
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, tt.value))
+				cities := result.Get("Get", "City").AsSlice()
+				require.Len(t, cities, len(tt.Results))
+				for _, city := range cities {
+					cityMap := city.(map[string]interface{})
+					require.Contains(t, tt.Results, cityMap["name"])
+				}
+			})
+		}
+	})
 }
