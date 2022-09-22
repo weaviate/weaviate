@@ -34,7 +34,8 @@ func Test_DimensionTracking(t *testing.T) {
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil, config.Config{TrackVectorDimensions: true})
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -148,7 +149,7 @@ func Test_DimensionTracking(t *testing.T) {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
-			// under the hood and a "reinstert" for the already deleted ones
+			// under the hood and a "reinsert" for the already deleted ones
 			err := repo.PutObject(context.Background(), obj, vec)
 			require.Nil(t, err)
 		}

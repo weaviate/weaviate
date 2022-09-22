@@ -41,6 +41,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
 			NodeName:                  m.db.config.NodeName,
 			FlushIdleAfter:            m.db.config.FlushIdleAfter,
+			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -48,7 +49,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteClient,
-		m.db.promMetrics, m.db.appConfig)
+		m.db.promMetrics)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -76,7 +77,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 	}
 
-	if m.db.appConfig.TrackVectorDimensions {
+	if m.db.config.TrackVectorDimensions {
 		if err := idx.addDimensionsProperty(context.TODO()); err != nil {
 			return errors.Wrap(err, "init id property")
 		}

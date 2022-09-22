@@ -36,23 +36,24 @@ func (s *Shard) Dimensions() int {
 	}
 	c.Close()
 
-	transfer = fmt.Sprintf("Dimensions: %d,\n\nConfig: %+v\n", sum, s.config)
+	transfer = fmt.Sprintf(
+		"Dimensions: %d,\n\nConfig: %+v\n", sum, s.index.Config)
 
 	return sum
 }
 
 func (s *Shard) initDimensionTracking() {
-	fmt.Println("!!!initting track vec dimensions", s.config.TrackVectorDimensions)
+	fmt.Println("!!!initting track vec dimensions", s.index.Config.TrackVectorDimensions)
 
-	if !s.config.TrackVectorDimensions {
+	if !s.index.Config.TrackVectorDimensions {
 		return
 	}
+
 	go func() {
 		fmt.Println("!!!Starting track vec dimensions counter")
 		t := time.NewTicker(5 * time.Second) // 5 minutes
 
 		for {
-
 			if s.stopMetrics {
 				return
 			}
@@ -60,7 +61,8 @@ func (s *Shard) initDimensionTracking() {
 			dimCount := s.Dimensions()
 
 			if s.promMetrics != nil {
-				metric, err := s.promMetrics.DimensionSum.GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
+				metric, err := s.promMetrics.DimensionSum.
+					GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
 				if err == nil {
 					metric.Set(float64(dimCount))
 				}

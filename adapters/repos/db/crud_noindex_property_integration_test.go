@@ -62,7 +62,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 		FlushIdleAfter:            60,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil, config.Config{})
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
