@@ -3,13 +3,13 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"path"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
 )
@@ -85,11 +85,13 @@ func (v *Vectorizer) referenceVectorSearch(ctx context.Context,
 	return refVecs, nil
 }
 
-func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon string) (res *search.Result, err error) {
-	rest, id := path.Split(beacon)
-	_, class := path.Split(path.Clean(rest))
+func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon strfmt.URI) (res *search.Result, err error) {
+	ref, err := crossref.Parse(beacon.String())
+	if err != nil {
+		return nil, fmt.Errorf("parse beacon %q: %w", beacon, err)
+	}
 
-	res, err = v.findObjectFn(ctx, class, strfmt.UUID(id),
+	res, err = v.findObjectFn(ctx, ref.Class, ref.TargetID,
 		search.SelectProperties{}, additional.Properties{})
 	if err != nil || res == nil {
 		if err == nil {
@@ -102,8 +104,8 @@ func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon string) (re
 
 func beaconsForVectorization(allProps map[string]interface{},
 	targetRefProps map[string]struct{},
-) []string {
-	var beacons []string
+) []strfmt.URI {
+	var beacons []strfmt.URI
 
 	// add any refs that were supplied as a part of the parent
 	// object, like when caller is AddObject/UpdateObject
@@ -111,7 +113,7 @@ func beaconsForVectorization(allProps map[string]interface{},
 		if _, ok := targetRefProps[prop]; ok {
 			refs := val.(models.MultipleRef)
 			for _, ref := range refs {
-				beacons = append(beacons, ref.Beacon.String())
+				beacons = append(beacons, ref.Beacon)
 			}
 		}
 	}

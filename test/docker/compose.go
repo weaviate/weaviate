@@ -38,6 +38,7 @@ const (
 	BackupFileSystem = "backup-filesystem"
 	BackupS3         = "backup-s3"
 	BackupGCS        = "backup-gcs"
+	Ref2VecCentroid  = "ref2vec-centroid"
 )
 
 type Compose struct {

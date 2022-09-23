@@ -1853,13 +1853,3 @@ func randomVector(dim int) []float32 {
 
 	return out
 }
-
-func newBeacon(className string, id strfmt.UUID) strfmt.URI {
-	return strfmt.URI(
-		fmt.Sprintf("weaviate://localhost/%s/%s",
-			className, id))
-}
-
-func newUUID() strfmt.UUID {
-	return strfmt.UUID(uuid.NewString())
-}

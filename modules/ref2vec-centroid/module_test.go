@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -88,7 +89,7 @@ func TestRef2VecCentroid(t *testing.T) {
 		t.Run("expected success", func(t *testing.T) {
 			t.Run("one refVec", func(t *testing.T) {
 				repo := &fakeObjectsRepo{}
-				ref := crossref.New("localhost", "SomeClass", "123")
+				ref := crossref.New("localhost", "SomeClass", strfmt.UUID(uuid.NewString()))
 				obj := &models.Object{Properties: map[string]interface{}{
 					refProp: models.MultipleRef{ref.SingleRef()},
 				}}
@@ -104,7 +105,7 @@ func TestRef2VecCentroid(t *testing.T) {
 
 			t.Run("no refVecs", func(t *testing.T) {
 				repo := &fakeObjectsRepo{}
-				ref := crossref.New("localhost", "SomeClass", "123")
+				ref := crossref.New("localhost", "SomeClass", strfmt.UUID(uuid.NewString()))
 				obj := &models.Object{Properties: map[string]interface{}{
 					refProp: models.MultipleRef{ref.SingleRef()},
 				}}
@@ -121,8 +122,8 @@ func TestRef2VecCentroid(t *testing.T) {
 		t.Run("expected error", func(t *testing.T) {
 			t.Run("mismatched refVec lengths", func(t *testing.T) {
 				repo := &fakeObjectsRepo{}
-				ref1 := crossref.New("localhost", "SomeClass", "123")
-				ref2 := crossref.New("localhost", "OtherClass", "456")
+				ref1 := crossref.New("localhost", "SomeClass", strfmt.UUID(uuid.NewString()))
+				ref2 := crossref.New("localhost", "OtherClass", strfmt.UUID(uuid.NewString()))
 				obj := &models.Object{Properties: map[string]interface{}{
 					refProp: models.MultipleRef{
 						ref1.SingleRef(),

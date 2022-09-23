@@ -1,12 +1,12 @@
 package test
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/test/helper/sample-schema/articles"
 	"github.com/stretchr/testify/assert"
@@ -146,7 +146,5 @@ func TestCentroid(t *testing.T) {
 }
 
 func newBeacon(className string, id strfmt.UUID) strfmt.URI {
-	return strfmt.URI(
-		fmt.Sprintf("weaviate://localhost/%s/%s",
-			className, id))
+	return crossref.New("localhost", className, id).SingleRef().Beacon
 }
