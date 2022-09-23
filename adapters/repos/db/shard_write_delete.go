@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -82,7 +81,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	fmt.Println("!!!cleanupInvertedIndexOnDelete")
 	previousObject, err := storobj.FromBinary(previous)
 	if err != nil {
 		return errors.Wrap(err, "unmarshal previous object")

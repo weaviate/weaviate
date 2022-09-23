@@ -57,8 +57,9 @@ func (s *Shard) initDimensionTracking() {
 			if s.stopMetrics {
 				return
 			}
-			fmt.Println("!!!Counting  dimensions ")
+
 			dimCount := s.Dimensions()
+			fmt.Println("!!!Counted  dimensions", dimCount)
 
 			if s.promMetrics != nil {
 				metric, err := s.promMetrics.DimensionSum.
