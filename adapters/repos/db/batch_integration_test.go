@@ -24,8 +24,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -39,13 +37,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func getMetricValue(col prometheus.Gauge) float64 {
-	d := dto.Metric{}
-	col.Write(&d)
-	fmt.Printf("%+v:", d)
-	return d.GetGauge().GetValue()
-}
 
 func TestBatchPutObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
