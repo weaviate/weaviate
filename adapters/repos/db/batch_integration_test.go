@@ -102,6 +102,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -118,12 +119,16 @@ func TestBatchDeleteObjects(t *testing.T) {
 	for k := range shards {
 		keys = append(keys, k)
 	}
+	fmt.Printf("All available shards: %v", keys)
 	testShardName := keys[0]
 	testShard := shards[testShardName]
 
-	require.Equal(t, 1809, testShard.Dimensions(), "Dimensions are present before delete")
+	require.Equal(t, 0, testShard.Dimensions(), "Dimensions are empty before import")
 
 	t.Run("batch import things", testBatchImportObjects(repo))
+
+	require.Equal(t, 309, testShard.Dimensions(), "Dimensions are present before delete")
+
 	t.Run("batch delete things", testBatchDeleteObjects(repo))
 
 	require.Equal(t, 0, testShard.Dimensions(), "Dimensions have been deleted")
