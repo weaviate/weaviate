@@ -19,37 +19,45 @@ import (
 )
 
 type resourceScanState struct {
+	disk *scanState
+	mem  *scanState
+}
+
+type scanState struct {
 	backoffLevel int
 	backoffs     []time.Duration
 	lastWarning  time.Time
 }
 
-func (d *resourceScanState) getWarningInterval() time.Duration {
-	if d.backoffLevel >= len(d.backoffs) {
+func (s *scanState) getWarningInterval() time.Duration {
+	if s.backoffLevel >= len(s.backoffs) {
 		return time.Hour * 24
 	}
 
-	interval := d.backoffs[d.backoffLevel]
+	interval := s.backoffs[s.backoffLevel]
 
 	return interval
 }
 
-func (d *resourceScanState) increaseWarningInterval() {
-	if d.backoffLevel < len(d.backoffs) {
-		d.backoffLevel += 1
+func (s *scanState) increaseWarningInterval() {
+	if s.backoffLevel < len(s.backoffs) {
+		s.backoffLevel += 1
 	}
 }
 
 func newResourceScanState() *resourceScanState {
+	backoffs := []time.Duration{
+		time.Duration(0),
+		30 * time.Second,
+		2 * time.Minute,
+		10 * time.Minute,
+		1 * time.Hour,
+		12 * time.Hour,
+	}
+
 	return &resourceScanState{
-		backoffs: []time.Duration{
-			time.Duration(0),
-			30 * time.Second,
-			2 * time.Minute,
-			10 * time.Minute,
-			1 * time.Hour,
-			12 * time.Hour,
-		},
+		disk: &scanState{backoffs: backoffs},
+		mem:  &scanState{backoffs: backoffs},
 	}
 }
 
@@ -60,8 +68,8 @@ func (s *Shard) resourceUseWarn(mon *memwatch.Monitor, du diskUse, diskPath stri
 
 	if diskWarnPercent > 0 {
 		if pu := du.percentUsed(); pu > float64(diskWarnPercent) {
-			if !s.isReadOnly() && time.Since(s.diskScanState.lastWarning) >
-				s.diskScanState.getWarningInterval() {
+			if !s.isReadOnly() && time.Since(s.resourceScanState.disk.lastWarning) >
+				s.resourceScanState.disk.getWarningInterval() {
 				s.index.logger.WithField("action", "read_disk_use").
 					WithField("shard", s.name).
 					WithField("path", diskPath).
@@ -73,24 +81,24 @@ func (s *Shard) resourceUseWarn(mon *memwatch.Monitor, du diskUse, diskPath stri
 					WithField("path", diskPath).
 					Debugf("%s", du.String())
 
-				s.diskScanState.lastWarning = time.Now()
-				s.diskScanState.increaseWarningInterval()
+				s.resourceScanState.disk.lastWarning = time.Now()
+				s.resourceScanState.disk.increaseWarningInterval()
 			}
 		}
 	}
 
 	if memWarnPercent > 0 {
-		if ratio := mon.Ratio(); ratio > float64(memWarnPercent) {
-			if !s.isReadOnly() && time.Since(s.diskScanState.lastWarning) >
-				s.diskScanState.getWarningInterval() {
+		if pu := mon.Ratio() * 100; pu > float64(memWarnPercent) {
+			if !s.isReadOnly() && time.Since(s.resourceScanState.mem.lastWarning) >
+				s.resourceScanState.mem.getWarningInterval() {
 				s.index.logger.WithField("action", "read_memory_use").
 					WithField("shard", s.name).
 					WithField("path", diskPath).
 					Warnf("memory usage currently at %.2f%%, threshold set to %.2f%%",
-						ratio, float64(memWarnPercent))
+						pu, float64(memWarnPercent))
 
-				s.diskScanState.lastWarning = time.Now()
-				s.diskScanState.increaseWarningInterval()
+				s.resourceScanState.mem.lastWarning = time.Now()
+				s.resourceScanState.mem.increaseWarningInterval()
 			}
 		}
 	}
@@ -115,14 +123,14 @@ func (s *Shard) resourceUseReadonly(mon *memwatch.Monitor, du diskUse, diskPath 
 				s.index.logger.WithField("action", "set_shard_read_only").
 					WithField("shard", s.name).
 					WithField("path", diskPath).
-					Warnf("disk usage currently at %.2f%%, %s set READONLY, threshold set to %.2f%%",
-						pu, s.name, float64(diskROPercent))
+					Warnf("%s set READONLY, disk usage currently at %.2f%%, threshold set to %.2f%%",
+						s.name, pu, float64(diskROPercent))
 			}
 		}
 	}
 
 	if memROPercent > 0 {
-		if ratio := mon.Ratio(); ratio > float64(memROPercent) {
+		if pu := mon.Ratio() * 100; pu > float64(memROPercent) {
 			if !s.isReadOnly() {
 				err := s.updateStatus(storagestate.StatusReadOnly.String())
 				if err != nil {
@@ -135,8 +143,8 @@ func (s *Shard) resourceUseReadonly(mon *memwatch.Monitor, du diskUse, diskPath 
 				s.index.logger.WithField("action", "set_shard_read_only").
 					WithField("shard", s.name).
 					WithField("path", diskPath).
-					Warnf("memory usage currently at %.2f%%, %s set READONLY, threshold set to %.2f%%",
-						ratio, s.name, float64(memROPercent))
+					Warnf("%s set READONLY, memory usage currently at %.2f%%, threshold set to %.2f%%",
+						s.name, pu, float64(memROPercent))
 			}
 		}
 	}
