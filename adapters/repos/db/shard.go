@@ -60,7 +60,7 @@ type Shard struct {
 	propLengths      *inverted.PropertyLengthTracker
 	randomSource     *bufferedRandomGen
 	versioner        *shardVersioner
-	diskScanState    *diskScanState
+	diskScanState    *resourceScanState
 
 	numActiveBatches    int
 	activeBatchesLock   sync.Mutex
@@ -104,7 +104,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			CleanupIntervalSeconds) * time.Second,
 		cancel:              make(chan struct{}, 1),
 		randomSource:        rand,
-		diskScanState:       newDiskScanState(),
+		diskScanState:       newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}

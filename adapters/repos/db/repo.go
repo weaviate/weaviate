@@ -47,7 +47,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 		return err
 	}
 
-	d.scanDiskUse()
+	d.scanResourceUsage()
 
 	return nil
 }

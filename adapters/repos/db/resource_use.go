@@ -13,8 +13,12 @@ package db
 
 import (
 	"fmt"
+	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
+
+	"github.com/semi-technologies/weaviate/usecases/memwatch"
 )
 
 type diskUse struct {
@@ -38,7 +42,10 @@ func (d diskUse) String() string {
 		float64(d.avail)/float64(GB))
 }
 
-func (d *DB) scanDiskUse() {
+func (d *DB) scanResourceUsage() {
+	memMonitor := memwatch.NewMonitor(
+		runtime.MemProfile, debug.SetMemoryLimit, runtime.MemProfileRate)
+
 	go func() {
 		t := time.Tick(time.Second * 30)
 		for {
@@ -52,8 +59,8 @@ func (d *DB) scanDiskUse() {
 						diskPath := i.Config.RootPath
 						du := d.getDiskUse(diskPath)
 
-						s.diskUseWarn(du, diskPath)
-						s.diskUseReadonly(du, diskPath)
+						s.resourceUseWarn(memMonitor, du, diskPath)
+						s.resourceUseReadonly(memMonitor, du, diskPath)
 					}
 				}
 				d.indexLock.Unlock()
