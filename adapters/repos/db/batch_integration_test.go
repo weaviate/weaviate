@@ -33,7 +33,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -72,31 +71,22 @@ func TestBatchPutObjects(t *testing.T) {
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
+
+	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
+	//Get keys from shards
+	keys := make([]string, 0)
+	for k := range shards {
+		keys = append(keys, k)
+	}
+	testShardName := keys[0]
+	testShard := shards[testShardName]
+
+	require.Equal(t, 0, testShard.Dimensions(), "Dimensions are empty before import")
+
 	t.Run("batch import things", testBatchImportObjects(repo))
 	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
 
-	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
-	fmt.Printf("shards: %+v", shards)
-	//Get keys from shards
-	keys := make([]string, 0)
-	for k, _ := range shards {
-
-		keys = append(keys, k)
-
-	}
-	fmt.Printf("keys: %+v", keys)
-	shardname := keys[0]
-	counter := monitoring.GetMetrics().DimensionSum.WithLabelValues("ThingForBatching", shardname)
-	fmt.Printf("counter: %+v", counter)
-	fmt.Printf("counterval: %v\n", counter)
-	d := dto.Metric{}
-	counter.Write(&d)
-	fmt.Printf("%+v:", d)
-	fmt.Printf("Value: %v\n", d.GetGauge().GetValue())
-	//shard := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards["ThingForBatching"]
-	//fmt.Printf("shards: %+v", shard.ID())
-	panic("ASasdfafds")
-	t.Fail()
+	require.Equal(t, 1809, testShard.Dimensions(), "Dimensions are present after import")
 
 }
 
@@ -122,8 +112,22 @@ func TestBatchDeleteObjects(t *testing.T) {
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
+
+	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
+	//Get keys from shards
+	keys := make([]string, 0)
+	for k := range shards {
+		keys = append(keys, k)
+	}
+	testShardName := keys[0]
+	testShard := shards[testShardName]
+
+	require.Equal(t, 1809, testShard.Dimensions(), "Dimensions are present before delete")
+
 	t.Run("batch import things", testBatchImportObjects(repo))
 	t.Run("batch delete things", testBatchDeleteObjects(repo))
+
+	require.Equal(t, 0, testShard.Dimensions(), "Dimensions have been deleted")
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
