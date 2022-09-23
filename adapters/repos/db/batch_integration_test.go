@@ -24,6 +24,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -31,12 +33,20 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func getMetricValue(col prometheus.Gauge) float64 {
+	d := dto.Metric{}
+	col.Write(&d)
+	fmt.Printf("%+v:", d)
+	return d.GetGauge().GetValue()
+}
 
 func TestBatchPutObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
@@ -51,6 +61,7 @@ func TestBatchPutObjects(t *testing.T) {
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -63,6 +74,30 @@ func TestBatchPutObjects(t *testing.T) {
 		schemaGetter))
 	t.Run("batch import things", testBatchImportObjects(repo))
 	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
+
+	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
+	fmt.Printf("shards: %+v", shards)
+	//Get keys from shards
+	keys := make([]string, 0)
+	for k, _ := range shards {
+
+		keys = append(keys, k)
+
+	}
+	fmt.Printf("keys: %+v", keys)
+	shardname := keys[0]
+	counter := monitoring.GetMetrics().DimensionSum.WithLabelValues("ThingForBatching", shardname)
+	fmt.Printf("counter: %+v", counter)
+	fmt.Printf("counterval: %v\n", counter)
+	d := dto.Metric{}
+	counter.Write(&d)
+	fmt.Printf("%+v:", d)
+	fmt.Printf("Value: %v\n", d.GetGauge().GetValue())
+	//shard := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards["ThingForBatching"]
+	//fmt.Printf("shards: %+v", shard.ID())
+	panic("ASasdfafds")
+	t.Fail()
+
 }
 
 func TestBatchDeleteObjects(t *testing.T) {

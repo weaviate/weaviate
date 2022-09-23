@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -59,6 +60,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				AutoSchema: config.AutoSchema{
 					Enabled: autoSchema,
 				},
+				TrackVectorDimensions: true,
 			},
 		}
 		locks := &fakeLocks{}
@@ -70,7 +72,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vecProvider := &fakeVectorizerProvider{vectorizer}
 		manager = NewBatchManager(vectorRepo, vecProvider, locks,
-			schemaManager, config, logger, authorizer, nil)
+			schemaManager, config, logger, authorizer, monitoring.GetMetrics())
 	}
 
 	reset := func() {
