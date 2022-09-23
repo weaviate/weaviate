@@ -73,7 +73,7 @@ func TestBatchPutObjects(t *testing.T) {
 		schemaGetter))
 
 	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
-	//Get keys from shards
+	// Get keys from shards
 	keys := make([]string, 0)
 	for k := range shards {
 		keys = append(keys, k)
@@ -87,7 +87,6 @@ func TestBatchPutObjects(t *testing.T) {
 	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
 
 	require.Equal(t, 1809, testShard.Dimensions(), "Dimensions are present after import")
-
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
@@ -114,7 +113,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 		schemaGetter))
 
 	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
-	//Get keys from shards
+	// Get keys from shards
 	keys := make([]string, 0)
 	for k := range shards {
 		keys = append(keys, k)
