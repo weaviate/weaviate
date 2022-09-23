@@ -44,7 +44,7 @@ func (s *Shard) Dimensions() int {
 
 func (s *Shard) initDimensionTracking() {
 	fmt.Println("!!!initting track vec dimensions", s.index.Config.TrackVectorDimensions)
-
+	fmt.Println("!!! names: ", s.index.Config.ClassName.String(), s.name)
 	if !s.index.Config.TrackVectorDimensions {
 		return
 	}

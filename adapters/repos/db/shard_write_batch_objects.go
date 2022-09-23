@@ -117,7 +117,7 @@ func newObjectsBatcher(s *Shard) *objectsBatcher {
 }
 
 // Objects imports the specified objects in parallel in a batch-fashion
-func (b *objectsBatcher) Objects(ctx context.Context,
+func (b *objectsBatcher)  Objects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	beforeBatch := time.Now()
