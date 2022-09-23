@@ -449,14 +449,17 @@ func Test_MergeObject(t *testing.T) {
 
 			if tc.vectorizerCalledWith != nil {
 				if tc.errUpdateObject != nil {
-					m.modulesProvider.On("UpdateVector", mock.Anything, m.vectorRepo).Return(nil, tc.errUpdateObject)
+					m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+						Return(nil, tc.errUpdateObject)
 				} else {
-					m.modulesProvider.On("UpdateVector", mock.Anything, m.vectorRepo).Return(tc.expectedOutput.Vector, nil)
+					m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+						Return(tc.expectedOutput.Vector, nil)
 				}
 			}
 
 			if tc.expectedOutput != nil && tc.expectedOutput.Vector != nil {
-				m.modulesProvider.On("UpdateVector", mock.Anything, m.vectorRepo).Return(tc.expectedOutput.Vector, tc.errUpdateObject)
+				m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+					Return(tc.expectedOutput.Vector, tc.errUpdateObject)
 			}
 
 			// called during validation of cross-refs only.

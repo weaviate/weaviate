@@ -80,7 +80,7 @@ func (m *Provider) UsingRef2Vec(className string) bool {
 }
 
 func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
-	repo modulecapabilities.VectorRepo, logger logrus.FieldLogger,
+	findObjectFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
 ) error {
 	class, err := m.getClass(object.Class)
 	if err != nil {
@@ -136,7 +136,7 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
 	} else {
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
 		if err := refVectorizer.VectorizeObject(
-			ctx, object, cfg, repo.ReferenceVectorSearch); err != nil {
+			ctx, object, cfg, findObjectFn); err != nil {
 			return fmt.Errorf("update reference vector: %w", err)
 		}
 	}

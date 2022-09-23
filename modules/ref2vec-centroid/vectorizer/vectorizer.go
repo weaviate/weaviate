@@ -3,32 +3,36 @@ package vectorizer
 import (
 	"context"
 	"fmt"
+	"path"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
 )
 
-type calcFunc func(vecs ...[]float32) ([]float32, error)
+type calcFn func(vecs ...[]float32) ([]float32, error)
 
 type Vectorizer struct {
-	config          *config.Config
-	calcFunc        calcFunc
-	findRefVecsFunc modulecapabilities.FindRefVectorsFn
+	config       *config.Config
+	calcFn       calcFn
+	findObjectFn modulecapabilities.FindObjectFn
 }
 
-func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindRefVectorsFn) *Vectorizer {
+func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindObjectFn) *Vectorizer {
 	v := &Vectorizer{
-		config:          config.New(cfg),
-		findRefVecsFunc: findFn,
+		config:       config.New(cfg),
+		findObjectFn: findFn,
 	}
 
 	switch v.config.CalculationMethod() {
 	case config.MethodMean:
-		v.calcFunc = calculateMean
+		v.calcFn = calculateMean
 	default:
-		v.calcFunc = calculateMean
+		v.calcFn = calculateMean
 	}
 
 	return v
@@ -37,9 +41,9 @@ func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindRefVectorsFn
 func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) error {
 	props := v.config.ReferenceProperties()
 
-	refVecs, err := v.findRefVecsFunc(ctx, obj, props)
+	refVecs, err := v.referenceVectorSearch(ctx, obj, props)
 	if err != nil {
-		return fmt.Errorf("find ref vectors: %w", err)
+		return err
 	}
 
 	if len(refVecs) == 0 {
@@ -47,11 +51,70 @@ func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) error {
 		return nil
 	}
 
-	vec, err := v.calcFunc(refVecs...)
+	vec, err := v.calcFn(refVecs...)
 	if err != nil {
 		return fmt.Errorf("calculate vector: %w", err)
 	}
 
 	obj.Vector = vec
 	return nil
+}
+
+func (v *Vectorizer) referenceVectorSearch(ctx context.Context,
+	obj *models.Object, refProps map[string]struct{},
+) ([][]float32, error) {
+	var refVecs [][]float32
+	props := obj.Properties.(map[string]interface{})
+
+	// use the ids from parent's beacons to find the referenced objects
+	beacons := beaconsForVectorization(props, refProps)
+	for _, beacon := range beacons {
+		res, err := v.findReferenceObject(ctx, beacon)
+		if err != nil {
+			return nil, err
+		}
+
+		// if the ref'd object has a vector, we grab it.
+		// these will be used to compute the parent's
+		// vector eventually
+		if res.Vector != nil {
+			refVecs = append(refVecs, res.Vector)
+		}
+	}
+
+	return refVecs, nil
+}
+
+func (v *Vectorizer) findReferenceObject(ctx context.Context, beacon string) (res *search.Result, err error) {
+	rest, id := path.Split(beacon)
+	_, class := path.Split(path.Clean(rest))
+
+	res, err = v.findObjectFn(ctx, class, strfmt.UUID(id),
+		search.SelectProperties{}, additional.Properties{})
+	if err != nil || res == nil {
+		if err == nil {
+			err = fmt.Errorf("not found")
+		}
+		err = fmt.Errorf("find object with beacon %q': %w", beacon, err)
+	}
+	return
+}
+
+func beaconsForVectorization(allProps map[string]interface{},
+	targetRefProps map[string]struct{},
+) []string {
+	var beacons []string
+
+	// add any refs that were supplied as a part of the parent
+	// object, like when caller is AddObject/UpdateObject
+	for prop, val := range allProps {
+		if _, ok := targetRefProps[prop]; ok {
+			refs := val.(models.MultipleRef)
+			for _, ref := range refs {
+				beacons = append(beacons, ref.Beacon.String())
+			}
+		}
+	}
+
+	return beacons
 }

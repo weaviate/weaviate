@@ -103,8 +103,6 @@ type VectorRepo interface {
 		source strfmt.UUID, propName string, ref *models.SingleRef) error
 	Merge(ctx context.Context, merge MergeDocument) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)
-	ReferenceVectorSearch(ctx context.Context, obj *models.Object,
-		refProps map[string]struct{}) ([][]float32, error)
 }
 
 type ModulesProvider interface {
@@ -114,7 +112,7 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{}) (search.Results, error)
 	UsingRef2Vec(className string) bool
 	UpdateVector(ctx context.Context, object *models.Object,
-		repo modulecapabilities.VectorRepo, logger logrus.FieldLogger) error
+		repo modulecapabilities.FindObjectFn, logger logrus.FieldLogger) error
 	VectorizerName(className string) (string, error)
 }
 

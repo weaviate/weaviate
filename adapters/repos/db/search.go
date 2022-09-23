@@ -14,18 +14,15 @@ package db
 import (
 	"context"
 	"fmt"
-	"path"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -177,71 +174,6 @@ func hydrateObjectsIntoSearchResults(objs []*storobj.Object, dists []float32) se
 		res[i].Certainty = float32(additional.DistToCertainty(float64(dists[i])))
 	}
 	return res
-}
-
-func (d *DB) ReferenceVectorSearch(ctx context.Context,
-	obj *models.Object, refProps map[string]struct{},
-) ([][]float32, error) {
-	return d.getReferenceVectorsFromParent(ctx, obj, refProps)
-}
-
-func (d *DB) getReferenceVectorsFromParent(ctx context.Context,
-	parent *models.Object, referencePropNames map[string]struct{},
-) (refVecs [][]float32, err error) {
-	props := parent.Properties.(map[string]interface{})
-
-	// use the ids from parent's beacons to find the referenced objects
-	beacons := beaconsForVectorization(props, referencePropNames)
-	for _, beacon := range beacons {
-		res, findErr := d.findReferenceObject(ctx, beacon)
-		if findErr != nil {
-			err = findErr
-			return
-		}
-
-		// if the ref'd object has a vector, we grab it.
-		// these will be used to compute the parent's
-		// vector eventually
-		if res.Vector != nil {
-			refVecs = append(refVecs, res.Vector)
-		}
-	}
-
-	return
-}
-
-func beaconsForVectorization(allProps map[string]interface{},
-	targetRefProps map[string]struct{},
-) []string {
-	var beacons []string
-
-	// add any refs that were supplied as a part of the parent
-	// object, like when caller is AddObject/UpdateObject
-	for prop, val := range allProps {
-		if _, ok := targetRefProps[prop]; ok {
-			refs := val.(models.MultipleRef)
-			for _, ref := range refs {
-				beacons = append(beacons, ref.Beacon.String())
-			}
-		}
-	}
-
-	return beacons
-}
-
-func (d *DB) findReferenceObject(ctx context.Context, beacon string) (res *search.Result, err error) {
-	rest, id := path.Split(beacon)
-	_, class := path.Split(path.Clean(rest))
-
-	res, err = d.Object(ctx, class, strfmt.UUID(id),
-		search.SelectProperties{}, additional.Properties{})
-	if err != nil || res == nil {
-		if err == nil {
-			err = fmt.Errorf("not found")
-		}
-		err = fmt.Errorf("find object with beacon %q': %w", beacon, err)
-	}
-	return
 }
 
 // Query a specific class

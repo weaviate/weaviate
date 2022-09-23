@@ -156,7 +156,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	err = validation.New(s, b.vectorRepo.Exists, b.config).Object(ctx, object)
 	ec.Add(err)
 
-	err = b.modulesProvider.UpdateVector(ctx, object, b.vectorRepo, b.logger)
+	err = b.modulesProvider.UpdateVector(ctx, object, b.vectorRepo.Object, b.logger)
 	ec.Add(err)
 
 	*resultsC <- BatchObject{

@@ -4,10 +4,13 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -85,7 +88,7 @@ func (m dummyRef2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType {
 
 func (m dummyRef2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 	in *models.Object, cfg moduletools.ClassConfig,
-	findRefVecsFn modulecapabilities.FindRefVectorsFn,
+	findRefVecsFn modulecapabilities.FindObjectFn,
 ) error {
 	in.Vector = []float32{1, 2, 3}
 	return nil
@@ -125,16 +128,17 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
-type fakeRefVecRepo struct {
+type fakeObjectsRepo struct {
 	mock.Mock
 }
 
-func (r *fakeRefVecRepo) ReferenceVectorSearch(ctx context.Context, obj *models.Object,
-	refProps map[string]struct{},
-) ([][]float32, error) {
-	args := r.Called(ctx, obj, refProps)
+func (r *fakeObjectsRepo) Object(ctx context.Context, class string,
+	id strfmt.UUID, props search.SelectProperties,
+	addl additional.Properties,
+) (*search.Result, error) {
+	args := r.Called(ctx, class, id, props, addl)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([][]float32), args.Error(1)
+	return args.Get(0).(*search.Result), args.Error(1)
 }

@@ -34,6 +34,9 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
+	"search.SelectProperties, additional.Properties) (*search.Result, error)"
+
 type fakeSchemaManager struct {
 	CalledWith struct {
 		fromClass string
@@ -297,9 +300,9 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 }
 
 func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object,
-	repo modulecapabilities.VectorRepo, logger logrus.FieldLogger,
+	findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
 ) error {
-	args := p.Called(object, repo)
+	args := p.Called(object, findObjFn)
 	switch vec := args.Get(0).(type) {
 	case models.C11yVector:
 		object.Vector = vec

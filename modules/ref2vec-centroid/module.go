@@ -47,7 +47,7 @@ func (m *CentroidModule) MetaInfo() (map[string]interface{}, error) {
 
 func (m *CentroidModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
-	findRefVecsFn modulecapabilities.FindRefVectorsFn,
+	findRefVecsFn modulecapabilities.FindObjectFn,
 ) error {
 	vzr := vectorizer.New(cfg, findRefVecsFn)
 	return vzr.Object(ctx, obj)

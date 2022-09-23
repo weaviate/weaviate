@@ -14,8 +14,11 @@ package modulecapabilities
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 type Vectorizer interface {
@@ -26,13 +29,9 @@ type Vectorizer interface {
 		cfg moduletools.ClassConfig) error
 }
 
-type VectorRepo interface {
-	ReferenceVectorSearch(ctx context.Context, obj *models.Object,
-		refProps map[string]struct{}) ([][]float32, error)
-}
-
-type FindRefVectorsFn = func(ctx context.Context, object *models.Object,
-	refProps map[string]struct{}) ([][]float32, error)
+type FindObjectFn = func(ctx context.Context, class string,
+	id strfmt.UUID, props search.SelectProperties,
+	adds additional.Properties) (*search.Result, error)
 
 // ReferenceVectorizer is implemented by ref2vec modules, which calculate a target
 // object's vector based only on the vectors of its references. If the object has
@@ -40,7 +39,6 @@ type FindRefVectorsFn = func(ctx context.Context, object *models.Object,
 type ReferenceVectorizer interface {
 	// VectorizeObject should mutate the object which is passed in as a pointer-type
 	// by extending it with the desired vector, which is calculated by the module
-	// with the reference vectors found with findRefVecFn
 	VectorizeObject(ctx context.Context, object *models.Object,
-		cfg moduletools.ClassConfig, findRefVecsFn FindRefVectorsFn) error
+		cfg moduletools.ClassConfig, findObjectFn FindObjectFn) error
 }

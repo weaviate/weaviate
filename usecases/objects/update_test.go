@@ -89,7 +89,8 @@ func Test_UpdateAction(t *testing.T) {
 			Updated:   beforeUpdate,
 		}
 		db.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
-		modulesProvider.On("UpdateVector", mock.Anything, db).Return(vec, nil)
+		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			Return(vec, nil)
 		db.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 
 		payload := &models.Object{
@@ -164,7 +165,8 @@ func Test_UpdateObject(t *testing.T) {
 		Updated:   beforeUpdate,
 	}
 	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(result, nil).Once()
-	m.modulesProvider.On("UpdateVector", mock.Anything, m.repo).Return(vec, nil)
+	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		Return(vec, nil)
 	m.repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 
 	expected := &models.Object{

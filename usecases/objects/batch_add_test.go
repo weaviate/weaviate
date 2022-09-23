@@ -103,7 +103,8 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -138,7 +139,8 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -177,7 +179,8 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -214,7 +217,8 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -246,7 +250,8 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -318,7 +323,8 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(expectedVector, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(expectedVector, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -353,7 +359,8 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -382,7 +389,8 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -451,7 +459,8 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 
 	ctx := context.Background()
 	for range objects {
-		modulesProvider.On("UpdateVector", mock.Anything, vectorRepo).Return(nil, nil)
+		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			Return(nil, nil)
 	}
 	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{})
 	assert.Nil(t, err)

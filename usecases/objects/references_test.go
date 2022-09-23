@@ -609,15 +609,14 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 		Vector:    []float32{2, 4, 6},
 	}
 
-	parentObj := parent.Object()
-
 	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
 	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
 	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
 	m.repo.On("AddReference", req.Class, req.ID, req.Property, &req.Ref).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
-	m.modulesProvider.On("UpdateVector", parentObj, m.repo).Return(ref1.Vector, nil)
+	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		Return(ref1.Vector, nil)
 	m.repo.On("PutObject", mock.Anything, ref1.Vector).Return(nil)
 
 	err := m.Manager.AddObjectReference(ctx, nil, &req)

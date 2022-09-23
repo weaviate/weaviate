@@ -163,7 +163,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 				VectorIndexConfig: hnsw.UserConfig{},
 			}},
 		}}
-		repo := &fakeRefVecRepo{}
+		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
 		p := NewProvider()
@@ -171,7 +171,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo, logger)
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
@@ -189,7 +189,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 				VectorIndexConfig: hnsw.UserConfig{},
 			}},
 		}}
-		repo := &fakeRefVecRepo{}
+		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
 		p := NewProvider()
@@ -197,7 +197,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo, logger)
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
@@ -205,7 +205,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		ctx := context.Background()
 		className := "SomeClass"
 		mod := newDummyModule("", "")
-		repo := &fakeRefVecRepo{}
+		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
 		p := NewProvider()
@@ -213,7 +213,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo, logger)
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
 		expectedErr := fmt.Sprintf("class %q not found in schema", className)
 		assert.EqualError(t, err, expectedErr)
 	})
@@ -232,7 +232,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 				VectorIndexConfig: struct{}{},
 			}},
 		}}
-		repo := &fakeRefVecRepo{}
+		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
 		p := NewProvider()
@@ -240,7 +240,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo, logger)
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
 		expectedErr := "vector index config (struct {}) is not of type HNSW, " +
 			"but objects manager is restricted to HNSW"
 		assert.EqualError(t, err, expectedErr)

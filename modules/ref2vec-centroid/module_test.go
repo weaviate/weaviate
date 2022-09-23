@@ -6,11 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -27,7 +30,6 @@ func TestRef2VecCentroid(t *testing.T) {
 	classConfig := fakeClassConfig(mod.ClassConfigDefaults())
 	refProp := "someRef"
 	classConfig["referenceProperties"] = []interface{}{refProp}
-	cfg := config.New(classConfig)
 
 	t.Run("Init", func(t *testing.T) {
 		err := mod.Init(ctx, params)
@@ -85,28 +87,32 @@ func TestRef2VecCentroid(t *testing.T) {
 	t.Run("VectorizeObject", func(t *testing.T) {
 		t.Run("expected success", func(t *testing.T) {
 			t.Run("one refVec", func(t *testing.T) {
-				repo := &fakeRefVecRepo{}
-				obj := &models.Object{}
+				repo := &fakeObjectsRepo{}
+				ref := crossref.New("localhost", "SomeClass", "123")
+				obj := &models.Object{Properties: map[string]interface{}{
+					refProp: models.MultipleRef{ref.SingleRef()},
+				}}
 
-				repo.On("ReferenceVectorSearch",
-					ctx, obj, cfg.ReferenceProperties()).
-					Return([][]float32{{1, 2, 3}}, nil)
+				repo.On("Object", ctx, ref.Class, ref.TargetID).
+					Return(&search.Result{Vector: []float32{1, 2, 3}}, nil)
 
-				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
+				err := mod.VectorizeObject(ctx, obj, classConfig, repo.Object)
 				assert.Nil(t, err)
-				expectedVec := []float32{1, 2, 3}
+				expectedVec := models.C11yVector{1, 2, 3}
 				assert.EqualValues(t, expectedVec, obj.Vector)
 			})
 
 			t.Run("no refVecs", func(t *testing.T) {
-				repo := &fakeRefVecRepo{}
-				obj := &models.Object{}
+				repo := &fakeObjectsRepo{}
+				ref := crossref.New("localhost", "SomeClass", "123")
+				obj := &models.Object{Properties: map[string]interface{}{
+					refProp: models.MultipleRef{ref.SingleRef()},
+				}}
 
-				repo.On("ReferenceVectorSearch",
-					ctx, obj, cfg.ReferenceProperties()).
-					Return(nil, nil)
+				repo.On("Object", ctx, ref.Class, ref.TargetID).
+					Return(&search.Result{}, nil)
 
-				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
+				err := mod.VectorizeObject(ctx, obj, classConfig, repo.Object)
 				assert.Nil(t, err)
 				assert.Nil(t, nil, obj.Vector)
 			})
@@ -114,33 +120,41 @@ func TestRef2VecCentroid(t *testing.T) {
 
 		t.Run("expected error", func(t *testing.T) {
 			t.Run("mismatched refVec lengths", func(t *testing.T) {
-				repo := &fakeRefVecRepo{}
-				obj := &models.Object{}
-				expectedErr := fmt.Errorf("calculate vector: " +
-					"calculate mean: found vectors of different length: 3 and 2")
+				repo := &fakeObjectsRepo{}
+				ref1 := crossref.New("localhost", "SomeClass", "123")
+				ref2 := crossref.New("localhost", "OtherClass", "456")
+				obj := &models.Object{Properties: map[string]interface{}{
+					refProp: models.MultipleRef{
+						ref1.SingleRef(),
+						ref2.SingleRef(),
+					},
+				}}
+				expectedErr := fmt.Errorf("calculate vector: calculate mean: " +
+					"found vectors of different length: 2 and 3")
 
-				repo.On("ReferenceVectorSearch",
-					ctx, obj, cfg.ReferenceProperties()).
-					Return(nil, expectedErr)
+				repo.On("Object", ctx, ref1.Class, ref1.TargetID).
+					Return(&search.Result{Vector: []float32{1, 2}}, nil)
+				repo.On("Object", ctx, ref2.Class, ref2.TargetID).
+					Return(&search.Result{Vector: []float32{1, 2, 3}}, nil)
 
-				err := mod.VectorizeObject(ctx, obj, classConfig, repo.ReferenceVectorSearch)
-				assert.EqualError(t, err, fmt.Sprintf(
-					"find ref vectors: %s", expectedErr.Error()))
+				err := mod.VectorizeObject(ctx, obj, classConfig, repo.Object)
+				assert.EqualError(t, err, expectedErr.Error())
 			})
 		})
 	})
 }
 
-type fakeRefVecRepo struct {
+type fakeObjectsRepo struct {
 	mock.Mock
 }
 
-func (r *fakeRefVecRepo) ReferenceVectorSearch(ctx context.Context, obj *models.Object,
-	refProps map[string]struct{},
-) ([][]float32, error) {
-	args := r.Called(ctx, obj, refProps)
+func (r *fakeObjectsRepo) Object(ctx context.Context, class string,
+	id strfmt.UUID, props search.SelectProperties,
+	addl additional.Properties,
+) (*search.Result, error) {
+	args := r.Called(ctx, class, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([][]float32), args.Error(1)
+	return args.Get(0).(*search.Result), args.Error(1)
 }
