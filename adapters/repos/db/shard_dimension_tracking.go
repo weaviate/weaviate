@@ -2,25 +2,10 @@ package db
 
 import (
 	"encoding/binary"
-	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
-
-// FIXME: Debugging code, remove
-var transfer string
-
-func doThing(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(w, "Data: %v\n", transfer)
-}
-
-func init() {
-	http.HandleFunc("/dothing", doThing)
-
-	go http.ListenAndServe("0.0.0.0:64000", nil)
-}
 
 func (s *Shard) Dimensions() int {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
@@ -36,21 +21,15 @@ func (s *Shard) Dimensions() int {
 	}
 	c.Close()
 
-	transfer = fmt.Sprintf(
-		"Dimensions: %d,\n\nConfig: %+v\n", sum, s.index.Config)
-
 	return sum
 }
 
 func (s *Shard) initDimensionTracking() {
-	fmt.Println("!!!initting track vec dimensions", s.index.Config.TrackVectorDimensions)
-	fmt.Println("!!! names: ", s.index.Config.ClassName.String(), s.name)
 	if !s.index.Config.TrackVectorDimensions {
 		return
 	}
 
 	go func() {
-		fmt.Println("!!!Starting track vec dimensions counter")
 		t := time.NewTicker(5 * time.Second) // 5 minutes
 
 		for {
@@ -59,8 +38,6 @@ func (s *Shard) initDimensionTracking() {
 			}
 
 			dimCount := s.Dimensions()
-			fmt.Println("!!!Counted  dimensions", dimCount)
-
 			if s.promMetrics != nil {
 				metric, err := s.promMetrics.DimensionSum.
 					GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
