@@ -142,7 +142,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	// then the vectorizer will set it
 	obj := &models.Object{Class: className, Properties: merged, Vector: vector}
 
-	if err := m.modulesProvider.UpdateVector(ctx, obj, m.vectorRepo.Object, m.logger); err != nil {
+	if err := m.modulesProvider.UpdateVector(ctx, obj, m.findObject, m.logger); err != nil {
 		return nil, err
 	}
 

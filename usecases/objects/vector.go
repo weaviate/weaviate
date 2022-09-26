@@ -34,13 +34,13 @@ func (m *Manager) updateRefVector(ctx context.Context,
 		obj := parent.Object()
 
 		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, m.vectorRepo.Object, m.logger); err != nil {
+			ctx, obj, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}
 
 		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector); err != nil {
-			return fmt.Errorf("put object: %s", err)
+			return fmt.Errorf("put object: %w", err)
 		}
 
 		return nil
@@ -48,4 +48,32 @@ func (m *Manager) updateRefVector(ctx context.Context,
 
 	// nothing to do
 	return nil
+}
+
+// TODO: remove this method and just pass m.vectorRepo.Object to
+// m.modulesProvider.UpdateVector when m.vectorRepo.ObjectByID
+// is finally removed
+func (m *Manager) findObject(ctx context.Context, class string,
+	id strfmt.UUID, props search.SelectProperties,
+	addl additional.Properties,
+) (*search.Result, error) {
+	// to support backwards compat
+	if class == "" {
+		return m.vectorRepo.ObjectByID(ctx, id, props, addl)
+	}
+	return m.vectorRepo.Object(ctx, class, id, props, addl)
+}
+
+// TODO: remove this method and just pass b.vectorRepo.Object to
+// b.modulesProvider.UpdateVector when b.vectorRepo.ObjectByID
+// is finally removed
+func (b *BatchManager) findObject(ctx context.Context, class string,
+	id strfmt.UUID, props search.SelectProperties,
+	addl additional.Properties,
+) (*search.Result, error) {
+	// to support backwards compat
+	if class == "" {
+		return b.vectorRepo.ObjectByID(ctx, id, props, addl)
+	}
+	return b.vectorRepo.Object(ctx, class, id, props, addl)
 }
