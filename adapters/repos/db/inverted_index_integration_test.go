@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIndexByTimestampsNullState_AddClass(t *testing.T) {
+func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
@@ -46,8 +46,9 @@ func TestIndexByTimestampsNullState_AddClass(t *testing.T) {
 			Stopwords: &models.StopwordConfig{
 				Preset: "none",
 			},
-			IndexTimestamps: true,
-			IndexNullState:  true,
+			IndexTimestamps:     true,
+			IndexNullState:      true,
+			IndexPropertyLength: true,
 		},
 		Properties: []*models.Property{
 			{
@@ -99,6 +100,9 @@ func TestIndexByTimestampsNullState_AddClass(t *testing.T) {
 				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
 				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
 
+				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+
 			}
 		}
 	})
@@ -134,6 +138,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			CleanupIntervalSeconds: 60,
 			IndexTimestamps:        true,
 			IndexNullState:         true,
+			IndexPropertyLength:    true,
 		},
 		Properties: []*models.Property{
 			{
@@ -171,7 +176,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	objWithProperty := &models.Object{
 		ID:         testID1,
 		Class:      "TestClass",
-		Properties: map[string]interface{}{"name": "objectarooni", "name array": []float64{0.5, 1.4}},
+		Properties: map[string]interface{}{"name": "objectarooni", "number array": []float64{0.5, 1.4}},
 	}
 	require.Nil(t, repo.PutObject(context.Background(), objWithProperty, []float32{1, 2, 3}))
 
@@ -179,7 +184,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	objWithoutProperty := &models.Object{
 		ID:         testID2,
 		Class:      "TestClass",
-		Properties: map[string]interface{}{"name": nil, "name array": nil},
+		Properties: map[string]interface{}{"name": nil, "number array": nil},
 	}
 	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}))
 
@@ -216,6 +221,30 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			assert.Equal(t, searchVal, res1[0].ID)
 		})
 	}
+
+	t.Run("test properly length directly on bucket", func(t *testing.T) {
+		PropLengthFilter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    "TestClass",
+					Property: "name" + filters.InternalPropertyLength,
+				},
+				Value: &filters.Value{
+					Value: 12,
+					Type:  dtInt,
+				},
+			},
+		}
+		res1, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			ClassName:  "TestClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    PropLengthFilter,
+		})
+		require.Nil(t, err)
+		assert.Len(t, res1, 1)
+		assert.Equal(t, testID1, res1[0].ID)
+	})
 }
 
 func TestIndexByTimestamps_GetClass(t *testing.T) {
