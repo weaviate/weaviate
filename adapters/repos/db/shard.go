@@ -45,22 +45,22 @@ import (
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index            *Index // a reference to the underlying index, which in turn contains schema information
-	name             string
-	store            *lsmkv.Store
-	counter          *indexcounter.Counter
-	vectorIndex      VectorIndex
-	invertedRowCache *inverted.RowCacher
-	metrics          *Metrics
-	promMetrics      *monitoring.PrometheusMetrics
-	propertyIndices  propertyspecific.Indices
-	deletedDocIDs    *docid.InMemDeletedTracker
-	cleanupInterval  time.Duration
-	cancel           chan struct{}
-	propLengths      *inverted.PropertyLengthTracker
-	randomSource     *bufferedRandomGen
-	versioner        *shardVersioner
-	diskScanState    *diskScanState
+	index             *Index // a reference to the underlying index, which in turn contains schema information
+	name              string
+	store             *lsmkv.Store
+	counter           *indexcounter.Counter
+	vectorIndex       VectorIndex
+	invertedRowCache  *inverted.RowCacher
+	metrics           *Metrics
+	promMetrics       *monitoring.PrometheusMetrics
+	propertyIndices   propertyspecific.Indices
+	deletedDocIDs     *docid.InMemDeletedTracker
+	cleanupInterval   time.Duration
+	cancel            chan struct{}
+	propLengths       *inverted.PropertyLengthTracker
+	randomSource      *bufferedRandomGen
+	versioner         *shardVersioner
+	resourceScanState *resourceScanState
 
 	numActiveBatches    int
 	activeBatchesLock   sync.Mutex
@@ -104,7 +104,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			CleanupIntervalSeconds) * time.Second,
 		cancel:              make(chan struct{}, 1),
 		randomSource:        rand,
-		diskScanState:       newDiskScanState(),
+		resourceScanState:   newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}

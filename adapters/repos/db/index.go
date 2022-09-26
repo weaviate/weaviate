@@ -34,6 +34,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -191,8 +192,7 @@ type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
 	QueryMaximumResults       int64
-	DiskUseWarningPercentage  uint64
-	DiskUseReadOnlyPercentage uint64
+	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
 	NodeName                  string
 	FlushIdleAfter            int
