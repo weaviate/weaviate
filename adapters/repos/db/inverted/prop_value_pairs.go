@@ -53,7 +53,20 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 			id += filters.InternalNullIndex
 		}
 
+		// format of id for property with lengths is "property_len(*PROPNAME*)
+		isPropLengthFilter := len(id) > 13 && id[8:13] == "_len(" && id[len(id)-1:] == ")"
+		if isPropLengthFilter {
+			propName := id[13 : len(id)-1]
+			id = helpers.BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
+			pv.prop = propName + filters.InternalPropertyLength
+		}
+
 		b := s.store.Bucket(id)
+
+		if b == nil && isPropLengthFilter {
+			return errors.Errorf("Property length must be indexed to be filterable! " +
+				"add `IndexPropertyLength: true` to the invertedIndexConfig")
+		}
 
 		if b == nil && pv.operator == filters.OperatorIsNull {
 			return errors.Errorf("Nullstate must be indexed to be filterable! " +

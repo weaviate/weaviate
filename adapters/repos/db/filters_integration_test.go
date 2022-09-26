@@ -395,6 +395,31 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("colorArrayField", false, null, dtBool),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
+			{
+				name:        "by string length",
+				filter:      buildFilter("len(colorField)", 10, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "by array length",
+				filter:      buildFilter("len(colorArrayField)", 2, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+			{
+				name:        "by number length (always 1 when defined)",
+				filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+			},
+			{
+				name:        "by text length",
+				filter:      buildFilter("len(description)", 65, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "length 0 (not added)",
+				filter:      buildFilter("len(released)", 0, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carNilID},
+			},
 		}
 
 		for _, test := range tests {
