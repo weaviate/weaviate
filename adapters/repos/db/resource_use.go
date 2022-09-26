@@ -56,11 +56,13 @@ func (d *DB) scanResourceUsage() {
 				d.indexLock.Lock()
 				for _, i := range d.indices {
 					for _, s := range i.Shards {
-						diskPath := i.Config.RootPath
-						du := d.getDiskUse(diskPath)
+						if !s.isReadOnly() {
+							diskPath := i.Config.RootPath
+							du := d.getDiskUse(diskPath)
 
-						s.resourceUseWarn(memMonitor, du, diskPath)
-						s.resourceUseReadonly(memMonitor, du, diskPath)
+							s.resourceUseWarn(memMonitor, du)
+							s.resourceUseReadonly(memMonitor, du)
+						}
 					}
 				}
 				d.indexLock.Unlock()

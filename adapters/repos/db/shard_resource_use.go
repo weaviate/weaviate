@@ -62,23 +62,26 @@ func newResourceScanState() *resourceScanState {
 }
 
 // logs a warning if user-set threshold is surpassed
-func (s *Shard) resourceUseWarn(mon *memwatch.Monitor, du diskUse, diskPath string) {
-	diskWarnPercent := s.index.Config.ResourceUsage.DiskUse.WarningPercentage
-	memWarnPercent := s.index.Config.ResourceUsage.MemUse.WarningPercentage
+func (s *Shard) resourceUseWarn(mon *memwatch.Monitor, du diskUse) {
+	s.diskUseWarn(du)
+	s.memUseWarn(mon)
+}
 
+func (s *Shard) diskUseWarn(du diskUse) {
+	diskWarnPercent := s.index.Config.ResourceUsage.DiskUse.WarningPercentage
 	if diskWarnPercent > 0 {
 		if pu := du.percentUsed(); pu > float64(diskWarnPercent) {
-			if !s.isReadOnly() && time.Since(s.resourceScanState.disk.lastWarning) >
+			if time.Since(s.resourceScanState.disk.lastWarning) >
 				s.resourceScanState.disk.getWarningInterval() {
 				s.index.logger.WithField("action", "read_disk_use").
 					WithField("shard", s.name).
-					WithField("path", diskPath).
+					WithField("path", s.index.Config.RootPath).
 					Warnf("disk usage currently at %.2f%%, threshold set to %.2f%%",
 						pu, float64(diskWarnPercent))
 
 				s.index.logger.WithField("action", "disk_use_stats").
 					WithField("shard", s.name).
-					WithField("path", diskPath).
+					WithField("path", s.index.Config.RootPath).
 					Debugf("%s", du.String())
 
 				s.resourceScanState.disk.lastWarning = time.Now()
@@ -86,14 +89,17 @@ func (s *Shard) resourceUseWarn(mon *memwatch.Monitor, du diskUse, diskPath stri
 			}
 		}
 	}
+}
 
+func (s *Shard) memUseWarn(mon *memwatch.Monitor) {
+	memWarnPercent := s.index.Config.ResourceUsage.MemUse.WarningPercentage
 	if memWarnPercent > 0 {
 		if pu := mon.Ratio() * 100; pu > float64(memWarnPercent) {
-			if !s.isReadOnly() && time.Since(s.resourceScanState.mem.lastWarning) >
+			if time.Since(s.resourceScanState.mem.lastWarning) >
 				s.resourceScanState.mem.getWarningInterval() {
 				s.index.logger.WithField("action", "read_memory_use").
 					WithField("shard", s.name).
-					WithField("path", diskPath).
+					WithField("path", s.index.Config.RootPath).
 					Warnf("memory usage currently at %.2f%%, threshold set to %.2f%%",
 						pu, float64(memWarnPercent))
 
@@ -105,47 +111,49 @@ func (s *Shard) resourceUseWarn(mon *memwatch.Monitor, du diskUse, diskPath stri
 }
 
 // sets the shard to readonly if user-set threshold is surpassed
-func (s *Shard) resourceUseReadonly(mon *memwatch.Monitor, du diskUse, diskPath string) {
-	diskROPercent := s.index.Config.ResourceUsage.DiskUse.ReadOnlyPercentage
-	memROPercent := s.index.Config.ResourceUsage.MemUse.ReadOnlyPercentage
+func (s *Shard) resourceUseReadonly(mon *memwatch.Monitor, du diskUse) {
+	s.diskUseReadonly(du)
+	s.memUseReadonly(mon)
+}
 
+func (s *Shard) diskUseReadonly(du diskUse) {
+	diskROPercent := s.index.Config.ResourceUsage.DiskUse.ReadOnlyPercentage
 	if diskROPercent > 0 {
 		if pu := du.percentUsed(); pu > float64(diskROPercent) {
-			if !s.isReadOnly() {
-				err := s.updateStatus(storagestate.StatusReadOnly.String())
-				if err != nil {
-					s.index.logger.WithField("action", "set_shard_read_only").
-						WithField("shard", s.name).
-						WithField("path", s.index.Config.RootPath).
-						Fatal("failed to set to READONLY")
-				}
-
+			err := s.updateStatus(storagestate.StatusReadOnly.String())
+			if err != nil {
 				s.index.logger.WithField("action", "set_shard_read_only").
 					WithField("shard", s.name).
-					WithField("path", diskPath).
-					Warnf("%s set READONLY, disk usage currently at %.2f%%, threshold set to %.2f%%",
-						s.name, pu, float64(diskROPercent))
+					WithField("path", s.index.Config.RootPath).
+					Fatal("failed to set to READONLY")
 			}
+
+			s.index.logger.WithField("action", "set_shard_read_only").
+				WithField("shard", s.name).
+				WithField("path", s.index.Config.RootPath).
+				Warnf("%s set READONLY, disk usage currently at %.2f%%, threshold set to %.2f%%",
+					s.name, pu, float64(diskROPercent))
 		}
 	}
+}
 
+func (s *Shard) memUseReadonly(mon *memwatch.Monitor) {
+	memROPercent := s.index.Config.ResourceUsage.MemUse.ReadOnlyPercentage
 	if memROPercent > 0 {
 		if pu := mon.Ratio() * 100; pu > float64(memROPercent) {
-			if !s.isReadOnly() {
-				err := s.updateStatus(storagestate.StatusReadOnly.String())
-				if err != nil {
-					s.index.logger.WithField("action", "set_shard_read_only").
-						WithField("shard", s.name).
-						WithField("path", s.index.Config.RootPath).
-						Fatal("failed to set to READONLY")
-				}
-
+			err := s.updateStatus(storagestate.StatusReadOnly.String())
+			if err != nil {
 				s.index.logger.WithField("action", "set_shard_read_only").
 					WithField("shard", s.name).
-					WithField("path", diskPath).
-					Warnf("%s set READONLY, memory usage currently at %.2f%%, threshold set to %.2f%%",
-						s.name, pu, float64(memROPercent))
+					WithField("path", s.index.Config.RootPath).
+					Fatal("failed to set to READONLY")
 			}
+
+			s.index.logger.WithField("action", "set_shard_read_only").
+				WithField("shard", s.name).
+				WithField("path", s.index.Config.RootPath).
+				Warnf("%s set READONLY, memory usage currently at %.2f%%, threshold set to %.2f%%",
+					s.name, pu, float64(memROPercent))
 		}
 	}
 }
