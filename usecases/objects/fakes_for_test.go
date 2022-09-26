@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -31,6 +33,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/mock"
 )
+
+const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
+	"search.SelectProperties, additional.Properties) (*search.Result, error)"
 
 type fakeSchemaManager struct {
 	CalledWith struct {
@@ -108,28 +113,6 @@ func (f *fakeLocks) LockConnector() (func() error, error) {
 
 func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, f.Err
-}
-
-type fakeVectorizerProvider struct {
-	vectorizer *fakeVectorizer
-}
-
-func (f *fakeVectorizerProvider) Vectorizer(modName, className string) (Vectorizer, error) {
-	return f.vectorizer, nil
-}
-
-type fakeVectorizer struct {
-	mock.Mock
-}
-
-func (f *fakeVectorizer) UpdateObject(ctx context.Context, object *models.Object) error {
-	args := f.Called(object)
-	object.Vector = args.Get(0).([]float32)
-	return args.Error(1)
-}
-
-func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
-	panic("not implemented")
 }
 
 type fakeAuthorizer struct {
@@ -226,6 +209,12 @@ func (f *fakeVectorRepo) AddReference(ctx context.Context,
 	return args.Error(0)
 }
 
+func (f *fakeVectorRepo) ReferenceVectorSearch(ctx context.Context,
+	obj *models.Object, refProps map[string]struct{},
+) ([][]float32, error) {
+	return nil, nil
+}
+
 type fakeExtender struct {
 	multi []search.Result
 }
@@ -284,6 +273,7 @@ func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
 }
 
 type fakeModulesProvider struct {
+	mock.Mock
 	customExtender  *fakeExtender
 	customProjector *fakeProjector
 }
@@ -302,6 +292,32 @@ func (p *fakeModulesProvider) ListObjectsAdditionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
 ) (search.Results, error) {
 	return p.additionalExtend(ctx, in, moduleParams, "ObjectList")
+}
+
+func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
+	args := p.Called(moduleName)
+	return args.Bool(0)
+}
+
+func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object,
+	findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
+) error {
+	args := p.Called(object, findObjFn)
+	switch vec := args.Get(0).(type) {
+	case models.C11yVector:
+		object.Vector = vec
+		return args.Error(1)
+	case []float32:
+		object.Vector = vec
+		return args.Error(1)
+	default:
+		return args.Error(1)
+	}
+}
+
+func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
+	args := p.Called(className)
+	return args.String(0), args.Error(1)
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
@@ -664,15 +680,26 @@ func getDefaultParam(name string) interface{} {
 	}
 }
 
-func getFakeModulesProvider() *fakeModulesProvider {
-	return &fakeModulesProvider{}
+func getFakeModulesProvider(opts ...func(p *fakeModulesProvider)) *fakeModulesProvider {
+	p := &fakeModulesProvider{}
+	p.applyOptions(opts...)
+	return p
+}
+
+func (p *fakeModulesProvider) applyOptions(opts ...func(provider *fakeModulesProvider)) {
+	for _, opt := range opts {
+		opt(p)
+	}
 }
 
 func getFakeModulesProviderWithCustomExtenders(
 	customExtender *fakeExtender,
 	customProjector *fakeProjector,
+	opts ...func(provider *fakeModulesProvider),
 ) *fakeModulesProvider {
-	return &fakeModulesProvider{customExtender, customProjector}
+	p := &fakeModulesProvider{mock.Mock{}, customExtender, customProjector}
+	p.applyOptions(opts...)
+	return p
 }
 
 type fakeMetrics struct {

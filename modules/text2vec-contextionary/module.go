@@ -44,7 +44,7 @@ func New() *ContextionaryModule {
 	return &ContextionaryModule{}
 }
 
-// ContextionaryModule for now only handles storage and retrival of extensions,
+// ContextionaryModule for now only handles storage and retrieval of extensions,
 // but with making Weaviate more modular, this should contain anything related
 // to the module
 type ContextionaryModule struct {

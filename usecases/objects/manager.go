@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
@@ -33,17 +34,16 @@ import (
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	config             *config.WeaviateConfig
-	locks              locks
-	schemaManager      schemaManager
-	logger             logrus.FieldLogger
-	authorizer         authorizer
-	vectorizerProvider VectorizerProvider
-	vectorRepo         VectorRepo
-	timeSource         timeSource
-	modulesProvider    ModulesProvider
-	autoSchemaManager  *autoSchemaManager
-	metrics            objectsMetrics
+	config            *config.WeaviateConfig
+	locks             locks
+	schemaManager     schemaManager
+	logger            logrus.FieldLogger
+	authorizer        authorizer
+	vectorRepo        VectorRepo
+	timeSource        timeSource
+	modulesProvider   ModulesProvider
+	autoSchemaManager *autoSchemaManager
+	metrics           objectsMetrics
 }
 
 type objectsMetrics interface {
@@ -78,14 +78,6 @@ type timeSource interface {
 	Now() int64
 }
 
-type VectorizerProvider interface {
-	Vectorizer(moduleName, className string) (Vectorizer, error)
-}
-
-type Vectorizer interface {
-	UpdateObject(ctx context.Context, obj *models.Object) error
-}
-
 type locks interface {
 	LockConnector() (func() error, error)
 	LockSchema() (func() error, error)
@@ -118,26 +110,29 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{}) (*search.Result, error)
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
+	UsingRef2Vec(className string) bool
+	UpdateVector(ctx context.Context, object *models.Object,
+		repo modulecapabilities.FindObjectFn, logger logrus.FieldLogger) error
+	VectorizerName(className string) (string, error)
 }
 
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorizer VectorizerProvider, vectorRepo VectorRepo,
+	authorizer authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics,
 ) *Manager {
 	return &Manager{
-		config:             config,
-		locks:              locks,
-		schemaManager:      schemaManager,
-		logger:             logger,
-		vectorizerProvider: vectorizer,
-		authorizer:         authorizer,
-		vectorRepo:         vectorRepo,
-		timeSource:         defaultTimeSource{},
-		modulesProvider:    modulesProvider,
-		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
-		metrics:            metrics,
+		config:            config,
+		locks:             locks,
+		schemaManager:     schemaManager,
+		logger:            logger,
+		authorizer:        authorizer,
+		vectorRepo:        vectorRepo,
+		timeSource:        defaultTimeSource{},
+		modulesProvider:   modulesProvider,
+		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		metrics:           metrics,
 	}
 }
 
