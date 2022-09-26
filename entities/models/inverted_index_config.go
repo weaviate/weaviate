@@ -26,12 +26,14 @@ import (
 //
 // swagger:model InvertedIndexConfig
 type InvertedIndexConfig struct {
-
 	// bm25
 	Bm25 *BM25Config `json:"bm25,omitempty"`
 
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
+
+	// Index each object with the null state
+	IndexNullState bool `json:"indexNullState,omitempty"`
 
 	// Index each object by its internal timestamps
 	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
@@ -59,7 +61,6 @@ func (m *InvertedIndexConfig) Validate(formats strfmt.Registry) error {
 }
 
 func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Bm25) { // not required
 		return nil
 	}
@@ -77,7 +78,6 @@ func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
 }
 
 func (m *InvertedIndexConfig) validateStopwords(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Stopwords) { // not required
 		return nil
 	}

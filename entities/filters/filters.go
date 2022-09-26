@@ -21,17 +21,18 @@ import (
 type Operator int
 
 const (
-	OperatorEqual            Operator = 1
-	OperatorNotEqual         Operator = 2
-	OperatorGreaterThan      Operator = 3
-	OperatorGreaterThanEqual Operator = 4
-	OperatorLessThan         Operator = 5
-	OperatorLessThanEqual    Operator = 6
-	OperatorAnd              Operator = 7
-	OperatorOr               Operator = 8
-	OperatorNot              Operator = 9
-	OperatorWithinGeoRange   Operator = 10
-	OperatorLike             Operator = 11
+	OperatorEqual Operator = iota + 1
+	OperatorNotEqual
+	OperatorGreaterThan
+	OperatorGreaterThanEqual
+	OperatorLessThan
+	OperatorLessThanEqual
+	OperatorAnd
+	OperatorOr
+	OperatorNot
+	OperatorWithinGeoRange
+	OperatorLike
+	OperatorIsNull
 )
 
 func (o Operator) OnValue() bool {
@@ -43,7 +44,8 @@ func (o Operator) OnValue() bool {
 		OperatorLessThan,
 		OperatorLessThanEqual,
 		OperatorWithinGeoRange,
-		OperatorLike:
+		OperatorLike,
+		OperatorIsNull:
 		return true
 	default:
 		return false
@@ -74,6 +76,8 @@ func (o Operator) Name() string {
 		return "WithinGeoRange"
 	case OperatorLike:
 		return "Like"
+	case OperatorIsNull:
+		return "IsNull"
 	default:
 		panic("Unknown operator")
 	}
