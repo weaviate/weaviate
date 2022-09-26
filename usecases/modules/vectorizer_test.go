@@ -13,106 +13,240 @@ package modules
 
 import (
 	"context"
-	"net/http"
+	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestVectorizer(t *testing.T) {
-	t.Run("when there are no models registered", func(t *testing.T) {
+func TestProvider_ValidateVectorizer(t *testing.T) {
+	t.Run("with vectorizer module", func(t *testing.T) {
 		p := NewProvider()
-		_, err := p.Vectorizer("some-module", "MyClass")
-		require.NotNil(t, err)
-		assert.Equal(t, "no module with name \"some-module\" present", err.Error())
+		vec := newDummyModule("some-module", modulecapabilities.Text2Vec)
+		p.Register(vec)
+
+		err := p.ValidateVectorizer(vec.Name())
+		assert.Nil(t, err)
 	})
 
-	t.Run("module exist, but doesn't provide vectorizer", func(t *testing.T) {
+	t.Run("with reference vectorizer module", func(t *testing.T) {
 		p := NewProvider()
-		p.Register(dummyModuleNoCapabilities{name: "some-module"})
-		_, err := p.Vectorizer("some-module", "MyClass")
-		require.NotNil(t, err)
-		assert.Equal(t, "module \"some-module\" exists, but does not provide the "+
-			"Vectorizer capability", err.Error())
+		refVec := newDummyModule("some-module", modulecapabilities.Ref2Vec)
+		p.Register(refVec)
+
+		err := p.ValidateVectorizer(refVec.Name())
+		assert.Nil(t, err)
 	})
-	t.Run("module exists, but the class doesn't", func(t *testing.T) {
+
+	t.Run("with non-vectorizer module", func(t *testing.T) {
+		modName := "some-module"
+		p := NewProvider()
+		nonVec := newDummyModule(modName, "")
+		p.Register(nonVec)
+
+		expectedErr := fmt.Sprintf(
+			"module %q exists, but does not provide the Vectorizer or ReferenceVectorizer capability",
+			modName)
+		err := p.ValidateVectorizer(nonVec.Name())
+		assert.EqualError(t, err, expectedErr)
+	})
+
+	t.Run("with unregistered module", func(t *testing.T) {
+		modName := "does-not-exist"
+		p := NewProvider()
+		expectedErr := fmt.Sprintf(
+			"no module with name %q present",
+			modName)
+		err := p.ValidateVectorizer(modName)
+		assert.EqualError(t, err, expectedErr)
+	})
+}
+
+func TestProvider_UsingRef2Vec(t *testing.T) {
+	t.Run("with ReferenceVectorizer", func(t *testing.T) {
+		modName := "some-module"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Ref2Vec)
+		sch := schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: className,
+				ModuleConfig: map[string]interface{}{
+					modName: struct{}{},
+				},
+			}},
+		}}
+		p := NewProvider()
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.Register(mod)
+		assert.True(t, p.UsingRef2Vec(className))
+	})
+
+	t.Run("with Vectorizer", func(t *testing.T) {
+		modName := "some-module"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
+		sch := schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: className,
+				ModuleConfig: map[string]interface{}{
+					modName: struct{}{},
+				},
+			}},
+		}}
+		p := NewProvider()
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		p.Register(mod)
+		assert.False(t, p.UsingRef2Vec(className))
+	})
+
+	t.Run("with nonexistent class", func(t *testing.T) {
+		className := "SomeClass"
+		mod := newDummyModule("", "")
+
 		p := NewProvider()
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
-		p.Register(dummyVectorizerModule{dummyModuleNoCapabilities{name: "some-module"}})
-		_, err := p.Vectorizer("some-module", "MyClass")
-		require.NotNil(t, err)
-		assert.Equal(t, "class \"MyClass\" not found in schema", err.Error())
+		p.Register(mod)
+		assert.False(t, p.UsingRef2Vec(className))
 	})
 
-	t.Run("module exist, and provides a vectorizer", func(t *testing.T) {
+	t.Run("with empty class module config", func(t *testing.T) {
+		modName := "some-module"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
+		sch := schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: className,
+			}},
+		}}
 		p := NewProvider()
-		sch := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class: "MyClass",
-					},
-				},
-			},
-		}
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
-		p.Register(dummyVectorizerModule{dummyModuleNoCapabilities{name: "some-module"}})
-		vec, err := p.Vectorizer("some-module", "MyClass")
-		require.Nil(t, err)
+		p.Register(mod)
+		assert.False(t, p.UsingRef2Vec(className))
+	})
 
-		obj := &models.Object{Class: "Test"}
-		err = vec.UpdateObject(context.Background(), obj)
-		require.Nil(t, err)
-
-		assert.Equal(t, models.C11yVector{1, 2, 3}, obj.Vector)
+	t.Run("with unregistered module", func(t *testing.T) {
+		modName := "some-module"
+		className := "SomeClass"
+		sch := schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: className,
+				ModuleConfig: map[string]interface{}{
+					modName: struct{}{},
+				},
+			}},
+		}}
+		p := NewProvider()
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+		assert.False(t, p.UsingRef2Vec(className))
 	})
 }
 
-func newDummyModuleWithName(name string) dummyModuleNoCapabilities {
-	return dummyModuleNoCapabilities{name: name}
+func TestProvider_UpdateVector(t *testing.T) {
+	t.Run("with Vectorizer", func(t *testing.T) {
+		ctx := context.Background()
+		modName := "some-vzr"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
+		sch := schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: className,
+				ModuleConfig: map[string]interface{}{
+					modName: struct{}{},
+				},
+				VectorIndexConfig: hnsw.UserConfig{},
+			}},
+		}}
+		repo := &fakeObjectsRepo{}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider()
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		assert.Nil(t, err)
+	})
+
+	t.Run("with ReferenceVectorizer", func(t *testing.T) {
+		ctx := context.Background()
+		modName := "some-vzr"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Ref2Vec)
+		sch := schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: className,
+				ModuleConfig: map[string]interface{}{
+					modName: struct{}{},
+				},
+				VectorIndexConfig: hnsw.UserConfig{},
+			}},
+		}}
+		repo := &fakeObjectsRepo{}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider()
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		assert.Nil(t, err)
+	})
+
+	t.Run("with nonexistent class", func(t *testing.T) {
+		ctx := context.Background()
+		className := "SomeClass"
+		mod := newDummyModule("", "")
+		repo := &fakeObjectsRepo{}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider()
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		expectedErr := fmt.Sprintf("class %q not found in schema", className)
+		assert.EqualError(t, err, expectedErr)
+	})
+
+	t.Run("with nonexistent vector index config type", func(t *testing.T) {
+		ctx := context.Background()
+		modName := "some-vzr"
+		className := "SomeClass"
+		mod := newDummyModule(modName, modulecapabilities.Ref2Vec)
+		sch := schema.Schema{Objects: &models.Schema{
+			Classes: []*models.Class{{
+				Class: className,
+				ModuleConfig: map[string]interface{}{
+					modName: struct{}{},
+				},
+				VectorIndexConfig: struct{}{},
+			}},
+		}}
+		repo := &fakeObjectsRepo{}
+		logger, _ := test.NewNullLogger()
+
+		p := NewProvider()
+		p.Register(mod)
+		p.SetSchemaGetter(&fakeSchemaGetter{sch})
+
+		obj := &models.Object{Class: className, ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		expectedErr := "vector index config (struct {}) is not of type HNSW, " +
+			"but objects manager is restricted to HNSW"
+		assert.EqualError(t, err, expectedErr)
+	})
 }
 
-type dummyModuleNoCapabilities struct {
-	name string
-}
-
-func (m dummyModuleNoCapabilities) Name() string {
-	return m.name
-}
-
-func (m dummyModuleNoCapabilities) Init(ctx context.Context,
-	params moduletools.ModuleInitParams,
-) error {
-	return nil
-}
-
-// TODO remove as this is a capability
-func (m dummyModuleNoCapabilities) RootHandler() http.Handler {
-	return nil
-}
-
-func (m dummyModuleNoCapabilities) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2Vec
-}
-
-type dummyVectorizerModule struct {
-	dummyModuleNoCapabilities
-}
-
-func (m dummyVectorizerModule) VectorizeObject(ctx context.Context,
-	in *models.Object, cfg moduletools.ClassConfig,
-) error {
-	in.Vector = []float32{1, 2, 3}
-	return nil
-}
-
-type fakeSchemaGetter struct{ schema schema.Schema }
-
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func newUUID() strfmt.UUID {
+	return strfmt.UUID(uuid.NewString())
 }

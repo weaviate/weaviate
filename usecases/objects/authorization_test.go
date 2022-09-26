@@ -166,12 +166,10 @@ func Test_Kinds_Authorization(t *testing.T) {
 				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
 				authorizer := &authDenier{}
-				vectorizer := &fakeVectorizer{}
-				vecProvider := &fakeVectorizerProvider{vectorizer}
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
-					cfg, logger, authorizer, vecProvider, vectorRepo,
-					getFakeModulesProvider(), nil)
+					cfg, logger, authorizer,
+					vectorRepo, getFakeModulesProvider(), nil)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
@@ -248,9 +246,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			cfg := &config.WeaviateConfig{}
 			authorizer := &authDenier{}
 			vectorRepo := &fakeVectorRepo{}
-			vectorizer := &fakeVectorizer{}
-			vecProvider := &fakeVectorizerProvider{vectorizer}
-			manager := NewBatchManager(vectorRepo, vecProvider, locks, schemaManager, cfg, logger, authorizer, nil)
+			modulesProvider := getFakeModulesProvider()
+			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

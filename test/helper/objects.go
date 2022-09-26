@@ -56,8 +56,35 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	}
 }
 
+func UpdateObject(t *testing.T, object *models.Object) {
+	params := objects.NewObjectsUpdateParams().WithID(object.ID).WithBody(object)
+	resp, err := Client(t).Objects.ObjectsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func DeleteClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	AssertRequestOk(t, delRes, err, nil)
+}
+
+func DeleteObject(t *testing.T, object *models.Object) {
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(object.Class).WithID(object.ID)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func AddReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {
+	params := objects.NewObjectsClassReferencesCreateParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop)
+	resp, err := Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteReference(t *testing.T, object *models.Object, ref *models.SingleRef, prop string) {
+	params := objects.NewObjectsClassReferencesDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithBody(ref).WithPropertyName(prop)
+	resp, err := Client(t).Objects.ObjectsClassReferencesDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
 }

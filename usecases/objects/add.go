@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -96,29 +97,17 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	err = m.vectorizeAndPutObject(ctx, object, principal)
+	err = m.modulesProvider.UpdateVector(ctx, object, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}
 
-	return object, nil
-}
-
-func (m *Manager) vectorizeAndPutObject(ctx context.Context, object *models.Object,
-	principal *models.Principal,
-) error {
-	err := newVectorObtainer(m.vectorizerProvider, m.schemaManager,
-		m.logger).Do(ctx, object, principal)
-	if err != nil {
-		return err
-	}
-
 	err = m.vectorRepo.PutObject(ctx, object, object.Vector)
 	if err != nil {
-		return NewErrInternal("store: %v", err)
+		return nil, fmt.Errorf("put object: %s", err)
 	}
 
-	return nil
+	return object, nil
 }
 
 func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, object *models.Object) error {

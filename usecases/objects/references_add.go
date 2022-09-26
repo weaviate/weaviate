@@ -71,9 +71,15 @@ func (m *Manager) AddObjectReference(
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, input.Class, input.ID, input.Property, &input.Ref); err != nil {
+	if err := m.vectorRepo.AddReference(
+		ctx, input.Class, input.ID, input.Property, &input.Ref); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
+
+	if err := m.updateRefVector(ctx, input.Class, input.ID); err != nil {
+		return &Error{"update ref vector", StatusInternalServerError, err}
+	}
+
 	return nil
 }
 
