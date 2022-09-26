@@ -350,6 +350,10 @@
         "indexNullState":{
           "description": "Index each object with the null state",
           "type": "boolean"
+        },
+        "indexPropertyLength":{
+          "description": "Index length of properties",
+          "type": "boolean"
         }
       },
       "type": "object"

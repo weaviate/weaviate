@@ -3306,6 +3306,10 @@ func init() {
           "description": "Index each object with the null state",
           "type": "boolean"
         },
+        "indexPropertyLength": {
+          "description": "Index length of properties",
+          "type": "boolean"
+        },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
           "type": "boolean"
@@ -7483,6 +7487,10 @@ func init() {
         },
         "indexNullState": {
           "description": "Index each object with the null state",
+          "type": "boolean"
+        },
+        "indexPropertyLength": {
+          "description": "Index length of properties",
           "type": "boolean"
         },
         "indexTimestamps": {
