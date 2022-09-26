@@ -81,6 +81,13 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			}
 		}
 
+		if class.InvertedIndexConfig.IndexPropertyLength {
+			err = idx.addPropertyLength(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
+			}
+		}
+
 	}
 
 	m.db.indices[idx.ID()] = idx

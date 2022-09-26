@@ -15,6 +15,7 @@ const (
 	InternalPropBackwardsCompatID  = "id"
 	InternalPropID                 = "_id"
 	InternalNullIndex              = "_nullState"
+	InternalPropertyLength         = "_propertyLength"
 	InternalPropCreationTimeUnix   = "_creationTimeUnix"
 	InternalPropLastUpdateTimeUnix = "_lastUpdateTimeUnix"
 )
