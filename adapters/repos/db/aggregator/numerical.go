@@ -76,7 +76,7 @@ loop:
 func newNumericalAggregator() *numericalAggregator {
 	return &numericalAggregator{
 		min:          math.MaxFloat64,
-		max:          math.SmallestNonzeroFloat64,
+		max:          -math.MaxFloat64,
 		valueCounter: map[float64]uint64{},
 		pairs:        make([]floatCountPair, 0),
 	}
