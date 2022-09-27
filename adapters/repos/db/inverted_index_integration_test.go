@@ -405,6 +405,44 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	})
 }
 
+// Cannot filter for property length without enabling in the InvertedIndexConfig
+func TestFilterPropertyLengthError(t *testing.T) {
+	class := createClassWithEverything(false, false)
+	migrator, repo, schemaGetter := createRepo(t)
+	defer repo.Shutdown(context.Background())
+	err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	require.Nil(t, err)
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	LengthFilter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On: &filters.Path{
+				Class:    schema.ClassName(carClass.Class),
+				Property: "len(" + schema.PropertyName(class.Properties[0].Name) + ")",
+			},
+			Value: &filters.Value{
+				Value: 1,
+				Type:  dtInt,
+			},
+		},
+	}
+
+	params := traverser.GetParams{
+		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+		ClassName:    class.Class,
+		Pagination:   &filters.Pagination{Limit: 5},
+		Filters:      LengthFilter,
+	}
+	_, err = repo.ClassSearch(context.Background(), params)
+	require.NotNil(t, err)
+}
+
 func msToRFC3339(ms int64) time.Time {
 	sec, ns := splitMilliTimestamp(ms)
 	return time.Unix(sec, ns)
