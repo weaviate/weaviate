@@ -44,6 +44,11 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []st
 	var nilProps []string
 	if s.index.invertedIndexConfig.IndexNullState {
 		for _, prop := range c.Properties {
+			dt := schema.DataType(prop.DataType[0])
+			// some datatypes are not added to the inverted index, so we can skip them here
+			if dt == schema.DataTypeGeoCoordinates || dt == schema.DataTypePhoneNumber || dt == schema.DataTypeBlob {
+				continue
+			}
 			_, ok := schemaMap[prop.Name]
 			if !ok {
 				nilProps = append(nilProps, prop.Name)

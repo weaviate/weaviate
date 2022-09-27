@@ -121,6 +121,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			filter      *filters.LocalFilter
 			expectedIDs []strfmt.UUID
 			limit       int
+			ErrMsg      string
 		}
 
 		tests := []test{
@@ -411,14 +412,35 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 			{
-				name:        "by text length",
+				name:        "by text length (equal)",
 				filter:      buildFilter("len(description)", 65, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "by text length (lte)",
+				filter:      buildFilter("len(description)", 65, lte, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID, carNilID},
+			},
+			{
+				name:        "by text length (gte)",
+				filter:      buildFilter("len(description)", 65, gte, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 			{
 				name:        "length 0 (not added)",
 				filter:      buildFilter("len(released)", 0, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carNilID},
+			},
+			{
+				name:        "Filter by unsupported geo-coordinates",
+				filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carNilID},
+				ErrMsg:      "Property length must be indexed to be filterable",
+			},
+			{
+				name:        "length greater than 0",
+				filter:      buildFilter("len(released)", 0, gt, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 		}
 
@@ -434,14 +456,19 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					Filters:      test.filter,
 				}
 				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, len(test.expectedIDs))
+				if len(test.ErrMsg) > 0 {
+					require.Contains(t, err.Error(), test.ErrMsg)
+				} else {
+					require.Nil(t, err)
+					require.Len(t, res, len(test.expectedIDs))
 
-				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
-				for pos, concept := range res {
-					ids[pos] = concept.ID
+					ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+					for pos, concept := range res {
+						ids[pos] = concept.ID
+					}
+					assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+
 				}
-				assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
 			})
 		}
 	}
