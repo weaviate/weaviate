@@ -20,7 +20,7 @@ import (
 )
 
 func aggregateArrayClassWithGroupByTest(t *testing.T) {
-	h := &gqlAggregateHelper{}
+	h := &gqlAggregateResponseHelper{}
 	testCasesGen := &aggregateArrayClassTestCases{}
 
 	t.Run("aggregate ArrayClass with group by strings", func(t *testing.T) {
@@ -145,10 +145,7 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				extracted := extractArrayClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
-				assert.Len(t, extracted, len(expected))
-				for _, singleExpected := range expected {
-					assert.Contains(t, extracted, singleExpected, "expected group not found in results array")
-				}
+				assert.ElementsMatch(t, expected, extracted)
 			})
 		}
 	})
@@ -275,10 +272,7 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				extracted := extractArrayClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
-				assert.Len(t, extracted, len(expected))
-				for _, singleExpected := range expected {
-					assert.Contains(t, extracted, singleExpected, "expected group not found in results array")
-				}
+				assert.ElementsMatch(t, expected, extracted)
 			})
 		}
 	})
@@ -405,10 +399,7 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				extracted := extractArrayClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
-				assert.Len(t, extracted, len(expected))
-				for _, singleExpected := range expected {
-					assert.Contains(t, extracted, singleExpected, "expected group not found in results array")
-				}
+				assert.ElementsMatch(t, expected, extracted)
 			})
 		}
 	})
@@ -535,10 +526,7 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				extracted := extractArrayClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
-				assert.Len(t, extracted, len(expected))
-				for _, singleExpected := range expected {
-					assert.Contains(t, extracted, singleExpected, "expected group not found in results array")
-				}
+				assert.ElementsMatch(t, expected, extracted)
 			})
 		}
 	})
@@ -665,10 +653,7 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				extracted := extractArrayClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
-				assert.Len(t, extracted, len(expected))
-				for _, singleExpected := range expected {
-					assert.Contains(t, extracted, singleExpected, "expected group not found in results array")
-				}
+				assert.ElementsMatch(t, expected, extracted)
 			})
 		}
 	})
@@ -795,10 +780,7 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				extracted := extractArrayClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
-				assert.Len(t, extracted, len(expected))
-				for _, singleExpected := range expected {
-					assert.Contains(t, extracted, singleExpected, "expected group not found in results array")
-				}
+				assert.ElementsMatch(t, expected, extracted)
 			})
 		}
 	})
@@ -899,10 +881,969 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 				extracted := extractArrayClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
-				assert.Len(t, extracted, len(expected))
-				for _, singleExpected := range expected {
-					assert.Contains(t, extracted, singleExpected, "expected group not found in results array")
-				}
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+}
+
+func aggregateCityClassWithGroupByTest(t *testing.T) {
+	t.Run("aggregate City with group by city area", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("891.96", "cityArea"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("891.95", "cityArea"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("217.22", "cityArea"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 217.22, 217.22, 217.22, 217.22, 217.22, 217.22),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyDusseldorf}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Onomato", "Schiffahrt Museum", "Schlossturm"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Dusseldorf"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("319.35", "cityArea"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 319.35, 319.35, 319.35, 319.35, 319.35, 319.35),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyRotterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Rotterdam"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("891.96", "cityArea"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("891.95", "cityArea"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"cityArea\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate City with group by history", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy(historyBerlin, "history"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy(historyAmsterdam, "history"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy(historyDusseldorf, "history"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 217.22, 217.22, 217.22, 217.22, 217.22, 217.22),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyDusseldorf}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Onomato", "Schiffahrt Museum", "Schlossturm"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Dusseldorf"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy(historyRotterdam, "history"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 319.35, 319.35, 319.35, 319.35, 319.35, 319.35),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyRotterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Rotterdam"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy(historyBerlin, "history"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy(historyAmsterdam, "history"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"history\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate City with group by name", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Berlin", "name"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Amsterdam", "name"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Dusseldorf", "name"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 217.22, 217.22, 217.22, 217.22, 217.22, 217.22),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyDusseldorf}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Onomato", "Schiffahrt Museum", "Schlossturm"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Dusseldorf"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Rotterdam", "name"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 319.35, 319.35, 319.35, 319.35, 319.35, 319.35),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyRotterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Rotterdam"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Missing Island", "name"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number0(),
+				"cityRights": h.date0(),
+				"history":    h.text0(),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts0(),
+				"name":       h.string(1, []string{"Missing Island"}, []int64{1}),
+				"population": h.int(1, 0, 0, 0, 0, 0, 0),
+				"timezones":  h.strings0(),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Berlin", "name"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Amsterdam", "name"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"name\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate City with group by is capital", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("true", "isCapital"),
+				"meta":       h.meta(2),
+				"cityArea":   h.number(2, 891.96, 891.95, 891.95, 1783.91, 891.955, 891.955),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyAmsterdam, historyBerlin}, []int64{1, 1}),
+				"isCapital":  h.boolean(2, 0, 2, 0, 1),
+				"museums":    h.texts(3, []string{"German Historical Museum", "Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1, 1}),
+				"name":       h.string(2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
+				"population": h.int(2, 3470000, 1800000, 1800000, 5270000, 2635000, 2635000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("false", "isCapital"),
+				"meta":       h.meta(3),
+				"cityArea":   h.number(2, 319.35, 217.22, 217.22, 536.57, 268.285, 268.285),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyRotterdam, historyDusseldorf}, []int64{1, 1}),
+				"isCapital":  h.boolean(3, 3, 0, 1, 0),
+				"museums":    h.texts(6, []string{"Museum Boijmans Van Beuningen", "Onomato", "Schiffahrt Museum", "Schlossturm", "Wereldmuseum"}, []int64{1, 1, 1, 1, 1}),
+				"name":       h.string(3, []string{"Dusseldorf", "Missing Island", "Rotterdam"}, []int64{1, 1, 1}),
+				"population": h.int(3, 600000, 0, 600000, 1200000, 600000, 400000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("true", "isCapital"),
+				"meta":       h.meta(2),
+				"cityArea":   h.number(2, 891.96, 891.95, 891.95, 1783.91, 891.955, 891.955),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyAmsterdam, historyBerlin}, []int64{1, 1}),
+				"isCapital":  h.boolean(2, 0, 2, 0, 1),
+				"museums":    h.texts(3, []string{"German Historical Museum", "Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1, 1}),
+				"name":       h.string(2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
+				"population": h.int(2, 3470000, 1800000, 1800000, 5270000, 2635000, 2635000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"isCapital\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate City with group by name", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("1400-01-01T00:00:00+02:00", "cityRights"),
+				"meta":       h.meta(2),
+				"cityArea":   h.number(2, 891.96, 891.95, 891.95, 1783.91, 891.955, 891.955),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyAmsterdam, historyBerlin}, []int64{1, 1}),
+				"isCapital":  h.boolean(2, 0, 2, 0, 1),
+				"museums":    h.texts(3, []string{"German Historical Museum", "Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1, 1}),
+				"name":       h.string(2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
+				"population": h.int(2, 3470000, 1800000, 1800000, 5270000, 2635000, 2635000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("1135-01-01T00:00:00+02:00", "cityRights"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 217.22, 217.22, 217.22, 217.22, 217.22, 217.22),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyDusseldorf}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Onomato", "Schiffahrt Museum", "Schlossturm"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Dusseldorf"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("1283-01-01T00:00:00+02:00", "cityRights"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 319.35, 319.35, 319.35, 319.35, 319.35, 319.35),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyRotterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Rotterdam"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("1400-01-01T00:00:00+02:00", "cityRights"),
+				"meta":       h.meta(2),
+				"cityArea":   h.number(2, 891.96, 891.95, 891.95, 1783.91, 891.955, 891.955),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyAmsterdam, historyBerlin}, []int64{1, 1}),
+				"isCapital":  h.boolean(2, 0, 2, 0, 1),
+				"museums":    h.texts(3, []string{"German Historical Museum", "Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1, 1}),
+				"name":       h.string(2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
+				"population": h.int(2, 3470000, 1800000, 1800000, 5270000, 2635000, 2635000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"cityRights\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate City with group by population", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("600000", "population"),
+				"meta":       h.meta(2),
+				"cityArea":   h.number(2, 319.35, 217.22, 217.22, 536.57, 268.285, 268.285),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyRotterdam, historyDusseldorf}, []int64{1, 1}),
+				"isCapital":  h.boolean(2, 2, 0, 1, 0),
+				"museums":    h.texts(6, []string{"Museum Boijmans Van Beuningen", "Onomato", "Schiffahrt Museum", "Schlossturm", "Wereldmuseum"}, []int64{1, 1, 1, 1, 1}),
+				"name":       h.string(2, []string{"Dusseldorf", "Rotterdam"}, []int64{1, 1}),
+				"population": h.int(2, 600000, 600000, 600000, 1200000, 600000, 600000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("3.47e+06", "population"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("1.8e+06", "population"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("0", "population"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number0(),
+				"cityRights": h.date0(),
+				"history":    h.text0(),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts0(),
+				"name":       h.string(1, []string{"Missing Island"}, []int64{1}),
+				"population": h.int(1, 0, 0, 0, 0, 0, 0),
+				"timezones":  h.strings0(),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("3.47e+06", "population"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("1.8e+06", "population"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"population\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate City with group by timezones", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("CEST", "timezones"),
+				"meta":       h.meta(4),
+				"cityArea":   h.number(4, 891.96, 217.22, 217.22, 2320.48, 605.6500000000001, 580.12),
+				"cityRights": h.date(4),
+				"history":    h.text(4, []string{historyAmsterdam, historyRotterdam, historyBerlin, historyDusseldorf}, []int64{1, 1, 1, 1}),
+				"isCapital":  h.boolean(4, 2, 2, 0.5, 0.5),
+				"museums":    h.texts(9, []string{"German Historical Museum", "Museum Boijmans Van Beuningen", "Onomato", "Rijksmuseum", "Schiffahrt Museum"}, []int64{1, 1, 1, 1, 1}),
+				"name":       h.string(4, []string{"Amsterdam", "Berlin", "Dusseldorf", "Rotterdam"}, []int64{1, 1, 1, 1}),
+				"population": h.int(4, 3470000, 600000, 600000, 6470000, 1200000, 1617500),
+				"timezones":  h.strings(8, []string{"CEST", "CET"}, []int64{4, 4}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("CET", "timezones"),
+				"meta":       h.meta(4),
+				"cityArea":   h.number(4, 891.96, 217.22, 217.22, 2320.48, 605.6500000000001, 580.12),
+				"cityRights": h.date(4),
+				"history":    h.text(4, []string{historyAmsterdam, historyRotterdam, historyBerlin, historyDusseldorf}, []int64{1, 1, 1, 1}),
+				"isCapital":  h.boolean(4, 2, 2, 0.5, 0.5),
+				"museums":    h.texts(9, []string{"German Historical Museum", "Museum Boijmans Van Beuningen", "Onomato", "Rijksmuseum", "Schiffahrt Museum"}, []int64{1, 1, 1, 1, 1}),
+				"name":       h.string(4, []string{"Amsterdam", "Berlin", "Dusseldorf", "Rotterdam"}, []int64{1, 1, 1, 1}),
+				"population": h.int(4, 3470000, 600000, 600000, 6470000, 1200000, 1617500),
+				"timezones":  h.strings(8, []string{"CEST", "CET"}, []int64{4, 4}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("CEST", "timezones"),
+				"meta":       h.meta(2),
+				"cityArea":   h.number(2, 891.96, 891.95, 891.95, 1783.91, 891.955, 891.955),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyAmsterdam, historyBerlin}, []int64{1, 1}),
+				"isCapital":  h.boolean(2, 0, 2, 0, 1),
+				"museums":    h.texts(3, []string{"German Historical Museum", "Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1, 1}),
+				"name":       h.string(2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
+				"population": h.int(2, 3470000, 1800000, 1800000, 5270000, 2635000, 2635000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("CET", "timezones"),
+				"meta":       h.meta(2),
+				"cityArea":   h.number(2, 891.96, 891.95, 891.95, 1783.91, 891.955, 891.955),
+				"cityRights": h.date(2),
+				"history":    h.text(2, []string{historyAmsterdam, historyBerlin}, []int64{1, 1}),
+				"isCapital":  h.boolean(2, 0, 2, 0, 1),
+				"museums":    h.texts(3, []string{"German Historical Museum", "Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1, 1}),
+				"name":       h.string(2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
+				"population": h.int(2, 3470000, 1800000, 1800000, 5270000, 2635000, 2635000),
+				"timezones":  h.strings(4, []string{"CEST", "CET"}, []int64{2, 2}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"timezones\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate City with group by museums", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateCityTestCases{}
+
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("German Historical Museum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Rijksmuseum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Stedelijk Museum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Onomato", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 217.22, 217.22, 217.22, 217.22, 217.22, 217.22),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyDusseldorf}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Onomato", "Schiffahrt Museum", "Schlossturm"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Dusseldorf"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Schiffahrt Museum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 217.22, 217.22, 217.22, 217.22, 217.22, 217.22),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyDusseldorf}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Onomato", "Schiffahrt Museum", "Schlossturm"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Dusseldorf"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Schlossturm", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 217.22, 217.22, 217.22, 217.22, 217.22, 217.22),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyDusseldorf}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Onomato", "Schiffahrt Museum", "Schlossturm"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Dusseldorf"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Museum Boijmans Van Beuningen", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 319.35, 319.35, 319.35, 319.35, 319.35, 319.35),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyRotterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Rotterdam"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Wereldmuseum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 319.35, 319.35, 319.35, 319.35, 319.35, 319.35),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyRotterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Rotterdam"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Witte de With Center for Contemporary Art", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 319.35, 319.35, 319.35, 319.35, 319.35, 319.35),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyRotterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 1, 0, 1, 0),
+				"museums":    h.texts(3, []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"}, []int64{1, 1, 1}),
+				"name":       h.string(1, []string{"Rotterdam"}, []int64{1}),
+				"population": h.int(1, 600000, 600000, 600000, 600000, 600000, 600000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithData := []interface{}{
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("German Historical Museum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.96, 891.96, 891.96, 891.96, 891.96, 891.96),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyBerlin}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(1, []string{"German Historical Museum"}, []int64{1}),
+				"name":       h.string(1, []string{"Berlin"}, []int64{1}),
+				"population": h.int(1, 3470000, 3470000, 3470000, 3470000, 3470000, 3470000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Rijksmuseum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+			map[string]interface{}{
+				"groupedBy":  h.groupedBy("Stedelijk Museum", "museums"),
+				"meta":       h.meta(1),
+				"cityArea":   h.number(1, 891.95, 891.95, 891.95, 891.95, 891.95, 891.95),
+				"cityRights": h.date(1),
+				"history":    h.text(1, []string{historyAmsterdam}, []int64{1}),
+				"isCapital":  h.boolean(1, 0, 1, 0, 1),
+				"museums":    h.texts(2, []string{"Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1}),
+				"name":       h.string(1, []string{"Amsterdam"}, []int64{1}),
+				"population": h.int(1, 1800000, 1800000, 1800000, 1800000, 1800000, 1800000),
+				"timezones":  h.strings(2, []string{"CEST", "CET"}, []int64{1, 1}),
+				"inCountry":  h.pointingTo("Country"),
+			},
+		}
+		resultsWithoutData := []interface{}{}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereFilter_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+
+			testCasesGen.WithNearObjectFilter_AllResults(allResults),
+			testCasesGen.WithNearObjectFilter_ResultsWithData(resultsWithData),
+			testCasesGen.WithNearObjectFilter_ResultsWithoutData(resultsWithoutData),
+
+			testCasesGen.WithWhereAndNearObjectFilters_AllResults(allResults),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithData(resultsWithData),
+			testCasesGen.WithWhereAndNearObjectFilters_ResultsWithoutData(resultsWithoutData),
+			testCasesGen.WithWhereAndNearObjectFilters_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateCityQuery(tc.filters, "groupBy: [\"museums\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractCityGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
 			})
 		}
 	})
@@ -910,4 +1851,8 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 
 func extractArrayClassGroupByResult(result *graphqlhelper.GraphQLResult) []interface{} {
 	return extractAggregateResult(result, arrayClassName)
+}
+
+func extractCityGroupByResult(result *graphqlhelper.GraphQLResult) []interface{} {
+	return extractAggregateResult(result, cityClassName)
 }
