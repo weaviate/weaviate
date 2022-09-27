@@ -22,11 +22,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -47,7 +47,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
 		Class:               className,
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "unrelatedProp",
@@ -167,7 +167,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	class := &models.Class{
 		Class:               className,
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "author",

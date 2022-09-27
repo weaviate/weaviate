@@ -23,10 +23,10 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -58,7 +58,7 @@ func TestIndexByTimestamps_AddClass(t *testing.T) {
 	t.Run("add class", func(t *testing.T) {
 		class := &models.Class{
 			Class:             "TestClass",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				CleanupIntervalSeconds: 60,
 				Stopwords: &models.StopwordConfig{
@@ -104,7 +104,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 
 	class := &models.Class{
 		Class:             "TestClass",
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 60,
 			Stopwords: &models.StopwordConfig{

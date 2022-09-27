@@ -24,12 +24,12 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -125,7 +125,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 	return func(t *testing.T) {
 		class := &models.Class{
 			Class:               "ThingForBatching",
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{

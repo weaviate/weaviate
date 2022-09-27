@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func TestBackup_PauseMaintenance(t *testing.T) {
 
 		dirName := makeTestDir(t)
 
-		userConfig := NewDefaultUserConfig()
+		userConfig := enthnsw.NewDefaultUserConfig()
 		userConfig.CleanupIntervalSeconds = 1
 
 		idx, err := New(Config{
@@ -70,7 +71,7 @@ func TestBackup_PauseMaintenance(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk:      testVectorForID,
-		}, NewDefaultUserConfig())
+		}, enthnsw.NewDefaultUserConfig())
 		require.Nil(t, err)
 
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -100,7 +101,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
-	}, NewDefaultUserConfig())
+	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
 
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
@@ -129,7 +130,7 @@ func TestBackup_ListFiles(t *testing.T) {
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
-	}, NewDefaultUserConfig())
+	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
 
 	t.Run("assert expected index contents", func(t *testing.T) {
@@ -174,7 +175,7 @@ func TestBackup_ResumeMaintenance(t *testing.T) {
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
-	}, NewDefaultUserConfig())
+	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
 
 	t.Run("insert vector into index", func(t *testing.T) {

@@ -23,11 +23,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +43,7 @@ func TestNestedReferences(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:               "Planet",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -54,7 +54,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "Continent",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -69,7 +69,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "Country",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -84,7 +84,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "City",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -99,7 +99,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 				{
 					Class:               "Place",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -427,7 +427,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:               "AddingReferencesTestTarget",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -438,7 +438,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 				},
 				{
 					Class:               "AddingReferencesTestSource",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{

@@ -35,7 +35,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -45,6 +44,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -809,7 +809,7 @@ func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 }
 
 func class() *models.Class {
-	cfg := hnsw.NewDefaultUserConfig()
+	cfg := enthnsw.NewDefaultUserConfig()
 	cfg.EF = 500
 	return &models.Class{
 		Class:               distributedClass,
@@ -846,7 +846,7 @@ func class() *models.Class {
 }
 
 func secondClassWithRef() *models.Class {
-	cfg := hnsw.NewDefaultUserConfig()
+	cfg := enthnsw.NewDefaultUserConfig()
 	cfg.EF = 500
 	return &models.Class{
 		Class:               "SecondDistributed",

@@ -22,11 +22,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,7 +35,7 @@ func parkingGaragesSchema() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "MultiRefParkingGarage",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -52,7 +51,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefParkingLot",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -64,7 +63,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefCar",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -80,7 +79,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefDriver",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -96,7 +95,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefPerson",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -112,7 +111,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MultiRefSociety",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -130,7 +129,7 @@ func parkingGaragesSchema() schema.Schema {
 				// for classifications test
 				{
 					Class:               "ExactCategory",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -142,7 +141,7 @@ func parkingGaragesSchema() schema.Schema {
 				},
 				{
 					Class:               "MainCategory",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -163,7 +162,7 @@ func cityCountryAirportSchema() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "Country",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
@@ -171,7 +170,7 @@ func cityCountryAirportSchema() schema.Schema {
 				},
 				{
 					Class:               "City",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "name", DataType: []string{"string"}, Tokenization: "word"},
@@ -182,7 +181,7 @@ func cityCountryAirportSchema() schema.Schema {
 				},
 				{
 					Class:               "Airport",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{Name: "code", DataType: []string{"string"}, Tokenization: "word"},
@@ -215,7 +214,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	idx := &Index{
 		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className), MaxImportGoroutinesFactor: 1.5},
 		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
-		vectorIndexUserConfig: hnswent.UserConfig{Skip: true},
+		vectorIndexUserConfig: enthnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
 		Shards:                map[string]*Shard{},
@@ -240,12 +239,12 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 func withVectorIndexing(affirmative bool) func(*Index) {
 	if affirmative {
 		return func(i *Index) {
-			i.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
+			i.vectorIndexUserConfig = enthnsw.NewDefaultUserConfig()
 		}
 	}
 
 	return func(i *Index) {
-		i.vectorIndexUserConfig = hnswent.UserConfig{Skip: true}
+		i.vectorIndexUserConfig = enthnsw.UserConfig{Skip: true}
 	}
 }
 
