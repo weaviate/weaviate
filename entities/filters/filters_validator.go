@@ -58,6 +58,12 @@ func validateClause(sch schema.Schema, clause *Clause) error {
 			className)
 	}
 
+	propNameTyped := string(propName)
+	lengthPropName, isPropLengthFilter := schema.IsPropertyLength(propNameTyped, 0)
+	if isPropLengthFilter {
+		propName = schema.PropertyName(lengthPropName)
+	}
+
 	prop, err := sch.GetProperty(className, propName)
 	if err != nil {
 		return err
@@ -69,6 +75,23 @@ func validateClause(sch schema.Schema, clause *Clause) error {
 		} else {
 			errors.Errorf("operator IsNull requires a booleanValue, got %q instead",
 				valueNameFromDataType(clause.Value.Type))
+		}
+	}
+
+	if isPropLengthFilter {
+		op := clause.Operator
+		if clause.Value.Type != schema.DataTypeInt {
+			return errors.Errorf("Filtering for property length requires IntValue, got %q instead",
+				valueNameFromDataType(clause.Value.Type))
+		} else if op != OperatorEqual && op != OperatorNotEqual &&
+			op != OperatorGreaterThan && op != OperatorGreaterThanEqual &&
+			op != OperatorLessThan && op != OperatorLessThanEqual {
+			return errors.Errorf("Filtering for property length supports operators (not) equal and greater/less than (equal), got %q instead",
+				op)
+		} else if clause.Value.Value.(int) < 0 {
+			return errors.Errorf("Can only filter for positive property length got %v instead", clause.Value.Value)
+		} else {
+			return nil
 		}
 	}
 
