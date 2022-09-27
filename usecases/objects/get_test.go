@@ -1091,6 +1091,7 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	cfg := &config.WeaviateConfig{}
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
+	cfg.Config.TrackVectorDimensions = true
 	logger, _ := test.NewNullLogger()
 	vecProvider := &fakeVectorizerProvider{r.vectorizer}
 	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)

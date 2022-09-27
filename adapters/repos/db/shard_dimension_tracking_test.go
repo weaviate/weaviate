@@ -72,15 +72,20 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec)
 			require.Nil(t, err)
 		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, 12800, dimAfter, "dimensions should not have changed")
 	})
 
 	t.Run("import objects with d=0", func(t *testing.T) {
+		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		for i := 100; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
 			err := repo.PutObject(context.Background(), obj, nil)
 			require.Nil(t, err)
 		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, dimBefore, dimAfter, "dimensions should not have changed")
 	})
 
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
@@ -90,11 +95,14 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("delete 10 objects with d=128", func(t *testing.T) {
+		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			err := repo.DeleteObject(context.Background(), "Test", id)
 			require.Nil(t, err)
 		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, dimBefore, dimAfter+10*128, "dimensions should have decreased")
 	})
 
 	t.Run("verify dimensions after delete", func(t *testing.T) {
@@ -104,6 +112,7 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("update some of the d=128 objects with a new vector", func(t *testing.T) {
+		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		dim := 128
 		for i := 0; i < 50; i++ {
 			vec := make([]float32, dim)
@@ -118,17 +127,22 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec)
 			require.Nil(t, err)
 		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, dimBefore+10*128, dimAfter, "dimensions should have been restored")
 	})
 
 	t.Run("update some of the d=128 objects with a nil vector", func(t *testing.T) {
+		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		for i := 50; i < 100; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
-			// under the hood and a "reinstert" for the already deleted ones
+			// under the hood and a "reinsert" for the already deleted ones
 			err := repo.PutObject(context.Background(), obj, nil)
 			require.Nil(t, err)
 		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, dimBefore, dimAfter+50*128, "dimensions should decrease")
 	})
 
 	t.Run("verify dimensions after first set of updates", func(t *testing.T) {
@@ -139,6 +153,7 @@ func Test_DimensionTracking(t *testing.T) {
 	})
 
 	t.Run("update some of the origin nil vector objects with a d=128 vector", func(t *testing.T) {
+		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		dim := 128
 		for i := 100; i < 150; i++ {
 			vec := make([]float32, dim)
@@ -153,9 +168,13 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec)
 			require.Nil(t, err)
 		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, dimBefore+50*128, dimAfter, "dimensions should increase")
+
 	})
 
 	t.Run("update some of the nil objects with another nil vector", func(t *testing.T) {
+		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		for i := 150; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
@@ -164,23 +183,14 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, nil)
 			require.Nil(t, err)
 		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, dimBefore, dimAfter, "dimensions should not have changed")
 	})
 
 	t.Run("verify dimensions after more updates", func(t *testing.T) {
 		for _, shard := range repo.GetIndex("Test").Shards {
-			// 000-050 d=128
-			// 051-100 d=0
-			// 100-150 d=128
-			// 151-200 d=0
 			assert.Equal(t, 12800, shard.Dimensions())
 		}
 	})
 
-	// TODO WEAVIATE-286 still missing:
-	//
-	// - add objects without vectors using Batch Objects
-	// - delete objects
-	// - add objects with vectors using Batch Objects
-	// - modify objects using Batch reference (this should not change the vector)
-	// - modify object (attach a vector, remove a vector, replace a vector) using Merge // PATCH
 }

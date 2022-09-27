@@ -64,7 +64,7 @@ func TestBatchPutObjects(t *testing.T) {
 		schemaGetter))
 
 	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
-	// Get keys from shards
+	// Find the test shard
 	keys := make([]string, 0)
 	for k := range shards {
 		keys = append(keys, k)
@@ -78,6 +78,39 @@ func TestBatchPutObjects(t *testing.T) {
 	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
 
 	require.Equal(t, 1809, testShard.Dimensions(), "Dimensions are present after import")
+}
+
+func TestBatchPutObjectsNoVectors(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+
+	dimensions := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimensions, "Dimensions are empty before import")
+
+	t.Run("batch import things", testBatchImportObjectsNoVector(repo))
+
+	require.Equal(t, 0, dimensions, "Dimensions are empty after import (no vectors in import)")
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
@@ -105,7 +138,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 		schemaGetter))
 
 	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
-	// Get keys from shards
+	// Find the test shard
 	keys := make([]string, 0)
 	for k := range shards {
 		keys = append(keys, k)
@@ -179,6 +212,67 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
+	}
+}
+
+func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("with a prior validation error, but nothing to cause errors in the db", func(t *testing.T) {
+			batch := objects.BatchObjects{
+				objects.BatchObject{
+					OriginalIndex: 0,
+					Err:           nil,
+					Object: &models.Object{
+						Class: "ThingForBatching",
+						Properties: map[string]interface{}{
+							"stringProp": "first element",
+						},
+						ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+					},
+					UUID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+				},
+				objects.BatchObject{
+					OriginalIndex: 1,
+					Err:           fmt.Errorf("already has a validation error"),
+					Object: &models.Object{
+						Class: "ThingForBatching",
+						Properties: map[string]interface{}{
+							"stringProp": "second element",
+						},
+						ID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+					},
+					UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+				},
+				objects.BatchObject{
+					OriginalIndex: 2,
+					Err:           nil,
+					Object: &models.Object{
+						Class: "ThingForBatching",
+						Properties: map[string]interface{}{
+							"stringProp": "third element",
+						},
+						ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+					},
+					UUID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+				},
+			}
+
+			t.Run("can import", func(t *testing.T) {
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch)
+				require.Nil(t, err)
+
+				assert.Nil(t, batchRes[0].Err)
+				assert.Nil(t, batchRes[2].Err)
+			})
+
+			params := traverser.GetParams{
+				ClassName:  "ThingForBatching",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    nil,
+			}
+			_, err := repo.ClassSearch(context.Background(), params)
+			require.Nil(t, err)
+		})
 	}
 }
 

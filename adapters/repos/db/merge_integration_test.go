@@ -49,6 +49,7 @@ func Test_MergingObjects(t *testing.T) {
 		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -151,6 +152,8 @@ func Test_MergingObjects(t *testing.T) {
 		}, []float32{0.5})
 		require.Nil(t, err)
 
+		targetDimensionsBefore := GetDimensionsFromRepo(repo, "MergeTestTarget")
+
 		targets := []strfmt.UUID{target1, target2, target3, target4}
 
 		for i, target := range targets {
@@ -164,6 +167,9 @@ func Test_MergingObjects(t *testing.T) {
 			require.Nil(t, err)
 		}
 
+		targetDimensionsAfter := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		require.Equal(t, targetDimensionsBefore+4, targetDimensionsAfter)
+
 		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    noVecID,
 			Class: "MergeTestNoVector",
@@ -174,6 +180,9 @@ func Test_MergingObjects(t *testing.T) {
 			LastUpdateTimeUnix: now,
 		}, nil)
 		require.Nil(t, err)
+
+		targetDimensionsAfterNoVec := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		require.Equal(t, targetDimensionsAfter, targetDimensionsAfterNoVec)
 	})
 
 	var lastUpdateTimeUnix int64
@@ -405,6 +414,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 		QueryMaximumResults:       10000,
+		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
