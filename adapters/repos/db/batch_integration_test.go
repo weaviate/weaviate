@@ -63,21 +63,14 @@ func TestBatchPutObjects(t *testing.T) {
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
 
-	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
-	// Find the test shard
-	keys := make([]string, 0)
-	for k := range shards {
-		keys = append(keys, k)
-	}
-	testShardName := keys[0]
-	testShard := shards[testShardName]
-
-	require.Equal(t, 0, testShard.Dimensions(), "Dimensions are empty before import")
+	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	t.Run("batch import things", testBatchImportObjects(repo))
 	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
 
-	require.Equal(t, 1809, testShard.Dimensions(), "Dimensions are present after import")
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 1809, dimAfter, "Dimensions are present after import")
 }
 
 func TestBatchPutObjectsNoVectors(t *testing.T) {
