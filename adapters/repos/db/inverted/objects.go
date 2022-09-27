@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -355,7 +356,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.Text(prop.Tokenization, asString)
-		PropertyLength = len(asString)
+		PropertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeString:
 		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
@@ -363,7 +364,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.String(prop.Tokenization, asString)
-		PropertyLength = len(asString)
+		PropertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
 		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {
