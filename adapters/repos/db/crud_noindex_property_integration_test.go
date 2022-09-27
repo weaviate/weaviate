@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -58,9 +57,8 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	repo := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
+		FlushIdleAfter:            60,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -111,7 +109,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
-	//Same as above, but with Object()
+	// Same as above, but with Object()
 	t.Run("all props are present when getting by id and class", func(t *testing.T) {
 		res, err := repo.Object(context.Background(), "ThingClassWithNoIndexProps", thingID,
 			search.SelectProperties{}, additional.Properties{})

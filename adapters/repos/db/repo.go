@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -46,7 +47,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 		return err
 	}
 
-	d.scanDiskUse()
+	d.scanResourceUsage()
 
 	return nil
 }
@@ -70,10 +71,10 @@ type Config struct {
 	RootPath                  string
 	QueryLimit                int64
 	QueryMaximumResults       int64
-	DiskUseWarningPercentage  uint64
-	DiskUseReadOnlyPercentage uint64
+	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
 	NodeName                  string
+	FlushIdleAfter            int
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

@@ -15,287 +15,393 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/stretchr/testify/require"
 )
 
-func Test_objectsSorter(t *testing.T) {
-	type args struct {
-		property string
-		order    string
-	}
+func TestObjectsSorter(t *testing.T) {
 	tests := []struct {
 		name      string
-		args      args
+		sort      []filters.Sort
+		limit     int
 		wantObjs  []*storobj.Object
 		wantDists []float32
 	}{
 		{
 			name:      "sort by string asc",
-			args:      args{"name", "asc"},
+			sort:      sort1("name", "asc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityNil, cityNil2, cityWroclaw},
 			wantDists: []float32{0.4, 0.2, 0.3, 0.0, 0.0, 0.1},
 		},
 		{
 			name:      "sort by string desc",
-			args:      args{"name", "desc"},
+			sort:      sort1("name", "desc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityWroclaw, cityNil2, cityNil, cityNewYork, cityBerlin, cityAmsterdam},
 			wantDists: []float32{0.1, 0.0, 0.0, 0.3, 0.2, 0.4},
 		},
 		{
 			name:      "sort by text asc",
-			args:      args{"country", "asc"},
+			sort:      sort1("country", "asc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityBerlin, cityWroclaw, cityAmsterdam, cityNewYork},
 			wantDists: []float32{0.0, 0.0, 0.2, 0.1, 0.4, 0.3},
 		},
 		{
 			name:      "sort by text desc",
-			args:      args{"country", "desc"},
+			sort:      sort1("country", "desc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityNewYork, cityAmsterdam, cityWroclaw, cityBerlin, cityNil2, cityNil},
 			wantDists: []float32{0.3, 0.4, 0.1, 0.2, 0.0, 0.0},
 		},
 		{
 			name:      "sort by int asc",
-			args:      args{"population", "asc"},
+			sort:      sort1("population", "asc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityAmsterdam, cityBerlin, cityNewYork},
 			wantDists: []float32{0.0, 0.0, 0.1, 0.4, 0.2, 0.3},
 		},
 		{
 			name:      "sort by int desc",
-			args:      args{"population", "desc"},
+			sort:      sort1("population", "desc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityNewYork, cityBerlin, cityAmsterdam, cityWroclaw, cityNil2, cityNil},
 			wantDists: []float32{0.3, 0.2, 0.4, 0.1, 0.0, 0.0},
 		},
 		{
 			name:      "sort by number asc",
-			args:      args{"cityArea", "asc"},
+			sort:      sort1("cityArea", "asc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityAmsterdam, cityWroclaw, cityBerlin, cityNewYork},
 			wantDists: []float32{0.0, 0.0, 0.4, 0.1, 0.2, 0.3},
 		},
 		{
 			name:      "sort by number desc",
-			args:      args{"cityArea", "desc"},
+			sort:      sort1("cityArea", "desc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityNewYork, cityBerlin, cityWroclaw, cityAmsterdam, cityNil2, cityNil},
 			wantDists: []float32{0.3, 0.2, 0.1, 0.4, 0.0, 0.0},
 		},
 		{
 			name:      "sort by date asc",
-			args:      args{"cityRights", "asc"},
+			sort:      sort1("cityRights", "asc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityAmsterdam, cityWroclaw, cityBerlin, cityNewYork},
 			wantDists: []float32{0.0, 0.0, 0.4, 0.1, 0.2, 0.3},
 		},
 		{
 			name:      "sort by date desc",
-			args:      args{"cityRights", "desc"},
+			sort:      sort1("cityRights", "desc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityNewYork, cityBerlin, cityWroclaw, cityAmsterdam, cityNil2, cityNil},
 			wantDists: []float32{0.3, 0.2, 0.1, 0.4, 0.0, 0.0},
 		},
 		{
 			name:      "sort by string array asc",
-			args:      args{"timezones", "asc"},
+			sort:      sort1("timezones", "asc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityBerlin, cityAmsterdam, cityNewYork},
 			wantDists: []float32{0.0, 0.0, 0.1, 0.2, 0.4, 0.3},
 		},
 		{
 			name:      "sort by string array desc",
-			args:      args{"timezones", "desc"},
+			sort:      sort1("timezones", "desc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityNewYork, cityWroclaw, cityBerlin, cityAmsterdam, cityNil2, cityNil},
 			wantDists: []float32{0.3, 0.1, 0.2, 0.4, 0.0, 0.0},
 		},
 		{
 			name:      "sort by text array asc",
-			args:      args{"timezonesUTC", "asc"},
+			sort:      sort1("timezonesUTC", "asc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityBerlin, cityAmsterdam, cityNewYork},
 			wantDists: []float32{0.0, 0.0, 0.1, 0.2, 0.4, 0.3},
 		},
 		{
 			name:      "sort by text array desc",
-			args:      args{"timezonesUTC", "desc"},
+			sort:      sort1("timezonesUTC", "desc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityNewYork, cityWroclaw, cityBerlin, cityAmsterdam, cityNil2, cityNil},
 			wantDists: []float32{0.3, 0.1, 0.2, 0.4, 0.0, 0.0},
 		},
 		{
 			name:      "sort by bool asc",
-			args:      args{"isCapital", "asc"},
-			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityBerlin, cityAmsterdam, cityWroclaw, cityNewYork},
-			wantDists: []float32{0.0, 0.0, 0.2, 0.4, 0.1, 0.3},
+			sort:      sort1("isCapital", "asc"),
+			limit:     5,
+			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityNewYork, cityBerlin, cityAmsterdam},
+			wantDists: []float32{0.0, 0.0, 0.1, 0.3, 0.2, 0.4},
 		},
 		{
 			name:      "sort by bool desc",
-			args:      args{"isCapital", "desc"},
-			wantObjs:  []*storobj.Object{cityNewYork, cityWroclaw, cityAmsterdam, cityBerlin, cityNil2, cityNil},
-			wantDists: []float32{0.3, 0.1, 0.4, 0.2, 0.0, 0.0},
+			sort:      sort1("isCapital", "desc"),
+			limit:     3,
+			wantObjs:  []*storobj.Object{cityBerlin, cityAmsterdam, cityWroclaw, cityNewYork, cityNil2, cityNil},
+			wantDists: []float32{0.2, 0.4, 0.1, 0.3, 0.0, 0.0},
 		},
 		{
 			name:      "sort by bool array asc",
-			args:      args{"isCapitalArray", "asc"},
-			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityBerlin, cityNewYork, cityAmsterdam},
-			wantDists: []float32{0.0, 0.0, 0.1, 0.2, 0.3, 0.4},
+			sort:      sort1("isCapitalArray", "asc"),
+			limit:     4,
+			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityBerlin, cityAmsterdam, cityNewYork},
+			wantDists: []float32{0.0, 0.0, 0.1, 0.2, 0.4, 0.3},
 		},
 		{
 			name:      "sort by bool array desc",
-			args:      args{"isCapitalArray", "desc"},
-			wantObjs:  []*storobj.Object{cityAmsterdam, cityNewYork, cityBerlin, cityWroclaw, cityNil2, cityNil},
-			wantDists: []float32{0.4, 0.3, 0.2, 0.1, 0.0, 0.0},
+			sort:      sort1("isCapitalArray", "desc"),
+			limit:     5,
+			wantObjs:  []*storobj.Object{cityNewYork, cityAmsterdam, cityBerlin, cityWroclaw, cityNil2, cityNil},
+			wantDists: []float32{0.3, 0.4, 0.2, 0.1, 0.0, 0.0},
 		},
 		{
 			name:      "sort by number array asc",
-			args:      args{"favoriteNumbers", "asc"},
+			sort:      sort1("favoriteNumbers", "asc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityNewYork, cityWroclaw, cityBerlin, cityAmsterdam},
 			wantDists: []float32{0.0, 0.0, 0.3, 0.1, 0.2, 0.4},
 		},
 		{
 			name:      "sort by number array desc",
-			args:      args{"favoriteNumbers", "desc"},
+			sort:      sort1("favoriteNumbers", "desc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityWroclaw, cityNewYork, cityNil2, cityNil},
 			wantDists: []float32{0.4, 0.2, 0.1, 0.3, 0.0, 0.0},
 		},
 		{
 			name:      "sort by int array asc",
-			args:      args{"favoriteInts", "asc"},
+			sort:      sort1("favoriteInts", "asc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityNewYork, cityWroclaw, cityBerlin, cityAmsterdam},
 			wantDists: []float32{0.0, 0.0, 0.3, 0.1, 0.2, 0.4},
 		},
 		{
 			name:      "sort by int array desc",
-			args:      args{"favoriteInts", "desc"},
+			sort:      sort1("favoriteInts", "desc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityWroclaw, cityNewYork, cityNil2, cityNil},
 			wantDists: []float32{0.4, 0.2, 0.1, 0.3, 0.0, 0.0},
 		},
 		{
 			name:      "sort by date array asc",
-			args:      args{"favoriteDates", "asc"},
-			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityNewYork, cityAmsterdam, cityBerlin},
-			wantDists: []float32{0.0, 0.0, 0.1, 0.3, 0.4, 0.2},
+			sort:      sort1("favoriteDates", "asc"),
+			limit:     4,
+			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityAmsterdam, cityWroclaw, cityBerlin, cityNewYork},
+			wantDists: []float32{0.0, 0.0, 0.4, 0.1, 0.2, 0.3},
 		},
 		{
 			name:      "sort by date array desc",
-			args:      args{"favoriteDates", "desc"},
-			wantObjs:  []*storobj.Object{cityBerlin, cityAmsterdam, cityNewYork, cityWroclaw, cityNil2, cityNil},
-			wantDists: []float32{0.2, 0.4, 0.3, 0.1, 0.0, 0.0},
+			sort:      sort1("favoriteDates", "desc"),
+			limit:     5,
+			wantObjs:  []*storobj.Object{cityNewYork, cityBerlin, cityWroclaw, cityAmsterdam, cityNil2, cityNil},
+			wantDists: []float32{0.3, 0.2, 0.1, 0.4, 0.0, 0.0},
 		},
 		{
 			name:      "sort by phoneNumber asc",
-			args:      args{"phoneNumber", "asc"},
+			sort:      sort1("phoneNumber", "asc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityAmsterdam, cityNewYork, cityBerlin},
 			wantDists: []float32{0.0, 0.0, 0.1, 0.4, 0.3, 0.2},
 		},
 		{
 			name:      "sort by phoneNumber desc",
-			args:      args{"phoneNumber", "desc"},
+			sort:      sort1("phoneNumber", "desc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityBerlin, cityNewYork, cityAmsterdam, cityWroclaw, cityNil2, cityNil},
 			wantDists: []float32{0.2, 0.3, 0.4, 0.1, 0.0, 0.0},
 		},
 		{
 			name:      "sort by location asc",
-			args:      args{"location", "asc"},
+			sort:      sort1("location", "asc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityNewYork, cityAmsterdam, cityBerlin, cityWroclaw},
 			wantDists: []float32{0.0, 0.0, 0.3, 0.4, 0.2, 0.1},
 		},
 		{
 			name:      "sort by location desc",
-			args:      args{"location", "desc"},
+			sort:      sort1("location", "desc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityWroclaw, cityBerlin, cityAmsterdam, cityNewYork, cityNil2, cityNil},
 			wantDists: []float32{0.1, 0.2, 0.4, 0.3, 0.0, 0.0},
 		},
 		{
 			name:      "sort by special id property asc",
-			args:      args{"id", "asc"},
+			sort:      sort1("id", "asc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityNil, cityNil2, cityWroclaw},
 			wantDists: []float32{0.4, 0.2, 0.3, 0.0, 0.0, 0.1},
 		},
 		{
 			name:      "sort by special id property desc",
-			args:      args{"id", "desc"},
+			sort:      sort1("id", "desc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityWroclaw, cityNil2, cityNil, cityNewYork, cityBerlin, cityAmsterdam},
 			wantDists: []float32{0.1, 0.0, 0.0, 0.3, 0.2, 0.4},
 		},
 		{
 			name:      "sort by special _id property asc",
-			args:      args{"_id", "asc"},
+			sort:      sort1("_id", "asc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityNil, cityNil2, cityWroclaw},
 			wantDists: []float32{0.4, 0.2, 0.3, 0.0, 0.0, 0.1},
 		},
 		{
 			name:      "sort by special _id property desc",
-			args:      args{"_id", "desc"},
+			sort:      sort1("_id", "desc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityWroclaw, cityNil2, cityNil, cityNewYork, cityBerlin, cityAmsterdam},
 			wantDists: []float32{0.1, 0.0, 0.0, 0.3, 0.2, 0.4},
 		},
 		{
 			name:      "sort by special _creationTimeUnix property asc",
-			args:      args{"_creationTimeUnix", "asc"},
+			sort:      sort1("_creationTimeUnix", "asc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityNil, cityNil2, cityWroclaw},
 			wantDists: []float32{0.4, 0.2, 0.3, 0.0, 0.0, 0.1},
 		},
 		{
 			name:      "sort by special _creationTimeUnix property desc",
-			args:      args{"_creationTimeUnix", "desc"},
+			sort:      sort1("_creationTimeUnix", "desc"),
+			limit:     3,
 			wantObjs:  []*storobj.Object{cityWroclaw, cityNil2, cityNil, cityNewYork, cityBerlin, cityAmsterdam},
 			wantDists: []float32{0.1, 0.0, 0.0, 0.3, 0.2, 0.4},
 		},
 		{
 			name:      "sort by special _lastUpdateTimeUnix property asc",
-			args:      args{"_lastUpdateTimeUnix", "asc"},
+			sort:      sort1("_lastUpdateTimeUnix", "asc"),
+			limit:     4,
 			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityNil, cityNil2, cityWroclaw},
 			wantDists: []float32{0.4, 0.2, 0.3, 0.0, 0.0, 0.1},
 		},
 		{
 			name:      "sort by special _lastUpdateTimeUnix property desc",
-			args:      args{"_lastUpdateTimeUnix", "desc"},
+			sort:      sort1("_lastUpdateTimeUnix", "desc"),
+			limit:     5,
 			wantObjs:  []*storobj.Object{cityWroclaw, cityNil2, cityNil, cityNewYork, cityBerlin, cityAmsterdam},
 			wantDists: []float32{0.1, 0.0, 0.0, 0.3, 0.2, 0.4},
 		},
+		{
+			name:      "sort by isCapital asc & name asc",
+			sort:      sort2("isCapital", "asc", "name", "asc"),
+			limit:     3,
+			wantObjs:  []*storobj.Object{cityNil, cityNil2, cityNewYork, cityWroclaw, cityAmsterdam, cityBerlin},
+			wantDists: []float32{0.0, 0.0, 0.3, 0.1, 0.4, 0.2},
+		},
+		{
+			name:      "sort by isCapital desc & name asc",
+			sort:      sort2("isCapital", "desc", "name", "asc"),
+			limit:     4,
+			wantObjs:  []*storobj.Object{cityAmsterdam, cityBerlin, cityNewYork, cityWroclaw, cityNil, cityNil2},
+			wantDists: []float32{0.4, 0.2, 0.3, 0.1, 0.0, 0.0},
+		},
+		{
+			name:      "sort by timezones desc & name desc",
+			sort:      sort2("timezones", "desc", "name", "desc"),
+			limit:     5,
+			wantObjs:  []*storobj.Object{cityNewYork, cityWroclaw, cityBerlin, cityAmsterdam, cityNil2, cityNil},
+			wantDists: []float32{0.3, 0.1, 0.2, 0.4, 0.0, 0.0},
+		},
+		{
+			name:      "sort by timezones desc & name asc",
+			sort:      sort2("timezones", "desc", "name", "asc"),
+			limit:     3,
+			wantObjs:  []*storobj.Object{cityNewYork, cityAmsterdam, cityBerlin, cityWroclaw, cityNil, cityNil2},
+			wantDists: []float32{0.3, 0.4, 0.2, 0.1, 0.0, 0.0},
+		},
+		{
+			name:      "sort by timezonesUTC asc & timezones desc & isCapital asc & population asc",
+			sort:      sort4("timezonesUTC", "asc", "timezones", "desc", "isCapital", "asc", "population", "asc"),
+			limit:     4,
+			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityWroclaw, cityAmsterdam, cityBerlin, cityNewYork},
+			wantDists: []float32{0.0, 0.0, 0.1, 0.4, 0.2, 0.3},
+		},
+		{
+			name:      "sort by timezonesUTC asc & timezones desc & isCapital desc & population asc",
+			sort:      sort4("timezonesUTC", "asc", "timezones", "desc", "isCapital", "desc", "population", "asc"),
+			limit:     5,
+			wantObjs:  []*storobj.Object{cityNil2, cityNil, cityAmsterdam, cityBerlin, cityWroclaw, cityNewYork},
+			wantDists: []float32{0.0, 0.0, 0.4, 0.2, 0.1, 0.3},
+		},
 	}
-	// test with distances
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := newObjectsSorter(
-				getCitySchema(),
-				sorterCitySchemaObjects(),
-				sorterCitySchemaDistances(),
-			)
-			gotObjs, gotDists := s.sort([]string{tt.args.property}, tt.args.order)
-			if !reflect.DeepEqual(gotObjs, tt.wantObjs) {
-				t.Errorf("sorterImpl.sort() objects got = %v, want %v",
-					getCityNames(gotObjs), getCityNames(tt.wantObjs))
-			}
-			if !reflect.DeepEqual(gotDists, tt.wantDists) {
-				t.Errorf("sorterImpl.sort() distances got = %v, want %v",
-					gotDists, tt.wantDists)
-			}
-		})
-	}
-	// test with nil distances
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := newObjectsSorter(
-				getCitySchema(),
-				sorterCitySchemaObjects(),
-				nil,
-			)
-			gotObjs, gotDists := s.sort([]string{tt.args.property}, tt.args.order)
-			if !reflect.DeepEqual(gotObjs, tt.wantObjs) {
-				t.Errorf("sorterImpl.sort() objects got = %v, want %v",
-					getCityNames(gotObjs), getCityNames(tt.wantObjs))
-			}
-			if gotDists != nil {
-				t.Errorf("sorterImpl.sort() distances got = %v, want nil",
-					gotDists)
-			}
+			t.Run("with distance", func(t *testing.T) {
+				sorter := NewObjectsSorter(sorterCitySchema())
+				gotObjs, gotDists, err := sorter.Sort(sorterCitySchemaObjects(), sorterCitySchemaDistances(), 0, tt.sort)
+
+				require.Nil(t, err)
+
+				if !reflect.DeepEqual(gotObjs, tt.wantObjs) {
+					t.Fatalf("objects got = %v, want %v",
+						extractCityNames(gotObjs), extractCityNames(tt.wantObjs))
+				}
+				if !reflect.DeepEqual(gotDists, tt.wantDists) {
+					t.Fatalf("distances got = %v, want %v",
+						gotDists, tt.wantDists)
+				}
+			})
+
+			t.Run("without distance", func(t *testing.T) {
+				sorter := NewObjectsSorter(sorterCitySchema())
+				gotObjs, gotDists, err := sorter.Sort(sorterCitySchemaObjects(), nil, 0, tt.sort)
+
+				require.Nil(t, err)
+
+				if !reflect.DeepEqual(gotObjs, tt.wantObjs) {
+					t.Fatalf("objects got = %v, want %v",
+						extractCityNames(gotObjs), extractCityNames(tt.wantObjs))
+				}
+				if gotDists != nil {
+					t.Fatalf("distances got = %v, want nil",
+						gotDists)
+				}
+			})
+
+			t.Run("with limit", func(t *testing.T) {
+				sorter := NewObjectsSorter(sorterCitySchema())
+				gotObjs, gotDists, err := sorter.Sort(sorterCitySchemaObjects(), sorterCitySchemaDistances(), tt.limit, tt.sort)
+
+				require.Nil(t, err)
+
+				if !reflect.DeepEqual(gotObjs, tt.wantObjs[:tt.limit]) {
+					t.Fatalf("objects got = %v, want %v",
+						extractCityNames(gotObjs), extractCityNames(tt.wantObjs))
+				}
+				if !reflect.DeepEqual(gotDists, tt.wantDists[:tt.limit]) {
+					t.Fatalf("distances got = %v, want %v",
+						gotDists, tt.wantDists)
+				}
+			})
 		})
 	}
 }
 
-func getCitySchema() schema.Schema {
-	schemaGetter := &fakeSorterSchemaGetter{schema: sorterCitySchema()}
-	return schemaGetter.schema
+func createSort(property, order string) filters.Sort {
+	return filters.Sort{Path: []string{property}, Order: order}
 }
 
-func getCityNames(in []*storobj.Object) []string {
+func sort1(property, order string) []filters.Sort {
+	return []filters.Sort{createSort(property, order)}
+}
+
+func sort2(property1, order1, property2, order2 string) []filters.Sort {
+	return []filters.Sort{
+		createSort(property1, order1),
+		createSort(property2, order2),
+	}
+}
+
+func sort4(property1, order1, property2, order2, property3, order3, property4, order4 string) []filters.Sort {
+	return []filters.Sort{
+		createSort(property1, order1),
+		createSort(property2, order2),
+		createSort(property3, order3),
+		createSort(property4, order4),
+	}
+}
+
+func extractCityNames(in []*storobj.Object) []string {
 	out := make([]string, len(in))
 	for i := range in {
 		if asMap, ok := in[i].Properties().(map[string]interface{}); ok {
@@ -307,244 +413,4 @@ func getCityNames(in []*storobj.Object) []string {
 		}
 	}
 	return out
-}
-
-type fakeSorterSchemaGetter struct {
-	schema     schema.Schema
-	shardState *sharding.State
-}
-
-func (f *fakeSorterSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
-}
-
-func (f *fakeSorterSchemaGetter) ShardingState(class string) *sharding.State {
-	return f.shardState
-}
-
-func sorterCitySchema() schema.Schema {
-	return schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class: "City",
-					Properties: []*models.Property{
-						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
-						},
-						{
-							Name:     "country",
-							DataType: []string{string(schema.DataTypeText)},
-						},
-						{
-							Name:     "population",
-							DataType: []string{string(schema.DataTypeInt)},
-						},
-						{
-							Name:     "cityArea",
-							DataType: []string{string(schema.DataTypeNumber)},
-						},
-						{
-							Name:     "cityRights",
-							DataType: []string{string(schema.DataTypeDate)},
-						},
-						{
-							Name:     "timezones",
-							DataType: []string{string(schema.DataTypeStringArray)},
-						},
-						{
-							Name:     "timezonesUTC",
-							DataType: []string{string(schema.DataTypeTextArray)},
-						},
-						{
-							Name:     "isCapital",
-							DataType: []string{string(schema.DataTypeBoolean)},
-						},
-						{
-							Name:     "isCapitalArray",
-							DataType: []string{string(schema.DataTypeBooleanArray)},
-						},
-						{
-							Name:     "favoriteNumbers",
-							DataType: []string{string(schema.DataTypeNumberArray)},
-						},
-						{
-							Name:     "favoriteInts",
-							DataType: []string{string(schema.DataTypeIntArray)},
-						},
-						{
-							Name:     "favoriteDates",
-							DataType: []string{string(schema.DataTypeDateArray)},
-						},
-						{
-							Name:     "phoneNumber",
-							DataType: []string{string(schema.DataTypePhoneNumber)},
-						},
-						{
-							Name:     "location",
-							DataType: []string{string(schema.DataTypeGeoCoordinates)},
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-func sorterCitySchemaDistances() []float32 {
-	return []float32{0.1, 0.0, 0.2, 0.3, 0.4, 0.0}
-}
-
-func sorterCitySchemaObjects() []*storobj.Object {
-	return []*storobj.Object{cityWroclaw, cityNil2, cityBerlin, cityNewYork, cityAmsterdam, cityNil}
-}
-
-var (
-	cityWroclaw = &storobj.Object{
-		Object: models.Object{
-			Class:              "City",
-			ID:                 strfmt.UUID("f10018a7-ad67-4774-a9ac-86a04df51cb6"),
-			CreationTimeUnix:   9000000006,
-			LastUpdateTimeUnix: 9100000006,
-			Properties: map[string]interface{}{
-				"name":            "Wroclaw",
-				"country":         "Poland",
-				"population":      float64(641928),
-				"cityArea":        float64(292.23),
-				"cityRights":      "1214-01-01T00:00:00+02:00",
-				"timezones":       []string{"CET", "CEST"},
-				"timezonesUTC":    []string{"UTC+1", "UTC+2"},
-				"isCapital":       false,
-				"isCapitalArray":  []bool{false, false},
-				"favoriteNumbers": []float64{0, 0, 0},
-				"favoriteInts":    []float64{0, 0, 0},
-				"favoriteDates":   []string{"1214-01-01T00:00:00+02:00", "1214-01-01T00:00:00+02:00"},
-				"phoneNumber": &models.PhoneNumber{
-					CountryCode: 0,
-					National:    400500600,
-				},
-				"location": &models.GeoCoordinates{
-					Latitude:  pointerFloat32(51.11),
-					Longitude: pointerFloat32(17.022222),
-				},
-			},
-		},
-	}
-	cityBerlin = &storobj.Object{
-		Object: models.Object{
-			Class:              "City",
-			ID:                 strfmt.UUID("b06bb8a7-ad67-4774-a9ac-86a04df51cb6"),
-			CreationTimeUnix:   9000000002,
-			LastUpdateTimeUnix: 9100000002,
-			Properties: map[string]interface{}{
-				"name":            "Berlin",
-				"country":         "Germany",
-				"population":      float64(3664088),
-				"cityArea":        float64(891.95),
-				"cityRights":      "1400-01-01T00:00:00+02:00",
-				"timezones":       []string{"CET", "CEST"},
-				"timezonesUTC":    []string{"UTC+1", "UTC+2"},
-				"isCapital":       true,
-				"isCapitalArray":  []bool{false, false, true},
-				"favoriteNumbers": []float64{0, 10, 1},
-				"favoriteInts":    []float64{0, 10, 1},
-				"favoriteDates":   []string{"1400-01-01T00:00:00+02:00"},
-				"phoneNumber": &models.PhoneNumber{
-					CountryCode: 33,
-					National:    400500610,
-				},
-				"location": &models.GeoCoordinates{
-					Latitude:  pointerFloat32(52.518611),
-					Longitude: pointerFloat32(13.408333),
-				},
-			},
-		},
-	}
-	cityNewYork = &storobj.Object{
-		Object: models.Object{
-			Class:              "City",
-			ID:                 strfmt.UUID("e06bb8a7-ad67-4774-a9ac-86a04df51cb6"),
-			CreationTimeUnix:   9000000003,
-			LastUpdateTimeUnix: 9100000003,
-			Properties: map[string]interface{}{
-				"name":            "New York",
-				"country":         "USA",
-				"population":      float64(8336817),
-				"cityArea":        float64(1223.59),
-				"cityRights":      "1653-01-01T00:00:00+02:00",
-				"timezones":       []string{"EST", "EDT"},
-				"timezonesUTC":    []string{"UTC-5", "UTC-4"},
-				"isCapital":       false,
-				"isCapitalArray":  []bool{true, true, true},
-				"favoriteNumbers": []float64{-100000.23, -8.909},
-				"favoriteInts":    []float64{-100000, -8},
-				"favoriteDates":   []string{"1400-01-01T00:00:00+02:00", "1653-01-01T00:00:00+02:00"},
-				"phoneNumber": &models.PhoneNumber{
-					CountryCode: 33,
-					National:    400500609,
-				},
-				"location": &models.GeoCoordinates{
-					Latitude:  pointerFloat32(40.716667),
-					Longitude: pointerFloat32(-74),
-				},
-			},
-		},
-	}
-	cityAmsterdam = &storobj.Object{
-		Object: models.Object{
-			Class:              "City",
-			ID:                 strfmt.UUID("a06bb8a7-ad67-4774-a9ac-86a04df51cb6"),
-			CreationTimeUnix:   9000000001,
-			LastUpdateTimeUnix: 9100000001,
-			Properties: map[string]interface{}{
-				"name":            "Amsterdam",
-				"country":         "The Netherlands",
-				"population":      float64(905234),
-				"cityArea":        float64(219.32),
-				"cityRights":      "1100-01-01T00:00:00+02:00",
-				"timezones":       []string{"CET", "CEST"},
-				"timezonesUTC":    []string{"UTC+1", "UTC+2"},
-				"isCapital":       true,
-				"isCapitalArray":  []bool{true},
-				"favoriteNumbers": []float64{1, 2, 3, 4, 5, 6, 8.8, 9.9},
-				"favoriteInts":    []float64{1, 2, 3, 4, 5, 6, 8, 9},
-				"favoriteDates":   []string{"1100-01-01T00:00:00+02:00"},
-				"phoneNumber": &models.PhoneNumber{
-					CountryCode: 33,
-					National:    400500602,
-				},
-				"location": &models.GeoCoordinates{
-					Latitude:  pointerFloat32(52.366667),
-					Longitude: pointerFloat32(4.9),
-				},
-			},
-		},
-	}
-	cityNil = &storobj.Object{
-		Object: models.Object{
-			Class:              "City",
-			ID:                 strfmt.UUID("f00018a7-ad67-4774-a9ac-86a04df51cb6"),
-			CreationTimeUnix:   9000000004,
-			LastUpdateTimeUnix: 9100000004,
-			Properties: map[string]interface{}{
-				"name": "Nil",
-			},
-		},
-	}
-	cityNil2 = &storobj.Object{
-		Object: models.Object{
-			Class:              "City",
-			ID:                 strfmt.UUID("f00028a7-ad67-4774-a9ac-86a04df51cb6"),
-			CreationTimeUnix:   9000000005,
-			LastUpdateTimeUnix: 9100000005,
-			Properties: map[string]interface{}{
-				"name": "Nil2",
-			},
-		},
-	}
-)
-
-func pointerFloat32(in float32) *float32 {
-	return &in
 }

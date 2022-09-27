@@ -36,6 +36,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
@@ -44,22 +45,22 @@ import (
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index            *Index // a reference to the underlying index, which in turn contains schema information
-	name             string
-	store            *lsmkv.Store
-	counter          *indexcounter.Counter
-	vectorIndex      VectorIndex
-	invertedRowCache *inverted.RowCacher
-	metrics          *Metrics
-	promMetrics      *monitoring.PrometheusMetrics
-	propertyIndices  propertyspecific.Indices
-	deletedDocIDs    *docid.InMemDeletedTracker
-	cleanupInterval  time.Duration
-	cancel           chan struct{}
-	propLengths      *inverted.PropertyLengthTracker
-	randomSource     *bufferedRandomGen
-	versioner        *shardVersioner
-	diskScanState    *diskScanState
+	index             *Index // a reference to the underlying index, which in turn contains schema information
+	name              string
+	store             *lsmkv.Store
+	counter           *indexcounter.Counter
+	vectorIndex       VectorIndex
+	invertedRowCache  *inverted.RowCacher
+	metrics           *Metrics
+	promMetrics       *monitoring.PrometheusMetrics
+	propertyIndices   propertyspecific.Indices
+	deletedDocIDs     *docid.InMemDeletedTracker
+	cleanupInterval   time.Duration
+	cancel            chan struct{}
+	propLengths       *inverted.PropertyLengthTracker
+	randomSource      *bufferedRandomGen
+	versioner         *shardVersioner
+	resourceScanState *resourceScanState
 
 	numActiveBatches    int
 	activeBatchesLock   sync.Mutex
@@ -103,7 +104,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			CleanupIntervalSeconds) * time.Second,
 		cancel:              make(chan struct{}, 1),
 		randomSource:        rand,
-		diskScanState:       newDiskScanState(),
+		resourceScanState:   newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}
@@ -113,7 +114,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
 
-	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
 	if !ok {
 		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
 			index.vectorIndexUserConfig)
@@ -125,15 +126,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		var distProv distancer.Provider
 
 		switch hnswUserConfig.Distance {
-		case "", hnsw.DistanceCosine:
+		case "", hnswent.DistanceCosine:
 			distProv = distancer.NewCosineDistanceProvider()
-		case hnsw.DistanceDot:
+		case hnswent.DistanceDot:
 			distProv = distancer.NewDotProductProvider()
-		case hnsw.DistanceL2Squared:
+		case hnswent.DistanceL2Squared:
 			distProv = distancer.NewL2SquaredProvider()
-		case hnsw.DistanceManhattan:
+		case hnswent.DistanceManhattan:
 			distProv = distancer.NewManhattanProvider()
-		case hnsw.DistanceHamming:
+		case hnswent.DistanceHamming:
 			distProv = distancer.NewHammingProvider()
 		default:
 			return nil, errors.Errorf("unrecognized distance metric %q,"+
@@ -236,6 +237,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
@@ -307,6 +309,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
@@ -314,6 +317,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 	err = s.store.CreateOrLoadBucket(ctx,
 		helpers.HashBucketFromPropNameLSM(filters.InternalPropID),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err
@@ -337,15 +341,39 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
+
+	err = s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 	err = s.store.CreateOrLoadBucket(ctx,
 		helpers.HashBucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err
@@ -357,12 +385,14 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
 	err = s.store.CreateOrLoadBucket(ctx,
 		helpers.HashBucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace))
 	if err != nil {
 		return err
@@ -379,14 +409,18 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategySetCollection)) // ref props do not have frequencies -> Set
+			lsmkv.WithStrategy(lsmkv.StrategySetCollection), // ref props do not have frequencies -> Set
+			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
+		)
 		if err != nil {
 			return err
 		}
 
 		err = s.store.CreateOrLoadBucket(ctx,
 			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			lsmkv.WithStrategy(lsmkv.StrategyReplace),
+			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
+		)
 		if err != nil {
 			return err
 		}
@@ -399,6 +433,7 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	var mapOpts []lsmkv.BucketOption
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
 		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		mapOpts = append(mapOpts, lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second))
 		if s.versioner.Version() < 2 {
 			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
 		}
@@ -413,7 +448,9 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	}
 
 	err = s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
-		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		lsmkv.WithStrategy(lsmkv.StrategyReplace),
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.FlushIdleAfter)*time.Second),
+	)
 	if err != nil {
 		return err
 	}

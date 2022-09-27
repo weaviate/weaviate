@@ -28,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -209,10 +208,9 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	db := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 		NodeName:                  "testNode",
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)

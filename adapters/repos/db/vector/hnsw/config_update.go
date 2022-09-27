@@ -16,15 +16,16 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 )
 
 func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
-	initialParsed, ok := initial.(UserConfig)
+	initialParsed, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
 	}
 
-	updatedParsed, ok := updated.(UserConfig)
+	updatedParsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("updated is not UserConfig, but %T", updated)
 	}
@@ -32,11 +33,11 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	immutableFields := []immutableInt{
 		{
 			name:     "efConstruction",
-			accessor: func(c UserConfig) int { return c.EFConstruction },
+			accessor: func(c ent.UserConfig) int { return c.EFConstruction },
 		},
 		{
 			name:     "maxConnections",
-			accessor: func(c UserConfig) int { return c.MaxConnections },
+			accessor: func(c ent.UserConfig) int { return c.MaxConnections },
 		},
 		{
 			// NOTE: There isn't a technical reason for this to be immutable, it
@@ -44,7 +45,7 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 			// current timer and start a new one. Certainly possible, but let's see
 			// if anyone actually needs this before implementing it.
 			name:     "cleanupIntervalSeconds",
-			accessor: func(c UserConfig) int { return c.CleanupIntervalSeconds },
+			accessor: func(c ent.UserConfig) int { return c.CleanupIntervalSeconds },
 		},
 	}
 
@@ -58,12 +59,12 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 }
 
 type immutableInt struct {
-	accessor func(c UserConfig) int
+	accessor func(c ent.UserConfig) int
 	name     string
 }
 
 func validateImmutableIntField(u immutableInt,
-	previous, next UserConfig,
+	previous, next ent.UserConfig,
 ) error {
 	oldField := u.accessor(previous)
 	newField := u.accessor(next)
@@ -76,7 +77,7 @@ func validateImmutableIntField(u immutableInt,
 }
 
 func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
-	parsed, ok := updated.(UserConfig)
+	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}

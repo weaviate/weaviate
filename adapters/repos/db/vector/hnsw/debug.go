@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 )
 
 // Dump to stdout for debugging purposes
@@ -117,7 +118,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 	})
@@ -153,7 +154,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 	})

@@ -48,6 +48,7 @@ import (
 	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
 	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
+	modcentroid "github.com/semi-technologies/weaviate/modules/ref2vec-centroid"
 	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
@@ -157,13 +158,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
+		FlushIdleAfter:            appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
-		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
-		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
 		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
 		NodeName:                  appState.Cluster.LocalName(),
+		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
@@ -229,7 +230,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules,
+		appState.Authorizer, vectorRepo, appState.Modules,
 		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
@@ -496,6 +497,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstggcs.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modcentroid.Name]; ok {
+		appState.Modules.Register(modcentroid.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modcentroid.Name).
 			Debug("enabled module")
 	}
 

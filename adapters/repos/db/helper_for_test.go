@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 )
 
@@ -214,7 +215,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	idx := &Index{
 		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className), MaxImportGoroutinesFactor: 1.5},
 		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
-		vectorIndexUserConfig: hnsw.UserConfig{Skip: true},
+		vectorIndexUserConfig: hnswent.UserConfig{Skip: true},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
 		Shards:                map[string]*Shard{},
@@ -244,7 +245,7 @@ func withVectorIndexing(affirmative bool) func(*Index) {
 	}
 
 	return func(i *Index) {
-		i.vectorIndexUserConfig = hnsw.UserConfig{Skip: true}
+		i.vectorIndexUserConfig = hnswent.UserConfig{Skip: true}
 	}
 }
 

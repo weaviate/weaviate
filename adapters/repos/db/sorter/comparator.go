@@ -11,67 +11,25 @@
 
 package sorter
 
-import (
-	"strings"
-	"time"
-)
-
 type comparator struct {
-	order string
+	comparators []basicComparator
 }
 
-func newComparator(order string) *comparator {
-	return &comparator{order}
+func newComparator(dataTypesHelper *dataTypesHelper, propNames []string, orders []string) *comparator {
+	provider := &basicComparatorProvider{}
+	comparators := make([]basicComparator, len(propNames))
+	for level, propName := range propNames {
+		dataType := dataTypesHelper.getType(propName)
+		comparators[level] = provider.provide(dataType, orders[level])
+	}
+	return &comparator{comparators}
 }
 
-func (s *comparator) compareString(a, b *string) bool {
-	if a != nil && b != nil {
-		if s.order == "desc" {
-			return strings.ToLower(*a) > strings.ToLower(*b)
+func (c *comparator) compare(a, b *comparable) int {
+	for level, comparator := range c.comparators {
+		if res := comparator.compare(a.values[level], b.values[level]); res != 0 {
+			return res
 		}
-		return strings.ToLower(*a) < strings.ToLower(*b)
 	}
-	return s.handleNil(a == nil, b == nil)
-}
-
-func (s *comparator) compareFloat64(a, b *float64) bool {
-	if a != nil && b != nil {
-		if s.order == "desc" {
-			return *a > *b
-		}
-		return *a < *b
-	}
-	return s.handleNil(a == nil, b == nil)
-}
-
-func (s *comparator) compareDate(a, b *time.Time) bool {
-	if a != nil && b != nil {
-		if s.order == "desc" {
-			return a.After(*b)
-		}
-		return a.Before(*b)
-	}
-	return s.handleNil(a == nil, b == nil)
-}
-
-func (s *comparator) compareBool(a, b *bool) bool {
-	if a != nil && b != nil {
-		if s.order == "desc" {
-			return !*a || *b
-		}
-		return !(!*a || *b)
-	}
-	return s.handleNil(a == nil, b == nil)
-}
-
-func (s *comparator) handleNil(a, b bool) bool {
-	if a && b {
-		return false
-	}
-	if a {
-		// if s.order == "desc" return false if not then true
-		return s.order != "desc"
-	}
-	// if s.order == "desc" return true if not then false
-	return s.order == "desc"
+	return 0
 }

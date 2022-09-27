@@ -15,12 +15,15 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -49,6 +52,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		}
 		expectedRefProperty := "hasAnimals"
 		m.repo.On("AddReference", cls, mock.Anything, expectedRefProperty, expectedRef).Return(nil)
+		m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
 		err := m.AddObjectReference(context.Background(), nil, &req)
 		require.Nil(t, err)
@@ -204,6 +208,7 @@ func Test_ReferenceAdd(t *testing.T) {
 			m.authorizer.Err = tc.ErrAuth
 			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
+			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
 				m.repo.On("Exists", "", refID).Return(true, tc.ErrTagetExists).Once()
 			}
@@ -542,6 +547,7 @@ func Test_ReferenceDelete(t *testing.T) {
 				srcObj = nil
 			}
 			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
 			if tc.Stage >= 3 {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
@@ -571,6 +577,128 @@ func Test_ReferenceDelete(t *testing.T) {
 
 			m.repo.AssertExpectations(t)
 		})
+	}
+}
+
+func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	m := newFakeGetManager(articleSchemaForTest())
+
+	req := AddReferenceInput{
+		Class:    "Article",
+		ID:       strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
+		Property: "hasParagraphs",
+		Ref: models.SingleRef{
+			Beacon: strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
+		},
+	}
+
+	parent := &search.Result{
+		ID:        strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
+		ClassName: "Article",
+		Schema:    map[string]interface{}{},
+	}
+
+	ref1 := &search.Result{
+		ID:        strfmt.UUID("494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
+		ClassName: "Paragraph",
+		Vector:    []float32{2, 4, 6},
+	}
+
+	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
+	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
+	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
+	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
+	m.repo.On("AddReference", req.Class, req.ID, req.Property, &req.Ref).Return(nil)
+	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
+	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		Return(ref1.Vector, nil)
+	m.repo.On("PutObject", mock.Anything, ref1.Vector).Return(nil)
+
+	err := m.Manager.AddObjectReference(ctx, nil, &req)
+	assert.Nil(t, err)
+}
+
+func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	m := newFakeGetManager(articleSchemaForTest())
+
+	req := DeleteReferenceInput{
+		Class:    "Article",
+		ID:       strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
+		Property: "hasParagraphs",
+		Reference: models.SingleRef{
+			Beacon: strfmt.URI("weaviate://localhost/Paragraph/494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
+		},
+	}
+
+	parent := &search.Result{
+		ID:        strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
+		ClassName: "Article",
+		Schema:    map[string]interface{}{},
+	}
+
+	ref1 := &search.Result{
+		ID:        strfmt.UUID("494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea"),
+		ClassName: "Paragraph",
+		Vector:    []float32{2, 4, 6},
+	}
+
+	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
+	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
+	m.repo.On("Object", req.Class, req.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
+	m.repo.On("PutObject", parent.Object(), []float32(nil)).Return(nil)
+	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
+
+	err := m.Manager.DeleteObjectReference(ctx, nil, &req)
+	assert.Nil(t, err)
+}
+
+func articleSchemaForTest() schema.Schema {
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "Paragraph",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Properties: []*models.Property{
+						{
+							Name:     "contents",
+							DataType: []string{"text"},
+						},
+					},
+				},
+				{
+					Class:             "Article",
+					VectorIndexConfig: hnsw.UserConfig{},
+					Properties: []*models.Property{
+						{
+							Name:     "title",
+							DataType: []string{"string"},
+						},
+						{
+							Name:     "hasParagraphs",
+							DataType: []string{"Paragraph"},
+						},
+					},
+					Vectorizer: "ref2vec-centroid",
+					ModuleConfig: map[string]interface{}{
+						"ref2vec-centroid": map[string]interface{}{
+							"referenceProperties": []string{"hasParagraphs"},
+							"method":              "mean",
+						},
+					},
+				},
+			},
+		},
 	}
 }
 

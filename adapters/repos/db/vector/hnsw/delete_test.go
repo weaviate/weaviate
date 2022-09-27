@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
 
@@ -129,7 +130,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
 
@@ -242,7 +243,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
 
@@ -360,7 +361,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 
@@ -635,7 +636,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 
@@ -778,7 +779,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		VectorForIDThunk:      vecForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 
@@ -851,7 +852,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
 		// explicitly turn off, so we only focus on the tombstoned periods
@@ -1024,7 +1025,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 				fmt.Printf("vec for pos=%d is %v\n", id, vectors[int(id)])
 				return vectors[int(id)], vectorErrors[int(id)]
 			},
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: 30,
 			EFConstruction: 128,
 

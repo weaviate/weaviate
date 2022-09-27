@@ -45,9 +45,15 @@ const (
 )
 
 const (
+	DefaultMaxImportGoroutinesFactor = float64(1.5)
+
 	DefaultDiskUseWarningPercentage  = uint64(80)
 	DefaultDiskUseReadonlyPercentage = uint64(90)
-	DefaultMaxImportGoroutinesFactor = float64(1.5)
+	DefaultMemUseWarningPercentage   = uint64(80)
+	// TODO: off by default for now, to make sure
+	//       the measurement is reliable. once
+	//       confirmed, we can set this to 90
+	DefaultMemUseReadonlyPercentage = uint64(0)
 )
 
 // Flags are input options
@@ -73,7 +79,7 @@ type Config struct {
 	Cluster                   cluster.Config `json:"cluster" yaml:"cluster"`
 	Monitoring                Monitoring     `json:"monitoring" yaml:"monitoring"`
 	Profiling                 Profiling      `json:"profiling" yaml:"profiling"`
-	DiskUse                   DiskUse        `json:"disk_use" yaml:"disk_use"`
+	ResourceUsage             ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 }
 
@@ -141,7 +147,8 @@ type Profiling struct {
 }
 
 type Persistence struct {
-	DataPath string `json:"dataPath" yaml:"dataPath"`
+	DataPath                string `json:"dataPath" yaml:"dataPath"`
+	FlushIdleMemtablesAfter int    `json:"flushIdleMemtablesAfter" yaml:"flushIdleMemtablesAfter"`
 }
 
 func (p Persistence) Validate() error {
@@ -164,6 +171,40 @@ func (d DiskUse) Validate() error {
 
 	if d.ReadOnlyPercentage > 100 {
 		return fmt.Errorf("disk_use.read_only_percentage must be between 0 and 100")
+	}
+
+	return nil
+}
+
+type MemUse struct {
+	WarningPercentage  uint64 `json:"warning_percentage" yaml:"warning_percentage"`
+	ReadOnlyPercentage uint64 `json:"readonly_percentage" yaml:"readonly_percentage"`
+}
+
+func (m MemUse) Validate() error {
+	if m.WarningPercentage > 100 {
+		return fmt.Errorf("mem_use.read_only_percentage must be between 0 and 100")
+	}
+
+	if m.ReadOnlyPercentage > 100 {
+		return fmt.Errorf("mem_use.read_only_percentage must be between 0 and 100")
+	}
+
+	return nil
+}
+
+type ResourceUsage struct {
+	DiskUse DiskUse
+	MemUse  MemUse
+}
+
+func (r ResourceUsage) Validate() error {
+	if err := r.DiskUse.Validate(); err != nil {
+		return err
+	}
+
+	if err := r.MemUse.Validate(); err != nil {
+		return err
 	}
 
 	return nil
@@ -238,7 +279,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 		return configErr(err)
 	}
 
-	if err := f.Config.DiskUse.Validate(); err != nil {
+	if err := f.Config.ResourceUsage.Validate(); err != nil {
 		return configErr(err)
 	}
 

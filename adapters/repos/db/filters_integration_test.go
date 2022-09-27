@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -41,10 +40,9 @@ func TestFilters(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -81,6 +79,7 @@ var (
 	wgr  = filters.OperatorWithinGeoRange
 	and  = filters.OperatorAnd
 	or   = filters.OperatorOr
+	null = filters.OperatorIsNull
 
 	// datatypes
 	dtInt            = schema.DataTypeInt
@@ -153,7 +152,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "modelName != sprinter",
 				filter:      buildFilter("modelName", "sprinter", neq, dtString),
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carNilID},
 			},
 			{
 				name:        "modelName = spr*er (optimizable) dtString",
@@ -288,7 +287,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "by id not equal",
 				filter:      buildFilter("id", carE63sID.String(), neq, dtString),
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID},
 			},
 			{
 				name:        "by id less then equal",
@@ -303,12 +302,12 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "by id greater then equal",
 				filter:      buildFilter("id", carPoloID.String(), gte, dtString),
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID},
 			},
 			{
 				name:        "by id greater then",
 				filter:      buildFilter("id", carPoloID.String(), gt, dtString),
-				expectedIDs: []strfmt.UUID{carSprinterID},
+				expectedIDs: []strfmt.UUID{carSprinterID, carNilID},
 			},
 			{
 				name: "within 600km of San Francisco",
@@ -385,6 +384,16 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				name:        "by color with array field tokenization multiword (2)",
 				filter:      buildFilter("colorArrayField", "dark grey", eq, dtString),
 				expectedIDs: []strfmt.UUID{},
+			},
+			{
+				name:        "by null value",
+				filter:      buildFilter("colorArrayField", true, null, dtBool),
+				expectedIDs: []strfmt.UUID{carNilID},
+			},
+			{
+				name:        "by value not null",
+				filter:      buildFilter("colorArrayField", false, null, dtBool),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 		}
 
@@ -646,6 +655,7 @@ var (
 	carSprinterID strfmt.UUID = "d4c48788-7798-4bdd-bca9-5cd5012a5271"
 	carE63sID     strfmt.UUID = "62906c61-f92f-4f2c-874f-842d4fb9d80b"
 	carPoloID     strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f2e"
+	carNilID      strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f3e"
 )
 
 func mustParseTime(in string) time.Time {
@@ -713,6 +723,13 @@ var cars = []models.Object{
 			"colorArrayField": []interface{}{"dark", "grey"},
 		},
 	},
+	{
+		Class: carClass.Class,
+		ID:    carNilID,
+		Properties: map[string]interface{}{
+			"modelName": "NilCar",
+		},
+	},
 }
 
 var carVectors = [][]float32{
@@ -730,10 +747,9 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -840,10 +856,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
+		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -1123,112 +1138,112 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 				sort: []filters.Sort{
 					buildSortFilter([]string{"modelName"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carPoloID, carSprinterID},
 			},
 			{
 				name: "modelName desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"modelName"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carE63sID},
+				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carNilID, carE63sID},
 			},
 			{
 				name: "horsepower asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"horsepower"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "horsepower desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"horsepower"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
 			},
 			{
 				name: "weight asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"weight"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carE63sID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carE63sID, carSprinterID},
 			},
 			{
 				name: "weight desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"weight"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID},
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID, carNilID},
 			},
 			{
 				name: "released asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"released"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "released desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"released"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
 			},
 			{
 				name: "parkedAt asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"parkedAt"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carPoloID, carNilID, carSprinterID, carE63sID},
 			},
 			{
 				name: "parkedAt desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"parkedAt"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
 			},
 			{
 				name: "contact asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"contact"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carNilID, carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name: "contact desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"contact"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID, carNilID},
 			},
 			{
 				name: "description asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"description"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carNilID, carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name: "description desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"description"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID, carNilID},
 			},
 			{
 				name: "colorArrayWord asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"colorArrayWord"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "colorArrayWord desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"colorArrayWord"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
 			},
 			{
 				name: "modelName and horsepower asc",
@@ -1236,7 +1251,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					buildSortFilter([]string{"modelName"}, "asc"),
 					buildSortFilter([]string{"horsepower"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carPoloID, carSprinterID},
 			},
 			{
 				name: "horsepower and modelName asc",
@@ -1244,7 +1259,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					buildSortFilter([]string{"horsepower"}, "asc"),
 					buildSortFilter([]string{"modelName"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "horsepower and modelName asc invalid sort",
@@ -1275,7 +1290,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					for pos, concept := range res {
 						ids[pos] = concept.ID
 					}
-					assert.EqualValues(t, ids, test.expectedIDs, "ids dont match")
+					assert.EqualValues(t, test.expectedIDs, ids, "ids dont match")
 				}
 			})
 		}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ import (
 func Test_DynamicEF(t *testing.T) {
 	type test struct {
 		name       string
-		config     UserConfig
+		config     ent.UserConfig
 		limit      int
 		expectedEf int
 	}
@@ -34,7 +35,7 @@ func Test_DynamicEF(t *testing.T) {
 	tests := []test{
 		{
 			name: "all defaults explicitly entered, limit: 100",
-			config: UserConfig{
+			config: ent.UserConfig{
 				VectorCacheMaxObjects: 10,
 				EF:                    -1,
 				DynamicEFMin:          100,
@@ -46,7 +47,7 @@ func Test_DynamicEF(t *testing.T) {
 		},
 		{
 			name: "limit lower than min",
-			config: UserConfig{
+			config: ent.UserConfig{
 				VectorCacheMaxObjects: 10,
 				EF:                    -1,
 				DynamicEFMin:          100,
@@ -58,7 +59,7 @@ func Test_DynamicEF(t *testing.T) {
 		},
 		{
 			name: "limit within the dynamic range",
-			config: UserConfig{
+			config: ent.UserConfig{
 				VectorCacheMaxObjects: 10,
 				EF:                    -1,
 				DynamicEFMin:          100,
@@ -70,7 +71,7 @@ func Test_DynamicEF(t *testing.T) {
 		},
 		{
 			name: "explicit ef",
-			config: UserConfig{
+			config: ent.UserConfig{
 				VectorCacheMaxObjects: 10,
 				EF:                    78,
 			},

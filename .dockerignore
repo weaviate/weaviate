@@ -6,17 +6,26 @@ data/
 data-node2/
 data_wiki/
 logs/
-test/acceptance/
-/snapshots/
-/snapshots-fs/
-/snapshots-node2/
-/snapshots-s3/
-/snapshots-gcs/
-/backups/
-/backups-fs/
-/backups-node2/
-/backups-s3/
-/backups-gcs/
-*.fvecs  # sift data
-*.png  # profiling
-*.out
+snapshots/
+snapshots-fs/
+snapshots-node2/
+snapshots-s3/
+snapshots-gcs/
+backups/
+backups-fs/
+backups-node2/
+backups-s3/
+backups-gcs/
+test/
+tools/
+**/*.fvecs  # sift data
+**/*.png  # profiling
+**/*.out
+**/*.csv
+**/*.md
+**/*_test.go
+**/.DS_Store
+**/testdata/
+coverage-integration.txt
+coverage-unit.txt
+
