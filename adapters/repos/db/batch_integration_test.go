@@ -130,25 +130,18 @@ func TestBatchDeleteObjects(t *testing.T) {
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
 
-	shards := repo.GetIndexForIncoming("ThingForBatching").(*Index).Shards
-	// Find the test shard
-	keys := make([]string, 0)
-	for k := range shards {
-		keys = append(keys, k)
-	}
-	fmt.Printf("All available shards: %v", keys)
-	testShardName := keys[0]
-	testShard := shards[testShardName]
+	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 
-	require.Equal(t, 0, testShard.Dimensions(), "Dimensions are empty before import")
+	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	t.Run("batch import things", testBatchImportObjects(repo))
 
-	require.Equal(t, 309, testShard.Dimensions(), "Dimensions are present before delete")
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
 	t.Run("batch delete things", testBatchDeleteObjects(repo))
-
-	require.Equal(t, 0, testShard.Dimensions(), "Dimensions have been deleted")
+	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
