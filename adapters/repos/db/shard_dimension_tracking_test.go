@@ -170,7 +170,6 @@ func Test_DimensionTracking(t *testing.T) {
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
 		require.Equal(t, dimBefore+50*128, dimAfter, "dimensions should increase")
-
 	})
 
 	t.Run("update some of the nil objects with another nil vector", func(t *testing.T) {
@@ -192,5 +191,4 @@ func Test_DimensionTracking(t *testing.T) {
 			assert.Equal(t, 12800, shard.Dimensions())
 		}
 	})
-
 }
