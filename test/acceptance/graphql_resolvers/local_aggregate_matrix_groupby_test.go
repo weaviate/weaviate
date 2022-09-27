@@ -789,23 +789,14 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 		allResults := []interface{}{
 			map[string]interface{}{
 				"groupedBy":      h.groupedBy("true", "booleans"),
-				"meta":           h.meta(6),
-				"booleans":       h.booleans(20, 6, 14, 0.3, 0.7),
-				"strings":        h.strings(20, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{6, 6, 5, 3}),
-				"texts":          h.texts(20, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{6, 6, 5, 3}),
-				"numbers":        h.numbers(20, 4, 1, 1, 45, 2, 2.25),
-				"ints":           h.ints(20, 104, 101, 101, 2045, 102, 102.25),
-				"datesAsStrings": h.dates(20),
-				"dates":          h.dates(20),
-				// TODO fix grouping of duplicates
-				// "meta":           h.meta(3),
-				// "booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-				// "strings":        h.strings(9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
-				// "texts":          h.texts(9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
-				// "numbers":        h.numbers(9, 4, 1, 1, 19, 2, 2.111111111111111),
-				// "ints":           h.ints(9, 104, 101, 101, 919, 102, 102.11111111111111),
-				// "datesAsStrings": h.dates(9),
-				// "dates":          h.dates(9),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{3, 3, 2, 1}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{3, 3, 2, 1}),
+				"numbers":        h.numbers(9, 4, 1, 1, 19, 2, 2.111111111111111),
+				"ints":           h.ints(9, 104, 101, 101, 919, 102, 102.11111111111111),
+				"datesAsStrings": h.dates(9),
+				"dates":          h.dates(9),
 			},
 			map[string]interface{}{
 				"groupedBy":      h.groupedBy("false", "booleans"),
@@ -822,23 +813,14 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 		resultsWithData := []interface{}{
 			map[string]interface{}{
 				"groupedBy":      h.groupedBy("true", "booleans"),
-				"meta":           h.meta(5),
-				"booleans":       h.booleans(18, 5, 13, 0.2777777777777778, 0.7222222222222222),
-				"strings":        h.strings(18, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{5, 5, 5, 3}),
-				"texts":          h.texts(18, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{5, 5, 5, 3}),
-				"numbers":        h.numbers(18, 4, 1, 1, 42, 2, 2.3333333333333335),
-				"ints":           h.ints(18, 104, 101, 101, 1842, 102, 102.33333333333333),
-				"datesAsStrings": h.dates(18),
-				"dates":          h.dates(18),
-				// TODO fix grouping of duplicates
-				// "meta":           h.meta(2),
-				// "booleans":       h.booleans(7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-				// "strings":        h.strings(7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
-				// "texts":          h.texts(7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
-				// "numbers":        h.numbers(7, 4, 1, 1, 16, 2, 2.2857142857142856),
-				// "ints":           h.ints(7, 104, 101, 101, 716, 102, 102.28571428571429),
-				// "datesAsStrings": h.dates(7),
-				// "dates":          h.dates(7),
+				"meta":           h.meta(2),
+				"booleans":       h.booleans(7, 2, 5, 0.2857142857142857, 0.7142857142857143),
+				"strings":        h.strings(7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
+				"texts":          h.texts(7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
+				"numbers":        h.numbers(7, 4, 1, 1, 16, 2, 2.2857142857142856),
+				"ints":           h.ints(7, 104, 101, 101, 716, 102, 102.28571428571429),
+				"datesAsStrings": h.dates(7),
+				"dates":          h.dates(7),
 			},
 			map[string]interface{}{
 				"groupedBy":      h.groupedBy("false", "booleans"),
@@ -879,6 +861,419 @@ func aggregateArrayClassWithGroupByTest(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 				extracted := extractArrayClassGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+}
+
+func aggregateDuplicatesClassWithGroupByTest(t *testing.T) {
+	h := &gqlAggregateResponseHelper{}
+	testCasesGen := &aggregateDuplicatesClassTestCases{}
+
+	t.Run("aggregate DuplicatesClass with group by strings", func(t *testing.T) {
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Astr", "strings"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Bstr", "strings"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+		}
+		someResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Astr", "strings"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Bstr", "strings"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+		}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_SomeResults(someResults),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateDuplicatesClassQuery(tc.filters, "groupBy: [\"strings\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractDuplicatesClassGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate DuplicatesClass with group by texts", func(t *testing.T) {
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Atxt", "texts"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Btxt", "texts"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+		}
+		someResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Atxt", "texts"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("Btxt", "texts"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+		}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_SomeResults(someResults),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateDuplicatesClassQuery(tc.filters, "groupBy: [\"texts\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractDuplicatesClassGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate DuplicatesClass with group by ints", func(t *testing.T) {
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("101", "ints"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("102", "ints"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+		}
+		someResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("101", "ints"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("102", "ints"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+		}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_SomeResults(someResults),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateDuplicatesClassQuery(tc.filters, "groupBy: [\"ints\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractDuplicatesClassGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate DuplicatesClass with group by numbers", func(t *testing.T) {
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("1", "numbers"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("2", "numbers"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+		}
+		someResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("1", "numbers"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("2", "numbers"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+		}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_SomeResults(someResults),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateDuplicatesClassQuery(tc.filters, "groupBy: [\"numbers\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractDuplicatesClassGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate DuplicatesClass with group by dates as string", func(t *testing.T) {
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("2021-06-01T22:18:59.640162Z", "datesAsStrings"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("2022-06-02T22:18:59.640162Z", "datesAsStrings"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+		}
+		someResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("2021-06-01T22:18:59.640162Z", "datesAsStrings"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("2022-06-02T22:18:59.640162Z", "datesAsStrings"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+		}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_SomeResults(someResults),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateDuplicatesClassQuery(tc.filters, "groupBy: [\"datesAsStrings\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractDuplicatesClassGroupByResult(result)
+				expected := tc.expected.([]interface{})
+
+				assert.ElementsMatch(t, expected, extracted)
+			})
+		}
+	})
+
+	t.Run("aggregate DuplicatesClass with group by booleans", func(t *testing.T) {
+		allResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("true", "booleans"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("false", "booleans"),
+				"meta":           h.meta(3),
+				"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+				"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+				"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+				"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+				"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+				"datesAsStrings": h.dates(9),
+			},
+		}
+		someResults := []interface{}{
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("true", "booleans"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+			map[string]interface{}{
+				"groupedBy":      h.groupedBy("false", "booleans"),
+				"meta":           h.meta(1),
+				"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+				"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+				"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+				"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+				"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+				"datesAsStrings": h.dates(4),
+			},
+		}
+		noResults := []interface{}{}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_SomeResults(someResults),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateDuplicatesClassQuery(tc.filters, "groupBy: [\"booleans\"]")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractDuplicatesClassGroupByResult(result)
 				expected := tc.expected.([]interface{})
 
 				assert.ElementsMatch(t, expected, extracted)
@@ -1851,6 +2246,10 @@ func aggregateCityClassWithGroupByTest(t *testing.T) {
 
 func extractArrayClassGroupByResult(result *graphqlhelper.GraphQLResult) []interface{} {
 	return extractAggregateResult(result, arrayClassName)
+}
+
+func extractDuplicatesClassGroupByResult(result *graphqlhelper.GraphQLResult) []interface{} {
+	return extractAggregateResult(result, duplicatesClassName)
 }
 
 func extractCityGroupByResult(result *graphqlhelper.GraphQLResult) []interface{} {

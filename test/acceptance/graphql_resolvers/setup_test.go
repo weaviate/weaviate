@@ -42,6 +42,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (person)", addTestDataPersons)
 	t.Run("import test data (pizzas)", addTestDataPizzas)
 	t.Run("import test data (array class)", addTestDataArrayClass)
+	t.Run("import test data (duplicates class)", addTestDataDuplicatesClass)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 	t.Run("import test data (multi shard)", addTestDataMultiShard)
 	t.Run("import test data (date field class)", addDateFieldClass)
@@ -66,6 +67,8 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
 	t.Run("aggregates arrayClass without grouping", aggregateArrayClassWithoutGroupByTest)
 	t.Run("aggregates arrayClass with grouping", aggregateArrayClassWithGroupByTest)
+	t.Run("aggregates duplicatesClass without grouping", aggregateDuplicatesClassWithoutGroupByTest)
+	t.Run("aggregates duplicatesClass with grouping", aggregateDuplicatesClassWithGroupByTest)
 	t.Run("aggregates city without grouping", aggregateCityClassWithoutGroupByTest)
 	t.Run("aggregates city with grouping", aggregateCityClassWithGroupByTest)
 
@@ -90,6 +93,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "MultiShard")
 	deleteObjectClass(t, "HasDateField")
 	deleteObjectClass(t, arrayClassName)
+	deleteObjectClass(t, duplicatesClassName)
 	deleteObjectClass(t, noPropsClassName)
 
 	// only run after everything else is deleted, this way, we can also run an
@@ -452,6 +456,7 @@ func addTestSchema(t *testing.T) {
 
 	createObjectClass(t, noPropsClassSchema())
 	createObjectClass(t, arrayClassSchema())
+	createObjectClass(t, duplicatesClassSchema())
 }
 
 const (
@@ -891,6 +896,13 @@ func addTestDataNoProperties(t *testing.T) {
 
 func addTestDataArrayClass(t *testing.T) {
 	for _, object := range arrayClassObjects() {
+		createObject(t, object)
+		assertGetObjectEventually(t, object.ID)
+	}
+}
+
+func addTestDataDuplicatesClass(t *testing.T) {
+	for _, object := range duplicatesClassObjects() {
 		createObject(t, object)
 		assertGetObjectEventually(t, object.ID)
 	}

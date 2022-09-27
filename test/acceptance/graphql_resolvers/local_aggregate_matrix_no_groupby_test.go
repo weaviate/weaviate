@@ -97,6 +97,61 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 	})
 }
 
+func aggregateDuplicatesClassWithoutGroupByTest(t *testing.T) {
+	t.Run("aggregate DuplicatesClass without group by", func(t *testing.T) {
+		h := &gqlAggregateResponseHelper{}
+		testCasesGen := &aggregateDuplicatesClassTestCases{}
+
+		allResults := map[string]interface{}{
+			"meta":           h.meta(3),
+			"booleans":       h.booleans(9, 3, 6, 0.3333333333333333, 0.6666666666666666),
+			"strings":        h.strings(9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+			"texts":          h.texts(9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
+			"numbers":        h.numbers(9, 2, 1, 1, 12, 1, 1.3333333333333333),
+			"ints":           h.ints(9, 102, 101, 101, 912, 101, 101.33333333333333),
+			"datesAsStrings": h.dates(9),
+		}
+		someResults := map[string]interface{}{
+			"meta":           h.meta(1),
+			"booleans":       h.booleans(4, 1, 3, 0.25, 0.75),
+			"strings":        h.strings(4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+			"texts":          h.texts(4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
+			"numbers":        h.numbers(4, 2, 1, 1, 5, 1, 1.25),
+			"ints":           h.ints(4, 102, 101, 101, 405, 101, 101.25),
+			"datesAsStrings": h.dates(4),
+		}
+		noResults := map[string]interface{}{
+			"meta":           h.meta(0),
+			"booleans":       h.booleans0(),
+			"strings":        h.strings0(),
+			"texts":          h.texts0(),
+			"numbers":        h.numbers0(),
+			"ints":           h.ints0(),
+			"datesAsStrings": h.dates0(),
+		}
+
+		testCases := []aggregateTestCase{
+			testCasesGen.WithoutFilters(allResults),
+
+			testCasesGen.WithWhereFilter_AllResults(allResults),
+			testCasesGen.WithWhereFilter_SomeResults(someResults),
+			testCasesGen.WithWhereFilter_NoResults(noResults),
+		}
+
+		for _, tc := range testCases {
+			query := aggregateDuplicatesClassQuery(tc.filters, "")
+
+			t.Run(tc.name, func(t *testing.T) {
+				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+				extracted := extractDuplicatesClassNoGroupByResult(result)
+				expected := tc.expected.(map[string]interface{})
+
+				assert.Equal(t, expected, extracted)
+			})
+		}
+	})
+}
+
 func aggregateNoPropsClassWithoutGroupByTest(t *testing.T) {
 	t.Run("aggregate NoPropsClass without group by", func(t *testing.T) {
 		h := &gqlAggregateResponseHelper{}
@@ -228,6 +283,10 @@ func aggregateCityClassWithoutGroupByTest(t *testing.T) {
 
 func extractArrayClassNoGroupByResult(result *graphqlhelper.GraphQLResult) map[string]interface{} {
 	return extractAggregateResult(result, arrayClassName)[0].(map[string]interface{})
+}
+
+func extractDuplicatesClassNoGroupByResult(result *graphqlhelper.GraphQLResult) map[string]interface{} {
+	return extractAggregateResult(result, duplicatesClassName)[0].(map[string]interface{})
 }
 
 func extractNoPropsClassNoGroupByResult(result *graphqlhelper.GraphQLResult) map[string]interface{} {

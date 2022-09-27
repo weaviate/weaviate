@@ -44,6 +44,14 @@ const (
 	cityClassName = "City"
 )
 
+const (
+	duplicatesClassName = "DuplicatesClass"
+
+	objectDuplicatesClassID1_4el = "a8076f34-ec16-4333-a963-00c89c5ba001"
+	objectDuplicatesClassID2_3el = "a8076f34-ec16-4333-a963-00c89c5ba002"
+	objectDuplicatesClassID3_2el = "a8076f34-ec16-4333-a963-00c89c5ba003"
+)
+
 func arrayClassSchema() *models.Class {
 	return &models.Class{
 		Class: arrayClassName,
@@ -473,6 +481,190 @@ func aggregateCityQuery(filters, groupBy string) string {
 	}
 
 	return fmt.Sprintf(query, cityClassName, params, groupedBy)
+}
+
+func duplicatesClassSchema() *models.Class {
+	return &models.Class{
+		Class: duplicatesClassName,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:         "strings",
+				DataType:     []string{"string[]"},
+				Tokenization: models.PropertyTokenizationWord,
+			},
+			{
+				Name:         "texts",
+				DataType:     []string{"text[]"},
+				Tokenization: models.PropertyTokenizationWord,
+			},
+			{
+				Name:     "numbers",
+				DataType: []string{"number[]"},
+			},
+			{
+				Name:     "ints",
+				DataType: []string{"int[]"},
+			},
+			{
+				Name:     "booleans",
+				DataType: []string{"boolean[]"},
+			},
+			{
+				Name:     "datesAsStrings",
+				DataType: []string{"date[]"},
+			},
+		},
+	}
+}
+
+func duplicatesClassObjects() []*models.Object {
+	return []*models.Object{
+		objectDuplicatesClass4el(),
+		objectDuplicatesClass3el(),
+		objectDuplicatesClass2el(),
+	}
+}
+
+func objectDuplicatesClass4el() *models.Object {
+	return &models.Object{
+		Class: duplicatesClassName,
+		ID:    objectDuplicatesClassID1_4el,
+		Properties: map[string]interface{}{
+			"strings":  []string{"Astr", "Astr", "Astr", "Bstr"},
+			"texts":    []string{"Atxt", "Atxt", "Atxt", "Btxt"},
+			"numbers":  []float64{1.0, 1.0, 1.0, 2.0},
+			"ints":     []int{101, 101, 101, 102},
+			"booleans": []bool{true, true, true, false},
+			"datesAsStrings": []string{
+				"2021-06-01T22:18:59.640162Z",
+				"2021-06-01T22:18:59.640162Z",
+				"2021-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+			},
+		},
+	}
+}
+
+func objectDuplicatesClass3el() *models.Object {
+	return &models.Object{
+		Class: duplicatesClassName,
+		ID:    objectDuplicatesClassID2_3el,
+		Properties: map[string]interface{}{
+			"strings":  []string{"Astr", "Astr", "Bstr"},
+			"texts":    []string{"Atxt", "Atxt", "Btxt"},
+			"numbers":  []float64{1.0, 1.0, 2.0},
+			"ints":     []int{101, 101, 102},
+			"booleans": []bool{true, true, false},
+			"datesAsStrings": []string{
+				"2021-06-01T22:18:59.640162Z",
+				"2021-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+			},
+		},
+	}
+}
+
+func objectDuplicatesClass2el() *models.Object {
+	return &models.Object{
+		Class: duplicatesClassName,
+		ID:    objectDuplicatesClassID3_2el,
+		Properties: map[string]interface{}{
+			"strings":  []string{"Astr", "Bstr"},
+			"texts":    []string{"Atxt", "Btxt"},
+			"numbers":  []float64{1.0, 2.0},
+			"ints":     []int{101, 102},
+			"booleans": []bool{true, false},
+			"datesAsStrings": []string{
+				"2021-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+			},
+		},
+	}
+}
+
+func aggregateDuplicatesClassQuery(filters, groupBy string) string {
+	query := `{
+			Aggregate {
+				%s
+				%s
+				{
+					meta{
+						count
+					}
+					booleans{
+						count
+						type
+						totalTrue
+						totalFalse
+						percentageTrue
+						percentageFalse
+					}
+					strings{
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					texts{
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					numbers{
+						count
+						type
+						minimum
+						maximum
+						mean
+						median
+						mode
+						sum
+					}
+					ints{
+						count
+						type
+						minimum
+						maximum
+						mean
+						median
+						mode
+						sum
+					}
+					datesAsStrings{
+						count
+					}
+					%s
+				}
+			}
+		}`
+
+	params := ""
+	if filters != "" || groupBy != "" {
+		params = fmt.Sprintf(
+			`(
+				%s
+				%s
+			)`, filters, groupBy)
+	}
+	groupedBy := ""
+	if groupBy != "" {
+		groupedBy = `groupedBy{
+						value
+						path
+					}`
+	}
+
+	return fmt.Sprintf(query, duplicatesClassName, params, groupedBy)
 }
 
 type aggregateTestCase struct {
@@ -918,6 +1110,54 @@ func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_NoResults(expect
 				id: "%s"
 				certainty: 0.1
 			}`, notExistingObjectId, berlin),
+		expected: expected,
+	}
+}
+
+type aggregateDuplicatesClassTestCases struct{}
+
+func (tc *aggregateDuplicatesClassTestCases) WithoutFilters(expected interface{}) aggregateTestCase {
+	return aggregateTestCase{
+		name:     "without filters",
+		expected: expected,
+	}
+}
+
+func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_AllResults(expected interface{}) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (all results)",
+		filters: `
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "*"
+			}`,
+		expected: expected,
+	}
+}
+
+func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_SomeResults(expected interface{}) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (some results)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}`, objectDuplicatesClassID1_4el),
+		expected: expected,
+	}
+}
+
+func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_NoResults(expected interface{}) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (no results)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}`, notExistingObjectId),
 		expected: expected,
 	}
 }
