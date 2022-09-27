@@ -55,6 +55,7 @@ import (
 
 const (
 	vectorDims       = 20
+	numberOfNodes    = 10
 	distributedClass = "Distributed"
 )
 
@@ -76,7 +77,6 @@ func TestDistributedSetup(t *testing.T) {
 
 func testDistributed(t *testing.T, dirName string, batch bool) {
 	var nodes []*node
-	numberOfNodes := 10
 	numberOfObjects := 200
 
 	t.Run("setup", func(t *testing.T) {
@@ -536,6 +536,18 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 					}
 				}
 			})
+		}
+	})
+
+	t.Run("node names by shard", func(t *testing.T) {
+		for _, n := range nodes {
+			nodeSet := make(map[string]bool)
+			foundNodes := n.repo.Shards(context.Background(), distributedClass)
+			for _, found := range foundNodes {
+				nodeSet[found] = true
+			}
+			assert.Len(t, nodeSet, numberOfNodes, "expected %d nodes, got %d",
+				numberOfNodes, len(foundNodes))
 		}
 	})
 

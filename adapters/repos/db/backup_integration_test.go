@@ -93,6 +93,18 @@ func TestBackup_DBLevel(t *testing.T) {
 				assert.Nil(t, err)
 			}
 		})
+
+		t.Run("node names from shards", func(t *testing.T) {
+			res := db.Shards(ctx, className)
+			assert.Len(t, res, 1)
+			assert.Equal(t, "node1", res[0])
+		})
+
+		t.Run("get all classes", func(t *testing.T) {
+			res := db.ListClasses(ctx)
+			assert.Len(t, res, 1)
+			assert.Equal(t, className, res[0])
+		})
 	})
 
 	t.Run("failed backup creation from expired context", func(t *testing.T) {
