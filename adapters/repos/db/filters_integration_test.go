@@ -442,6 +442,16 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("len(released)", 0, gt, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
+			{
+				name:        "Filter unicode strings",
+				filter:      buildFilter("len(contact)", 30, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "Filter unicode texts",
+				filter:      buildFilter("len(description)", 109, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
 		}
 
 		for _, test := range tests {
@@ -751,7 +761,7 @@ var cars = []models.Object{
 				Latitude:  ptFloat32(40.730610),
 				Longitude: ptFloat32(-73.935242),
 			},
-			"contact":         "jessica@fastcars.example.com",
+			"contact":         "jessica-世界@unicode.example.com",
 			"description":     "This car has a huge motor, but it's also not exactly lightweight.",
 			"colorWord":       "very light grey",
 			"colorField":      "very light grey",
@@ -768,7 +778,7 @@ var cars = []models.Object{
 			"horsepower":      int64(100),
 			"weight":          1200.0,
 			"contact":         "sandra@efficientcars.example.com",
-			"description":     "This small car has a small engine, but it's very light, so it feels fater than it is.",
+			"description":     "This small car has a small engine and unicode labels (ąę), but it's very light, so it feels fater than it is.",
 			"colorWord":       "dark grey",
 			"colorField":      "dark grey",
 			"colorArrayWord":  []interface{}{"dark", "grey"},
