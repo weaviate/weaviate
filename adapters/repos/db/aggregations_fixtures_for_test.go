@@ -18,13 +18,13 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 )
 
 var productClass = &models.Class{
 	Class:               "AggregationsTestProduct",
-	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -37,7 +37,7 @@ var productClass = &models.Class{
 
 var companyClass = &models.Class{
 	Class:               "AggregationsTestCompany",
-	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -72,7 +72,7 @@ var companyClass = &models.Class{
 
 var arrayTypesClass = &models.Class{
 	Class:               "AggregationsTestArrayTypes",
-	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -89,7 +89,7 @@ var arrayTypesClass = &models.Class{
 
 var customerClass = &models.Class{
 	Class:               "AggregationsTestCustomer",
-	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{

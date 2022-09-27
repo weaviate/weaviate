@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -27,6 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_UpdateAction(t *testing.T) {
@@ -43,7 +44,7 @@ func Test_UpdateAction(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:             "ActionClass",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
 							DataType: []string{"string"},
@@ -132,7 +133,7 @@ func Test_UpdateObject(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:             cls,
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
 							DataType: []string{"string"},
