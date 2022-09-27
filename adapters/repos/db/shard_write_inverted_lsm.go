@@ -187,7 +187,7 @@ func (s *Shard) extendDimensionTrackerLSM(
 	dimLength := binary.LittleEndian.Uint32(buf[4:12])
 	sum := int(dimLength) * len(buf[12:12])
 
-	os.WriteFile("/tmp/test.txt", []byte(fmt.Sprintf("dimlength: %v, Sum: %v, count: %v\n", dimLength, sum, count)), 0644)
+	os.WriteFile("/tmp/test.txt", []byte(fmt.Sprintf("dimlength: %v, Sum: %v, count: %v\n", dimLength, sum, count)), 0o644)
 
 	return b.MapSet(buf[0:4], pair)
 }

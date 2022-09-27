@@ -523,7 +523,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("add reference between them", func(t *testing.T) {
-		//Get dimensions before adding reference
+		// Get dimensions before adding reference
 		sourceShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
 
 		targetShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
@@ -534,7 +534,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			})
 		assert.Nil(t, err)
 
-		//Check dimensions after adding reference
+		// Check dimensions after adding reference
 		sourceDimensionAfter := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
 		targetDimensionAfter := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
 
