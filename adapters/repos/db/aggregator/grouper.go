@@ -32,7 +32,7 @@ import (
 // additionally performs an aggregation for each group.
 type grouper struct {
 	*Aggregator
-	values    map[interface{}][]uint64 // map[value]docIDs
+	values    map[interface{}]map[uint64]struct{} // map[value][docID]struct, to keep docIds unique
 	topGroups []group
 	limit     int
 }
@@ -40,7 +40,7 @@ type grouper struct {
 func newGrouper(a *Aggregator, limit int) *grouper {
 	return &grouper{
 		Aggregator: a,
-		values:     map[interface{}][]uint64{},
+		values:     map[interface{}]map[uint64]struct{}{},
 		limit:      limit,
 	}
 }
@@ -151,20 +151,32 @@ func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 }
 
 func (g *grouper) addItem(item interface{}, docID uint64) {
-	ids := g.values[item]
-	ids = append(ids, docID)
-	g.values[item] = ids
+	idsMap, ok := g.values[item]
+	if !ok {
+		idsMap = map[uint64]struct{}{}
+	}
+	idsMap[docID] = struct{}{}
+	g.values[item] = idsMap
 }
 
 func (g *grouper) aggregateAndSelect() ([]group, error) {
-	for value, ids := range g.values {
+	for value, idsMap := range g.values {
+		count := len(idsMap)
+		ids := make([]uint64, count)
+
+		i := 0
+		for id := range idsMap {
+			ids[i] = id
+			i++
+		}
+
 		g.insertOrdered(group{
 			res: aggregation.Group{
 				GroupedBy: &aggregation.GroupedBy{
 					Path:  g.params.GroupBy.Slice(),
 					Value: value,
 				},
-				Count: len(ids),
+				Count: count,
 			},
 			docIDs: ids,
 		})
