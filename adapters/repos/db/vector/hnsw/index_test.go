@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -134,7 +135,7 @@ func createEmptyHnswIndexForTests(t *testing.T, vecForIDFn VectorForID) *hnsw {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      vecForIDFn,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})

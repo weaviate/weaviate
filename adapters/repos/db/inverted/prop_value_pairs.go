@@ -48,7 +48,17 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 			pv.prop = filters.InternalPropID
 			pv.hasFrequency = false
 		}
+
+		if pv.operator == filters.OperatorIsNull {
+			id += filters.InternalNullIndex
+		}
+
 		b := s.store.Bucket(id)
+
+		if b == nil && pv.operator == filters.OperatorIsNull {
+			return errors.Errorf("Nullstate must be indexed to be filterable! " +
+				"add `indexNullState: true` to the invertedIndexConfig")
+		}
 
 		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
 			pv.prop == filters.InternalPropLastUpdateTimeUnix) {

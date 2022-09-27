@@ -35,7 +35,7 @@ type WhereFilter struct {
 	Operands []*WhereFilter `json:"operands"`
 
 	// operator to use
-	// Enum: [And Or Equal Like Not NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange]
+	// Enum: [And Or Equal Like Not NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull]
 	Operator string `json:"operator,omitempty"`
 
 	// path to the property currently being filtered
@@ -114,7 +114,7 @@ var whereFilterTypeOperatorPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","Not","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","Not","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -156,6 +156,9 @@ const (
 
 	// WhereFilterOperatorWithinGeoRange captures enum value "WithinGeoRange"
 	WhereFilterOperatorWithinGeoRange string = "WithinGeoRange"
+
+	// WhereFilterOperatorIsNull captures enum value "IsNull"
+	WhereFilterOperatorIsNull string = "IsNull"
 )
 
 // prop value enum

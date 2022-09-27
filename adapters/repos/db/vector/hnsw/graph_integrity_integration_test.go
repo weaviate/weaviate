@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +62,7 @@ func TestGraphIntegrity(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 			DistanceProvider: distancer.NewDotProductProvider(),
-		}, UserConfig{
+		}, ent.UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
 		})

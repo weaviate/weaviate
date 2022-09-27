@@ -26,7 +26,7 @@ func NewShardCombiner() *ShardCombiner {
 
 func (sc *ShardCombiner) Do(results []*aggregation.Result) *aggregation.Result {
 	if results[0] == nil || len(results[0].Groups) < 1 {
-		return nil
+		return &aggregation.Result{}
 	}
 
 	if results[0].Groups[0].GroupedBy == nil {

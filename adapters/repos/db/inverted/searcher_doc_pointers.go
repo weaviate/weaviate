@@ -75,7 +75,13 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 			return false, errors.Wrap(err, "get hash")
 		}
 
-		hashes = append(hashes, currHash)
+		// currHash is only safe to access for the lifetime of the RowReader, once
+		// that has finished, a compaction could happen and remove the underlying
+		// memory that the slice points to. Since the hashes will be used to merge
+		// filters - which happens after the RowReader has completed - this can lead
+		// to segfault crashes. Now is the time to safely copy it, creating a new
+		// and immutable slice.
+		hashes = append(hashes, copyBytes(currHash))
 		if limit > 0 && pointers.count >= uint64(limit) {
 			return false, nil
 		}
@@ -134,7 +140,13 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 			return false, errors.Wrap(err, "get hash")
 		}
 
-		hashes = append(hashes, currHash)
+		// currHash is only safe to access for the lifetime of the RowReader, once
+		// that has finished, a compaction could happen and remove the underlying
+		// memory that the slice points to. Since the hashes will be used to merge
+		// filters - which happens after the RowReader has completed - this can lead
+		// to segfault crashes. Now is the time to safely copy it, creating a new
+		// and immutable slice.
+		hashes = append(hashes, copyBytes(currHash))
 		if limit > 0 && pointers.count >= uint64(limit) {
 			return false, nil
 		}
@@ -256,4 +268,10 @@ func docPointerChecksum(pointers []uint64) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func copyBytes(in []byte) []byte {
+	out := make([]byte, len(in))
+	copy(out, in)
+	return out
 }

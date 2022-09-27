@@ -80,6 +80,8 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
+	case filters.OperatorIsNull: // we need to fetch a row with a given value (there is only nil and !nil) and can reuse equal to get the correct row
+		return rr.equal(ctx, readFn)
 	default:
 		return fmt.Errorf("operator not supported in standalone "+
 			"mode, see %s for details", notimplemented.Link)

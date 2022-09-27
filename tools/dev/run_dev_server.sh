@@ -252,6 +252,18 @@ case $CONFIG in
         --write-timeout=3600s
     ;;
 
+    local-centroid)
+        CLUSTER_HOSTNAME="node1" \
+        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+        ENABLE_MODULES="ref2vec-centroid" \
+        go run ./cmd/weaviate-server \
+          --scheme http \
+          --host "127.0.0.1" \
+          --port 8080 \
+          --read-timeout=3600s \
+          --write-timeout=3600s
+      ;;
+
   local-s3)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \

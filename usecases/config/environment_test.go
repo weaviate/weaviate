@@ -51,3 +51,34 @@ func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentSetFlushAfter(t *testing.T) {
+	factors := []struct {
+		name        string
+		flushAfter  []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"1"}, 1, false},
+		{"not given", []string{}, DefaultPersistenceFlushIdleMemtablesAfter, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"zero factor", []string{"0"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.flushAfter) == 1 {
+				os.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", tt.flushAfter[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.FlushIdleMemtablesAfter)
+			}
+		})
+	}
+}

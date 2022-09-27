@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
 )
@@ -67,68 +68,10 @@ func (c Config) Validate() error {
 	return ec.ToError()
 }
 
-const (
-	DistanceCosine    = "cosine"
-	DistanceDot       = "dot"
-	DistanceL2Squared = "l2-squared"
-	DistanceManhattan = "manhattan"
-	DistanceHamming   = "hamming"
-)
-
-const (
-	DefaultCleanupIntervalSeconds = 5 * 60
-	DefaultMaxConnections         = 64
-	DefaultEFConstruction         = 128
-	DefaultEF                     = -1 // indicates "let Weaviate pick"
-	DefaultDynamicEFMin           = 100
-	DefaultDynamicEFMax           = 500
-	DefaultDynamicEFFactor        = 8
-	DefaultVectorCacheMaxObjects  = 2000000
-	DefaultSkip                   = false
-	DefaultFlatSearchCutoff       = 40000
-	DefaultDistanceMetric         = DistanceCosine
-)
-
-// UserConfig bundles all values settable by a user in the per-class settings
-type UserConfig struct {
-	Skip                   bool   `json:"skip"`
-	CleanupIntervalSeconds int    `json:"cleanupIntervalSeconds"`
-	MaxConnections         int    `json:"maxConnections"`
-	EFConstruction         int    `json:"efConstruction"`
-	EF                     int    `json:"ef"`
-	DynamicEFMin           int    `json:"dynamicEfMin"`
-	DynamicEFMax           int    `json:"dynamicEfMax"`
-	DynamicEFFactor        int    `json:"dynamicEfFactor"`
-	VectorCacheMaxObjects  int    `json:"vectorCacheMaxObjects"`
-	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
-	Distance               string `json:"distance"`
-}
-
-// IndexType returns the type of the underlying vector index, thus making sure
-// the schema.VectorIndexConfig interface is implemented
-func (u UserConfig) IndexType() string {
-	return "hnsw"
-}
-
-// SetDefaults in the user-specifyable part of the config
-func (c *UserConfig) SetDefaults() {
-	c.MaxConnections = DefaultMaxConnections
-	c.EFConstruction = DefaultEFConstruction
-	c.CleanupIntervalSeconds = DefaultCleanupIntervalSeconds
-	c.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
-	c.EF = DefaultEF
-	c.DynamicEFFactor = DefaultDynamicEFFactor
-	c.DynamicEFMax = DefaultDynamicEFMax
-	c.DynamicEFMin = DefaultDynamicEFMin
-	c.Skip = DefaultSkip
-	c.FlatSearchCutoff = DefaultFlatSearchCutoff
-	c.Distance = DefaultDistanceMetric
-}
-
 // ParseUserConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
 func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
-	uc := UserConfig{}
+	uc := ent.UserConfig{}
 	uc.SetDefaults()
 
 	if input == nil {
@@ -270,8 +213,8 @@ func optionalStringFromMap(in map[string]interface{}, name string,
 	return nil
 }
 
-func NewDefaultUserConfig() UserConfig {
-	uc := UserConfig{}
+func NewDefaultUserConfig() ent.UserConfig {
+	uc := ent.UserConfig{}
 	uc.SetDefaults()
 	return uc
 }

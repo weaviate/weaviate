@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ func TestHnswPersistence(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -82,7 +83,7 @@ func TestHnswPersistence(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -113,7 +114,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -184,7 +185,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -217,7 +218,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -263,7 +264,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -294,7 +295,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -346,7 +347,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -388,7 +389,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})
@@ -426,7 +427,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk:      testVectorForID,
-	}, UserConfig{
+	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
 	})

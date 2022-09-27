@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 )
 
@@ -63,10 +64,10 @@ func NewIndex(config Config) (*Index, error) {
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config),
 		DistanceProvider:      distancer.NewGeoProvider(),
-	}, hnsw.UserConfig{
+	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
-		CleanupIntervalSeconds: hnsw.DefaultCleanupIntervalSeconds,
+		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")

@@ -219,7 +219,7 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, previous []byte,
 ) error {
-	props, err := s.analyzeObject(object)
+	props, nilprops, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
@@ -239,7 +239,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	before := time.Now()
 
-	err = s.extendInvertedIndicesLSM(props, status.docID)
+	err = s.extendInvertedIndicesLSM(props, nilprops, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
@@ -299,7 +299,7 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 		return errors.Wrap(err, "unmarshal previous object")
 	}
 
-	previousInvertProps, err := s.analyzeObject(previousObject)
+	previousInvertProps, _, err := s.analyzeObject(previousObject)
 	if err != nil {
 		return errors.Wrap(err, "analyze previous object")
 	}
