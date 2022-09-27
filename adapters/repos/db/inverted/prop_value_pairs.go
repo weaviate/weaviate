@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/schema"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -54,9 +56,8 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 		}
 
 		// format of id for property with lengths is "property_len(*PROPNAME*)
-		isPropLengthFilter := len(id) > 13 && id[8:13] == "_len(" && id[len(id)-1:] == ")"
+		propName, isPropLengthFilter := schema.IsPropertyLength(id, 9)
 		if isPropLengthFilter {
-			propName := id[13 : len(id)-1]
 			id = helpers.BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
 			pv.prop = propName + filters.InternalPropertyLength
 		}
