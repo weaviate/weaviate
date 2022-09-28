@@ -25,6 +25,15 @@ type nilProp struct {
 	AddToPropertyLength bool
 }
 
+func isPropertyForLength(dt schema.DataType) bool {
+	switch dt {
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		return false
+	default:
+		return true
+	}
+}
+
 func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []nilProp, error) {
 	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Objects
 	c, err := schema.GetClassByName(schemaModel, object.Class().String())
@@ -58,7 +67,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []ni
 			if !ok {
 				nilProps = append(nilProps, nilProp{
 					Name:                prop.Name,
-					AddToPropertyLength: !(dt == schema.DataTypeInt || dt == schema.DataTypeNumber || dt == schema.DataTypeBoolean || dt == schema.DataTypeDate),
+					AddToPropertyLength: isPropertyForLength(dt),
 				})
 			}
 		}
