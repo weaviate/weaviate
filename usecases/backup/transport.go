@@ -20,7 +20,7 @@ import (
 
 type client interface {
 	// CanCommit ask a node if it can participate in a distributed backup operation
-	CanCommit(ctx context.Context, node string, req *Request) (CanCommitResponse, error)
+	CanCommit(ctx context.Context, node string, req *Request) (*CanCommitResponse, error)
 	// Commit tells a node to commit its part
 	Commit(ctx context.Context, node string, _ *StatusRequest) error
 	// Status returns the status of a backup operation of a specific node

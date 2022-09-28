@@ -49,6 +49,10 @@ type schemaManger interface {
 	) error
 }
 
+type nodeResolver interface {
+	NodeHostname(nodeName string) (string, bool)
+}
+
 type RestoreStatus struct {
 	Path        string
 	StartedAt   time.Time
@@ -58,11 +62,12 @@ type RestoreStatus struct {
 }
 
 type Manager struct {
-	logger     logrus.FieldLogger
-	authorizer authorizer
-	backupper  *backupper
-	restorer   *restorer
-	backends   BackupBackendProvider
+	logger       logrus.FieldLogger
+	authorizer   authorizer
+	backupper    *backupper
+	restorer     *restorer
+	backends     BackupBackendProvider
+	nodeResolver nodeResolver
 
 	// TODO: keeping status in memory after restore has been done
 	// is not a proper solution for communicating status to the user.
@@ -77,6 +82,7 @@ func NewManager(
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
+	nodeResolver nodeResolver,
 ) *Manager {
 	m := &Manager{
 		logger:     logger,
@@ -90,6 +96,7 @@ func NewManager(
 			backends,
 			schema,
 		),
+		nodeResolver: nodeResolver,
 	}
 	return m
 }
@@ -242,8 +249,8 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
 // in a distributed backup operation
-func (m *Manager) OnCanCommit(ctx context.Context, req *Request) CanCommitResponse {
-	ret := CanCommitResponse{Method: req.Method, ID: req.ID}
+func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
+	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
 	store, err := backend(m.backends, req.Backend)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
@@ -269,7 +276,7 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) CanCommitRespon
 // OnCommit will be triggered when the coordinator confirms the execution of a previous operation
 func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) error {
 	if req.Method == OpCreate {
-		return m.backupper.OnCommit(ctx, req)
+		return m.backupper.onCommit(ctx, req)
 	}
 	return nil
 }
@@ -277,9 +284,14 @@ func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) error {
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
 	if req.Method == OpCreate {
-		return m.backupper.OnAbort(ctx, req)
+		return m.backupper.onAbort(ctx, req)
 	}
 	return nil
+}
+
+// OnStatus will be triggered when the coordinator requests the status of an ongoing operation
+func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
+	return m.backupper.onStatus(ctx, req)
 }
 
 func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, req *BackupRequest) ([]string, error) {

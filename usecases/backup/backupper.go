@@ -246,7 +246,7 @@ func (b *backupper) wait(d time.Duration, id string) error {
 }
 
 // OnCommit will be triggered when the coordinator confirms the execution of a previous operation
-func (b *backupper) OnCommit(ctx context.Context, req *StatusRequest) error {
+func (b *backupper) onCommit(ctx context.Context, req *StatusRequest) error {
 	st := b.lastBackup.get()
 	if st.ID == req.ID && b.waitingForCoodinatorToCommit.Load() {
 		b.coordChan <- *req
@@ -256,11 +256,16 @@ func (b *backupper) OnCommit(ctx context.Context, req *StatusRequest) error {
 }
 
 // Abort tells a node to abort the previous backup operation
-func (b *backupper) OnAbort(_ context.Context, req *AbortRequest) error {
+func (b *backupper) onAbort(_ context.Context, req *AbortRequest) error {
 	st := b.lastBackup.get()
 	if st.ID == req.ID && b.waitingForCoodinatorToCommit.Load() {
 		b.coordChan <- *req
 		return nil
 	}
 	return nil
+}
+
+// TODO: implement
+func (b *backupper) onStatus(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
+	return nil, nil
 }

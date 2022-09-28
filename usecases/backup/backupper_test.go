@@ -503,7 +503,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 			req := req
 			req.Duration = time.Hour
 			got := m.OnCanCommit(ctx, &req)
-			want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+			want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 			assert.Equal(t, got, want)
 			done <- true
 		}()
@@ -543,7 +543,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 			req := req
 			req.Duration = time.Hour
 			got := m.OnCanCommit(ctx, &req)
-			want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+			want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 			assert.Equal(t, got, want)
 			done <- true
 		}()
@@ -582,7 +582,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 			req := req
 			req.Duration = time.Millisecond * 10
 			got := m.OnCanCommit(ctx, &req)
-			want := CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
+			want := &CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
 			assert.Equal(t, got, want)
 			done <- true
 		}()
@@ -644,5 +644,5 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewManager(logger, &fakeAuthorizer{}, schema, sourcer, backends)
+	return NewManager(logger, &fakeAuthorizer{}, schema, sourcer, backends, nil)
 }
