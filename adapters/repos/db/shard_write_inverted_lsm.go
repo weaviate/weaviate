@@ -23,7 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []string,
+func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
 	docID uint64,
 ) error {
 	for _, prop := range props {
@@ -60,7 +60,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []s
 			continue
 		}
 
-		if s.index.invertedIndexConfig.IndexPropertyLength {
+		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length > 0 {
 			if err := s.addIndexedPropertyLengthToProps(docID, prop.Name, prop.Length); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
@@ -74,15 +74,15 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []s
 	}
 
 	// add nil properties to the nullstate and property length inverted index
-	for _, nilProp := range nilProps {
+	for _, nilProperty := range nilProps {
 		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addIndexedNullStateToProps(docID, nilProp, true); err != nil {
+			if err := s.addIndexedNullStateToProps(docID, nilProperty.Name, true); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
 
-		if s.index.invertedIndexConfig.IndexPropertyLength {
-			if err := s.addIndexedPropertyLengthToProps(docID, nilProp, 0); err != nil {
+		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
+			if err := s.addIndexedPropertyLengthToProps(docID, nilProperty.Name, 0); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}

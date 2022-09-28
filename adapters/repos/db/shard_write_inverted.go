@@ -20,7 +20,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
-func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []string, error) {
+type nilProp struct {
+	Name                string
+	AddToPropertyLength bool
+}
+
+func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []nilProp, error) {
 	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Objects
 	c, err := schema.GetClassByName(schemaModel, object.Class().String())
 	if err != nil {
@@ -41,7 +46,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []st
 
 	// add nil for all properties that are not part of the object so that they can be added to the inverted index for
 	// the null state (if enabled)
-	var nilProps []string
+	var nilProps []nilProp
 	if s.index.invertedIndexConfig.IndexNullState {
 		for _, prop := range c.Properties {
 			dt := schema.DataType(prop.DataType[0])
@@ -51,7 +56,10 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []st
 			}
 			_, ok := schemaMap[prop.Name]
 			if !ok {
-				nilProps = append(nilProps, prop.Name)
+				nilProps = append(nilProps, nilProp{
+					Name:                prop.Name,
+					AddToPropertyLength: !(dt == schema.DataTypeInt || dt == schema.DataTypeNumber || dt == schema.DataTypeBoolean || dt == schema.DataTypeDate),
+				})
 			}
 		}
 	}

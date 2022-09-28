@@ -346,7 +346,7 @@ func stringsFromValues(prop *models.Property, values []interface{}) ([]string, e
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
 	var hasFrequency bool
 	var items []Countable
-	PropertyLength := 1 // will be overwritten for string/text
+	PropertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
 	case schema.DataTypeText:
