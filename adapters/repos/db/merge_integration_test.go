@@ -23,12 +23,12 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -61,7 +61,7 @@ func Test_MergingObjects(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:               "MergeTestTarget",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -72,7 +72,7 @@ func Test_MergingObjects(t *testing.T) {
 				},
 				{
 					Class:               "MergeTestSource",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
 						{
@@ -107,7 +107,7 @@ func Test_MergingObjects(t *testing.T) {
 				},
 				{
 					Class:               "MergeTestNoVector",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -411,7 +411,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 	require.Nil(t, err)
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
-	hnswConfig := hnsw.NewDefaultUserConfig()
+	hnswConfig := enthnsw.NewDefaultUserConfig()
 	hnswConfig.Skip = true
 	schema := schema.Schema{
 		Objects: &models.Schema{
