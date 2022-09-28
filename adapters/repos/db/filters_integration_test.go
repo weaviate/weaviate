@@ -23,10 +23,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -586,7 +586,7 @@ func filterNot(operands ...*filters.LocalFilter) *filters.LocalFilter {
 // test data
 var carClass = &models.Class{
 	Class:               "FilterTestCar",
-	VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
@@ -747,7 +747,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	t.Run("import schema", func(t *testing.T) {
 		class := &models.Class{
 			Class:               "GeoUpdateTestClass",
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
@@ -857,7 +857,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	class := &models.Class{
 		Class:               "FilterCasingBug",
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
