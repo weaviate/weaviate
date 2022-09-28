@@ -106,7 +106,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
-		DimensionSum: promMetrics.DimensionSum.MustCurryWith(prometheus.Labels{
+		DimensionSum: promMetrics.VectorDimensionsSum.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),

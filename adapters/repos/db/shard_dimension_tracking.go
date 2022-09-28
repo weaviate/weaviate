@@ -39,7 +39,7 @@ func (s *Shard) initDimensionTracking() {
 
 			dimCount := s.Dimensions()
 			if s.promMetrics != nil {
-				metric, err := s.promMetrics.DimensionSum.
+				metric, err := s.promMetrics.VectorDimensionsSum.
 					GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
 				if err == nil {
 					metric.Set(float64(dimCount))
