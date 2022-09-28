@@ -38,7 +38,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatchPutObjects(t *testing.T) {
+func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
@@ -73,6 +73,35 @@ func TestBatchPutObjects(t *testing.T) {
 	require.Equal(t, 1809, dimAfter, "Dimensions are present after import")
 }
 
+func TestBatchPutObjects(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+
+	t.Run("batch import things", testBatchImportObjects(repo))
+	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
+}
+
 func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
@@ -103,7 +132,8 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 
 	t.Run("batch import things", testBatchImportObjectsNoVector(repo))
 
-	require.Equal(t, 0, dimensions, "Dimensions are empty after import (no vectors in import)")
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimAfter, "Dimensions are empty after import (no vectors in import)")
 }
 
 func TestBatchPutObjectsNoVectors(t *testing.T) {
@@ -158,7 +188,6 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 		schemaGetter))
 
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
-
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	t.Run("batch import things", testBatchImportObjects(repo))
@@ -167,6 +196,7 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
 	t.Run("batch delete things", testBatchDeleteObjects(repo))
+
 	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
 }
