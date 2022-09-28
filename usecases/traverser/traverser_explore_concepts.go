@@ -46,14 +46,10 @@ func (t *Traverser) Explore(ctx context.Context,
 
 // ExploreParams are the parameters used by the GraphQL `Explore { }` API
 type ExploreParams struct {
-	NearVector   *searchparams.NearVector
-	NearObject   *searchparams.NearObject
-	Offset       int
-	Limit        int
-	ModuleParams map[string]interface{}
-
-	// TODO: legacy check for backwards compatibility
-	// once certainty is fully deprecated, this can
-	// be removed
+	NearVector        *searchparams.NearVector
+	NearObject        *searchparams.NearObject
+	Offset            int
+	Limit             int
+	ModuleParams      map[string]interface{}
 	WithCertaintyProp bool
 }
