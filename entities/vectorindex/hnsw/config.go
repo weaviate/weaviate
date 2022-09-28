@@ -37,7 +37,7 @@ const (
 	DefaultDynamicEFMin           = 100
 	DefaultDynamicEFMax           = 500
 	DefaultDynamicEFFactor        = 8
-	DefaultVectorCacheMaxObjects  = math.MaxInt64
+	DefaultVectorCacheMaxObjects  = 1e12
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine
