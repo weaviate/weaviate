@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 	"testing"
@@ -419,6 +420,10 @@ func (c *testCounter) reset() {
 }
 
 func GetDimensionsFromRepo(repo *DB, className string) int {
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return 0
+	}
 	repoClassName := schema.ClassName(className)
 	shards := repo.GetIndex(repoClassName).Shards
 	sum := 0
