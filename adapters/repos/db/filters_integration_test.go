@@ -1358,3 +1358,122 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 		}
 	}
 }
+
+func TestFilteringAfterDeletion(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+
+	migrator := NewMigrator(repo, logger)
+	class := &models.Class{
+		Class:               "DeletionClass",
+		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
+			},
+			{
+				Name:     "other",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	UUID1 := strfmt.UUID(uuid.New().String())
+	UUID2 := strfmt.UUID(uuid.New().String())
+	objects := []*models.Object{
+		{
+			Class: class.Class,
+			ID:    UUID1,
+			Properties: map[string]interface{}{
+				"name":  "otherthing",
+				"other": "not nil",
+			},
+		},
+		{
+			Class: class.Class,
+			ID:    UUID2,
+			Properties: map[string]interface{}{
+				"name":  "something",
+				"other": nil,
+			},
+		},
+	}
+
+	t.Run("creating the class and add objects", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		schemaGetter.schema.Objects = &models.Schema{
+			Classes: []*models.Class{
+				class,
+			},
+		}
+		for i, obj := range objects {
+			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
+				require.Nil(t,
+					repo.PutObject(context.Background(), obj, obj.Vector))
+			})
+		}
+	})
+
+	t.Run("Filter before deletion", func(t *testing.T) {
+		filterNil := buildFilter("other", true, null, dtBool)
+		paramsNil := traverser.GetParams{
+			ClassName:  class.Class,
+			Pagination: &filters.Pagination{Limit: 2},
+			Filters:    filterNil,
+		}
+		resNil, err := repo.ClassSearch(context.Background(), paramsNil)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(resNil))
+		assert.Equal(t, UUID2, resNil[0].ID)
+
+		filterLen := buildFilter("len(name)", 9, eq, dtInt)
+		paramsLen := traverser.GetParams{
+			ClassName:  class.Class,
+			Pagination: &filters.Pagination{Limit: 2},
+			Filters:    filterLen,
+		}
+		resLen, err := repo.ClassSearch(context.Background(), paramsLen)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(resLen))
+		assert.Equal(t, UUID2, resLen[0].ID)
+	})
+
+	t.Run("Delete object and filter again", func(t *testing.T) {
+		repo.DeleteObject(context.Background(), "DeletionClass", UUID2)
+
+		filterNil := buildFilter("other", true, null, dtBool)
+		paramsNil := traverser.GetParams{
+			ClassName:  class.Class,
+			Pagination: &filters.Pagination{Limit: 2},
+			Filters:    filterNil,
+		}
+		resNil, err := repo.ClassSearch(context.Background(), paramsNil)
+		assert.Nil(t, err)
+		assert.Equal(t, 0, len(resNil))
+
+		filterLen := buildFilter("len(name)", 9, eq, dtInt)
+		paramsLen := traverser.GetParams{
+			ClassName:  class.Class,
+			Pagination: &filters.Pagination{Limit: 2},
+			Filters:    filterLen,
+		}
+		resLen, err := repo.ClassSearch(context.Background(), paramsLen)
+		assert.Nil(t, err)
+		assert.Equal(t, 0, len(resLen))
+	})
+}
