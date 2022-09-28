@@ -1380,7 +1380,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 	class := &models.Class{
 		Class:               "DeletionClass",
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{

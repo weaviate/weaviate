@@ -346,7 +346,7 @@ func stringsFromValues(prop *models.Property, values []interface{}) ([]string, e
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
 	var hasFrequency bool
 	var items []Countable
-	PropertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
+	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
 	case schema.DataTypeText:
@@ -356,7 +356,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.Text(prop.Tokenization, asString)
-		PropertyLength = utf8.RuneCountInString(asString)
+		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeString:
 		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
@@ -364,7 +364,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.String(prop.Tokenization, asString)
-		PropertyLength = utf8.RuneCountInString(asString)
+		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
 		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {
@@ -440,7 +440,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		Name:         prop.Name,
 		Items:        items,
 		HasFrequency: hasFrequency,
-		Length:       PropertyLength,
+		Length:       propertyLength,
 	}, nil
 }
 
