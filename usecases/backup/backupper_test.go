@@ -408,6 +408,197 @@ func TestManagerCreateBackup(t *testing.T) {
 	})
 }
 
+func TestManagerCoordinatedBackup(t *testing.T) {
+	t.Parallel()
+	var (
+		cls         = "Class-A"
+		cls2        = "Class-B"
+		backendName = "gcs"
+		backupID    = "1"
+		ctx         = context.Background()
+		path        = "dst/path"
+		req         = Request{
+			Method:   OpCreate,
+			ID:       backupID,
+			Classes:  []string{cls, cls2},
+			Backend:  backendName,
+			Duration: time.Millisecond * 20,
+		}
+	)
+
+	t.Run("BackendUnregistered", func(t *testing.T) {
+		backendError := errors.New("I do not exist")
+		bm := createManager(nil, nil, nil, backendError)
+		ret := bm.OnCanCommit(ctx, &req)
+		assert.Contains(t, ret.Err, backendName)
+	})
+
+	t.Run("InitializeBackend", func(t *testing.T) {
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, backupID).Return(errors.New("init meta failed"))
+		bm := createManager(nil, nil, backend, nil)
+
+		resp := bm.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, "init")
+		assert.Equal(t, resp.Timeout, time.Duration(0))
+	})
+
+	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
+		req1 := BackupRequest{
+			ID:      backupID,
+			Include: []string{cls},
+			Backend: backendName,
+		}
+
+		sourcer := &fakeSourcer{}
+		// first
+		sourcer.On("Backupable", ctx, req1.Include).Return(nil)
+		sourcer.On("CreateBackup", mock.Anything, mock.Anything).Return(nil, nil)
+		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything).Return(nil)
+		var ch <-chan backup.ClassDescriptor
+		sourcer.On("BackupDescriptors", ctx, mock.Anything, mock.Anything).Return(ch)
+
+		backend := &fakeBackend{}
+		// first
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+		resp1, err := m.Backup(ctx, nil, &req1)
+		assert.Nil(t, err)
+		status1 := string(backup.Started)
+		want1 := &models.BackupCreateResponse{
+			Backend: backendName,
+			Classes: req1.Include,
+			ID:      backupID,
+			Status:  &status1,
+			Path:    path,
+		}
+		assert.Equal(t, resp1, want1)
+		resp := m.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, "already in progress")
+		assert.Equal(t, resp.Timeout, time.Duration(0))
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		classes := []string{cls}
+		sourcer := &fakeSourcer{}
+		sourcer.On("Backupable", ctx, classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(cls, cls2)...)
+		sourcer.On("BackupDescriptors", ctx, backupID, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, backupID).Return(nil)
+		backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutFile", mock.Anything, backupID, mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+
+		done := make(chan bool)
+		go func() {
+			req := req
+			req.Duration = time.Hour
+			got := m.OnCanCommit(ctx, &req)
+			want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+			assert.Equal(t, got, want)
+			done <- true
+		}()
+
+		<-done
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID})
+		assert.Nil(t, err)
+		for i := 0; i < 20; i++ {
+			time.Sleep(time.Millisecond * 50)
+			fmt.Println(m.backupper.lastBackup.get().Status)
+			if i > 0 && m.backupper.lastBackup.get().Status == "" {
+				break
+			}
+		}
+		assert.Equal(t, string(backup.Success), backend.meta.Status)
+		assert.Equal(t, "", backend.meta.Error)
+	})
+
+	t.Run("Abort", func(t *testing.T) {
+		classes := []string{cls}
+		sourcer := &fakeSourcer{}
+		sourcer.On("Backupable", ctx, classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(cls, cls2)...)
+		sourcer.On("BackupDescriptors", ctx, backupID, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, backupID).Return(nil)
+		backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutFile", mock.Anything, backupID, mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+
+		done := make(chan bool)
+		go func() {
+			req := req
+			req.Duration = time.Hour
+			got := m.OnCanCommit(ctx, &req)
+			want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+			assert.Equal(t, got, want)
+			done <- true
+		}()
+
+		<-done
+		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID})
+		assert.Nil(t, err)
+		for i := 0; i < 20; i++ {
+			time.Sleep(time.Millisecond * 50)
+			fmt.Println(m.backupper.lastBackup.get().Status)
+			if i > 0 && m.backupper.lastBackup.get().Status == "" {
+				break
+			}
+		}
+		assert.Contains(t, m.backupper.lastAsyncError.Error(), "abort")
+	})
+
+	t.Run("ExpirationTimeout", func(t *testing.T) {
+		classes := []string{cls}
+		sourcer := &fakeSourcer{}
+		sourcer.On("Backupable", ctx, classes).Return(nil)
+		ch := fakeBackupDescriptor(genClassDescriptions(cls, cls2)...)
+		sourcer.On("BackupDescriptors", ctx, backupID, mock.Anything).Return(ch)
+		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
+
+		backend := &fakeBackend{}
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("Initialize", ctx, backupID).Return(nil)
+		backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutFile", mock.Anything, backupID, mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+
+		done := make(chan bool)
+		go func() {
+			req := req
+			req.Duration = time.Millisecond * 10
+			got := m.OnCanCommit(ctx, &req)
+			want := CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
+			assert.Equal(t, got, want)
+			done <- true
+		}()
+
+		<-done
+		for i := 0; i < 20; i++ {
+			time.Sleep(time.Millisecond * 50)
+			fmt.Println(m.backupper.lastBackup.get().Status)
+			if i > 0 && m.backupper.lastBackup.get().Status == "" {
+				break
+			}
+		}
+		assert.Contains(t, m.backupper.lastAsyncError.Error(), "timed out")
+	})
+}
+
 func genClassDescriptions(classes ...string) []backup.ClassDescriptor {
 	ret := make([]backup.ClassDescriptor, len(classes))
 	rawbytes := []byte("raw")
