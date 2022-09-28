@@ -125,6 +125,20 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		}
 		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec))
 	})
+
+	t.Run("delete class", func(t *testing.T) {
+		require.Nil(t, migrator.DropClass(context.Background(), class.Class))
+		for _, idx := range migrator.db.indices {
+			for _, shd := range idx.Shards {
+				require.Nil(t, shd.store.Bucket("property__creationTimeUnix"))
+				require.Nil(t, shd.store.Bucket("hash_property__creationTimeUnix"))
+				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex))
+				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex))
+				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength))
+				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength))
+			}
+		}
+	})
 }
 
 func TestIndexNullState_GetClass(t *testing.T) {
