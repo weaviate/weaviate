@@ -429,6 +429,9 @@ func Test_MergeObject(t *testing.T) {
 				cls = tc.updated.Class
 			}
 			if tc.previous != nil {
+				if tc.previous.Properties != nil && tc.updated.Vector == nil {
+					m.modulesProvider.On("VectorizerName", mock.Anything).Return("some-module", nil)
+				}
 				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}).
 					Return(&search.Result{
 						Schema:    tc.previous.Properties,
@@ -445,7 +448,18 @@ func Test_MergeObject(t *testing.T) {
 			}
 
 			if tc.vectorizerCalledWith != nil {
-				m.vectorizer.On("UpdateObject", tc.vectorizerCalledWith).Return([]float32{1, 2, 3}, tc.errUpdateObject)
+				if tc.errUpdateObject != nil {
+					m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+						Return(nil, tc.errUpdateObject)
+				} else {
+					m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+						Return(tc.expectedOutput.Vector, nil)
+				}
+			}
+
+			if tc.expectedOutput != nil && tc.expectedOutput.Vector != nil {
+				m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+					Return(tc.expectedOutput.Vector, tc.errUpdateObject)
 			}
 
 			// called during validation of cross-refs only.
@@ -463,7 +477,7 @@ func Test_MergeObject(t *testing.T) {
 			}
 
 			m.repo.AssertExpectations(t)
-			m.vectorizer.AssertExpectations(t)
+			m.modulesProvider.AssertExpectations(t)
 		})
 	}
 }

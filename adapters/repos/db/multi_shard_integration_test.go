@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -34,7 +33,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -160,7 +159,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	t.Run("prepare", func(t *testing.T) {
 		class := &models.Class{
 			Class:             className,
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				CleanupIntervalSeconds: 60,
 			},
@@ -277,8 +276,6 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 
@@ -809,7 +806,7 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 func testClassesForImporting() []*models.Class {
 	return []*models.Class{
 		{
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Class:               "TestClass",
 			Properties: []*models.Property{
@@ -836,7 +833,7 @@ func testClassesForImporting() []*models.Class {
 			},
 		},
 		{
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Class:               "TestRefClass",
 			Properties: []*models.Property{

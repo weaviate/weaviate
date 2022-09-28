@@ -20,7 +20,7 @@ type BackupBackend interface {
 	HomeDir(backupID string) string
 
 	// GetObject giving backupID and key
-	GetObject(ctx context.Context, snapsbackupIDhotID, key string) ([]byte, error)
+	GetObject(ctx context.Context, backupID, key string) ([]byte, error)
 
 	// WriteToFile writes an object in the specified file with path destPath
 	// The file will be created if it doesn't exist
@@ -32,7 +32,7 @@ type BackupBackend interface {
 
 	// PutFile reads a file from srcPath and uploads it to the destination folder
 	PutFile(ctx context.Context, backupID, key, srcPath string) error
-	// PutObject writes bytes to the object with key key
+	// PutObject writes bytes to the object with key `key`
 	PutObject(ctx context.Context, backupID, key string, byes []byte) error
 	// Initialize initializes backup provider and make sure that app have access rights to write into the object store.
 	Initialize(ctx context.Context, backupID string) error

@@ -22,15 +22,15 @@ import (
 // BatchManager manages kind changes in batch at a use-case level , i.e.
 // agnostic of underlying databases or storage providers
 type BatchManager struct {
-	config             *config.WeaviateConfig
-	locks              locks
-	schemaManager      schemaManager
-	logger             logrus.FieldLogger
-	authorizer         authorizer
-	vectorRepo         BatchVectorRepo
-	vectorizerProvider VectorizerProvider
-	autoSchemaManager  *autoSchemaManager
-	metrics            *Metrics
+	config            *config.WeaviateConfig
+	locks             locks
+	schemaManager     schemaManager
+	logger            logrus.FieldLogger
+	authorizer        authorizer
+	vectorRepo        BatchVectorRepo
+	modulesProvider   ModulesProvider
+	autoSchemaManager *autoSchemaManager
+	metrics           *Metrics
 }
 
 type BatchVectorRepo interface {
@@ -45,20 +45,20 @@ type batchRepoNew interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer VectorizerProvider,
+func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	locks locks, schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorizer,
 	prom *monitoring.PrometheusMetrics,
 ) *BatchManager {
 	return &BatchManager{
-		config:             config,
-		locks:              locks,
-		schemaManager:      schemaManager,
-		logger:             logger,
-		vectorRepo:         vectorRepo,
-		vectorizerProvider: vectorizer,
-		authorizer:         authorizer,
-		autoSchemaManager:  newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
-		metrics:            NewMetrics(prom),
+		config:            config,
+		locks:             locks,
+		schemaManager:     schemaManager,
+		logger:            logger,
+		vectorRepo:        vectorRepo,
+		modulesProvider:   modulesProvider,
+		authorizer:        authorizer,
+		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
+		metrics:           NewMetrics(prom),
 	}
 }

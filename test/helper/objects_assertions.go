@@ -39,8 +39,8 @@ func AssertCreateObject(t *testing.T, className string, schema map[string]interf
 	return objectID
 }
 
-func AssertGetObject(t *testing.T, class string, uuid strfmt.UUID) *models.Object {
-	obj, err := GetObject(t, class, uuid)
+func AssertGetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) *models.Object {
+	obj, err := GetObject(t, class, uuid, include...)
 	AssertRequestOk(t, obj, err, nil)
 	return obj
 }
@@ -92,10 +92,13 @@ func AssertDeleteObjectClass(t *testing.T, class string) {
 	AssertRequestOk(t, delRes, err, nil)
 }
 
-func GetObject(t *testing.T, class string, uuid strfmt.UUID) (*models.Object, error) {
+func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().WithID(uuid)
 	if class != "" {
 		req.WithClassName(class)
+	}
+	if len(include) > 0 {
+		req.WithInclude(&include[0])
 	}
 	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
 	if err != nil {

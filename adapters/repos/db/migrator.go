@@ -35,8 +35,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		IndexConfig{
 			ClassName:                 schema.ClassName(class.Class),
 			RootPath:                  m.db.config.RootPath,
-			DiskUseWarningPercentage:  m.db.config.DiskUseWarningPercentage,
-			DiskUseReadOnlyPercentage: m.db.config.DiskUseReadOnlyPercentage,
+			ResourceUsage:             m.db.config.ResourceUsage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
 			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
 			NodeName:                  m.db.config.NodeName,
@@ -75,6 +74,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		if err != nil {
 			return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
 		}
+
+		if class.InvertedIndexConfig.IndexNullState {
+			err = idx.addNullStateProperty(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
+			}
+		}
+
 	}
 
 	if m.db.config.TrackVectorDimensions {

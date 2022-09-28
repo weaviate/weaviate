@@ -38,6 +38,7 @@ const (
 	BackupFileSystem = "backup-filesystem"
 	BackupS3         = "backup-s3"
 	BackupGCS        = "backup-gcs"
+	Ref2VecCentroid  = "ref2vec-centroid"
 )
 
 type Compose struct {
@@ -55,6 +56,7 @@ type Compose struct {
 	withQnATransformers     bool
 	withWeaviate            bool
 	withSUMTransformers     bool
+	withCentroid            bool
 }
 
 func New() *Compose {
@@ -118,6 +120,12 @@ func (d *Compose) WithBackendGCS(bucket string) *Compose {
 func (d *Compose) WithSUMTransformers() *Compose {
 	d.withSUMTransformers = true
 	d.enableModules = append(d.enableModules, SUMTransformers)
+	return d
+}
+
+func (d *Compose) WithRef2VecCentroid() *Compose {
+	d.withCentroid = true
+	d.enableModules = append(d.enableModules, Ref2VecCentroid)
 	return d
 }
 

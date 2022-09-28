@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -27,15 +26,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_UpdateAction(t *testing.T) {
 	var (
-		db            *fakeVectorRepo
-		vectorizer    *fakeVectorizer
-		manager       *Manager
-		extender      *fakeExtender
-		projectorFake *fakeProjector
+		db              *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *Manager
+		extender        *fakeExtender
+		projectorFake   *fakeProjector
 	)
 
 	schema := schema.Schema{
@@ -43,7 +44,7 @@ func Test_UpdateAction(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:             "ActionClass",
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
 							DataType: []string{"string"},
@@ -68,11 +69,10 @@ func Test_UpdateAction(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		vectorizer = &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, db, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
+		manager = NewManager(locks, schemaManager, cfg,
+			logger, authorizer, db, modulesProvider, metrics)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {
@@ -90,7 +90,8 @@ func Test_UpdateAction(t *testing.T) {
 			Updated:   beforeUpdate,
 		}
 		db.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
-		vectorizer.On("UpdateObject", mock.Anything).Return(vec, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			Return(vec, nil)
 		db.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 
 		payload := &models.Object{
@@ -132,7 +133,7 @@ func Test_UpdateObject(t *testing.T) {
 			Classes: []*models.Class{
 				{
 					Class:             cls,
-					VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 					Properties: []*models.Property{
 						{
 							DataType: []string{"string"},
@@ -165,7 +166,8 @@ func Test_UpdateObject(t *testing.T) {
 		Updated:   beforeUpdate,
 	}
 	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(result, nil).Once()
-	m.vectorizer.On("UpdateObject", mock.Anything).Return(vec, nil).Once()
+	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		Return(vec, nil)
 	m.repo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
 
 	expected := &models.Object{

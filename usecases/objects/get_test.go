@@ -61,11 +61,10 @@ func Test_GetAction(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics = &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger,
+			authorizer, vectorRepo,
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -699,11 +698,10 @@ func Test_GetThing(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vecProvider, vectorRepo, getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+		manager = NewManager(locks, schemaManager, cfg, logger,
+			authorizer, vectorRepo,
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1066,25 +1064,30 @@ func ptInt64(in int64) *int64 {
 
 type fakeGetManager struct {
 	*Manager
-	repo       *fakeVectorRepo
-	extender   *fakeExtender
-	projector  *fakeProjector
-	vectorizer *fakeVectorizer
-	authorizer *fakeAuthorizer
-	locks      *fakeLocks
-	metrics    *fakeMetrics
+	repo            *fakeVectorRepo
+	extender        *fakeExtender
+	projector       *fakeProjector
+	authorizer      *fakeAuthorizer
+	locks           *fakeLocks
+	metrics         *fakeMetrics
+	modulesProvider *fakeModulesProvider
 }
 
-func newFakeGetManager(schema schema.Schema) fakeGetManager {
+func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fakeGetManager {
 	r := fakeGetManager{
-		repo:       new(fakeVectorRepo),
-		extender:   new(fakeExtender),
-		projector:  new(fakeProjector),
-		vectorizer: new(fakeVectorizer),
-		authorizer: new(fakeAuthorizer),
-		locks:      new(fakeLocks),
-		metrics:    new(fakeMetrics),
+		repo:            new(fakeVectorRepo),
+		extender:        new(fakeExtender),
+		projector:       new(fakeProjector),
+		authorizer:      new(fakeAuthorizer),
+		locks:           new(fakeLocks),
+		metrics:         new(fakeMetrics),
+		modulesProvider: new(fakeModulesProvider),
 	}
+
+	for _, opt := range opts {
+		opt(&r)
+	}
+
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema,
 	}
@@ -1093,8 +1096,9 @@ func newFakeGetManager(schema schema.Schema) fakeGetManager {
 	cfg.Config.QueryMaximumResults = 200
 	cfg.Config.TrackVectorDimensions = true
 	logger, _ := test.NewNullLogger()
-	vecProvider := &fakeVectorizerProvider{r.vectorizer}
-	mProvider := getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.locks, schemaManager, cfg, logger, r.authorizer, vecProvider, r.repo, mProvider, r.metrics)
+	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
+	r.Manager = NewManager(r.locks, schemaManager, cfg, logger,
+		r.authorizer, r.repo, r.modulesProvider, r.metrics)
+
 	return r
 }

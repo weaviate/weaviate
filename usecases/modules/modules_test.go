@@ -349,13 +349,13 @@ func fakeValidateFn(param interface{}) error {
 
 func newGraphQLModule(name string) *dummyGraphQLModule {
 	return &dummyGraphQLModule{
-		dummyModuleNoCapabilities: newDummyModuleWithName(name),
-		arguments:                 map[string]modulecapabilities.GraphQLArgument{},
+		dummyText2VecModuleNoCapabilities: newDummyText2VecModule(name),
+		arguments:                         map[string]modulecapabilities.GraphQLArgument{},
 	}
 }
 
 type dummyGraphQLModule struct {
-	dummyModuleNoCapabilities
+	dummyText2VecModuleNoCapabilities
 	arguments map[string]modulecapabilities.GraphQLArgument
 }
 

@@ -45,7 +45,7 @@ func TestSetClassDefaults(t *testing.T) {
 		}
 
 		p := NewProvider()
-		p.Register(&dummyModuleNoCapabilities{name: "my-module"})
+		p.Register(&dummyText2VecModuleNoCapabilities{name: "my-module"})
 		p.SetClassDefaults(class)
 
 		assert.Equal(t, &models.Class{Class: "Foo", Vectorizer: "my-module"}, class,
@@ -84,7 +84,7 @@ func TestSetClassDefaults(t *testing.T) {
 
 		p := NewProvider()
 		p.Register(&dummyModuleClassConfigurator{
-			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
+			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			},
 		})
@@ -136,7 +136,7 @@ func TestSetClassDefaults(t *testing.T) {
 
 		p := NewProvider()
 		p.Register(&dummyModuleClassConfigurator{
-			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
+			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			},
 		})
@@ -162,7 +162,7 @@ func TestValidateClass(t *testing.T) {
 		p := NewProvider()
 		p.Register(&dummyModuleClassConfigurator{
 			validateError: errors.Errorf("if I was used, you'd fail"),
-			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
+			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			},
 		})
@@ -183,7 +183,7 @@ func TestValidateClass(t *testing.T) {
 			}
 
 			p := NewProvider()
-			p.Register(&dummyModuleNoCapabilities{
+			p.Register(&dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			})
 			p.SetClassDefaults(class)
@@ -204,7 +204,7 @@ func TestValidateClass(t *testing.T) {
 		p := NewProvider()
 		p.Register(&dummyModuleClassConfigurator{
 			validateError: errors.Errorf("no can do!"),
-			dummyModuleNoCapabilities: dummyModuleNoCapabilities{
+			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			},
 		})
@@ -217,7 +217,7 @@ func TestValidateClass(t *testing.T) {
 }
 
 type dummyModuleClassConfigurator struct {
-	dummyModuleNoCapabilities
+	dummyText2VecModuleNoCapabilities
 	validateError error
 }
 

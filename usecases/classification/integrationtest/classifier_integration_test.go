@@ -28,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/usecases/classification"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -49,8 +48,6 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	vrepo.SetSchemaGetter(sg)
@@ -191,8 +188,6 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	vrepo := db.New(logger, db.Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	vrepo.SetSchemaGetter(sg)

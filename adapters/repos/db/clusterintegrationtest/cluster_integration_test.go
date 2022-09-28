@@ -35,7 +35,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -45,7 +44,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -56,6 +55,7 @@ import (
 
 const (
 	vectorDims       = 20
+	numberOfNodes    = 10
 	distributedClass = "Distributed"
 )
 
@@ -77,7 +77,6 @@ func TestDistributedSetup(t *testing.T) {
 
 func testDistributed(t *testing.T, dirName string, batch bool) {
 	var nodes []*node
-	numberOfNodes := 10
 	numberOfObjects := 200
 
 	t.Run("setup", func(t *testing.T) {
@@ -540,6 +539,18 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		}
 	})
 
+	t.Run("node names by shard", func(t *testing.T) {
+		for _, n := range nodes {
+			nodeSet := make(map[string]bool)
+			foundNodes := n.repo.Shards(context.Background(), distributedClass)
+			for _, found := range foundNodes {
+				nodeSet[found] = true
+			}
+			assert.Len(t, nodeSet, numberOfNodes, "expected %d nodes, got %d",
+				numberOfNodes, len(foundNodes))
+		}
+	})
+
 	t.Run("delete a third of the data from random nodes", func(t *testing.T) {
 		for i, obj := range data {
 			if i%3 != 0 {
@@ -710,8 +721,6 @@ func (n *node) init(numberOfNodes int, dirName string, shardStateRaw []byte,
 		FlushIdleAfter:            60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, client, nodeResolver, nil)
 	n.schemaGetter = &fakeSchemaGetter{
@@ -809,7 +818,7 @@ func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 }
 
 func class() *models.Class {
-	cfg := hnsw.NewDefaultUserConfig()
+	cfg := enthnsw.NewDefaultUserConfig()
 	cfg.EF = 500
 	return &models.Class{
 		Class:               distributedClass,
@@ -846,7 +855,7 @@ func class() *models.Class {
 }
 
 func secondClassWithRef() *models.Class {
-	cfg := hnsw.NewDefaultUserConfig()
+	cfg := enthnsw.NewDefaultUserConfig()
 	cfg.EF = 500
 	return &models.Class{
 		Class:               "SecondDistributed",

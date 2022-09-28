@@ -14,7 +14,6 @@ package test
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"testing"
 
@@ -45,7 +44,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"flatSearchCutoff":       float64(40000),
 					"ef":                     float64(-1),
 					"maxConnections":         float64(64),
-					"vectorCacheMaxObjects":  float64(math.MaxInt64),
+					"vectorCacheMaxObjects":  float64(1e12),
 					"dynamicEfMin":           float64(100),
 					"dynamicEfMax":           float64(500),
 					"dynamicEfFactor":        float64(8),
