@@ -407,11 +407,6 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
 			{
-				name:        "by number length (always 1 when defined)",
-				filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
-			},
-			{
 				name:        "by text length (equal)",
 				filter:      buildFilter("len(description)", 65, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
@@ -428,19 +423,26 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "length 0 (not added)",
-				filter:      buildFilter("len(released)", 0, eq, dtInt),
+				filter:      buildFilter("len(colorArrayWord)", 0, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carNilID},
 			},
 			{
 				name:        "Filter by unsupported geo-coordinates",
 				filter:      buildFilter("len(parkedAt)", 0, eq, dtInt),
-				expectedIDs: []strfmt.UUID{carNilID},
+				expectedIDs: []strfmt.UUID{},
 				ErrMsg:      "Property length must be indexed to be filterable",
 			},
 			{
-				name:        "length greater than 0",
-				filter:      buildFilter("len(released)", 0, gt, dtInt),
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
+				name:        "Filter by unsupported number",
+				filter:      buildFilter("len(horsepower)", 1, eq, dtInt),
+				expectedIDs: []strfmt.UUID{},
+				ErrMsg:      "Property length must be indexed to be filterable",
+			},
+			{
+				name:        "Filter by unsupported date",
+				filter:      buildFilter("len(released)", 1, eq, dtInt),
+				expectedIDs: []strfmt.UUID{},
+				ErrMsg:      "Property length must be indexed to be filterable",
 			},
 			{
 				name:        "Filter unicode strings",
