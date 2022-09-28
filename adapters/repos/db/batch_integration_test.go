@@ -73,7 +73,7 @@ func TestBatchPutObjects(t *testing.T) {
 	require.Equal(t, 1809, dimAfter, "Dimensions are present after import")
 }
 
-func TestBatchPutObjectsNoVectors(t *testing.T) {
+func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
@@ -106,7 +106,34 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	require.Equal(t, 0, dimensions, "Dimensions are empty after import (no vectors in import)")
 }
 
-func TestBatchDeleteObjects(t *testing.T) {
+func TestBatchPutObjectsNoVectors(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+
+	t.Run("batch import things", testBatchImportObjectsNoVector(repo))
+}
+
+func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
@@ -140,6 +167,74 @@ func TestBatchDeleteObjects(t *testing.T) {
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
 	t.Run("batch delete things", testBatchDeleteObjects(repo))
+	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
+}
+
+func TestBatchDeleteObjects(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+
+	t.Run("batch import things", testBatchImportObjects(repo))
+
+	t.Run("batch delete things", testBatchDeleteObjects(repo))
+}
+
+func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	queryMaximumResults := int64(20)
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       queryMaximumResults,
+		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
+		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+
+	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
+
+	t.Run("batch import things", testBatchImportObjects(repo))
+
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
+
+	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults))
+
 	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
 }
