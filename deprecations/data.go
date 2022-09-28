@@ -106,18 +106,4 @@ var ByID = map[string]models.Deprecation{
 		RemovedIn:    ptString("0.23.0"),
 		RemovedTime:  timeMustPtr(time.Parse(time.RFC3339, "2020-11-26T14:58:00.000Z")),
 	},
-	"additional-prop-certainty": {
-		ID: "additional-prop-certainty",
-		Locations: []string{
-			"Get {}",
-			"Explore {}",
-		},
-		Status:       "deprecated",
-		APIType:      "GraphQL",
-		Mitigation:   "when making Get/Explore queries, refer to 'distance'",
-		Msg:          "response contains deprecated additional property certainty",
-		SinceVersion: "1.14.0",
-		SinceTime:    timeMust(time.Parse(time.RFC3339, "2022-06-21T19:12:31.000Z")),
-		RemovedIn:    ptString("TBD"),
-	},
 }
