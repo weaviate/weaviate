@@ -64,13 +64,16 @@ func Test_Authorization(t *testing.T) {
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
-		// t.Skip()
 		testedMethods := make([]string, len(tests))
 		for i, test := range tests {
 			testedMethods[i] = test.methodName
 		}
 
 		for _, method := range allExportedMethods(&Manager{}) {
+			switch method {
+			case "OnCommit", "OnAbort", "OnCanCommit":
+				continue
+			}
 			assert.Contains(t, testedMethods, method)
 		}
 	})

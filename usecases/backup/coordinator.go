@@ -39,7 +39,7 @@ var (
 )
 
 const (
-	_BookingPeriod      = 20
+	_BookingPeriod      = time.Second * 20
 	_TimeoutNodeDown    = 7 * time.Minute
 	_TimeoutQueryStatus = 5 * time.Second
 	_TimeoutCanCommit   = 8 * time.Second
@@ -349,7 +349,7 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 func (c *coordinator) abortAll(ctx context.Context, id string, method Op, nodes map[string]struct{}) {
 	for node := range nodes {
 		req := AbortRequest{Method: method, ID: id}
-		if _, err := c.client.Abort(ctx, node, &req); err != nil {
+		if err := c.client.Abort(ctx, node, &req); err != nil {
 			c.log.WithField("action", method).
 				WithField("backup_id", req.ID).
 				WithField("node", node).Errorf("abort %v", err)
