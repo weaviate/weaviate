@@ -30,7 +30,7 @@ func (s *Shard) initDimensionTracking() {
 	}
 
 	go func() {
-		t := time.NewTicker(5 * time.Second) // 5 minutes
+		t := time.NewTicker(5 * time.Minute)
 
 		for {
 			if s.stopMetrics {
