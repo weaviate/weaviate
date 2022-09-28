@@ -145,7 +145,7 @@ func (b *backupper) Status(ctx context.Context, backend, bakID string,
 	meta, err := store.Meta(ctx, bakID)
 	if err != nil {
 		return nil, backup.NewErrNotFound(
-			fmt.Errorf("backup status: get metafile %s/%s: %w", bakID, MetaDataFilename, err))
+			fmt.Errorf("backup status: get metafile %s/%s: %w", bakID, BackupFile, err))
 	}
 
 	status := string(meta.Status)

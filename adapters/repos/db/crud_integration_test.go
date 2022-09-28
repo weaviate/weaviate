@@ -23,7 +23,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -32,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -45,7 +45,7 @@ func TestCRUD(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "TheBestThingClass",
 		Properties: []*models.Property{
@@ -66,7 +66,7 @@ func TestCRUD(t *testing.T) {
 	}
 	actionclass := &models.Class{
 		Class:               "TheBestActionClass",
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
@@ -1325,7 +1325,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 					Name:     "int_prop",
 				},
 			},
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		require.Nil(t,
@@ -1469,7 +1469,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 					Name:     "int_prop",
 				},
 			},
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		require.Nil(t,
@@ -1606,7 +1606,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 					Name:     "int_prop",
 				},
 			},
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 		}
 		require.Nil(t,
@@ -1717,7 +1717,7 @@ func Test_PutPatchRestart(t *testing.T) {
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
 
 	testClass := &models.Class{
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "PutPatchRestart",
 		Properties: []*models.Property{
