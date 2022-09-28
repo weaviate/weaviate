@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRestoreClass_WithCiruclarRefs(t *testing.T) {
+func TestRestoreClass_WithCircularRefs(t *testing.T) {
 	// When restoring a class, there could be circular refs between the classes,
 	// thus any validation that checks if linked classes exist would fail on the
 	// first class to import. Since we have no control over the order of imports

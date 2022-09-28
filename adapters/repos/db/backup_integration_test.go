@@ -24,11 +24,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,6 +92,18 @@ func TestBackup_DBLevel(t *testing.T) {
 				err := db.ReleaseBackup(ctx, backupID, class)
 				assert.Nil(t, err)
 			}
+		})
+
+		t.Run("node names from shards", func(t *testing.T) {
+			res := db.Shards(ctx, className)
+			assert.Len(t, res, 1)
+			assert.Equal(t, "node1", res[0])
+		})
+
+		t.Run("get all classes", func(t *testing.T) {
+			res := db.ListClasses(ctx)
+			assert.Len(t, res, 1)
+			assert.Equal(t, className, res[0])
 		})
 	})
 
@@ -212,8 +223,6 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		FlushIdleAfter:            60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 		NodeName:                  "testNode",
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
@@ -239,7 +248,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 
 func makeTestClass(className string) *models.Class {
 	return &models.Class{
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               className,
 		Properties: []*models.Property{

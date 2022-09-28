@@ -15,13 +15,15 @@ import (
 	"encoding/binary"
 	"math"
 
+	"github.com/semi-technologies/weaviate/entities/filters"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
+func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []string,
 	docID uint64,
 ) error {
 	for _, prop := range props {
@@ -31,7 +33,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 		}
 
 		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if b == nil {
+		if hashBucket == nil {
 			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
 		}
 
@@ -51,9 +53,64 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property,
 				}
 			}
 		}
+
+		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
+		if (len(prop.Name) > 12 && prop.Name[len(prop.Name)-12:] == "__meta_count") ||
+			prop.Name[0] == '_' ||
+			!s.index.invertedIndexConfig.IndexNullState {
+			continue
+		}
+
+		if err := s.addIndexedNullStateToProps(docID, prop.Name, false); err != nil {
+			return errors.Wrap(err, "add indexed null state")
+		}
+	}
+
+	// add nil properties to the nullstate inverted index
+	if s.index.invertedIndexConfig.IndexNullState {
+		for _, nilProp := range nilProps {
+			if err := s.addIndexedNullStateToProps(docID, nilProp, true); err != nil {
+				return errors.Wrap(err, "add indexed null state")
+			}
+		}
 	}
 
 	return nil
+}
+
+func (s *Shard) addIndexedNullStateToProps(docID uint64, propName string, isNil bool) error {
+	bNullState := s.store.Bucket(helpers.BucketFromPropNameLSM(propName + filters.InternalNullIndex))
+	if bNullState == nil {
+		return errors.Errorf("no bucket for nil prop '%s' found", propName+filters.InternalNullIndex)
+	}
+
+	hashBucketNullState := s.store.Bucket(helpers.HashBucketFromPropNameLSM(propName + filters.InternalNullIndex))
+	if bNullState == nil {
+		return errors.Errorf("no nil-hash bucket for prop '%s' found", propName+filters.InternalNullIndex)
+	}
+
+	if bNullState.Strategy() != lsmkv.StrategySetCollection {
+		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	}
+
+	hash, err := s.generateRowHash()
+	if err != nil {
+		return err
+	}
+
+	var key uint8
+	if isNil {
+		key = uint8(filters.InternalNullState)
+	} else {
+		key = uint8(filters.InternalNotNullState)
+	}
+	if err := hashBucketNullState.Put([]byte{key}, hash); err != nil {
+		return err
+	}
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+	return bNullState.SetAdd([]byte{key}, [][]byte{docIDBytes})
 }
 
 func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,

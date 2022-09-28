@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.1"
+    "version": "1.15.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -3302,6 +3302,10 @@ func init() {
           "type": "number",
           "format": "int"
         },
+        "indexNullState": {
+          "description": "Index each object with the null state",
+          "type": "boolean"
+        },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
           "type": "boolean"
@@ -3849,7 +3853,8 @@ func init() {
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
-            "WithinGeoRange"
+            "WithinGeoRange",
+            "IsNull"
           ],
           "example": "GreaterThanEqual"
         },
@@ -4036,7 +4041,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.1"
+    "version": "1.15.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -7476,6 +7481,10 @@ func init() {
           "type": "number",
           "format": "int"
         },
+        "indexNullState": {
+          "description": "Index each object with the null state",
+          "type": "boolean"
+        },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
           "type": "boolean"
@@ -8041,7 +8050,8 @@ func init() {
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
-            "WithinGeoRange"
+            "WithinGeoRange",
+            "IsNull"
           ],
           "example": "GreaterThanEqual"
         },

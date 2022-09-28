@@ -163,6 +163,8 @@ func command(app string, arguments []string, waitForCompletion bool) error {
 	cmd := exec.Command(app, arguments...)
 	execDir := mydir + "/../../"
 	cmd.Dir = execDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if waitForCompletion {
 		err = cmd.Run()
 	} else {

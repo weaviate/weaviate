@@ -191,25 +191,11 @@ func FromEnv(config *Config) error {
 		config.AutoSchema.DefaultDate = v
 	}
 
-	if v := os.Getenv("DISK_USE_WARNING_PERCENTAGE"); v != "" {
-		asUint, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return errors.Wrapf(err, "parse DISK_USE_WARNING_PERCENTAGE as uint")
-		}
-		config.DiskUse.WarningPercentage = asUint
-	} else {
-		config.DiskUse.WarningPercentage = DefaultDiskUseWarningPercentage
+	ru, err := parseResourceUsageEnvVars()
+	if err != nil {
+		return err
 	}
-
-	if v := os.Getenv("DISK_USE_READONLY_PERCENTAGE"); v != "" {
-		asUint, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return errors.Wrapf(err, "parse DISK_USE_READONLY_PERCENTAGE as uint")
-		}
-		config.DiskUse.ReadOnlyPercentage = asUint
-	} else {
-		config.DiskUse.ReadOnlyPercentage = DefaultDiskUseReadonlyPercentage
-	}
+	config.ResourceUsage = ru
 
 	if v := os.Getenv("GO_BLOCK_PROFILE_RATE"); v != "" {
 		asInt, err := strconv.Atoi(v)
@@ -254,4 +240,50 @@ func enabled(value string) bool {
 	}
 
 	return false
+}
+
+func parseResourceUsageEnvVars() (ResourceUsage, error) {
+	ru := ResourceUsage{}
+
+	if v := os.Getenv("DISK_USE_WARNING_PERCENTAGE"); v != "" {
+		asUint, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return ru, errors.Wrapf(err, "parse DISK_USE_WARNING_PERCENTAGE as uint")
+		}
+		ru.DiskUse.WarningPercentage = asUint
+	} else {
+		ru.DiskUse.WarningPercentage = DefaultDiskUseWarningPercentage
+	}
+
+	if v := os.Getenv("DISK_USE_READONLY_PERCENTAGE"); v != "" {
+		asUint, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return ru, errors.Wrapf(err, "parse DISK_USE_READONLY_PERCENTAGE as uint")
+		}
+		ru.DiskUse.ReadOnlyPercentage = asUint
+	} else {
+		ru.DiskUse.ReadOnlyPercentage = DefaultDiskUseReadonlyPercentage
+	}
+
+	if v := os.Getenv("MEMORY_WARNING_PERCENTAGE"); v != "" {
+		asUint, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return ru, errors.Wrapf(err, "parse MEMORY_WARNING_PERCENTAGE as uint")
+		}
+		ru.MemUse.WarningPercentage = asUint
+	} else {
+		ru.MemUse.WarningPercentage = DefaultMemUseWarningPercentage
+	}
+
+	if v := os.Getenv("MEMORY_READONLY_PERCENTAGE"); v != "" {
+		asUint, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return ru, errors.Wrapf(err, "parse MEMORY_READONLY_PERCENTAGE as uint")
+		}
+		ru.MemUse.ReadOnlyPercentage = asUint
+	} else {
+		ru.MemUse.ReadOnlyPercentage = DefaultMemUseReadonlyPercentage
+	}
+
+	return ru, nil
 }

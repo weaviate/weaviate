@@ -20,12 +20,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -38,7 +37,7 @@ func TestRestartJourney(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	thingclass := &models.Class{
-		VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: invertedConfig(),
 		Class:               "Class",
 		Properties: []*models.Property{
@@ -55,8 +54,6 @@ func TestRestartJourney(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
@@ -176,8 +173,6 @@ func TestRestartJourney(t *testing.T) {
 			FlushIdleAfter:            60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
-			DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-			DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 			MaxImportGoroutinesFactor: 1,
 		}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 		newRepo.SetSchemaGetter(schemaGetter)

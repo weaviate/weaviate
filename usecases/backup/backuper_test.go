@@ -64,7 +64,7 @@ func TestBackupStatus(t *testing.T) {
 
 	t.Run("MetdataNotFound", func(t *testing.T) {
 		backend := &fakeBackend{}
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
+		backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
 		m := createManager(nil, nil, backend, nil)
 		_, err := m.BackupStatus(ctx, nil, backendName, id)
 		assert.NotNil(t, err)
@@ -77,7 +77,7 @@ func TestBackupStatus(t *testing.T) {
 	t.Run("ReadFromMetadata", func(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Transferring)})
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m := createManager(nil, nil, backend, nil)
 		got, err := m.BackupStatus(ctx, nil, backendName, id)
@@ -152,7 +152,7 @@ func TestBackupRequestValidation(t *testing.T) {
 		sourcer.On("Backupable", ctx, []string{cls}).Return(nil)
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(nil, errors.New("can not be read"))
+		backend.On("GetObject", ctx, id, BackupFile).Return(nil, errors.New("can not be read"))
 		bm := createManager(sourcer, nil, backend, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
@@ -172,7 +172,7 @@ func TestBackupRequestValidation(t *testing.T) {
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id})
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		bm := createManager(sourcer, nil, backend, nil)
 
 		meta, err := bm.Backup(ctx, nil, &BackupRequest{
@@ -242,7 +242,7 @@ func TestManagerCreateBackup(t *testing.T) {
 
 		backend := &fakeBackend{}
 		// first
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", mock.Anything).Return(path)
 		sourcer.On("Backupable", ctx, req1.Include).Return(nil)
 		backend.On("Initialize", ctx, mock.Anything).Return(nil)
@@ -274,7 +274,7 @@ func TestManagerCreateBackup(t *testing.T) {
 		sourcer.On("Backupable", ctx, classes).Return(nil)
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		backend.On("Initialize", ctx, backupID).Return(errors.New("init meta failed"))
 		bm := createManager(sourcer, nil, backend, nil)
 
@@ -299,9 +299,9 @@ func TestManagerCreateBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		backend.On("Initialize", ctx, backupID).Return(nil)
-		backend.On("PutObject", mock.Anything, backupID, MetaDataFilename, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).Once()
 		backend.On("PutFile", mock.Anything, backupID, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
 
@@ -338,10 +338,10 @@ func TestManagerCreateBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		backend.On("Initialize", ctx, backupID).Return(nil)
 		backend.On("PutFile", mock.Anything, backupID, mock.Anything, mock.Anything).Return(ErrAny).Once()
-		backend.On("PutObject", mock.Anything, backupID, MetaDataFilename, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).Once()
 		m := createManager(sourcer, nil, backend, nil)
 
 		resp, err := m.Backup(ctx, nil, &req)
@@ -378,10 +378,10 @@ func TestManagerCreateBackup(t *testing.T) {
 		sourcer.On("ReleaseBackup", ctx, backupID, mock.Anything).Return(nil)
 		backend := &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(nil, backup.NewErrNotFound(errors.New("not found")))
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 		backend.On("Initialize", ctx, backupID).Return(nil)
 		backend.On("PutFile", mock.Anything, backupID, mock.Anything, mock.Anything).Return(nil)
-		backend.On("PutObject", mock.Anything, backupID, MetaDataFilename, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil).Once()
 		m := createManager(sourcer, nil, backend, nil)
 
 		resp, err := m.Backup(ctx, nil, &req)

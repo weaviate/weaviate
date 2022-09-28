@@ -30,8 +30,9 @@ import (
 
 func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
-		manager    *BatchManager
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *BatchManager
 	)
 
 	schema := schema.Schema{
@@ -69,10 +70,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		manager = NewBatchManager(vectorRepo, vecProvider, locks,
-			schemaManager, config, logger, authorizer, monitoring.GetMetrics())
+		modulesProvider = getFakeModulesProvider()
+		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
+			schemaManager, config, logger, authorizer, nil)
 	}
 
 	reset := func() {
@@ -102,6 +102,11 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				Class:  "Foo",
 				Vector: []float32{0.2, 0.2, 0.2222},
 			},
+		}
+
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -135,6 +140,11 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			},
 		}
 
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
+		}
+
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
@@ -170,6 +180,11 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			},
 		}
 
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
+		}
+
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
@@ -203,6 +218,11 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			},
 		}
 
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
+		}
+
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
@@ -231,6 +251,11 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			},
 		}
 
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
+		}
+
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
@@ -243,8 +268,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
-		manager    *BatchManager
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *BatchManager
 	)
 
 	schema := schema.Schema{
@@ -268,10 +294,8 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewBatchManager(vectorRepo, vecProvider, locks,
+		modulesProvider = getFakeModulesProvider()
+		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
 	}
 
@@ -290,6 +314,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 	t.Run("with objects without IDs", func(t *testing.T) {
 		reset()
 		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		expectedVector := []float32{0, 1, 2}
 		objects := []*models.Object{
 			{
 				Class: "Foo",
@@ -297,6 +322,11 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 			{
 				Class: "Foo",
 			},
+		}
+
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(expectedVector, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -308,9 +338,9 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		assert.Len(t, repoCalledWithObjects[1].UUID, 36, "a uuid was set for the second object")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, []float32{0, 1, 2}, repoCalledWithObjects[0].Vector,
+		assert.Equal(t, expectedVector, repoCalledWithObjects[0].Vector,
 			"the correct vector was used")
-		assert.Equal(t, []float32{0, 1, 2}, repoCalledWithObjects[1].Vector,
+		assert.Equal(t, expectedVector, repoCalledWithObjects[1].Vector,
 			"the correct vector was used")
 	})
 
@@ -328,6 +358,11 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 				ID:    id2,
 				Class: "Foo",
 			},
+		}
+
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
@@ -355,6 +390,11 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 			},
 		}
 
+		for range objects {
+			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+				Return(nil, nil)
+		}
+
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{})
 		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
 
@@ -367,8 +407,9 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 
 func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 	var (
-		vectorRepo *fakeVectorRepo
-		manager    *BatchManager
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *BatchManager
 	)
 	schema := schema.Schema{
 		Objects: &models.Schema{
@@ -397,10 +438,8 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorizer := &fakeVectorizer{}
-		vecProvider := &fakeVectorizerProvider{vectorizer}
-		vectorizer.On("UpdateObject", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewBatchManager(vectorRepo, vecProvider, locks,
+		modulesProvider = getFakeModulesProvider()
+		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
 	}
 	reset()
@@ -421,6 +460,10 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 	require.NotNil(t, objects[1].Properties)
 
 	ctx := context.Background()
+	for range objects {
+		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			Return(nil, nil)
+	}
 	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{})
 	assert.Nil(t, err)
 	require.Len(t, addedObjects, 2)
