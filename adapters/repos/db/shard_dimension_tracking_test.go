@@ -15,7 +15,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,8 +30,6 @@ func Test_DimensionTracking(t *testing.T) {
 	repo := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
