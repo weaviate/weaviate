@@ -60,7 +60,7 @@ type participantStatus struct {
 type selector interface {
 	// Shards gets all nodes on which this class is sharded
 	Shards(ctx context.Context, class string) []string
-	// ListClasses returns a list of all existig classes
+	// ListClasses returns a list of all existing classes
 	// This will be need if user doesn't include any classes
 	ListClasses(ctx context.Context) []string
 }
