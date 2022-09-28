@@ -57,6 +57,27 @@ func TestBackup_DBLevel(t *testing.T) {
 			}, []float32{1, 2, 3}))
 		})
 
+		expectedNodeName := "node1"
+		expectedShardName := db.schemaGetter.
+			ShardingState(className).
+			AllPhysicalShards()[0]
+		testShd := db.GetIndex(schema.ClassName(className)).
+			Shards[expectedShardName]
+		expectedCounterPath := path.Base(testShd.counter.FileName())
+		expectedCounter, err := os.ReadFile(testShd.counter.FileName())
+		require.Nil(t, err)
+		expectedPropLengthPath := path.Base(testShd.propLengths.FileName())
+		expectedShardVersionPath := path.Base(testShd.versioner.path)
+		expectedShardVersion, err := os.ReadFile(testShd.versioner.path)
+		require.Nil(t, err)
+		expectedPropLength, err := os.ReadFile(testShd.propLengths.FileName())
+		require.Nil(t, err)
+		expectedShardState, err := testShd.index.getSchema.ShardingState(className).JSON()
+		require.Nil(t, err)
+		expectedSchema, err := testShd.index.getSchema.GetSchemaSkipAuth().
+			Objects.Classes[0].MarshalBinary()
+		require.Nil(t, err)
+
 		classes := db.ListBackupable()
 
 		t.Run("create backup", func(t *testing.T) {
@@ -69,21 +90,21 @@ func TestBackup_DBLevel(t *testing.T) {
 				assert.Equal(t, className, d.Name)
 				assert.Len(t, d.Shards, len(classes))
 				for _, shd := range d.Shards {
-					assert.NotEmpty(t, shd.Name)
-					assert.NotEmpty(t, shd.Node)
+					assert.Equal(t, expectedShardName, shd.Name)
+					assert.Equal(t, expectedNodeName, shd.Node)
 					assert.NotEmpty(t, shd.Files)
 					for _, f := range shd.Files {
 						assert.NotEmpty(t, f)
 					}
-					assert.NotEmpty(t, shd.DocIDCounterPath)
-					assert.NotEmpty(t, shd.DocIDCounter)
-					assert.NotEmpty(t, shd.PropLengthTrackerPath)
-					assert.NotEmpty(t, shd.PropLengthTracker)
-					assert.NotEmpty(t, shd.ShardVersionPath)
-					assert.NotEmpty(t, shd.Version)
+					assert.Equal(t, expectedCounterPath, shd.DocIDCounterPath)
+					assert.Equal(t, expectedCounter, shd.DocIDCounter)
+					assert.Equal(t, expectedPropLengthPath, shd.PropLengthTrackerPath)
+					assert.Equal(t, expectedPropLength, shd.PropLengthTracker)
+					assert.Equal(t, expectedShardVersionPath, shd.ShardVersionPath)
+					assert.Equal(t, expectedShardVersion, shd.Version)
 				}
-				assert.NotEmpty(t, d.ShardingState)
-				assert.NotEmpty(t, d.Schema)
+				assert.Equal(t, expectedShardState, d.ShardingState)
+				assert.Equal(t, expectedSchema, d.Schema)
 			}
 		})
 
@@ -224,7 +245,6 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-		NodeName:                  "testNode",
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	db.SetSchemaGetter(schemaGetter)
 	err := db.WaitForStartup(testCtx())

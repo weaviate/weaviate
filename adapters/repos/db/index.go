@@ -204,7 +204,6 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	NodeName                  string
 	FlushIdleAfter            int
 }
 

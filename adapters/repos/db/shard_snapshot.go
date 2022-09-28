@@ -85,7 +85,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
-	d.Node = s.index.Config.NodeName
+	d.Node = s.nodeName()
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
@@ -104,4 +104,10 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	}
 	d.ShardVersionPath = path.Base(fpath)
 	return nil
+}
+
+func (s *Shard) nodeName() string {
+	ss := s.index.getSchema.ShardingState(s.index.Config.ClassName.String())
+	node := ss.Physical[s.name].BelongsToNode
+	return node
 }
