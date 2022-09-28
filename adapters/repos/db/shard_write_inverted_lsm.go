@@ -13,9 +13,7 @@ package db
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math"
-	"os"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -183,11 +181,6 @@ func (s *Shard) extendDimensionTrackerLSM(
 		Key:   buf[4:12],
 		Value: buf[12:12],
 	}
-
-	dimLength := binary.LittleEndian.Uint32(buf[4:12])
-	sum := int(dimLength) * len(buf[12:12])
-
-	os.WriteFile("/tmp/test.txt", []byte(fmt.Sprintf("dimlength: %v, Sum: %v, count: %v\n", dimLength, sum, count)), 0o644)
 
 	return b.MapSet(buf[0:4], pair)
 }
