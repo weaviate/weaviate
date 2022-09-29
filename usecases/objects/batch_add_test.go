@@ -60,6 +60,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 				AutoSchema: config.AutoSchema{
 					Enabled: autoSchema,
 				},
+				TrackVectorDimensions: true,
 			},
 		}
 		locks := &fakeLocks{}

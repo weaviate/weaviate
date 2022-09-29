@@ -49,8 +49,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	},
-		&fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
 	vrepo.SetSchemaGetter(sg)
 	err := vrepo.WaitForStartup(context.Background())
 	require.Nil(t, err)
