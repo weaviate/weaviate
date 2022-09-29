@@ -143,6 +143,16 @@ func (i *Index) addUUIDProperty(ctx context.Context) error {
 	return nil
 }
 
+func (i *Index) addDimensionsProperty(ctx context.Context) error {
+	for name, shard := range i.Shards {
+		if err := shard.addDimensionsProperty(ctx); err != nil {
+			return errors.Wrapf(err, "add dimensions property to shard %q", name)
+		}
+	}
+
+	return nil
+}
+
 func (i *Index) addTimestampProperties(ctx context.Context) error {
 	for name, shard := range i.Shards {
 		if err := shard.addTimestampProperties(ctx); err != nil {
@@ -157,6 +167,16 @@ func (i *Index) addNullStateProperty(ctx context.Context, prop *models.Property)
 	for name, shard := range i.Shards {
 		if err := shard.addNullState(ctx, prop); err != nil {
 			return errors.Wrapf(err, "add null state to shard %q", name)
+		}
+	}
+
+	return nil
+}
+
+func (i *Index) addPropertyLength(ctx context.Context, prop *models.Property) error {
+	for name, shard := range i.Shards {
+		if err := shard.addPropertyLength(ctx, prop); err != nil {
+			return errors.Wrapf(err, "add property length to shard %q", name)
 		}
 	}
 
@@ -204,8 +224,8 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	NodeName                  string
 	FlushIdleAfter            int
+	TrackVectorDimensions     bool
 }
 
 func indexID(class schema.ClassName) string {

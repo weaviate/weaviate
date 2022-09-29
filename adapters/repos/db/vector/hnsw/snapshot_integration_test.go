@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,7 @@ func TestBackup_Integration(t *testing.T) {
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
-	}, NewDefaultUserConfig())
+	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
 
 	// let the index age for a second so that

@@ -18,13 +18,13 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -35,7 +35,7 @@ import (
 
 // Cannot filter for null state without enabling in the InvertedIndexConfig
 func TestFilterNullStateError(t *testing.T) {
-	class := createClassWithEverything(false)
+	class := createClassWithEverything(false, false)
 	migrator, repo, schemaGetter := createRepo(t)
 	defer repo.Shutdown(context.Background())
 	err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
@@ -72,7 +72,7 @@ func TestFilterNullStateError(t *testing.T) {
 }
 
 func TestNullArrayClass(t *testing.T) {
-	arrayClass := createClassWithEverything(true)
+	arrayClass := createClassWithEverything(true, false)
 
 	names := []string{"elements", "batches"}
 	for _, name := range names {
@@ -158,15 +158,16 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 	return NewMigrator(repo, logger), repo, schemaGetter
 }
 
-func createClassWithEverything(IndexNullState bool) *models.Class {
+func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *models.Class {
 	return &models.Class{
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 60,
 			Stopwords: &models.StopwordConfig{
 				Preset: "none",
 			},
-			IndexNullState: IndexNullState,
+			IndexNullState:      IndexNullState,
+			IndexPropertyLength: IndexPropertyLength,
 		},
 		Class: "EverythingClass",
 		Properties: []*models.Property{

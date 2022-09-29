@@ -68,8 +68,9 @@ type Shard struct {
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
 
-	status     storagestate.Status
-	statusLock sync.Mutex
+	status      storagestate.Status
+	statusLock  sync.Mutex
+	stopMetrics bool
 }
 
 type job struct {
@@ -206,6 +207,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
+	s.initDimensionTracking()
+
 	return s, nil
 }
 
@@ -254,6 +257,8 @@ func (s *Shard) drop(force bool) error {
 	}
 
 	s.cancel <- struct{}{}
+
+	s.stopMetrics = true
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
@@ -326,6 +331,23 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	// Note: this data would fit the "Set" type better, but since the "Map" type
+	// is currently optimized better, it is more efficient to use a Map here.
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.DimensionsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -335,6 +357,28 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 		return err
 	}
 	if err := s.addLastUpdateTimeUnixProperty(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
+
+	err = s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
 		return err
 	}
 
@@ -470,6 +514,8 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 
 func (s *Shard) shutdown(ctx context.Context) error {
 	s.cancel <- struct{}{}
+
+	s.stopMetrics = true
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")

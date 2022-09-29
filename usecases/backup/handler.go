@@ -276,7 +276,7 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 // OnCommit will be triggered when the coordinator confirms the execution of a previous operation
 func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) error {
 	if req.Method == OpCreate {
-		return m.backupper.onCommit(ctx, req)
+		return m.backupper.OnCommit(ctx, req)
 	}
 	return nil
 }
@@ -284,7 +284,7 @@ func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) error {
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
 	if req.Method == OpCreate {
-		return m.backupper.onAbort(ctx, req)
+		return m.backupper.OnAbort(ctx, req)
 	}
 	return nil
 }

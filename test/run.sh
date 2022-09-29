@@ -24,6 +24,8 @@ function main() {
   # Jump to root directory
   cd "$( dirname "${BASH_SOURCE[0]}" )"/..
 
+  echo "INFO: In directory $PWD"
+
   echo "INFO: This script will surpress most output, unless a command ultimately fails"
   echo "      Then it will print the output of the failed command."
 

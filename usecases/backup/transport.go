@@ -51,7 +51,7 @@ type CanCommitResponse struct {
 	ID string
 	// Timeout for how long the promise might be hold
 	Timeout time.Duration
-	//
+	// Err error
 	Err string
 }
 

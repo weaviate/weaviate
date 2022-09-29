@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.2"
+    "version": "1.15.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -3306,6 +3306,10 @@ func init() {
           "description": "Index each object with the null state",
           "type": "boolean"
         },
+        "indexPropertyLength": {
+          "description": "Index length of properties",
+          "type": "boolean"
+        },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
           "type": "boolean"
@@ -4041,7 +4045,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.2"
+    "version": "1.15.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -7483,6 +7487,10 @@ func init() {
         },
         "indexNullState": {
           "description": "Index each object with the null state",
+          "type": "boolean"
+        },
+        "indexPropertyLength": {
+          "description": "Index length of properties",
           "type": "boolean"
         },
         "indexTimestamps": {

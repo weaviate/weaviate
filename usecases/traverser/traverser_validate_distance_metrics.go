@@ -21,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 )
 
-func (t Traverser) validateExploreDistance(params ExploreParams) error {
+func (t *Traverser) validateExploreDistance(params ExploreParams) error {
 	distType, err := t.validateCrossClassDistanceCompatibility()
 	if err != nil {
 		return err
@@ -33,7 +33,7 @@ func (t Traverser) validateExploreDistance(params ExploreParams) error {
 // ensures that all classes are configured with the same distance type.
 // if all classes are configured with the same type, said type is returned.
 // otherwise an error indicating which classes are configured differently.
-func (t Traverser) validateCrossClassDistanceCompatibility() (distType string, err error) {
+func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, err error) {
 	s := t.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
 		return hnsw.DefaultDistanceMetric, nil
