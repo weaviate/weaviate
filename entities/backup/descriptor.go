@@ -16,6 +16,26 @@ import (
 	"time"
 )
 
+// NodeDescriptor contains data related to one participant in DPRO
+type NodeDescriptor struct {
+	Classes []string `json:"classes"`
+	Status  Status   `json:"status"`
+	Error   string   `json:"error"`
+}
+
+// DistributedBAckupDescriptor contains everything need to competely restore a distributed backup
+type DistributedBackupDescriptor struct {
+	StartedAt     time.Time                 `json:"startedAt"`
+	CompletedAt   time.Time                 `json:"completedAt"`
+	ID            string                    `json:"id"`      // User created backup id
+	Backend       string                    `json:"backend"` // object store: s3, gcs, ..
+	Nodes         map[string]NodeDescriptor `json:"nodes"`
+	Status        Status                    `json:"status"`  //
+	Version       string                    `json:"version"` //
+	ServerVersion string                    `json:"serverVersion"`
+	Error         string                    `json:"error"`
+}
+
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
 type ShardDescriptor struct {
 	Name  string   `json:"name"`

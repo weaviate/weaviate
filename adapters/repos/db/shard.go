@@ -341,6 +341,28 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
+
+	err = s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly

@@ -35,8 +35,11 @@ const (
 )
 
 const (
-	MetaDataFilename = "backup.json"
-	TempDirectory    = ".backup.tmp"
+	// BackupFile used by a node to store its metadata
+	BackupFile = "backup.json"
+	// GlobalBackupFile used by coordinator to store its metadata
+	GlobalBackupFile = "global_backup.json"
+	_TempDirectory   = ".backup.tmp"
 )
 
 type objectStore struct {
@@ -44,28 +47,50 @@ type objectStore struct {
 }
 
 func (s *objectStore) Meta(ctx context.Context, backupID string) (*backup.BackupDescriptor, error) {
-	bytes, err := s.GetObject(ctx, backupID, MetaDataFilename)
-	if err != nil {
-		return nil, err
-	}
 	var backup backup.BackupDescriptor
-	err = json.Unmarshal(bytes, &backup)
-	if err != nil {
-		return nil, fmt.Errorf("marshal meta file: %w", err)
-	}
-	return &backup, nil
+	err := s.meta(ctx, backupID, BackupFile, &backup)
+	return &backup, err
 }
 
 // meta marshals and uploads metadata
 func (s *objectStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
+	return s.putMeta(ctx, desc.ID, BackupFile, desc)
+}
+
+// GlobalMeta gets coordinator's global metadata from object store
+func (s *objectStore) GlobalMeta(ctx context.Context, backupID string) (*backup.DistributedBackupDescriptor, error) {
+	var backup backup.DistributedBackupDescriptor
+	err := s.meta(ctx, backupID, GlobalBackupFile, &backup)
+	return &backup, err
+}
+
+// PutGlobalMeta puts coordinator's global metadata into object store
+func (s *objectStore) PutGlobalMeta(ctx context.Context, desc *backup.DistributedBackupDescriptor) error {
+	return s.putMeta(ctx, desc.ID, GlobalBackupFile, desc)
+}
+
+// meta marshals and uploads metadata
+func (s *objectStore) putMeta(ctx context.Context, backupID, key string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
-		return fmt.Errorf("marshal meta file: %w", err)
+		return fmt.Errorf("marshal meta file %q: %w", key, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.PutObject(ctx, desc.ID, MetaDataFilename, bytes); err != nil {
-		return fmt.Errorf("upload meta file: %w", err)
+	if err := s.PutObject(ctx, backupID, key, bytes); err != nil {
+		return fmt.Errorf("upload meta file %q: %w", key, err)
+	}
+	return nil
+}
+
+func (s *objectStore) meta(ctx context.Context, backupID, key string, dest interface{}) error {
+	bytes, err := s.GetObject(ctx, backupID, key)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(bytes, dest)
+	if err != nil {
+		return fmt.Errorf("marshal meta file %q: %w", key, err)
 	}
 	return nil
 }
@@ -169,7 +194,7 @@ func newFileWriter(sourcer Sourcer, backend objectStore,
 		backend:    backend,
 		backupID:   backupID,
 		destDir:    destDir,
-		tempDir:    path.Join(destDir, TempDirectory),
+		tempDir:    path.Join(destDir, _TempDirectory),
 		movedFiles: make([]string, 0, 64),
 	}
 }
