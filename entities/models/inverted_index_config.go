@@ -36,6 +36,9 @@ type InvertedIndexConfig struct {
 	// Index each object with the null state
 	IndexNullState bool `json:"indexNullState,omitempty"`
 
+	// Index length of properties
+	IndexPropertyLength bool `json:"indexPropertyLength,omitempty"`
+
 	// Index each object by its internal timestamps
 	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
 
