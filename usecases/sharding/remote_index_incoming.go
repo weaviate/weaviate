@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"io"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -60,6 +61,10 @@ type RemoteIndexIncomingRepo interface {
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
+
+	// Scale-Out Replication POC
+	IncomingFilePutter(ctx context.Context, shardName,
+		filePath string) (io.WriteCloser, error)
 }
 
 type RemoteIndexIncoming struct {
@@ -231,4 +236,15 @@ func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
 	}
 
 	return index.IncomingUpdateShardStatus(ctx, shardName, targetStatus)
+}
+
+func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
+	indexName, shardName, filePath string,
+) (io.WriteCloser, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingFilePutter(ctx, shardName, filePath)
 }
