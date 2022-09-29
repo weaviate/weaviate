@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/schema"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -53,7 +55,20 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 			id += filters.InternalNullIndex
 		}
 
+		// format of id for property with lengths is "property_len(*PROPNAME*)
+		propName, isPropLengthFilter := schema.IsPropertyLength(id, 9)
+		if isPropLengthFilter {
+			id = helpers.BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
+			pv.prop = propName + filters.InternalPropertyLength
+		}
+
 		b := s.store.Bucket(id)
+
+		if b == nil && isPropLengthFilter {
+			return errors.Errorf("Property length must be indexed to be filterable! " +
+				"add `IndexPropertyLength: true` to the invertedIndexConfig." +
+				"Geo-coordinates, phone numbers and data blobs are not supported by property length.")
+		}
 
 		if b == nil && pv.operator == filters.OperatorIsNull {
 			return errors.Errorf("Nullstate must be indexed to be filterable! " +
