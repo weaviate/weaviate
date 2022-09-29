@@ -104,7 +104,7 @@ func (db *DB) Shards(ctx context.Context, class string) []string {
 
 	ss := db.schemaGetter.ShardingState(class)
 	for _, shard := range ss.Physical {
-		unique[shard.BelongsToNode] = struct{}{}
+		unique[shard.BelongsToNode()] = struct{}{}
 	}
 
 	var (
