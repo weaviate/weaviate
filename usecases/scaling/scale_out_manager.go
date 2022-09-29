@@ -126,6 +126,9 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 				return fmt.Errorf("shard name mismatch in backup: %q vs %q", bakShard.Name,
 					shardName)
 			}
+			if err := som.CreateShard(ctx, targetNode, className, shardName); err != nil {
+				return fmt.Errorf("create new shard on remote node: %w", err)
+			}
 
 			for _, file := range bakShard.Files {
 				err := som.PutFile(ctx, file, targetNode, className, shardName)
@@ -177,7 +180,20 @@ func (som *ScaleOutManager) PutFile(ctx context.Context, sourceFileName string,
 	return som.nodes.PutFile(ctx, hostname, className, shardName, sourceFileName, f)
 }
 
+func (som *ScaleOutManager) CreateShard(ctx context.Context,
+	targetNode, className, shardName string,
+) error {
+	hostname, ok := som.clusterState.NodeHostname(targetNode)
+	if !ok {
+		return fmt.Errorf("resolve hostname for node %q", targetNode)
+	}
+
+	return som.nodes.CreateShard(ctx, hostname, className, shardName)
+}
+
 type nodeClient interface {
 	PutFile(ctx context.Context, hostName, indexName,
 		shardName, fileName string, payload io.ReadCloser) error
+	CreateShard(ctx context.Context,
+		hostName, indexName, shardName string) error
 }
