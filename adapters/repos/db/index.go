@@ -163,6 +163,16 @@ func (i *Index) addNullStateProperty(ctx context.Context, prop *models.Property)
 	return nil
 }
 
+func (i *Index) addPropertyLength(ctx context.Context, prop *models.Property) error {
+	for name, shard := range i.Shards {
+		if err := shard.addPropertyLength(ctx, prop); err != nil {
+			return errors.Wrapf(err, "add property length to shard %q", name)
+		}
+	}
+
+	return nil
+}
+
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
@@ -204,7 +214,6 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	NodeName                  string
 	FlushIdleAfter            int
 }
 

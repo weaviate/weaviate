@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -326,6 +327,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		Name:         prop.Name,
 		Items:        items,
 		HasFrequency: hasFrequency,
+		Length:       len(values),
 	}, nil
 }
 
@@ -344,6 +346,7 @@ func stringsFromValues(prop *models.Property, values []interface{}) ([]string, e
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
 	var hasFrequency bool
 	var items []Countable
+	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
 	case schema.DataTypeText:
@@ -353,6 +356,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.Text(prop.Tokenization, asString)
+		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeString:
 		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
@@ -360,6 +364,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.String(prop.Tokenization, asString)
+		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
 		hasFrequency = HasFrequency(dt)
 		if asFloat, ok := value.(float64); ok {
@@ -426,7 +431,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
-
 	default:
 		// ignore unsupported prop type
 		return nil, nil
@@ -436,6 +440,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		Name:         prop.Name,
 		Items:        items,
 		HasFrequency: hasFrequency,
+		Length:       propertyLength,
 	}, nil
 }
 
@@ -490,6 +495,7 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 		Name:         helpers.MetaCountProp(prop.Name),
 		Items:        items,
 		HasFrequency: false,
+		Length:       len(value),
 	}, nil
 }
 

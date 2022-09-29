@@ -79,6 +79,16 @@ type propertyDataType struct {
 	classes       []ClassName
 }
 
+// IsPropertyLength returns if a string is a filters for property length. They have the form len(*PROPNAME*)
+func IsPropertyLength(propName string, offset int) (string, bool) {
+	isPropLengthFilter := len(propName) > 4+offset && propName[offset:offset+4] == "len(" && propName[len(propName)-1:] == ")"
+
+	if isPropLengthFilter {
+		return propName[offset+4 : len(propName)-1], isPropLengthFilter
+	}
+	return "", false
+}
+
 func IsArrayType(dt DataType) (DataType, bool) {
 	switch dt {
 	case DataTypeStringArray:

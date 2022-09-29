@@ -99,6 +99,38 @@ func (db *DB) ClassExists(name string) bool {
 	return db.GetIndex(schema.ClassName(name)) != nil
 }
 
+func (db *DB) Shards(ctx context.Context, class string) []string {
+	unique := make(map[string]struct{})
+
+	ss := db.schemaGetter.ShardingState(class)
+	for _, shard := range ss.Physical {
+		unique[shard.BelongsToNode] = struct{}{}
+	}
+
+	var (
+		nodes   = make([]string, len(unique))
+		counter = 0
+	)
+
+	for node := range unique {
+		nodes[counter] = node
+		counter++
+	}
+
+	return nodes
+}
+
+func (db *DB) ListClasses(ctx context.Context) []string {
+	classes := db.schemaGetter.GetSchemaSkipAuth().Objects.Classes
+	classNames := make([]string, len(classes))
+
+	for i, class := range classes {
+		classNames[i] = class.Class
+	}
+
+	return classNames
+}
+
 // descriptor record everything needed to restore a class
 func (i *Index) descriptor(ctx context.Context, backupid string, desc *backup.ClassDescriptor) (err error) {
 	if err := i.initBackup(backupid); err != nil {

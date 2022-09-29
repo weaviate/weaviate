@@ -124,7 +124,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 
 	t.Run("GetMetdataFile", func(t *testing.T) {
 		backend := &fakeBackend{}
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(nil, ErrAny)
+		backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -134,7 +134,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		// meta data not found
 		backend = &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 		m3 := createManager(nil, nil, backend, nil)
 
 		_, err = m3.Restore(ctx, nil, req)
@@ -146,7 +146,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	t.Run("FailedBackup", func(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -157,7 +157,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -168,7 +168,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	t.Run("WrongBackupFile", func(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -180,7 +180,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	t.Run("UknownClass", func(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(meta)
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}})
@@ -191,7 +191,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	t.Run("EmptyResultClassList", func(t *testing.T) { //  backup was successful but class list is empty
 		backend := &fakeBackend{}
 		bytes := marshalMeta(meta)
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}})
@@ -203,7 +203,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(true)
 		bytes := marshalMeta(meta)
-		backend.On("GetObject", ctx, id, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(sourcer, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id})
@@ -269,7 +269,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta1)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		// simulate work by delaying return of SourceDataPath()
 		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Hour)
@@ -306,7 +306,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
@@ -347,7 +347,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(ErrAny)
@@ -389,7 +389,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		schema := fakeSchemaManger{errRestoreClass: ErrAny}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
-		backend.On("GetObject", ctx, backupID, MetaDataFilename).Return(bytes, nil)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)

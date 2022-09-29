@@ -114,7 +114,7 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
-	store, err := m.objectStore(req.Backend)
+	store, err := backend(m.backends, req.Backend)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -149,7 +149,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
-	store, err := m.objectStore(req.Backend)
+	store, err := backend(m.backends, req.Backend)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -328,8 +328,8 @@ func validateID(backupID string) error {
 	return nil
 }
 
-func (m *Manager) objectStore(backend string) (objectStore, error) {
-	caps, err := m.backends.BackupBackend(backend)
+func backend(provider BackupBackendProvider, backend string) (objectStore, error) {
+	caps, err := provider.BackupBackend(backend)
 	if err != nil {
 		return objectStore{}, err
 	}

@@ -38,7 +38,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			ResourceUsage:             m.db.config.ResourceUsage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
 			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
-			NodeName:                  m.db.config.NodeName,
 			FlushIdleAfter:            m.db.config.FlushIdleAfter,
 		},
 		shardState,
@@ -81,6 +80,19 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			}
 		}
 
+		if class.InvertedIndexConfig.IndexPropertyLength {
+			dt := schema.DataType(prop.DataType[0])
+			// some datatypes are not added to the inverted index, so we can skip them here
+			switch dt {
+			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+				schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+			default:
+				err = idx.addPropertyLength(ctx, prop)
+				if err != nil {
+					return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
+				}
+			}
+		}
 	}
 
 	m.db.indices[idx.ID()] = idx
