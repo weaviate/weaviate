@@ -644,5 +644,5 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewManager(logger, &fakeAuthorizer{}, schema, sourcer, backends, nil)
+	return NewManager(logger, &fakeAuthorizer{}, schema, sourcer, backends)
 }

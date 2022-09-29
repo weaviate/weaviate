@@ -210,7 +210,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState.RemoteIncoming = sharding.NewRemoteIndexIncoming(repo)
 
 	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
-		schemaManager, repo, appState.Modules, appState.Cluster)
+		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)

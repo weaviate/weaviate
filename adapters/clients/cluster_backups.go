@@ -81,7 +81,7 @@ func (c *ClusterBackups) Commit(ctx context.Context,
 		return fmt.Errorf("commit request: %w", err)
 	}
 
-	if statusCode != http.StatusNoContent {
+	if statusCode != http.StatusCreated {
 		return fmt.Errorf("unexpected status code %d (%s)",
 			statusCode, respBody)
 	}

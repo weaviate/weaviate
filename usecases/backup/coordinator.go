@@ -84,10 +84,11 @@ type selector interface {
 // see https://semi-technology.atlassian.net/wiki/spaces/WCE/pages/105938945/Backups+Proposal+v2
 type coordinator struct {
 	// dependencies
-	selector selector
-	client   client
-	store    objectStore
-	log      logrus.FieldLogger
+	selector     selector
+	client       client
+	store        objectStore
+	log          logrus.FieldLogger
+	nodeResolver nodeResolver
 
 	// state
 	Participants map[string]participantStatus
@@ -106,12 +107,14 @@ func NewCoordinator(
 	selector selector,
 	client client,
 	log logrus.FieldLogger,
+	nodeResolver nodeResolver,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
 		client:             client,
 		store:              store,
 		log:                log,
+		nodeResolver:       nodeResolver,
 		Participants:       make(map[string]participantStatus, 16),
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
@@ -201,6 +204,14 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 				return ctx.Err()
 			default:
 			}
+
+			// TODO: this is where nodeResolver can be used to find node hostname.
+			//       once found, it can be passed to pair below, rather than `node`
+			//host, found := c.nodeResolver.NodeHostname(node)
+			//if !found {
+			//	return fmt.Errorf("failed to find hostname for node %q", node)
+			//}
+
 			reqChan <- pair{node, &Request{
 				Method:   method,
 				ID:       id,

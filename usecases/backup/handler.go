@@ -62,12 +62,11 @@ type RestoreStatus struct {
 }
 
 type Manager struct {
-	logger       logrus.FieldLogger
-	authorizer   authorizer
-	backupper    *backupper
-	restorer     *restorer
-	backends     BackupBackendProvider
-	nodeResolver nodeResolver
+	logger     logrus.FieldLogger
+	authorizer authorizer
+	backupper  *backupper
+	restorer   *restorer
+	backends   BackupBackendProvider
 
 	// TODO: keeping status in memory after restore has been done
 	// is not a proper solution for communicating status to the user.
@@ -82,7 +81,6 @@ func NewManager(
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-	nodeResolver nodeResolver,
 ) *Manager {
 	m := &Manager{
 		logger:     logger,
@@ -96,7 +94,6 @@ func NewManager(
 			backends,
 			schema,
 		),
-		nodeResolver: nodeResolver,
 	}
 	return m
 }
