@@ -46,11 +46,10 @@ func TestCoordinatedBackup(t *testing.T) {
 			Classes:  req.Classes,
 			Duration: _BookingPeriod,
 		}
-		cresp     = CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq      = &StatusRequest{OpCreate, backupID}
-		sresp     = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq  = &AbortRequest{OpCreate, backupID}
-		abortResp = AbortResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
+		cresp    = CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		sReq     = &StatusRequest{OpCreate, backupID}
+		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
+		abortReq = &AbortRequest{OpCreate, backupID}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -116,7 +115,7 @@ func TestCoordinatedBackup(t *testing.T) {
 
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(CanCommitResponse{}, nil)
-		fc.client.On("Abort", any, nodes[0], abortReq).Return(abortResp, ErrAny)
+		fc.client.On("Abort", any, nodes[0], abortReq).Return(ErrAny)
 
 		coordinator := *fc.coordinator()
 		err := coordinator.Backup(ctx, &req)
@@ -260,11 +259,10 @@ func TestCoordinatedRestore(t *testing.T) {
 			Classes:  classes,
 			Duration: _BookingPeriod,
 		}
-		cresp     = CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq      = &StatusRequest{OpRestore, backupID}
-		sresp     = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq  = &AbortRequest{OpRestore, backupID}
-		abortResp = AbortResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
+		cresp    = CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		sReq     = &StatusRequest{OpRestore, backupID}
+		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
+		abortReq = &AbortRequest{OpRestore, backupID}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -290,7 +288,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc := newFakeCoordinator()
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(CanCommitResponse{}, nil)
-		fc.client.On("Abort", any, nodes[0], abortReq).Return(abortResp, nil)
+		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
 		err := coordinator.Restore(ctx, genReq())
@@ -331,10 +329,7 @@ func newFakeCoordinator() *fakeCoordinator {
 func (fc *fakeCoordinator) coordinator() *coordinator {
 	store := objectStore{fc.backend}
 	c := NewCoordinator(store, &fc.selector, &fc.client, fc.log)
-	c.timeoutNodeDown = time.Millisecond * 2
-	c.timeoutQueryStatus = time.Millisecond
-	c.timeoutCanCommit = time.Millisecond
-	c.timeoutNextRound = time.Millisecond
+	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }
 
@@ -363,10 +358,7 @@ func (f *fakeClient) Status(ctx context.Context, node string, req *StatusRequest
 	return nil, args.Error(1)
 }
 
-func (f *fakeClient) Abort(ctx context.Context, node string, req *AbortRequest) (AbortResponse, error) {
+func (f *fakeClient) Abort(ctx context.Context, node string, req *AbortRequest) error {
 	args := f.Called(ctx, node, req)
-	if args.Get(0) != nil {
-		return args.Get(0).(AbortResponse), args.Error(1)
-	}
-	return AbortResponse{}, args.Error(1)
+	return args.Error(0)
 }

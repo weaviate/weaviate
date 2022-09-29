@@ -240,6 +240,48 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 	return istatus.(RestoreStatus), nil
 }
 
+// OnCanCommit will be triggered when coordinator asks the node to participate
+// in a distributed backup operation
+func (m *Manager) OnCanCommit(ctx context.Context, req *Request) CanCommitResponse {
+	ret := CanCommitResponse{Method: req.Method, ID: req.ID}
+	store, err := backend(m.backends, req.Backend)
+	if err != nil {
+		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
+		return ret
+	}
+
+	// TODO: validate if all req.Classes exist locally
+	if req.Method == OpCreate {
+		if err = store.Initialize(ctx, req.ID); err != nil {
+			ret.Err = fmt.Sprintf("init uploader: %v", err)
+			return ret
+		}
+		res, err := m.backupper.backup(ctx, store, req)
+		if err != nil {
+			ret.Err = err.Error()
+			return ret
+		}
+		ret.Timeout = res.Timeout
+	}
+	return ret
+}
+
+// OnCommit will be triggered when the coordinator confirms the execution of a previous operation
+func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) error {
+	if req.Method == OpCreate {
+		return m.backupper.OnCommit(ctx, req)
+	}
+	return nil
+}
+
+// OnAbort will be triggered when the coordinator abort the execution of a previous operation
+func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
+	if req.Method == OpCreate {
+		return m.backupper.OnAbort(ctx, req)
+	}
+	return nil
+}
+
 func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, req *BackupRequest) ([]string, error) {
 	if err := validateID(req.ID); err != nil {
 		return nil, err

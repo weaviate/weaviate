@@ -15,12 +15,17 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	_TimeoutShardCommit = 20 * time.Second
 )
 
 type reqStat struct {
@@ -75,14 +80,22 @@ type backupper struct {
 	sourcer    Sourcer
 	backends   BackupBackendProvider
 	lastBackup backupStat
+
+	waitingForCoodinatorToCommit atomic.Bool
+	coordChan                    chan interface{}
+	timeoutCommit                time.Duration
+	// lastAsyncError used for debugging when no metadata is created
+	lastAsyncError error
 }
 
 func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
-		logger:   logger,
-		sourcer:  sourcer,
-		backends: backends,
+		logger:        logger,
+		sourcer:       sourcer,
+		backends:      backends,
+		coordChan:     make(chan interface{}, 5),
+		timeoutCommit: _TimeoutShardCommit,
 	}
 }
 
@@ -91,26 +104,14 @@ func (b *backupper) Backup(ctx context.Context,
 	store objectStore, id string, classes []string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
-	if prevID := b.lastBackup.renew(id, time.Now(), store.HomeDir(id)); prevID != "" {
-		err := fmt.Errorf("backup %s already in progress", prevID)
+	req := Request{
+		Method:  OpCreate,
+		ID:      id,
+		Classes: classes,
+	}
+	if _, err := b.backup(ctx, store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	go func() {
-		defer b.lastBackup.reset()
-		provider := newUploader(b.sourcer, store, id, b.lastBackup.set)
-		result := backup.BackupDescriptor{
-			StartedAt:     time.Now().UTC(),
-			ID:            id,
-			Classes:       make([]backup.ClassDescriptor, 0, len(classes)),
-			Version:       Version,
-			ServerVersion: config.ServerVersion,
-		}
-		if err := provider.all(context.Background(), classes, &result); err != nil {
-			b.logger.WithField("action", "create_backup").
-				Error(err)
-		}
-		result.CompletedAt = time.Now().UTC()
-	}()
 
 	return &backup.CreateMeta{
 		Path:   store.HomeDir(id),
@@ -164,4 +165,102 @@ func (b *backupper) objectStore(backend string) (objectStore, error) {
 		return objectStore{}, err
 	}
 	return objectStore{caps}, nil
+}
+
+// Backup is called by the User
+func (b *backupper) backup(ctx context.Context,
+	store objectStore, req *Request,
+) (CanCommitResponse, error) {
+	id := req.ID
+	expiration := req.Duration
+	if expiration > _TimeoutShardCommit {
+		expiration = _TimeoutShardCommit
+	}
+	ret := CanCommitResponse{
+		Method:  OpCreate,
+		ID:      req.ID,
+		Timeout: expiration,
+	}
+	// make sure there is no active backup
+	if prevID := b.lastBackup.renew(id, time.Now(), store.HomeDir(id)); prevID != "" {
+		return ret, fmt.Errorf("backup %s already in progress", prevID)
+	}
+	b.waitingForCoodinatorToCommit.Store(true) // is set to false by wait()
+
+	go func() {
+		defer b.lastBackup.reset()
+		if err := b.wait(expiration, id); err != nil {
+			b.logger.WithField("action", "create_backup").
+				Error(err)
+			b.lastAsyncError = err
+			return
+
+		}
+		provider := newUploader(b.sourcer, store, req.ID, b.lastBackup.set)
+		result := backup.BackupDescriptor{
+			StartedAt:     time.Now().UTC(),
+			ID:            id,
+			Classes:       make([]backup.ClassDescriptor, 0, len(req.Classes)),
+			Version:       Version,
+			ServerVersion: config.ServerVersion,
+		}
+		if err := provider.all(context.Background(), req.Classes, &result); err != nil {
+			b.logger.WithField("action", "create_backup").
+				Error(err)
+		}
+		result.CompletedAt = time.Now().UTC()
+	}()
+
+	return ret, nil
+}
+
+// wait for the coordinator to confirm or to abort previous operation
+func (b *backupper) wait(d time.Duration, id string) error {
+	defer b.waitingForCoodinatorToCommit.Store(false)
+	if d == 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			return fmt.Errorf("timed out waiting for coordinator to commit")
+		case v, ok := <-b.coordChan:
+			if !ok {
+				continue
+			}
+			switch v := v.(type) {
+			case AbortRequest:
+				if v.ID == id {
+					return fmt.Errorf("coordinator aborted operation")
+				}
+			case StatusRequest:
+				if v.ID == id {
+					return nil
+				}
+			}
+		}
+	}
+}
+
+// OnCommit will be triggered when the coordinator confirms the execution of a previous operation
+func (b *backupper) OnCommit(ctx context.Context, req *StatusRequest) error {
+	st := b.lastBackup.get()
+	if st.ID == req.ID && b.waitingForCoodinatorToCommit.Load() {
+		b.coordChan <- *req
+		return nil
+	}
+	return fmt.Errorf("shard has abandoned backup opeartion")
+}
+
+// Abort tells a node to abort the previous backup operation
+func (b *backupper) OnAbort(_ context.Context, req *AbortRequest) error {
+	st := b.lastBackup.get()
+	if st.ID == req.ID && b.waitingForCoodinatorToCommit.Load() {
+		b.coordChan <- *req
+		return nil
+	}
+	return nil
 }
