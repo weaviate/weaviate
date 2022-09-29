@@ -38,6 +38,7 @@ type Metrics struct {
 	objectCount       prometheus.Gauge
 	memtableDurations prometheus.ObserverVec
 	memtableSize      *prometheus.GaugeVec
+	DimensionSum      *prometheus.GaugeVec
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
@@ -102,6 +103,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		memtableSize: promMetrics.LSMMemtableSize.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		DimensionSum: promMetrics.VectorDimensionsSum.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),
