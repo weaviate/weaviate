@@ -57,8 +57,8 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
       CONTEXTIONARY_URL=localhost:9999 \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      DEFAULT_VECTORIZER_MODULE=none \
+      ENABLE_MODULES="backup-filesystem" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

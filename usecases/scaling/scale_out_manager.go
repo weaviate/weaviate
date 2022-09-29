@@ -101,7 +101,15 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 			return errors.Wrap(err, "create snapshot")
 		}
 
-		fmt.Println(bak.Shards[0].Files)
+		for name, shard := range ssAfter.Physical {
+			// TODO: This manual diffing is ugly, refactor!
+			newNodes := shard.BelongsToNodes
+			previousNodes := ssBefore.Physical[name].BelongsToNodes
+
+			additions := newNodes[len(previousNodes):]
+			_ = bak
+			fmt.Println(additions)
+		}
 	}
 
 	// TODO: defer relaese snapshot!!!

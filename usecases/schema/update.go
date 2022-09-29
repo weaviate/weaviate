@@ -28,6 +28,8 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	m.Lock()
 	defer m.Unlock()
 
+	fmt.Printf("update class\n")
+
 	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
@@ -70,6 +72,16 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "sharding config")
 	}
 
+	oldSharding := initial.ShardingConfig.(sharding.Config)
+	updatedSharding := updated.ShardingConfig.(sharding.Config)
+	if oldSharding.Replicas != updatedSharding.Replicas {
+		if err := m.scaleOut.Scale(ctx, className,
+			oldSharding, updatedSharding); err != nil {
+			return errors.Wrapf(err, "scale out from %d to %d replicas",
+				oldSharding.Replicas, updatedSharding.Replicas)
+		}
+	}
+
 	tx, err := m.cluster.BeginTransaction(ctx, UpdateClass,
 		UpdateClassPayload{className, updated, nil})
 	if err != nil {
@@ -81,16 +93,6 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
 		return errors.Wrap(err, "commit cluster-wide transaction")
-	}
-
-	oldSharding := initial.ShardingConfig.(sharding.Config)
-	updatedSharding := updated.ShardingConfig.(sharding.Config)
-	if oldSharding.Replicas != updatedSharding.Replicas {
-		if err := m.scaleOut.Scale(ctx, className,
-			oldSharding, updatedSharding); err != nil {
-			return errors.Wrapf(err, "scale out from %d to %d replicas",
-				oldSharding.Replicas, updatedSharding.Replicas)
-		}
 	}
 
 	return m.updateClassApplyChanges(ctx, className, updated)
