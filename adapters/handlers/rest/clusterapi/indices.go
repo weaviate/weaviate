@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
@@ -94,6 +93,10 @@ type shards interface {
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string) error
+
+	// Scale-out Replication POC
+	FilePutter(ctx context.Context, indexName, shardName,
+		filePath string) (io.WriteCloser, error)
 }
 
 func NewIndices(shards shards) *indices {
@@ -193,10 +196,6 @@ func (i *indices) Indices() http.Handler {
 			return
 
 		case i.regexpShardFiles.MatchString(path):
-			// if r.Method == http.MethodGet {
-			// 	i.getGetShardStatus().ServeHTTP(w, r)
-			// 	return
-			// }
 			if r.Method == http.MethodPost {
 				i.postShardFile().ServeHTTP(w, r)
 				return
@@ -813,15 +812,17 @@ func (i *indices) postShardFile() http.Handler {
 
 		index, shard, filename := args[1], args[2], args[3]
 
-		f, err := os.Create("./data/" + filename)
+		fp, err := i.shards.FilePutter(r.Context(), index, shard, filename)
 		if err != nil {
-			panic(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
-		defer r.Body.Close()
-		n, err := io.Copy(f, r.Body)
+		defer fp.Close()
+		n, err := io.Copy(fp, r.Body)
 		if err != nil {
-			panic(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		fmt.Printf("%s/%s/%s n=%d\n", index, shard, filename, n)
