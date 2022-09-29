@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 )
@@ -25,7 +26,7 @@ type client interface {
 	// Status returns the status of a backup operation of a specific node
 	Status(_ context.Context, node string, _ *StatusRequest) (*StatusResponse, error)
 	// Abort tells a node to abort the previous backup operation
-	Abort(_ context.Context, node string, _ *AbortRequest) (AbortResponse, error)
+	Abort(_ context.Context, node string, _ *AbortRequest) error
 }
 
 type Request struct {
@@ -39,8 +40,8 @@ type Request struct {
 	// Classes is list of class which need to be backed up
 	Classes []string
 
-	// Duration in milliseconds
-	Duration int
+	// Duration
+	Duration time.Duration
 }
 
 type CanCommitResponse struct {
@@ -49,7 +50,9 @@ type CanCommitResponse struct {
 	// ID is the backup ID
 	ID string
 	// Timeout for how long the promise might be hold
-	Timeout int
+	Timeout time.Duration
+	// Err error
+	Err string
 }
 
 type StatusRequest struct {
