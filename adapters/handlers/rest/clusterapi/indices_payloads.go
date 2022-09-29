@@ -48,6 +48,7 @@ type indicesPayloads struct {
 	GetShardStatusResults     getShardStatusResultsPayload
 	UpdateShardStatusParams   updateShardStatusParamsPayload
 	UpdateShardsStatusResults updateShardsStatusResultsPayload
+	ShardFiles                shardFilesPayload
 }
 
 type errorListPayload struct{}
@@ -636,6 +637,21 @@ func (p updateShardsStatusResultsPayload) SetContentTypeHeader(w http.ResponseWr
 }
 
 func (p updateShardsStatusResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+type shardFilesPayload struct{}
+
+func (p shardFilesPayload) MIME() string {
+	return "application/vnd.weaviate.indexfiles+octet-stream"
+}
+
+func (p shardFilesPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFilesPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
 	ct := r.Header.Get("content-type")
 	return ct, ct == p.MIME()
 }

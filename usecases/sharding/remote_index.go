@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"io"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -83,6 +84,9 @@ type RemoteIndexClient interface {
 	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 		targetStatus string) error
+
+	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
+		payload io.ReadCloser) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
