@@ -32,3 +32,23 @@ func (s *Shard) filePutter(ctx context.Context,
 
 	return f, nil
 }
+
+func (ind *Index) IncomingCreateShard(ctx context.Context,
+	shardName string,
+) error {
+	// TODO: locking???
+	if _, ok := ind.Shards[shardName]; ok {
+		return fmt.Errorf("shard %q exists already", shardName)
+	}
+
+	// TODO: metrics
+	s, err := NewShard(ctx, nil, shardName, ind)
+	if err != nil {
+		return err
+	}
+
+	// TODO: locking???
+	ind.Shards[shardName] = s
+
+	return nil
+}

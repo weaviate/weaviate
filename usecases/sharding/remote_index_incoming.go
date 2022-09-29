@@ -65,6 +65,7 @@ type RemoteIndexIncomingRepo interface {
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
 		filePath string) (io.WriteCloser, error)
+	IncomingCreateShard(ctx context.Context, shardName string) error
 }
 
 type RemoteIndexIncoming struct {
@@ -247,4 +248,15 @@ func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
 	}
 
 	return index.IncomingFilePutter(ctx, shardName, filePath)
+}
+
+func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
+	indexName, shardName string,
+) error {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingCreateShard(ctx, shardName)
 }

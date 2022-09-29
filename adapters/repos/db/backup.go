@@ -96,7 +96,7 @@ func (db *DB) SingleShardBackup(
 	}
 
 	if err := idx.initBackup(bakID); err != nil {
-		return cd, fmt.Errorf("init backup state for class %q", class)
+		return cd, fmt.Errorf("init backup state for class %q: %w", class, err)
 	}
 
 	shard, ok := idx.Shards[shardName]
