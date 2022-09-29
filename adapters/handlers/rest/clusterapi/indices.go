@@ -812,6 +812,13 @@ func (i *indices) postShardFile() http.Handler {
 
 		index, shard, filename := args[1], args[2], args[3]
 
+		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
 		fp, err := i.shards.FilePutter(r.Context(), index, shard, filename)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

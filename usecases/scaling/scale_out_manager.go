@@ -3,6 +3,9 @@ package scaling
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -19,6 +22,10 @@ type ScaleOutManager struct {
 	clusterState clusterState
 
 	backerUpper BackerUpper
+
+	nodes nodeClient
+
+	persistenceRoot string
 }
 
 type clusterState interface {
@@ -26,6 +33,7 @@ type clusterState interface {
 	// local one
 	AllNames() []string
 	LocalName() string
+	NodeHostname(nodename string) (string, bool)
 }
 
 type BackerUpper interface {
@@ -34,10 +42,14 @@ type BackerUpper interface {
 	) (backup.ClassDescriptor, error)
 }
 
-func NewScaleOutManager(clusterState clusterState, backerUpper BackerUpper) *ScaleOutManager {
+func NewScaleOutManager(clusterState clusterState, backerUpper BackerUpper,
+	nodeClient nodeClient, persistenceRoot string,
+) *ScaleOutManager {
 	return &ScaleOutManager{
-		clusterState: clusterState,
-		backerUpper:  backerUpper,
+		clusterState:    clusterState,
+		backerUpper:     backerUpper,
+		nodes:           nodeClient,
+		persistenceRoot: persistenceRoot,
 	}
 }
 
@@ -101,14 +113,26 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 			return errors.Wrap(err, "create snapshot")
 		}
 
-		for name, shard := range ssAfter.Physical {
-			// TODO: This manual diffing is ugly, refactor!
-			newNodes := shard.BelongsToNodes
-			previousNodes := ssBefore.Physical[name].BelongsToNodes
+		// TODO: This manual diffing is ugly, refactor!
+		newNodes := ssAfter.Physical[shardName].BelongsToNodes
+		previousNodes := ssBefore.Physical[shardName].BelongsToNodes
 
-			additions := newNodes[len(previousNodes):]
-			_ = bak
-			fmt.Println(additions)
+		additions := newNodes[len(previousNodes):]
+		for _, targetNode := range additions {
+			bakShard := bak.Shards[0]
+			if bakShard.Name != shardName {
+				// this sanity check is only needed because of the [0] above. If this
+				// supports multi-shard, we need a better logic anyway
+				return fmt.Errorf("shard name mismatch in backup: %q vs %q", bakShard.Name,
+					shardName)
+			}
+
+			for _, file := range bakShard.Files {
+				err := som.PutFile(ctx, file, targetNode, className, shardName)
+				if err != nil {
+					return fmt.Errorf("copy files to remote node: %w", err)
+				}
+			}
 		}
 	}
 
@@ -126,11 +150,34 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	// aware of the new associations. The schema Manager itself must make sure
 	// that the updated association is replicated to the entire cluster
 
-	return errors.Errorf("not implemented yet")
+	return nil
 }
 
 func (som *ScaleOutManager) scaleIn(ctx context.Context, className string,
 	old, updated sharding.Config,
 ) error {
 	return errors.Errorf("scaling in (reducing replica count) not supported yet")
+}
+
+func (som *ScaleOutManager) PutFile(ctx context.Context, sourceFileName string,
+	targetNode, className, shardName string,
+) error {
+	absPath := filepath.Join(som.persistenceRoot, sourceFileName)
+
+	hostname, ok := som.clusterState.NodeHostname(targetNode)
+	if !ok {
+		return fmt.Errorf("resolve hostname for node %q", targetNode)
+	}
+
+	f, err := os.Open(absPath)
+	if err != nil {
+		return fmt.Errorf("open file %q for reading: %w", absPath, err)
+	}
+
+	return som.nodes.PutFile(ctx, hostname, className, shardName, sourceFileName, f)
+}
+
+type nodeClient interface {
+	PutFile(ctx context.Context, hostName, indexName,
+		shardName, fileName string, payload io.ReadCloser) error
 }
