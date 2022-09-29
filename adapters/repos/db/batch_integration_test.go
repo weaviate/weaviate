@@ -146,8 +146,7 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
-		schemaGetter))
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
 	t.Run("batch import things", testBatchImportObjectsNoVector(repo))
 }
