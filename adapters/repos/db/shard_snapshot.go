@@ -108,6 +108,6 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 
 func (s *Shard) nodeName() string {
 	ss := s.index.getSchema.ShardingState(s.index.Config.ClassName.String())
-	node := ss.Physical[s.name].BelongsToNode
+	node := ss.Physical[s.name].BelongsToNode()
 	return node
 }
