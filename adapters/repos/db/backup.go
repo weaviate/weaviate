@@ -86,6 +86,38 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 	return ds
 }
 
+func (db *DB) SingleShardBackup(
+	ctx context.Context, bakID, class, shardName string,
+) (backup.ClassDescriptor, error) {
+	cd := backup.ClassDescriptor{Name: class}
+	idx := db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return cd, fmt.Errorf("no index for class %q", class)
+	}
+
+	if err := idx.initBackup(bakID); err != nil {
+		return cd, fmt.Errorf("init backup state for class %q", class)
+	}
+
+	shard, ok := idx.Shards[shardName]
+	if !ok {
+		return cd, fmt.Errorf("no shard %q for class %q", shardName, class)
+	}
+
+	if err := shard.beginBackup(ctx); err != nil {
+		return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
+	}
+
+	sd := backup.ShardDescriptor{Name: shardName}
+	if err := shard.listBackupFiles(ctx, &sd); err != nil {
+		return cd, fmt.Errorf("class %q: shard %q: list backup files: %w", class, shardName, err)
+	}
+
+	cd.Shards = append(cd.Shards, sd)
+
+	return cd, nil
+}
+
 // ReleaseBackup release resources acquired by the index during backup
 func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
 	idx := db.GetIndex(schema.ClassName(class))

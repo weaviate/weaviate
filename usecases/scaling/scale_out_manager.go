@@ -2,8 +2,11 @@ package scaling
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -15,7 +18,7 @@ type ScaleOutManager struct {
 	// get information about which nodes are in the cluster
 	clusterState clusterState
 
-	snapshotter Snapshotter
+	backerUpper BackerUpper
 }
 
 type clusterState interface {
@@ -25,16 +28,16 @@ type clusterState interface {
 	LocalName() string
 }
 
-type Snapshotter interface {
-	// CreateSnapshot(
-	// 	ctx context.Context, className string, snap *snapshots.Snapshot,
-	// ) (*snapshots.Snapshot, error)
+type BackerUpper interface {
+	SingleShardBackup(
+		ctx context.Context, bakID, className, shardName string,
+	) (backup.ClassDescriptor, error)
 }
 
-func NewScaleOutManager(clusterState clusterState, snapshotter Snapshotter) *ScaleOutManager {
+func NewScaleOutManager(clusterState clusterState, backerUpper BackerUpper) *ScaleOutManager {
 	return &ScaleOutManager{
 		clusterState: clusterState,
-		snapshotter:  snapshotter,
+		backerUpper:  backerUpper,
 	}
 }
 
@@ -91,14 +94,17 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	//
 	// - create a snapshot
 
-	// snapID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
-	// snap := snapshots.New(className, snapID, time.Now())
-	// snap, err := som.snapshotter.CreateSnapshot(ctx, className, snap)
-	// if err != nil {
-	// 	return errors.Wrap(err, "create snapshot")
-	// }
+	for shardName := range ssBefore.Physical {
+		bakID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
+		bak, err := som.backerUpper.SingleShardBackup(ctx, bakID, className, shardName)
+		if err != nil {
+			return errors.Wrap(err, "create snapshot")
+		}
 
-	// TODO: relaese snapshot!!!
+		fmt.Println(bak.Shards[0].Files)
+	}
+
+	// TODO: defer relaese snapshot!!!
 
 	//
 	// - identify target nodes and tell them to create (empty) local shards
