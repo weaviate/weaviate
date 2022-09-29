@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -50,5 +51,45 @@ func TestFilerClasses(t *testing.T) {
 	for _, tc := range tests {
 		got := filterClasses(tc.in, tc.xs)
 		assert.Equal(t, tc.out, got)
+	}
+}
+
+func TestHandlerValidateCoordinationOperation(t *testing.T) {
+	var (
+		ctx = context.Background()
+		bm  = createManager(nil, nil, nil, nil)
+	)
+
+	{ // OnCanCommit
+		req := Request{
+			Method:   "Unknown",
+			ID:       "1",
+			Classes:  []string{"class1"},
+			Backend:  "s3",
+			Duration: time.Millisecond * 20,
+		}
+		resp := bm.OnCanCommit(ctx, nil, &req)
+		assert.Contains(t, resp.Err, "unknown backup operation")
+		assert.Equal(t, resp.Timeout, time.Duration(0))
+	}
+
+	{ // OnCommit
+		req := StatusRequest{
+			Method: "Unknown",
+			ID:     "1",
+		}
+		err := bm.OnCommit(ctx, &req)
+		assert.NotNil(t, err)
+		assert.ErrorIs(t, err, errUnknownOp)
+	}
+
+	{ // OnAbort
+		req := AbortRequest{
+			Method: "Unknown",
+			ID:     "1",
+		}
+		err := bm.OnAbort(ctx, &req)
+		assert.NotNil(t, err)
+		assert.ErrorIs(t, err, errUnknownOp)
 	}
 }
