@@ -61,9 +61,12 @@ func (som *ScaleOutManager) SetSchemaManager(sm SchemaManager) {
 	som.schemaManager = sm
 }
 
+// Scale returns the updated sharding state if successful. The caller must then
+// make sure to broadcast that state to all nodes as part of the "update"
+// transaction.
 func (som *ScaleOutManager) Scale(ctx context.Context, className string,
 	old, updated sharding.Config,
-) error {
+) (*sharding.State, error) {
 	if updated.Replicas > old.Replicas {
 		return som.scaleOut(ctx, className, old, updated)
 	}
@@ -72,15 +75,15 @@ func (som *ScaleOutManager) Scale(ctx context.Context, className string,
 		return som.scaleIn(ctx, className, old, updated)
 	}
 
-	return nil
+	return nil, nil
 }
 
 func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	old, updated sharding.Config,
-) error {
+) (*sharding.State, error) {
 	ssBefore := som.schemaManager.ShardingState(className)
 	if ssBefore == nil {
-		return errors.Errorf("no sharding state for class %q", className)
+		return nil, errors.Errorf("no sharding state for class %q", className)
 	}
 
 	ssAfter := ssBefore.DeepCopy()
@@ -93,7 +96,7 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	for name := range ssBefore.Physical {
 		if !ssBefore.IsShardLocal(name) {
 			// TODO
-			return errors.Errorf("scaling remote shards not supported yet, send request to node that has the shard to be scaled out")
+			return nil, errors.Errorf("scaling remote shards not supported yet, send request to node that has the shard to be scaled out")
 		}
 	}
 
@@ -110,7 +113,7 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 		bakID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
 		bak, err := som.backerUpper.SingleShardBackup(ctx, bakID, className, shardName)
 		if err != nil {
-			return errors.Wrap(err, "create snapshot")
+			return nil, errors.Wrap(err, "create snapshot")
 		}
 
 		// TODO: This manual diffing is ugly, refactor!
@@ -123,17 +126,17 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 			if bakShard.Name != shardName {
 				// this sanity check is only needed because of the [0] above. If this
 				// supports multi-shard, we need a better logic anyway
-				return fmt.Errorf("shard name mismatch in backup: %q vs %q", bakShard.Name,
+				return nil, fmt.Errorf("shard name mismatch in backup: %q vs %q", bakShard.Name,
 					shardName)
 			}
 			if err := som.CreateShard(ctx, targetNode, className, shardName); err != nil {
-				return fmt.Errorf("create new shard on remote node: %w", err)
+				return nil, fmt.Errorf("create new shard on remote node: %w", err)
 			}
 
 			for _, file := range bakShard.Files {
 				err := som.PutFile(ctx, file, targetNode, className, shardName)
 				if err != nil {
-					return fmt.Errorf("copy files to remote node: %w", err)
+					return nil, fmt.Errorf("copy files to remote node: %w", err)
 				}
 			}
 		}
@@ -153,13 +156,13 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	// aware of the new associations. The schema Manager itself must make sure
 	// that the updated association is replicated to the entire cluster
 
-	return nil
+	return &ssAfter, nil
 }
 
 func (som *ScaleOutManager) scaleIn(ctx context.Context, className string,
 	old, updated sharding.Config,
-) error {
-	return errors.Errorf("scaling in (reducing replica count) not supported yet")
+) (*sharding.State, error) {
+	return nil, errors.Errorf("scaling in (reducing replica count) not supported yet")
 }
 
 func (som *ScaleOutManager) PutFile(ctx context.Context, sourceFileName string,
