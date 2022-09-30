@@ -55,6 +55,7 @@ import (
 	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
+	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -208,6 +209,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.RemoteIncoming = sharding.NewRemoteIndexIncoming(repo)
 
+	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
+		schemaManager, repo, appState.Modules)
+	appState.BackupManager = backupManager
+
 	go clusterapi.Serve(appState)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
@@ -247,7 +252,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
-	setupBackupHandlers(api, schemaManager, repo, appState)
+	setupBackupHandlers(api, backupManager)
 
 	api.ServerShutdown = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

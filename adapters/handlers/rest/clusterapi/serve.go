@@ -12,6 +12,7 @@
 package clusterapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -31,6 +32,7 @@ func Serve(appState *state.State) {
 	schema := NewSchema(appState.SchemaManager.TxManager())
 	indices := NewIndices(appState.RemoteIncoming)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
+	backups := NewBackups(appState.BackupManager)
 
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/",
@@ -40,6 +42,27 @@ func Serve(appState *state.State) {
 			classifications.Transactions()))
 
 	mux.Handle("/indices/", indices.Indices())
-	mux.Handle("/", schema.index())
+
+	mux.Handle("/backups/can-commit", backups.CanCommit())
+	mux.Handle("/backups/commit", backups.Commit())
+	mux.Handle("/backups/abort", backups.Abort())
+	mux.Handle("/backups/status", backups.Status())
+
+	mux.Handle("/", index())
 	http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+}
+
+func index() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() != "" && r.URL.String() != "/" {
+			http.NotFound(w, r)
+			return
+		}
+
+		payload := map[string]string{
+			"description": "Weaviate's cluster-internal API for cross-node communication",
+		}
+
+		json.NewEncoder(w).Encode(payload)
+	})
 }

@@ -581,7 +581,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, nil, &req)
-		want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName})
@@ -616,7 +616,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, nil, &req)
-		want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
 		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName})
@@ -650,7 +650,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Millisecond * 10
 		got := m.OnCanCommit(ctx, nil, &req)
-		want := CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
+		want := &CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
 		assert.Equal(t, got, want)
 
 		for i := 0; i < 20; i++ {

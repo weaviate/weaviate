@@ -31,7 +31,7 @@ func TestWaitForStartup(t *testing.T) {
 		server := httptest.NewServer(&testReadyHandler{t: t})
 		defer server.Close()
 		v := New(server.URL, server.URL, nullLogger())
-		err := v.WaitForStartup(context.Background(), 50*time.Millisecond)
+		err := v.WaitForStartup(context.Background(), 150*time.Millisecond)
 
 		assert.Nil(t, err)
 	})
@@ -42,7 +42,7 @@ func TestWaitForStartup(t *testing.T) {
 		defer serverPassage.Close()
 		defer serverQuery.Close()
 		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
-		err := v.WaitForStartup(context.Background(), 50*time.Millisecond)
+		err := v.WaitForStartup(context.Background(), 150*time.Millisecond)
 
 		assert.Nil(t, err)
 	})

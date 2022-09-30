@@ -15,13 +15,10 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/backups"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/semi-technologies/weaviate/usecases/backup"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
 
 type backupHandlers struct {
@@ -119,7 +116,7 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	// Maybe not since classes are returned when restore is call the first time
 	// Also this would result in keeping this data in memory over the app life time
 	// I suggest to remove it from both restore and backup responses
-	status, err := s.manager.RestorationStatus(
+	restoreStatus, err := s.manager.RestorationStatus(
 		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
@@ -137,25 +134,22 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	sstatus := string(status.Status)
+	status := string(restoreStatus.Status)
 	payload := models.BackupRestoreStatusResponse{
-		Status:  &sstatus,
+		Status:  &status,
 		ID:      params.ID,
-		Path:    status.Path,
+		Path:    restoreStatus.Path,
 		Backend: params.Backend,
 	}
-	if status.Err != nil {
-		payload.Error = status.Err.Error()
+	if restoreStatus.Err != nil {
+		payload.Error = restoreStatus.Err.Error()
 	}
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)
 }
 
 func setupBackupHandlers(api *operations.WeaviateAPI,
-	schemaManger *schemaUC.Manager, repo *db.DB, appState *state.State,
+	backupManager *ubak.Manager,
 ) {
-	backupManager := ubak.NewManager(appState.Logger, appState.Authorizer,
-		schemaManger, repo, appState.Modules)
-
 	h := &backupHandlers{backupManager}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
