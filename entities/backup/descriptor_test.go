@@ -61,13 +61,13 @@ func TestIncludeClasses(t *testing.T) {
 
 func TestAllExist(t *testing.T) {
 	x := BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}
-	if y := x.AllExists(nil); y != "" {
+	if y := x.AllExist(nil); y != "" {
 		t.Errorf("x.AllExists(nil) got=%v want=%v", y, "")
 	}
-	if y := x.AllExists([]string{"a"}); y != "" {
+	if y := x.AllExist([]string{"a"}); y != "" {
 		t.Errorf("x.AllExists(['a']) got=%v want=%v", y, "")
 	}
-	if y := x.AllExists([]string{"b"}); y != "b" {
+	if y := x.AllExist([]string{"b"}); y != "b" {
 		t.Errorf("x.AllExists(['a']) got=%v want=%v", y, "b")
 	}
 }

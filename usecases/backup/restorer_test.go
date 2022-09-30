@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ func TestRestoreStatus(t *testing.T) {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
 	// active state
-	m.restorer.lastStatus.reqStat = reqStat{
+	m.restorer.lastOp.reqStat = reqStat{
 		Starttime: starTime,
 		ID:        id,
 		Status:    backup.Transferring,
@@ -59,9 +60,9 @@ func TestRestoreStatus(t *testing.T) {
 		t.Errorf("get active status: got=%v want=%v", st, expected)
 	}
 	// cached status
-	m.restorer.lastStatus.reset()
+	m.restorer.lastOp.reset()
 	st.CompletedAt = starTime
-	m.restoreStatusMap.Store("s3/"+id, st)
+	m.restorer.restoreStatusMap.Store("s3/"+id, st)
 	st, err = m.RestorationStatus(ctx, nil, backendType, id)
 	if err != nil {
 		t.Errorf("fetch status from map: %v", err)
@@ -409,6 +410,147 @@ func TestManagerRestoreBackup(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m2.RestorationStatus(ctx, nil, req1.Backend, req1.ID)
+			if err != nil {
+				continue
+			}
+			if lastStatus.Status == backup.Success || lastStatus.Status == backup.Failed {
+				break
+			}
+		}
+		assert.Nil(t, err)
+		assert.Equal(t, lastStatus.Status, backup.Failed)
+	})
+}
+
+func TestManagerCoordinatedRestore(t *testing.T) {
+	var (
+		backendName = "gcs"
+		rawbytes    = []byte("hello")
+		timept      = time.Now().UTC()
+		cls         = "Class-A"
+		backupID    = "2"
+		ctx         = context.Background()
+		path        = fmt.Sprintf("%s/home", backupID)
+		req         = Request{
+			Method:   OpRestore,
+			ID:       backupID,
+			Classes:  []string{cls},
+			Backend:  backendName,
+			Duration: time.Millisecond * 20,
+		}
+	)
+
+	metadata := backup.BackupDescriptor{
+		ID:            backupID,
+		StartedAt:     timept,
+		Version:       "1",
+		ServerVersion: "1",
+		Status:        string(backup.Success),
+		Classes: []backup.ClassDescriptor{{
+			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+			Shards: []backup.ShardDescriptor{
+				{
+					Name: "Shard1", Node: "Node-1",
+					Files:                 []string{"dir1/file1", "dir2/file2"},
+					DocIDCounterPath:      "dir1/counter.txt",
+					ShardVersionPath:      "dir1/version.txt",
+					PropLengthTrackerPath: "dir1/prop.txt",
+					DocIDCounter:          rawbytes,
+					Version:               rawbytes,
+					PropLengthTracker:     rawbytes,
+				},
+			},
+		}},
+	}
+
+	t.Run("GetMetdataFile", func(t *testing.T) {
+		backend := &fakeBackend{}
+		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("HomeDir", mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, nil, &req)
+		assert.Contains(t, resp.Err, errMetaNotFound.Error())
+		assert.Equal(t, resp.Timeout, time.Duration(0))
+	})
+
+	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
+		backend := &fakeBackend{}
+		sourcer := &fakeSourcer{}
+		sourcer.On("ClassExists", cls).Return(false)
+		bytes := marshalMeta(metadata)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		// simulate work by delaying return of SourceDataPath()
+		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Minute * 2)
+		m := createManager(sourcer, nil, backend, nil)
+		resp := m.OnCanCommit(ctx, nil, &req)
+		assert.Equal(t, resp.Err, "")
+		resp = m.OnCanCommit(ctx, nil, &req)
+		assert.Contains(t, resp.Err, "already in progress")
+		assert.Equal(t, time.Duration(0), resp.Timeout)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		req := req
+		req.Duration = time.Hour
+		backend := &fakeBackend{}
+		sourcer := &fakeSourcer{}
+		sourcer.On("ClassExists", cls).Return(false)
+		bytes := marshalMeta(metadata)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(t.TempDir())
+		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+		resp1 := m.OnCanCommit(ctx, nil, &req)
+		want1 := CanCommitResponse{
+			Method:  OpRestore,
+			ID:      req.ID,
+			Timeout: _TimeoutShardCommit,
+		}
+		assert.Equal(t, want1, resp1)
+		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID})
+		assert.Nil(t, err)
+		var lastStatus RestoreStatus
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Millisecond * 50)
+			lastStatus, err = m.RestorationStatus(ctx, nil, req.Backend, req.ID)
+			if err != nil {
+				continue
+			}
+			if lastStatus.Status == backup.Success || lastStatus.Status == backup.Failed {
+				break
+			}
+		}
+		assert.Nil(t, err)
+		assert.Equal(t, lastStatus.Status, backup.Success)
+	})
+
+	t.Run("Abort", func(t *testing.T) {
+		req := req
+		req.Duration = time.Hour
+		backend := &fakeBackend{}
+		sourcer := &fakeSourcer{}
+		sourcer.On("ClassExists", cls).Return(false)
+		bytes := marshalMeta(metadata)
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(t.TempDir())
+		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+		resp1 := m.OnCanCommit(ctx, nil, &req)
+		want1 := CanCommitResponse{
+			Method:  OpRestore,
+			ID:      req.ID,
+			Timeout: _TimeoutShardCommit,
+		}
+		assert.Equal(t, want1, resp1)
+		err := m.OnAbort(ctx, &AbortRequest{Method: OpRestore, ID: req.ID})
+		assert.Nil(t, err)
+		var lastStatus RestoreStatus
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Millisecond * 50)
+			lastStatus, err = m.RestorationStatus(ctx, nil, req.Backend, req.ID)
 			if err != nil {
 				continue
 			}

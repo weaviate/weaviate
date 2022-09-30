@@ -46,7 +46,7 @@ func TestCoordinatedBackup(t *testing.T) {
 			Classes:  req.Classes,
 			Duration: _BookingPeriod,
 		}
-		cresp    = CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+		cresp    = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
 		sReq     = &StatusRequest{OpCreate, backupID}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
 		abortReq = &AbortRequest{OpCreate, backupID}
@@ -114,7 +114,7 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
 
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(CanCommitResponse{}, nil)
+		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(ErrAny)
 
 		coordinator := *fc.coordinator()
@@ -259,7 +259,7 @@ func TestCoordinatedRestore(t *testing.T) {
 			Classes:  classes,
 			Duration: _BookingPeriod,
 		}
-		cresp    = CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		sReq     = &StatusRequest{OpRestore, backupID}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 		abortReq = &AbortRequest{OpRestore, backupID}
@@ -287,7 +287,7 @@ func TestCoordinatedRestore(t *testing.T) {
 
 		fc := newFakeCoordinator()
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creq).Return(CanCommitResponse{}, nil)
+		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
@@ -337,12 +337,12 @@ type fakeClient struct {
 	mock.Mock
 }
 
-func (f *fakeClient) CanCommit(ctx context.Context, node string, req *Request) (CanCommitResponse, error) {
+func (f *fakeClient) CanCommit(ctx context.Context, node string, req *Request) (*CanCommitResponse, error) {
 	args := f.Called(ctx, node, req)
 	if args.Get(0) != nil {
-		return args.Get(0).(CanCommitResponse), args.Error(1)
+		return args.Get(0).(*CanCommitResponse), args.Error(1)
 	}
-	return CanCommitResponse{}, args.Error(1)
+	return nil, args.Error(1)
 }
 
 func (f *fakeClient) Commit(ctx context.Context, node string, req *StatusRequest) error {

@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -33,6 +32,8 @@ const Version = "1.0"
 // the base path = "bucket/node/backupid" or somthing like that
 // 2. error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
+
+var regExpID = regexp.MustCompile("^[a-z0-9_-]+$")
 
 type BackupBackendProvider interface {
 	BackupBackend(backend string) (modulecapabilities.BackupBackend, error)
@@ -63,12 +64,6 @@ type Manager struct {
 	backupper  *backupper
 	restorer   *restorer
 	backends   BackupBackendProvider
-
-	// TODO: keeping status in memory after restore has been done
-	// is not a proper solution for communicating status to the user.
-	// On app crash or restart this data will be lost
-	// This should be regarded as workaround and should be fixed asap
-	restoreStatusMap sync.Map
 }
 
 func NewManager(
@@ -163,47 +158,18 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		err := fmt.Errorf("cannot restore class %q because it already exists", cls)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	status := string(backup.Started)
-	destPath := store.HomeDir(req.ID)
-	returnData := &models.BackupRestoreResponse{
-		Classes: cs,
-		ID:      req.ID,
+	rreq := Request{
+		Method:  OpRestore,
+		ID:      meta.ID,
 		Backend: req.Backend,
-		Status:  &status,
-		Path:    destPath,
+		Classes: cs,
 	}
-	// make sure there is no active restore
-	if prevID := m.restorer.lastStatus.renew(req.ID, time.Now(), destPath); prevID != "" {
-		err := fmt.Errorf("restore %s already in progress", prevID)
+	data, err := m.restorer.Restore(ctx, pr, &rreq, meta, store)
+	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	go func() {
-		var err error
-		status := RestoreStatus{
-			Path:      destPath,
-			StartedAt: time.Now().UTC(),
-			Status:    backup.Transferring,
-			Err:       nil,
-		}
-		defer func() {
-			status.CompletedAt = time.Now().UTC()
-			if err == nil {
-				status.Status = backup.Success
-			} else {
-				status.Err = err
-				status.Status = backup.Failed
-			}
-			m.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
-			m.restorer.lastStatus.reset()
-		}()
 
-		err = m.restorer.restoreAll(context.Background(), pr, meta, store)
-		if err != nil {
-			m.logger.WithField("action", "restore").WithField("backup_id", meta.ID).Error(err)
-		}
-	}()
-
-	return returnData, nil
+	return data, nil
 }
 
 func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
@@ -224,25 +190,12 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 	if err := m.authorizer.Authorize(principal, "get", ppath); err != nil {
 		return RestoreStatus{}, err
 	}
-	if st := m.restorer.status(); st.ID == ID {
-		return RestoreStatus{
-			Path:      st.path,
-			StartedAt: st.Starttime,
-			Status:    st.Status,
-		}, nil
-	}
-	ref := basePath(backend, ID)
-	istatus, ok := m.restoreStatusMap.Load(ref)
-	if !ok {
-		err := errors.Errorf("status not found: %s", ref)
-		return RestoreStatus{}, backup.NewErrNotFound(err)
-	}
-	return istatus.(RestoreStatus), nil
+	return m.restorer.status(backend, ID)
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
 // in a distributed backup operation
-func (m *Manager) OnCanCommit(ctx context.Context, req *Request) CanCommitResponse {
+func (m *Manager) OnCanCommit(ctx context.Context, pr *models.Principal, req *Request) CanCommitResponse {
 	ret := CanCommitResponse{Method: req.Method, ID: req.ID}
 	store, err := backend(m.backends, req.Backend)
 	if err != nil {
@@ -251,7 +204,8 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) CanCommitRespon
 	}
 
 	// TODO: validate if all req.Classes exist locally
-	if req.Method == OpCreate {
+	switch req.Method {
+	case OpCreate:
 		if err = store.Initialize(ctx, req.ID); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
@@ -262,24 +216,49 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) CanCommitRespon
 			return ret
 		}
 		ret.Timeout = res.Timeout
+	case OpRestore:
+		meta, _, err := m.restorer.validate(ctx, store, req)
+		if err != nil {
+			ret.Err = err.Error()
+			return ret
+		}
+		res, err := m.restorer.restore(ctx, pr, req, meta, store)
+		if err != nil {
+			ret.Err = err.Error()
+			return ret
+		}
+		ret.Timeout = res.Timeout
+	default:
+		ret.Err = fmt.Sprintf("unknown backup operation: %s", req.Method)
+		return ret
 	}
+
 	return ret
 }
 
 // OnCommit will be triggered when the coordinator confirms the execution of a previous operation
-func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) error {
-	if req.Method == OpCreate {
+func (m *Manager) OnCommit(ctx context.Context, req *StatusRequest) (err error) {
+	switch req.Method {
+	case OpCreate:
 		return m.backupper.OnCommit(ctx, req)
+	case OpRestore:
+		return m.restorer.OnCommit(ctx, req)
+	default:
+		return fmt.Errorf("%w: %s", errUnknownOp, req.Method)
 	}
-	return nil
 }
 
 // OnAbort will be triggered when the coordinator abort the execution of a previous operation
 func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
-	if req.Method == OpCreate {
+	switch req.Method {
+	case OpCreate:
 		return m.backupper.OnAbort(ctx, req)
+	case OpRestore:
+		return m.restorer.OnAbort(ctx, req)
+	default:
+		return fmt.Errorf("%w: %s", errUnknownOp, req.Method)
+
 	}
-	return nil
 }
 
 func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, req *BackupRequest) ([]string, error) {
@@ -317,56 +296,25 @@ func (m *Manager) validateRestoreRequst(ctx context.Context, store objectStore, 
 		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	destPath := store.HomeDir(req.ID)
-	meta, err := store.Meta(ctx, req.ID)
+	meta, cs, err := m.restorer.validate(ctx, store, &Request{ID: req.ID, Classes: req.Include})
 	if err != nil {
-		err = fmt.Errorf("find backup %s: %w", destPath, err)
-		nerr := backup.ErrNotFound{}
-		if errors.As(err, &nerr) {
+		if errors.Is(err, errMetaNotFound) {
 			return nil, backup.NewErrNotFound(err)
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	if meta.ID != req.ID {
-		err = fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	if meta.Status != string(backup.Success) {
-		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	if err := meta.Validate(); err != nil {
-		err = fmt.Errorf("corrupted backup file: %w", err)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-	classes := meta.List()
-	if len(req.Include) > 0 {
-		if first := meta.AllExists(req.Include); first != "" {
-			cs := meta.List()
-			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
-			return nil, backup.NewErrUnprocessable(err)
-		}
-		meta.Include(req.Include)
-	} else {
-		meta.Exclude(req.Exclude)
-	}
+	meta.Exclude(req.Exclude)
 	if len(meta.Classes) == 0 {
-		err = fmt.Errorf("empty class list: please choose from : %v", classes)
+		err = fmt.Errorf("empty class list: please choose from : %v", cs)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 	return meta, nil
 }
 
 func validateID(backupID string) error {
-	if backupID == "" {
-		return fmt.Errorf("missing backupID value")
+	if !regExpID.MatchString(backupID) {
+		return fmt.Errorf("invalid backup id: allowed characters are lowercase, 0-9, _, -")
 	}
-
-	exp := regexp.MustCompile("^[a-z0-9_-]+$")
-	if !exp.MatchString(backupID) {
-		return fmt.Errorf("invalid characters for backupID. Allowed are lowercase, numbers, underscore, minus")
-	}
-
 	return nil
 }
 
