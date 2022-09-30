@@ -13,8 +13,11 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
+	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/backup"
@@ -24,11 +27,17 @@ import (
 )
 
 type restorer struct {
-	logger     logrus.FieldLogger
-	sourcer    Sourcer
-	backends   BackupBackendProvider
-	schema     schemaManger
-	lastStatus backupStat
+	logger   logrus.FieldLogger
+	sourcer  Sourcer
+	backends BackupBackendProvider
+	schema   schemaManger
+	shardSyncChan
+
+	// TODO: keeping status in memory after restore has been done
+	// is not a proper solution for communicating status to the user.
+	// On app crash or restart this data will be lost
+	// This should be regarded as workaround and should be fixed asap
+	restoreStatusMap sync.Map
 }
 
 func newRestorer(logger logrus.FieldLogger,
@@ -37,11 +46,93 @@ func newRestorer(logger logrus.FieldLogger,
 	schema schemaManger,
 ) *restorer {
 	return &restorer{
-		logger:   logger,
-		sourcer:  sourcer,
-		backends: backends,
-		schema:   schema,
+		logger:        logger,
+		sourcer:       sourcer,
+		backends:      backends,
+		schema:        schema,
+		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
+}
+
+func (m *restorer) Restore(ctx context.Context,
+	pr *models.Principal,
+	req *Request,
+	desc *backup.BackupDescriptor,
+	store objectStore,
+) (*models.BackupRestoreResponse, error) {
+	status := string(backup.Started)
+	returnData := &models.BackupRestoreResponse{
+		Classes: req.Classes,
+		ID:      req.ID,
+		Backend: req.Backend,
+		Status:  &status,
+		Path:    store.HomeDir(req.ID),
+	}
+	if _, err := m.restore(ctx, pr, req, desc, store); err != nil {
+		return nil, err
+	}
+	return returnData, nil
+}
+
+func (r *restorer) restore(ctx context.Context,
+	pr *models.Principal,
+	req *Request,
+	desc *backup.BackupDescriptor,
+	store objectStore,
+) (CanCommitResponse, error) {
+	expiration := req.Duration
+	if expiration > _TimeoutShardCommit {
+		expiration = _TimeoutShardCommit
+	}
+	ret := CanCommitResponse{
+		Method:  OpCreate,
+		ID:      req.ID,
+		Timeout: expiration,
+	}
+
+	destPath := store.HomeDir(req.ID)
+
+	// make sure there is no active restore
+	if prevID := r.lastOp.renew(req.ID, time.Now(), destPath); prevID != "" {
+		err := fmt.Errorf("restore %s already in progress", prevID)
+		return ret, err
+	}
+	r.waitingForCoodinatorToCommit.Store(true) // is set to false by wait()
+
+	go func() {
+		var err error
+		status := RestoreStatus{
+			Path:      destPath,
+			StartedAt: time.Now().UTC(),
+			Status:    backup.Transferring,
+			Err:       nil,
+		}
+		defer func() {
+			status.CompletedAt = time.Now().UTC()
+			if err == nil {
+				status.Status = backup.Success
+			} else {
+				status.Err = err
+				status.Status = backup.Failed
+			}
+			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
+			r.lastOp.reset()
+		}()
+
+		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
+			r.logger.WithField("action", "create_backup").
+				Error(err)
+			r.lastAsyncError = err
+			return
+		}
+
+		err = r.restoreAll(context.Background(), pr, desc, store)
+		if err != nil {
+			r.logger.WithField("action", "restore").WithField("backup_id", desc.ID).Error(err)
+		}
+	}()
+
+	return ret, nil
 }
 
 func (r *restorer) restoreAll(ctx context.Context,
@@ -49,7 +140,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor,
 	store objectStore,
 ) (err error) {
-	r.lastStatus.set(backup.Transferring)
+	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
 		if err := r.restoreOne(ctx, pr, desc.ID, &cdesc, store); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
@@ -97,7 +188,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	return nil
 }
 
-// AnyExists check if any class of cs exists in DB
+// AnyExists checks if any classes of cs exists in DB
 func (r *restorer) AnyExists(cs []string) string {
 	for _, cls := range cs {
 		if r.sourcer.ClassExists(cls) {
@@ -107,6 +198,50 @@ func (r *restorer) AnyExists(cs []string) string {
 	return ""
 }
 
-func (r *restorer) status() reqStat {
-	return r.lastStatus.get()
+func (r *restorer) status(backend, ID string) (RestoreStatus, error) {
+	if st := r.lastOp.get(); st.ID == ID {
+		return RestoreStatus{
+			Path:      st.path,
+			StartedAt: st.Starttime,
+			Status:    st.Status,
+		}, nil
+	}
+	ref := basePath(backend, ID)
+	istatus, ok := r.restoreStatusMap.Load(ref)
+	if !ok {
+		err := fmt.Errorf("status not found: %s", ref)
+		return RestoreStatus{}, backup.NewErrNotFound(err)
+	}
+	return istatus.(RestoreStatus), nil
+}
+
+func (r *restorer) validate(ctx context.Context, store objectStore, req *Request) (*backup.BackupDescriptor, []string, error) {
+	destPath := store.HomeDir(req.ID)
+	meta, err := store.Meta(ctx, req.ID)
+	if err != nil {
+		nerr := backup.ErrNotFound{}
+		if errors.As(err, &nerr) {
+			return nil, nil, fmt.Errorf("%w: %q", errMetaNotFound, destPath)
+		}
+		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
+	}
+	if meta.ID != req.ID {
+		return nil, nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+	}
+	if meta.Status != string(backup.Success) {
+		err = fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
+		return nil, nil, err
+	}
+	if err := meta.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
+	}
+	cs := meta.List()
+	if len(req.Classes) > 0 {
+		if first := meta.AllExist(req.Classes); first != "" {
+			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
+			return nil, cs, err
+		}
+		meta.Include(req.Classes)
+	}
+	return meta, cs, nil
 }

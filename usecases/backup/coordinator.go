@@ -36,6 +36,8 @@ const (
 var (
 	errNoShardFound = errors.New("no shard found")
 	errCannotCommit = errors.New("cannot commit")
+	errMetaNotFound = errors.New("metadata not found")
+	errUnknownOp    = errors.New("unknown backup operation")
 )
 
 const (
@@ -61,7 +63,7 @@ type selector interface {
 	// Shards gets all nodes on which this class is sharded
 	Shards(ctx context.Context, class string) []string
 	// ListClasses returns a list of all existing classes
-	// This will be need if user doesn't include any classes
+	// This will be needed if user doesn't include any classes
 	ListClasses(ctx context.Context) []string
 }
 
@@ -80,8 +82,6 @@ type selector interface {
 // - It marks the whole DBRO as failed if any shard fails to do its BRO.
 //
 // - The coordinator will try to repair previous DBROs whenever it is possible
-//
-// see https://semi-technology.atlassian.net/wiki/spaces/WCE/pages/105938945/Backups+Proposal+v2
 type coordinator struct {
 	// dependencies
 	selector selector
