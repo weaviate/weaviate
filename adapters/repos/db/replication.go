@@ -6,6 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
+	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 )
 
 func (ind *Index) IncomingFilePutter(ctx context.Context, shardName,
@@ -67,6 +70,22 @@ func (ind *Index) IncomingReinitShard(ctx context.Context,
 func (s *Shard) reinit(ctx context.Context) error {
 	if err := s.shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown shard: %w", err)
+	}
+
+	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
+	if !ok {
+		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+			s.index.vectorIndexUserConfig)
+	}
+
+	if hnswUserConfig.Skip {
+		s.vectorIndex = noop.NewIndex()
+	} else {
+		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+			return fmt.Errorf("init vector index: %w", err)
+		}
+
+		defer s.vectorIndex.PostStartup()
 	}
 
 	if err := s.initNonVector(ctx); err != nil {

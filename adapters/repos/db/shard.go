@@ -123,57 +123,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
-		var distProv distancer.Provider
-
-		switch hnswUserConfig.Distance {
-		case "", hnswent.DistanceCosine:
-			distProv = distancer.NewCosineDistanceProvider()
-		case hnswent.DistanceDot:
-			distProv = distancer.NewDotProductProvider()
-		case hnswent.DistanceL2Squared:
-			distProv = distancer.NewL2SquaredProvider()
-		case hnswent.DistanceManhattan:
-			distProv = distancer.NewManhattanProvider()
-		case hnswent.DistanceHamming:
-			distProv = distancer.NewHammingProvider()
-		default:
-			return nil, errors.Errorf("unrecognized distance metric %q,"+
-				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+			return nil, fmt.Errorf("init vector index: %w", err)
 		}
 
-		vi, err := hnsw.New(hnsw.Config{
-			Logger:            index.logger,
-			RootPath:          s.index.Config.RootPath,
-			ID:                s.ID(),
-			ShardName:         s.name,
-			ClassName:         s.index.Config.ClassName.String(),
-			PrometheusMetrics: s.promMetrics,
-			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-				// Previously we had an interval of 10s in here, which was changed to
-				// 0.5s as part of gh-1867. There's really no way to wait so long in
-				// between checks: If you are running on a low-powered machine, the
-				// interval will simply find that there is no work and do nothing in
-				// each iteration. However, if you are running on a very powerful
-				// machine within 10s you could have potentially created two units of
-				// work, but we'll only be handling one every 10s. This means
-				// uncombined/uncondensed hnsw commit logs will keep piling up can only
-				// be processes long after the initial insert is complete. This also
-				// means that if there is a crash during importing a lot of work needs
-				// to be done at startup, since the commit logs still contain too many
-				// redundancies. So as of now it seems there are only advantages to
-				// running the cleanup checks and work much more often.
-				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-					index.logger)
-			},
-			VectorForIDThunk: s.vectorByIndexID,
-			DistanceProvider: distProv,
-		}, hnswUserConfig)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-		}
-		s.vectorIndex = vi
-
-		defer vi.PostStartup()
+		defer s.vectorIndex.PostStartup()
 	}
 
 	if err := s.initNonVector(ctx); err != nil {
@@ -181,6 +135,62 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	return s, nil
+}
+
+func (s *Shard) initVectorIndex(
+	ctx context.Context, hnswUserConfig hnswent.UserConfig,
+) error {
+	var distProv distancer.Provider
+
+	switch hnswUserConfig.Distance {
+	case "", hnswent.DistanceCosine:
+		distProv = distancer.NewCosineDistanceProvider()
+	case hnswent.DistanceDot:
+		distProv = distancer.NewDotProductProvider()
+	case hnswent.DistanceL2Squared:
+		distProv = distancer.NewL2SquaredProvider()
+	case hnswent.DistanceManhattan:
+		distProv = distancer.NewManhattanProvider()
+	case hnswent.DistanceHamming:
+		distProv = distancer.NewHammingProvider()
+	default:
+		return errors.Errorf("unrecognized distance metric %q,"+
+			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+	}
+
+	vi, err := hnsw.New(hnsw.Config{
+		Logger:            s.index.logger,
+		RootPath:          s.index.Config.RootPath,
+		ID:                s.ID(),
+		ShardName:         s.name,
+		ClassName:         s.index.Config.ClassName.String(),
+		PrometheusMetrics: s.promMetrics,
+		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			// Previously we had an interval of 10s in here, which was changed to
+			// 0.5s as part of gh-1867. There's really no way to wait so long in
+			// between checks: If you are running on a low-powered machine, the
+			// interval will simply find that there is no work and do nothing in
+			// each iteration. However, if you are running on a very powerful
+			// machine within 10s you could have potentially created two units of
+			// work, but we'll only be handling one every 10s. This means
+			// uncombined/uncondensed hnsw commit logs will keep piling up can only
+			// be processes long after the initial insert is complete. This also
+			// means that if there is a crash during importing a lot of work needs
+			// to be done at startup, since the commit logs still contain too many
+			// redundancies. So as of now it seems there are only advantages to
+			// running the cleanup checks and work much more often.
+			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+				s.index.logger)
+		},
+		VectorForIDThunk: s.vectorByIndexID,
+		DistanceProvider: distProv,
+	}, hnswUserConfig)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+	}
+	s.vectorIndex = vi
+
+	return nil
 }
 
 func (s *Shard) initNonVector(ctx context.Context) error {
@@ -499,7 +509,8 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
-	s.cancel <- struct{}{}
+	// TODO: is this channel still needed? I think no
+	// s.cancel <- struct{}{}
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
