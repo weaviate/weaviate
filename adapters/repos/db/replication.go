@@ -52,3 +52,27 @@ func (ind *Index) IncomingCreateShard(ctx context.Context,
 
 	return nil
 }
+
+func (ind *Index) IncomingReinitShard(ctx context.Context,
+	shardName string,
+) error {
+	shard, ok := ind.Shards[shardName]
+	if !ok {
+		return fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	return shard.reinit(ctx)
+}
+
+func (s *Shard) reinit(ctx context.Context) error {
+	if err := s.shutdown(ctx); err != nil {
+		return fmt.Errorf("shutdown shard: %w", err)
+	}
+
+	if err := s.initNonVector(ctx); err != nil {
+		return fmt.Errorf("init non-vector: %w", err)
+	}
+
+	// TODO: reinit vector
+	return nil
+}

@@ -139,6 +139,11 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 					return nil, fmt.Errorf("copy files to remote node: %w", err)
 				}
 			}
+
+			if err := som.ReinitShard(ctx, targetNode, className, shardName); err != nil {
+				return nil, fmt.Errorf("create new shard on remote node: %w", err)
+			}
+
 		}
 	}
 
@@ -194,9 +199,22 @@ func (som *ScaleOutManager) CreateShard(ctx context.Context,
 	return som.nodes.CreateShard(ctx, hostname, className, shardName)
 }
 
+func (som *ScaleOutManager) ReinitShard(ctx context.Context,
+	targetNode, className, shardName string,
+) error {
+	hostname, ok := som.clusterState.NodeHostname(targetNode)
+	if !ok {
+		return fmt.Errorf("resolve hostname for node %q", targetNode)
+	}
+
+	return som.nodes.ReinitShard(ctx, hostname, className, shardName)
+}
+
 type nodeClient interface {
 	PutFile(ctx context.Context, hostName, indexName,
 		shardName, fileName string, payload io.ReadCloser) error
 	CreateShard(ctx context.Context,
+		hostName, indexName, shardName string) error
+	ReinitShard(ctx context.Context,
 		hostName, indexName, shardName string) error
 }
