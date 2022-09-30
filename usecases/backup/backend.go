@@ -61,7 +61,7 @@ func (s *objectStore) Meta(ctx context.Context, backupID string) (*backup.Backup
 	return &backup, err
 }
 
-// PutMeta puts a node's metadatat into object store
+// PutMeta puts a node's metadata into object store
 func (s *objectStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
 	return s.putMeta(ctx, desc.ID, BackupFile, desc)
 }

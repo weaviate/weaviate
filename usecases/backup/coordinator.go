@@ -51,10 +51,10 @@ const (
 
 type nodeMap map[string]backup.NodeDescriptor
 
-// participantStatus tracks status of a particpant in a DPRO
+// participantStatus tracks status of a participant in a DBRO
 type participantStatus struct {
 	Status   backup.Status
-	Lasttime time.Time
+	LastTime time.Time
 	Reason   string
 }
 
@@ -67,7 +67,7 @@ type selector interface {
 	ListClasses(ctx context.Context) []string
 }
 
-// coordinator coordinates a distributed backup and restore operation (DPRO):
+// Coordinator coordinates a distributed backup and restore operation (DBRO):
 //
 // - It determines what request to send to which shard.
 //
@@ -81,8 +81,8 @@ type selector interface {
 //
 // - It marks the whole DBRO as failed if any shard fails to do its BRO.
 //
-// - The coordinator will try to repair previous DBROs whenever it is possible
-type coordinator struct {
+// - The Coordinator will try to repair previous DBROs whenever it is possible
+type Coordinator struct {
 	// dependencies
 	selector     selector
 	client       client
@@ -101,15 +101,15 @@ type coordinator struct {
 	timeoutNextRound   time.Duration
 }
 
-// The coordinator coordinates a distributed BRO operations among many shards.
+// NewCoordinator instantiates a Coordinator instance
 func NewCoordinator(
 	store ObjectStore,
 	selector selector,
 	client client,
 	log logrus.FieldLogger,
 	nodeResolver nodeResolver,
-) *coordinator {
-	return &coordinator{
+) *Coordinator {
+	return &Coordinator{
 		selector:           selector,
 		client:             client,
 		store:              store,
@@ -124,7 +124,7 @@ func NewCoordinator(
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, req *Request) error {
+func (c *Coordinator) Backup(ctx context.Context, req *Request) error {
 	groups, err := c.groupByShard(ctx, req.Classes)
 	if err != nil {
 		return err
@@ -162,7 +162,7 @@ func (c *coordinator) Backup(ctx context.Context, req *Request) error {
 }
 
 // Restore coordinates a distributed restoration among participants
-func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackupDescriptor) error {
+func (c *Coordinator) Restore(ctx context.Context, req *backup.DistributedBackupDescriptor) error {
 	c.descriptor = *req
 	nodes, err := c.canCommit(ctx, OpRestore)
 	if err != nil {
@@ -182,9 +182,9 @@ func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackup
 	return nil
 }
 
-// canCommit asks candidates if they agree to participate in DPRO
+// canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
-func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]struct{}, error) {
+func (c *Coordinator) canCommit(ctx context.Context, method Op) (map[string]struct{}, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 	type pair struct {
@@ -253,7 +253,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 
 // commit tells each participant to commit its backup operation
 // It stores the final result in the provided backend
-func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) {
+func (c *Coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) {
 	c.commitAll(ctx, req, nodes)
 
 	for len(nodes) > 0 {
@@ -284,7 +284,7 @@ func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[
 // queryAll queries all participant and store their statuses internally
 //
 // It returns the number of remaining nodes to query in the next round
-func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) int {
+func (c *Coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) int {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutQueryStatus)
 	defer cancel()
 
@@ -306,11 +306,11 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	for _, r := range rs {
 		st := c.Participants[r.node]
 		if r.err == nil {
-			st.Lasttime, st.Status, st.Reason = now, r.Status, r.Err
+			st.LastTime, st.Status, st.Reason = now, r.Status, r.Err
 			if r.Status == backup.Success || r.Status == backup.Failed {
 				delete(nodes, r.node)
 			}
-		} else if now.Sub(st.Lasttime) > c.timeoutNodeDown {
+		} else if now.Sub(st.LastTime) > c.timeoutNodeDown {
 			st.Status = backup.Failed
 			st.Reason = "might be down:" + r.err.Error()
 			delete(nodes, r.node)
@@ -321,7 +321,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 }
 
 // commitAll tells all participants to proceed with their backup operations
-func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) {
+func (c *Coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) {
 	type pair struct {
 		node string
 		err  error
@@ -360,7 +360,7 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 }
 
 // abortAll tells every node to abort transaction
-func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map[string]struct{}) {
+func (c *Coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map[string]struct{}) {
 	for node := range nodes {
 		if err := c.client.Abort(ctx, node, req); err != nil {
 			c.log.WithField("action", req.Method).
@@ -371,7 +371,7 @@ func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map
 }
 
 // groupByShard returns classes group by nodes
-func (c *coordinator) groupByShard(ctx context.Context, classes []string) (nodeMap, error) {
+func (c *Coordinator) groupByShard(ctx context.Context, classes []string) (nodeMap, error) {
 	m := make(nodeMap, 32)
 	for _, cls := range classes {
 		nodes := c.selector.Shards(ctx, cls)
