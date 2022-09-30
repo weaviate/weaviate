@@ -261,6 +261,20 @@ func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
 	}
 }
 
+func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
+	st, err := m.backupper.OnStatus(ctx, req)
+	ret := StatusResponse{
+		Method: req.Method,
+		ID:     req.ID,
+		Status: st.Status,
+	}
+	if err != nil {
+		ret.Status = backup.Failed
+		ret.Err = err.Error()
+	}
+	return &ret, nil
+}
+
 func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, req *BackupRequest) ([]string, error) {
 	if err := validateID(req.ID); err != nil {
 		return nil, err

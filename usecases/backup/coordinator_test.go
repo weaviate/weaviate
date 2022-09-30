@@ -47,9 +47,9 @@ func TestCoordinatedBackup(t *testing.T) {
 			Duration: _BookingPeriod,
 		}
 		cresp    = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpCreate, backupID}
+		sReq     = &StatusRequest{OpCreate, backupID, backendName}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq = &AbortRequest{OpCreate, backupID}
+		abortReq = &AbortRequest{OpCreate, backupID, backendName}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -260,9 +260,9 @@ func TestCoordinatedRestore(t *testing.T) {
 			Duration: _BookingPeriod,
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq = &AbortRequest{OpRestore, backupID}
+		abortReq = &AbortRequest{OpRestore, backupID, backendName}
 	)
 
 	t.Run("Success", func(t *testing.T) {

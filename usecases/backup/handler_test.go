@@ -75,8 +75,9 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 
 	{ // OnCommit
 		req := StatusRequest{
-			Method: "Unknown",
-			ID:     "1",
+			Method:  "Unknown",
+			ID:      "1",
+			Backend: "s3",
 		}
 		err := bm.OnCommit(ctx, &req)
 		assert.NotNil(t, err)
