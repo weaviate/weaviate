@@ -49,7 +49,7 @@ func TestRestoreStatus(t *testing.T) {
 		Starttime: starTime,
 		ID:        id,
 		Status:    backup.Transferring,
-		path:      path,
+		Path:      path,
 	}
 	st, err := m.RestorationStatus(ctx, nil, backendType, id)
 	if err != nil {
@@ -509,7 +509,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 			Timeout: _TimeoutShardCommit,
 		}
 		assert.Equal(t, want1, resp1)
-		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID})
+		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend})
 		assert.Nil(t, err)
 		var lastStatus RestoreStatus
 		for i := 0; i < 10; i++ {

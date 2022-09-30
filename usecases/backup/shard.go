@@ -29,7 +29,7 @@ type reqStat struct {
 	Starttime time.Time
 	ID        string
 	Status    backup.Status
-	path      string
+	Path      string
 }
 
 type backupStat struct {
@@ -52,7 +52,7 @@ func (s *backupStat) renew(id string, start time.Time, path string) string {
 		return s.reqStat.ID
 	}
 	s.reqStat.ID = id
-	s.reqStat.path = path
+	s.reqStat.Path = path
 	s.reqStat.Starttime = start
 	s.reqStat.Status = backup.Started
 	return ""
@@ -61,7 +61,7 @@ func (s *backupStat) renew(id string, start time.Time, path string) string {
 func (s *backupStat) reset() {
 	s.Lock()
 	s.reqStat.ID = ""
-	s.reqStat.path = ""
+	s.reqStat.Path = ""
 	s.reqStat.Status = ""
 	s.Unlock()
 }
