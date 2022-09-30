@@ -42,17 +42,26 @@ const (
 	_TempDirectory   = ".backup.tmp"
 )
 
+type ObjectStore interface {
+	modulecapabilities.BackupBackend
+	Meta(ctx context.Context, backupID string) (*backup.BackupDescriptor, error)
+	PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error
+	GlobalMeta(ctx context.Context, backupID string) (*backup.DistributedBackupDescriptor, error)
+	PutGlobalMeta(ctx context.Context, desc *backup.DistributedBackupDescriptor) error
+}
+
 type objectStore struct {
 	modulecapabilities.BackupBackend
 }
 
+// Meta gets a node's metadata from object store
 func (s *objectStore) Meta(ctx context.Context, backupID string) (*backup.BackupDescriptor, error) {
 	var backup backup.BackupDescriptor
 	err := s.meta(ctx, backupID, BackupFile, &backup)
 	return &backup, err
 }
 
-// meta marshals and uploads metadata
+// PutMeta puts a node's metadatat into object store
 func (s *objectStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
 	return s.putMeta(ctx, desc.ID, BackupFile, desc)
 }
@@ -69,7 +78,6 @@ func (s *objectStore) PutGlobalMeta(ctx context.Context, desc *backup.Distribute
 	return s.putMeta(ctx, desc.ID, GlobalBackupFile, desc)
 }
 
-// meta marshals and uploads metadata
 func (s *objectStore) putMeta(ctx context.Context, backupID, key string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
@@ -83,6 +91,7 @@ func (s *objectStore) putMeta(ctx context.Context, backupID, key string, desc in
 	return nil
 }
 
+// meta marshals and uploads metadata
 func (s *objectStore) meta(ctx context.Context, backupID, key string, dest interface{}) error {
 	bytes, err := s.GetObject(ctx, backupID, key)
 	if err != nil {
@@ -98,12 +107,12 @@ func (s *objectStore) meta(ctx context.Context, backupID, key string, dest inter
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
 	sourcer   Sourcer
-	backend   objectStore
+	backend   ObjectStore
 	backupID  string
 	setStatus func(st backup.Status)
 }
 
-func newUploader(sourcer Sourcer, backend objectStore,
+func newUploader(sourcer Sourcer, backend ObjectStore,
 	backupID string, setstaus func(st backup.Status),
 ) *uploader {
 	return &uploader{sourcer, backend, backupID, setstaus}
@@ -151,7 +160,7 @@ Loop:
 
 // class uploads one class
 func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescriptor) (err error) {
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.BackupBackend), desc.Name)
+	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend), desc.Name)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -178,14 +187,14 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 // fileWriter downloads files from object store and writes files to the destintion folder destDir
 type fileWriter struct {
 	sourcer    Sourcer
-	backend    objectStore
+	backend    ObjectStore
 	tempDir    string
 	destDir    string
 	backupID   string
 	movedFiles []string // files successfully moved to destination folder
 }
 
-func newFileWriter(sourcer Sourcer, backend objectStore,
+func newFileWriter(sourcer Sourcer, backend ObjectStore,
 	backupID string,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()

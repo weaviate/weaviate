@@ -57,7 +57,7 @@ func newRestorer(logger logrus.FieldLogger,
 func (m *restorer) Restore(ctx context.Context,
 	req *Request,
 	desc *backup.BackupDescriptor,
-	store objectStore,
+	store ObjectStore,
 ) (*models.BackupRestoreResponse, error) {
 	status := string(backup.Started)
 	returnData := &models.BackupRestoreResponse{
@@ -76,7 +76,7 @@ func (m *restorer) Restore(ctx context.Context,
 func (r *restorer) restore(ctx context.Context,
 	req *Request,
 	desc *backup.BackupDescriptor,
-	store objectStore,
+	store ObjectStore,
 ) (CanCommitResponse, error) {
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -135,7 +135,7 @@ func (r *restorer) restore(ctx context.Context,
 
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor,
-	store objectStore,
+	store ObjectStore,
 ) (err error) {
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
@@ -159,9 +159,9 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	backupID string, desc *backup.ClassDescriptor,
-	store objectStore,
+	store ObjectStore,
 ) (err error) {
-	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.BackupBackend), desc.Name)
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store), desc.Name)
 	if err != nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -211,7 +211,7 @@ func (r *restorer) status(backend, ID string) (RestoreStatus, error) {
 	return istatus.(RestoreStatus), nil
 }
 
-func (r *restorer) validate(ctx context.Context, store objectStore, req *Request) (*backup.BackupDescriptor, []string, error) {
+func (r *restorer) validate(ctx context.Context, store ObjectStore, req *Request) (*backup.BackupDescriptor, []string, error) {
 	destPath := store.HomeDir(req.ID)
 	meta, err := store.Meta(ctx, req.ID)
 	if err != nil {

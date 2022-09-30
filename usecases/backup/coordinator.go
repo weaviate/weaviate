@@ -86,7 +86,7 @@ type coordinator struct {
 	// dependencies
 	selector     selector
 	client       client
-	store        objectStore
+	store        ObjectStore
 	log          logrus.FieldLogger
 	nodeResolver nodeResolver
 
@@ -103,7 +103,7 @@ type coordinator struct {
 
 // The coordinator coordinates a distributed BRO operations among many shards.
 func NewCoordinator(
-	store objectStore,
+	store ObjectStore,
 	selector selector,
 	client client,
 	log logrus.FieldLogger,

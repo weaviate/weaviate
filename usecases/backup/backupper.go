@@ -43,7 +43,7 @@ func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, backends BackupBac
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store objectStore, id string, classes []string,
+	store ObjectStore, id string, classes []string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
@@ -112,17 +112,17 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	}, nil
 }
 
-func (b *backupper) objectStore(backend string) (objectStore, error) {
+func (b *backupper) objectStore(backend string) (ObjectStore, error) {
 	caps, err := b.backends.BackupBackend(backend)
 	if err != nil {
-		return objectStore{}, err
+		return &objectStore{}, err
 	}
-	return objectStore{caps}, nil
+	return &objectStore{caps}, nil
 }
 
 // Backup is called by the User
 func (b *backupper) backup(ctx context.Context,
-	store objectStore, req *Request,
+	store ObjectStore, req *Request,
 ) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration

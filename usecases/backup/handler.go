@@ -276,7 +276,7 @@ func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) (*StatusResp
 	return &ret, nil
 }
 
-func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, req *BackupRequest) ([]string, error) {
+func (m *Manager) validateBackupRequest(ctx context.Context, store ObjectStore, req *BackupRequest) ([]string, error) {
 	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store objectStore, 
 	return classes, nil
 }
 
-func (m *Manager) validateRestoreRequst(ctx context.Context, store objectStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+func (m *Manager) validateRestoreRequst(ctx context.Context, store ObjectStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
 		return nil, backup.NewErrUnprocessable(err)
@@ -333,12 +333,12 @@ func validateID(backupID string) error {
 	return nil
 }
 
-func backend(provider BackupBackendProvider, backend string) (objectStore, error) {
+func backend(provider BackupBackendProvider, backend string) (ObjectStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
-		return objectStore{}, err
+		return &objectStore{}, err
 	}
-	return objectStore{caps}, nil
+	return &objectStore{caps}, nil
 }
 
 // basePath of the backup

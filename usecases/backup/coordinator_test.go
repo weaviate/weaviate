@@ -347,7 +347,7 @@ func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 }
 
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	store := objectStore{fc.backend}
+	store := &objectStore{fc.backend}
 	c := NewCoordinator(store, &fc.selector, &fc.client, fc.log, fc.nodeResolver)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
