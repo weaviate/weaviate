@@ -58,7 +58,10 @@ type CanCommitResponse struct {
 type StatusRequest struct {
 	// Method is the backup operation (create, restore)
 	Method Op
-	ID     string
+	// ID is the backup ID
+	ID string
+	// Backend specify on which backend to store backups (gcs, s3, ..)
+	Backend string
 }
 
 type StatusResponse struct {

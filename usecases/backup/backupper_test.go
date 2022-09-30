@@ -49,7 +49,7 @@ func TestBackupStatus(t *testing.T) {
 			Starttime: starTime,
 			ID:        id,
 			Status:    backup.Transferring,
-			path:      path,
+			Path:      path,
 		}
 		st, err := m.BackupStatus(ctx, nil, backendName, id)
 		assert.Nil(t, err)
@@ -81,6 +81,86 @@ func TestBackupStatus(t *testing.T) {
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m := createManager(nil, nil, backend, nil)
 		got, err := m.BackupStatus(ctx, nil, backendName, id)
+		assert.Nil(t, err)
+		assert.Equal(t, want, got)
+	})
+}
+
+func TestBackupOnStatus(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		id          = "1234"
+		ctx         = context.Background()
+		starTime    = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
+		path        = "bucket/backups/123"
+		req         = StatusRequest{
+			Method:  OpCreate,
+			ID:      id,
+			Backend: backendName,
+		}
+	)
+
+	t.Run("ActiveState", func(t *testing.T) {
+		m := createManager(nil, nil, nil, nil)
+		m.backupper.lastOp.reqStat = reqStat{
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Transferring,
+			Path:      path,
+		}
+		want := &StatusResponse{
+			Method: OpCreate,
+			ID:     id,
+			Status: backup.Transferring,
+		}
+		st, err := m.OnStatus(ctx, &req)
+		assert.Nil(t, err)
+		assert.Equal(t, want, st)
+	})
+
+	t.Run("GetBackupProvider", func(t *testing.T) {
+		want := &StatusResponse{
+			Method: OpCreate,
+			ID:     id,
+			Status: backup.Failed,
+		}
+		m := createManager(nil, nil, nil, ErrAny)
+		got, err := m.OnStatus(ctx, &req)
+		assert.Nil(t, err)
+		assert.Contains(t, got.Err, req.Backend)
+		want.Err = got.Err
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("MetdataNotFound", func(t *testing.T) {
+		want := &StatusResponse{
+			Method: OpCreate,
+			ID:     id,
+			Status: backup.Failed,
+		}
+		backend := &fakeBackend{}
+		backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
+		m := createManager(nil, nil, backend, nil)
+		got, err := m.OnStatus(ctx, &req)
+		assert.Nil(t, err)
+		assert.Contains(t, got.Err, errMetaNotFound.Error())
+		want.Err = got.Err
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("ReadFromMetadata", func(t *testing.T) {
+		want := &StatusResponse{
+			Method: OpCreate,
+			ID:     id,
+			Status: backup.Success,
+		}
+		backend := &fakeBackend{}
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m := createManager(nil, nil, backend, nil)
+		got, err := m.OnStatus(ctx, &req)
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
@@ -504,7 +584,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID})
+		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName})
 		assert.Nil(t, err)
 		for i := 0; i < 20; i++ {
 			time.Sleep(time.Millisecond * 50)
@@ -539,7 +619,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		want := CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
-		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID})
+		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName})
 		assert.Nil(t, err)
 		for i := 0; i < 20; i++ {
 			time.Sleep(time.Millisecond * 50)

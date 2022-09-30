@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -65,38 +66,49 @@ func (b *backupper) Backup(ctx context.Context,
 // If not it fetches the metadata file to get the status
 func (b *backupper) Status(ctx context.Context, backend, bakID string,
 ) (*models.BackupCreateStatusResponse, error) {
+	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend})
+	if err != nil {
+		if errors.Is(err, errMetaNotFound) {
+			err = backup.NewErrNotFound(err)
+		} else {
+			err = backup.NewErrUnprocessable(err)
+		}
+		return nil, err
+	}
+	// check if backup is still active
+	status := string(st.Status)
+	return &models.BackupCreateStatusResponse{
+		ID:      bakID,
+		Path:    st.Path,
+		Status:  &status,
+		Backend: backend,
+	}, nil
+}
+
+func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, error) {
 	// check if backup is still active
 	st := b.lastOp.get()
-	if st.ID == bakID {
-		status := string(st.Status)
-		return &models.BackupCreateStatusResponse{
-			ID:      bakID,
-			Path:    st.path,
-			Status:  &status,
-			Backend: backend,
-		}, nil
+	if st.ID == req.ID {
+		return st, nil
 	}
 
 	// The backup might have been already created.
-	store, err := b.objectStore(backend)
+	store, err := b.objectStore(req.Backend)
 	if err != nil {
-		err = fmt.Errorf("no backup provider %q, did you enable the right module?", backend)
-		return nil, backup.NewErrUnprocessable(err)
+		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
-	meta, err := store.Meta(ctx, bakID)
+	meta, err := store.Meta(ctx, req.ID)
 	if err != nil {
-		return nil, backup.NewErrNotFound(
-			fmt.Errorf("backup status: get metafile %s/%s: %w", bakID, BackupFile, err))
+		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
+		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
 	}
 
-	status := string(meta.Status)
-
-	return &models.BackupCreateStatusResponse{
-		ID:      bakID,
-		Path:    store.HomeDir(bakID),
-		Status:  &status,
-		Backend: backend,
+	return reqStat{
+		Starttime: meta.StartedAt,
+		ID:        req.ID,
+		Path:      store.HomeDir(req.ID),
+		Status:    backup.Status(meta.Status),
 	}, nil
 }
 

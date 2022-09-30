@@ -201,7 +201,7 @@ func (r *restorer) AnyExists(cs []string) string {
 func (r *restorer) status(backend, ID string) (RestoreStatus, error) {
 	if st := r.lastOp.get(); st.ID == ID {
 		return RestoreStatus{
-			Path:      st.path,
+			Path:      st.Path,
 			StartedAt: st.Starttime,
 			Status:    st.Status,
 		}, nil
