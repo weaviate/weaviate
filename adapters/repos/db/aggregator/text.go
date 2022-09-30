@@ -86,6 +86,11 @@ func (a *textAggregator) insertOrdered(elem aggregation.TextOccurrence) {
 		if pair.Occurs > elem.Occurs {
 			continue
 		}
+		// if number of occurrences is the same,
+		// skip if string is after one in topPairs
+		if pair.Occurs == elem.Occurs && pair.Value < elem.Value {
+			continue
+		}
 
 		// we have found the first one that's smaller so me must insert before i
 		a.topPairs = append(
