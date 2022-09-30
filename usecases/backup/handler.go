@@ -44,10 +44,7 @@ type authorizer interface {
 }
 
 type schemaManger interface {
-	RestoreClass(ctx context.Context,
-		principal *models.Principal,
-		d *backup.ClassDescriptor,
-	) error
+	RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error
 }
 
 type nodeResolver interface {
@@ -168,7 +165,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		Backend: req.Backend,
 		Classes: cs,
 	}
-	data, err := m.restorer.Restore(ctx, pr, &rreq, meta, store)
+	data, err := m.restorer.Restore(ctx, &rreq, meta, store)
 	if err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
@@ -199,7 +196,7 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
 // in a distributed backup operation
-func (m *Manager) OnCanCommit(ctx context.Context, pr *models.Principal, req *Request) *CanCommitResponse {
+func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
 	store, err := backend(m.backends, req.Backend)
 	if err != nil {
@@ -226,7 +223,7 @@ func (m *Manager) OnCanCommit(ctx context.Context, pr *models.Principal, req *Re
 			ret.Err = err.Error()
 			return ret
 		}
-		res, err := m.restorer.restore(ctx, pr, req, meta, store)
+		res, err := m.restorer.restore(ctx, req, meta, store)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret

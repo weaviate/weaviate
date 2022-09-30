@@ -83,7 +83,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		require.Nil(t, err)
 
 		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
-		err = mgr.RestoreClass(context.Background(), nil, &descriptor)
+		err = mgr.RestoreClass(context.Background(), &descriptor)
 		assert.Nil(t, err, "class passes validation")
 	}
 }

@@ -468,7 +468,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", mock.Anything).Return(path)
 		bm := createManager(nil, nil, backend, nil)
-		resp := bm.OnCanCommit(ctx, nil, &req)
+		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, errMetaNotFound.Error())
 		assert.Equal(t, resp.Timeout, time.Duration(0))
 	})
@@ -483,9 +483,9 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		// simulate work by delaying return of SourceDataPath()
 		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Minute * 2)
 		m := createManager(sourcer, nil, backend, nil)
-		resp := m.OnCanCommit(ctx, nil, &req)
+		resp := m.OnCanCommit(ctx, &req)
 		assert.Equal(t, resp.Err, "")
-		resp = m.OnCanCommit(ctx, nil, &req)
+		resp = m.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "already in progress")
 		assert.Equal(t, time.Duration(0), resp.Timeout)
 	})
@@ -502,7 +502,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
-		resp1 := m.OnCanCommit(ctx, nil, &req)
+		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
@@ -538,7 +538,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
-		resp1 := m.OnCanCommit(ctx, nil, &req)
+		resp1 := m.OnCanCommit(ctx, &req)
 		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
