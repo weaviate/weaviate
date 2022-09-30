@@ -47,9 +47,9 @@ func TestCoordinatedBackup(t *testing.T) {
 			Duration: _BookingPeriod,
 		}
 		cresp        = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
-		sReq         = &StatusRequest{OpCreate, backupID}
+		sReq         = &StatusRequest{OpCreate, backupID, backendName}
 		sresp        = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}
-		abortReq     = &AbortRequest{OpCreate, backupID}
+		abortReq     = &AbortRequest{OpCreate, backupID, backendName}
 		nodeResolver = newFakeNodeResolver(nodes)
 	)
 
@@ -262,9 +262,9 @@ func TestCoordinatedRestore(t *testing.T) {
 			Duration: _BookingPeriod,
 		}
 		cresp    = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
-		sReq     = &StatusRequest{OpRestore, backupID}
+		sReq     = &StatusRequest{OpRestore, backupID, backendName}
 		sresp    = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
-		abortReq = &AbortRequest{OpRestore, backupID}
+		abortReq = &AbortRequest{OpRestore, backupID, backendName}
 	)
 
 	t.Run("Success", func(t *testing.T) {
@@ -362,7 +362,7 @@ func (f *fakeClient) CanCommit(ctx context.Context, node string, req *Request) (
 	if args.Get(0) != nil {
 		return args.Get(0).(*CanCommitResponse), args.Error(1)
 	}
-	return &CanCommitResponse{}, args.Error(1)
+	return nil, args.Error(1)
 }
 
 func (f *fakeClient) Commit(ctx context.Context, node string, req *StatusRequest) error {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -147,7 +148,7 @@ type fakeBackupManager struct {
 	mock.Mock
 }
 
-func (m *fakeBackupManager) OnCanCommit(ctx context.Context, req *backup.Request) *backup.CanCommitResponse {
+func (m *fakeBackupManager) OnCanCommit(ctx context.Context, pr *models.Principal, req *backup.Request) *backup.CanCommitResponse {
 	args := m.Called(req)
 	return args.Get(0).(*backup.CanCommitResponse)
 }

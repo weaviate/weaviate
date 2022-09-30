@@ -71,6 +71,7 @@ type BackupDescriptor struct {
 	Error         string            `json:"error"`
 }
 
+// List all existing classes in d
 func (d *BackupDescriptor) List() []string {
 	lst := make([]string, len(d.Classes))
 	for i, cls := range d.Classes {
@@ -79,6 +80,7 @@ func (d *BackupDescriptor) List() []string {
 	return lst
 }
 
+// Include only these classes and remove everything else
 func (d *BackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
@@ -94,7 +96,9 @@ func (d *BackupDescriptor) Include(classes []string) {
 	d.Filter(pred)
 }
 
-func (d *BackupDescriptor) AllExists(classes []string) string {
+// AllExist checks if all classes exist in d.
+// It returns either "" or the first class which it could not find
+func (d *BackupDescriptor) AllExist(classes []string) string {
 	if len(classes) == 0 {
 		return ""
 	}
@@ -113,6 +117,7 @@ func (d *BackupDescriptor) AllExists(classes []string) string {
 	return first
 }
 
+// Exclude removes classes from d
 func (d *BackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
@@ -128,6 +133,7 @@ func (d *BackupDescriptor) Exclude(classes []string) {
 	d.Filter(pred)
 }
 
+// Filter classes based on predicate
 func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 	cs := make([]ClassDescriptor, 0, len(d.Classes))
 	for _, dest := range d.Classes {
@@ -138,6 +144,7 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 	d.Classes = cs
 }
 
+// Validate validates d
 func (d *BackupDescriptor) Validate() error {
 	if d.StartedAt.IsZero() || d.ID == "" ||
 		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
