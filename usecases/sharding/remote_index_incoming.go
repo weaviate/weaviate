@@ -66,6 +66,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingFilePutter(ctx context.Context, shardName,
 		filePath string) (io.WriteCloser, error)
 	IncomingCreateShard(ctx context.Context, shardName string) error
+	IncomingReinitShard(ctx context.Context, shardName string) error
 }
 
 type RemoteIndexIncoming struct {
@@ -259,4 +260,15 @@ func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 	}
 
 	return index.IncomingCreateShard(ctx, shardName)
+}
+
+func (rii *RemoteIndexIncoming) ReinitShard(ctx context.Context,
+	indexName, shardName string,
+) error {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return errors.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingReinitShard(ctx, shardName)
 }
