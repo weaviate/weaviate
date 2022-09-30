@@ -503,7 +503,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, nil, &req)
-		want1 := CanCommitResponse{
+		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
 			Timeout: _TimeoutShardCommit,
@@ -539,7 +539,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
 		resp1 := m.OnCanCommit(ctx, nil, &req)
-		want1 := CanCommitResponse{
+		want1 := &CanCommitResponse{
 			Method:  OpRestore,
 			ID:      req.ID,
 			Timeout: _TimeoutShardCommit,

@@ -17,6 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
+	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
@@ -27,8 +28,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// State is the only source of appliaction-wide state
-// NOTE: This is not true yet, se gh-723
+// State is the only source of application-wide state
+// NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
 	OIDC               *oidc.Client
@@ -44,6 +45,7 @@ type State struct {
 	RemoteIncoming     *sharding.RemoteIndexIncoming
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
+	BackupManager      *backup.Manager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

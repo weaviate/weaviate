@@ -50,6 +50,10 @@ type schemaManger interface {
 	) error
 }
 
+type nodeResolver interface {
+	NodeHostname(nodeName string) (string, bool)
+}
+
 type RestoreStatus struct {
 	Path        string
 	StartedAt   time.Time
@@ -195,8 +199,8 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
 // in a distributed backup operation
-func (m *Manager) OnCanCommit(ctx context.Context, pr *models.Principal, req *Request) CanCommitResponse {
-	ret := CanCommitResponse{Method: req.Method, ID: req.ID}
+func (m *Manager) OnCanCommit(ctx context.Context, pr *models.Principal, req *Request) *CanCommitResponse {
+	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
 	store, err := backend(m.backends, req.Backend)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
