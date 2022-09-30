@@ -70,6 +70,8 @@ type Shard struct {
 
 	status     storagestate.Status
 	statusLock sync.Mutex
+
+	docIdLock sync.Mutex
 }
 
 type job struct {
