@@ -176,37 +176,45 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		defer vi.PostStartup()
 	}
 
-	err = s.initDBFile(ctx)
-	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
+	if err := s.initNonVector(ctx); err != nil {
+		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	counter, err := indexcounter.New(s.ID(), index.Config.RootPath)
+	return s, nil
+}
+
+func (s *Shard) initNonVector(ctx context.Context) error {
+	err := s.initDBFile(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
+		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
+	}
+
+	counter, err := indexcounter.New(s.ID(), s.index.Config.RootPath)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
 
 	dataPresent := s.counter.PreviewNext() != 0
-	versionPath := path.Join(index.Config.RootPath, s.ID()+".version")
+	versionPath := path.Join(s.index.Config.RootPath, s.ID()+".version")
 	versioner, err := newShardVersioner(versionPath, dataPresent)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: check versions", s.ID())
+		return errors.Wrapf(err, "init shard %q: check versions", s.ID())
 	}
 	s.versioner = versioner
 
-	plPath := path.Join(index.Config.RootPath, s.ID()+".proplengths")
+	plPath := path.Join(s.index.Config.RootPath, s.ID()+".proplengths")
 	propLengths, err := inverted.NewPropertyLengthTracker(plPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 	s.propLengths = propLengths
 
 	if err := s.initProperties(); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
+		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	return s, nil
+	return nil
 }
 
 func (s *Shard) ID() string {

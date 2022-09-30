@@ -109,5 +109,5 @@ func (m *Manager) handleUpdateClassCommit(ctx context.Context,
 		return err
 	}
 
-	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class)
+	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class, pl.State)
 }

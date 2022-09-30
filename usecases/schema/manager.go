@@ -91,7 +91,7 @@ type clusterState interface {
 type scaleOut interface {
 	SetSchemaManager(sm scaling.SchemaManager)
 	Scale(ctx context.Context, className string,
-		old, updated sharding.Config) error
+		old, updated sharding.Config) (*sharding.State, error)
 }
 
 // NewManager creates a new manager
