@@ -215,14 +215,12 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 			default:
 			}
 
-			// TODO: this is where nodeResolver can be used to find node hostname.
-			//       once found, it can be passed to pair below, rather than `node`
-			//host, found := c.nodeResolver.NodeHostname(node)
-			//if !found {
-			//	return fmt.Errorf("failed to find hostname for node %q", node)
-			//}
+			host, found := c.nodeResolver.NodeHostname(node)
+			if !found {
+				return fmt.Errorf("failed to find hostname for node %q", node)
+			}
 
-			reqChan <- pair{node, &Request{
+			reqChan <- pair{host, &Request{
 				Method:   method,
 				ID:       id,
 				Backend:  backend,

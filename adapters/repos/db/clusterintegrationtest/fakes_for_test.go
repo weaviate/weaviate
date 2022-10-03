@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path"
 
 	"github.com/semi-technologies/weaviate/adapters/clients"
@@ -151,33 +152,63 @@ func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 type fakeBackupBackendProvider struct{}
 
 func (f *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
-	return &fakeBackupBackend{}, nil
+	backupsPath := os.Getenv("BACKUP_FILESYSTEM_PATH")
+
+	return &fakeBackupBackend{
+		store:       make(map[string][]byte),
+		backupsPath: backupsPath,
+	}, nil
 }
 
 type fakeBackupBackend struct {
+	store       map[string][]byte
+	backupsPath string
 }
 
 func (f *fakeBackupBackend) HomeDir(backupID string) string {
-	return ""
+	return path.Join(f.backupsPath, backupID)
 }
 
 func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
-	return nil, nil
+	storeKey := path.Join(backupID, key)
+	if val, ok := f.store[storeKey]; ok {
+		return val, nil
+	}
+	return nil, backup.ErrNotFound{}
 }
 
 func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	storeKey := path.Join(backupID, key)
+	contents, ok := f.store[storeKey]
+	if !ok {
+		return backup.ErrNotFound{}
+	}
+
+	if err := os.WriteFile(destPath, contents, os.ModePerm); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func (f *fakeBackupBackend) SourceDataPath() string {
-	return ""
+	return f.backupsPath
 }
 
 func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+	contents, err := os.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+
+	storeKey := path.Join(backupID, key)
+	f.store[storeKey] = contents
 	return nil
 }
 
 func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	storeKey := path.Join(backupID, key)
+	f.store[storeKey] = byes
 	return nil
 }
 

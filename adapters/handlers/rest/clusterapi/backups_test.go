@@ -39,7 +39,8 @@ func TestInternalBackupsAPI(t *testing.T) {
 	hosts := setupClusterAPI(t, nodes)
 
 	for _, node := range nodes {
-		node.backupManager.On("OnCanCommit", &backup.Request{}).Return(&backup.CanCommitResponse{})
+		node.backupManager.On("OnCanCommit", &backup.Request{Method: backup.OpCreate}).
+			Return(&backup.CanCommitResponse{})
 		node.backupManager.On("OnCommit", &backup.StatusRequest{}).Return(nil)
 		node.backupManager.On("OnAbort", &backup.AbortRequest{}).Return(nil)
 	}
