@@ -43,7 +43,7 @@ func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, backends BackupBac
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store objectStore, id string, classes []string,
+	store nodeStore, id string, classes []string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
@@ -56,7 +56,7 @@ func (b *backupper) Backup(ctx context.Context,
 	}
 
 	return &backup.CreateMeta{
-		Path:   store.HomeDir(id),
+		Path:   store.HomeDir(),
 		Status: backup.Started,
 	}, nil
 }
@@ -93,12 +93,12 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	}
 
 	// The backup might have been already created.
-	store, err := b.objectStore(req.Backend)
+	store, err := nodeBackend(b.backends, req.Backend, req.ID)
 	if err != nil {
 		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
-	meta, err := store.Meta(ctx, req.ID)
+	meta, err := store.Meta(ctx)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
 		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
@@ -107,22 +107,14 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	return reqStat{
 		Starttime: meta.StartedAt,
 		ID:        req.ID,
-		Path:      store.HomeDir(req.ID),
+		Path:      store.HomeDir(),
 		Status:    backup.Status(meta.Status),
 	}, nil
 }
 
-func (b *backupper) objectStore(backend string) (objectStore, error) {
-	caps, err := b.backends.BackupBackend(backend)
-	if err != nil {
-		return objectStore{}, err
-	}
-	return objectStore{caps}, nil
-}
-
 // Backup is called by the User
 func (b *backupper) backup(ctx context.Context,
-	store objectStore, req *Request,
+	store nodeStore, req *Request,
 ) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration
@@ -135,7 +127,7 @@ func (b *backupper) backup(ctx context.Context,
 		Timeout: expiration,
 	}
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, time.Now(), store.HomeDir(id)); prevID != "" {
+	if prevID := b.lastOp.renew(id, time.Now(), store.HomeDir()); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 	b.waitingForCoodinatorToCommit.Store(true) // is set to false by wait()

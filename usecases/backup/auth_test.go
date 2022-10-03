@@ -84,7 +84,7 @@ func Test_Authorization(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
-				manager := NewManager(logger, authorizer, nil, nil, nil)
+				manager := NewManager("", logger, authorizer, nil, nil, nil)
 				require.NotNil(t, manager)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)

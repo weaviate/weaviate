@@ -65,9 +65,12 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Once()
+
 		coordinator := *fc.coordinator()
-		err := coordinator.Backup(ctx, &req)
+		store := coordStore{objStore{fc.backend, req.ID}}
+		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
 
@@ -102,7 +105,8 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.selector.On("Shards", ctx, classes[0]).Return([]string{})
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes)
 		coordinator := *fc.coordinator()
-		err := coordinator.Backup(ctx, &req)
+		store := coordStore{objStore: objStore{fc.backend, req.ID}}
+		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errNoShardFound)
 		assert.Contains(t, err.Error(), classes[0])
 	})
@@ -117,9 +121,11 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(&CanCommitResponse{}, nil)
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(ErrAny)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
 
 		coordinator := *fc.coordinator()
-		err := coordinator.Backup(ctx, &req)
+		store := coordStore{objStore: objStore{fc.backend, req.ID}}
+		err := coordinator.Backup(ctx, store, &req)
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
 	})
@@ -129,6 +135,7 @@ func TestCoordinatedBackup(t *testing.T) {
 		var (
 			fc          = newFakeCoordinator(nodeResolver)
 			coordinator = *fc.coordinator()
+			store       = coordStore{objStore{fc.backend, req.ID}}
 		)
 		coordinator.timeoutNodeDown = 0
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes)
@@ -140,8 +147,9 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, ErrAny)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Once()
-		err := coordinator.Backup(ctx, &req)
+		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
 
@@ -188,8 +196,10 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc.client.On("Commit", any, nodes[0], sReq).Return(ErrAny)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Once()
-		err := coordinator.Backup(ctx, &req)
+		store := coordStore{objStore: objStore{fc.backend, req.ID}}
+		err := coordinator.Backup(ctx, store, &req)
 		assert.Nil(t, err)
 		<-fc.backend.doneChan
 
@@ -275,10 +285,13 @@ func TestCoordinatedRestore(t *testing.T) {
 
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
+
 		coordinator := *fc.coordinator()
 		err := coordinator.Restore(ctx, genReq())
 		assert.Nil(t, err)
@@ -311,6 +324,11 @@ func (s *fakeSelector) Shards(ctx context.Context, class string) []string {
 func (s *fakeSelector) ListClasses(ctx context.Context) []string {
 	args := s.Called(ctx)
 	return args.Get(0).([]string)
+}
+
+func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
+	args := s.Called(ctx, classes)
+	return args.Error(0)
 }
 
 type fakeCoordinator struct {
@@ -347,8 +365,7 @@ func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 }
 
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	store := objectStore{fc.backend}
-	c := NewCoordinator(store, &fc.selector, &fc.client, fc.log, fc.nodeResolver)
+	c := newCoordinator(&fc.selector, &fc.client, fc.log, fc.nodeResolver)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }

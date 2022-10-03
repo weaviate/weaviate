@@ -51,7 +51,7 @@ const (
 
 type nodeMap map[string]backup.NodeDescriptor
 
-// participantStatus tracks status of a particpant in a DPRO
+// participantStatus tracks status of a participant in a DBRO
 type participantStatus struct {
 	Status   backup.Status
 	Lasttime time.Time
@@ -65,9 +65,12 @@ type selector interface {
 	// ListClasses returns a list of all existing classes
 	// This will be needed if user doesn't include any classes
 	ListClasses(ctx context.Context) []string
+
+	// Backupable returns whether all given class can be backed up.
+	Backupable(_ context.Context, classes []string) error
 }
 
-// coordinator coordinates a distributed backup and restore operation (DPRO):
+// coordinator coordinates a distributed backup and restore operation (DBRO):
 //
 // - It determines what request to send to which shard.
 //
@@ -86,13 +89,13 @@ type coordinator struct {
 	// dependencies
 	selector     selector
 	client       client
-	store        objectStore
 	log          logrus.FieldLogger
 	nodeResolver nodeResolver
 
 	// state
 	Participants map[string]participantStatus
 	descriptor   backup.DistributedBackupDescriptor
+	shardSyncChan
 
 	// timeouts
 	timeoutNodeDown    time.Duration
@@ -101,9 +104,8 @@ type coordinator struct {
 	timeoutNextRound   time.Duration
 }
 
-// The coordinator coordinates a distributed BRO operations among many shards.
-func NewCoordinator(
-	store objectStore,
+// newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
+func newCoordinator(
 	selector selector,
 	client client,
 	log logrus.FieldLogger,
@@ -112,7 +114,6 @@ func NewCoordinator(
 	return &coordinator{
 		selector:           selector,
 		client:             client,
-		store:              store,
 		log:                log,
 		nodeResolver:       nodeResolver,
 		Participants:       make(map[string]participantStatus, 16),
@@ -124,7 +125,7 @@ func NewCoordinator(
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, req *Request) error {
+func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request) error {
 	groups, err := c.groupByShard(ctx, req.Classes)
 	if err != nil {
 		return err
@@ -138,8 +139,14 @@ func (c *coordinator) Backup(ctx context.Context, req *Request) error {
 		Version:       Version,
 		ServerVersion: config.ServerVersion,
 	}
+
+	// make sure there is no active backup
+	if prevID := c.lastOp.renew(req.ID, time.Now(), store.HomeDir()); prevID != "" {
+		return fmt.Errorf("backup %s already in progress", prevID)
+	}
 	nodes, err := c.canCommit(ctx, OpCreate)
 	if err != nil {
+		c.lastOp.reset()
 		return err
 	}
 
@@ -150,9 +157,10 @@ func (c *coordinator) Backup(ctx context.Context, req *Request) error {
 	}
 
 	go func() {
+		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes)
-		if err := c.store.PutGlobalMeta(ctx, &c.descriptor); err != nil {
+		if err := store.PutGlobalMeta(ctx, &c.descriptor); err != nil {
 			c.log.WithField("action", OpCreate).
 				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
 		}
@@ -182,7 +190,7 @@ func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackup
 	return nil
 }
 
-// canCommit asks candidates if they agree to participate in DPRO
+// canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
 func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]struct{}, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
