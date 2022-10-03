@@ -26,6 +26,10 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+const (
+	nodeName = "Node-1"
+)
+
 func TestBackupStatus(t *testing.T) {
 	t.Parallel()
 	var (
@@ -709,5 +713,5 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewManager(logger, &fakeAuthorizer{}, schema, sourcer, backends)
+	return NewManager(nodeName, logger, &fakeAuthorizer{}, schema, sourcer, backends)
 }

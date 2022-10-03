@@ -57,7 +57,7 @@ func newRestorer(logger logrus.FieldLogger,
 func (m *restorer) Restore(ctx context.Context,
 	req *Request,
 	desc *backup.BackupDescriptor,
-	store ObjectStore,
+	store nodeStore,
 ) (*models.BackupRestoreResponse, error) {
 	status := string(backup.Started)
 	returnData := &models.BackupRestoreResponse{
@@ -65,7 +65,7 @@ func (m *restorer) Restore(ctx context.Context,
 		ID:      req.ID,
 		Backend: req.Backend,
 		Status:  &status,
-		Path:    store.HomeDir(req.ID),
+		Path:    store.HomeDir(),
 	}
 	if _, err := m.restore(ctx, req, desc, store); err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (m *restorer) Restore(ctx context.Context,
 func (r *restorer) restore(ctx context.Context,
 	req *Request,
 	desc *backup.BackupDescriptor,
-	store ObjectStore,
+	store nodeStore,
 ) (CanCommitResponse, error) {
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -88,7 +88,7 @@ func (r *restorer) restore(ctx context.Context,
 		Timeout: expiration,
 	}
 
-	destPath := store.HomeDir(req.ID)
+	destPath := store.HomeDir()
 
 	// make sure there is no active restore
 	if prevID := r.lastOp.renew(req.ID, time.Now(), destPath); prevID != "" {
@@ -135,7 +135,7 @@ func (r *restorer) restore(ctx context.Context,
 
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor,
-	store ObjectStore,
+	store nodeStore,
 ) (err error) {
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
@@ -159,9 +159,9 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	backupID string, desc *backup.ClassDescriptor,
-	store ObjectStore,
+	store nodeStore,
 ) (err error) {
-	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store), desc.Name)
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), desc.Name)
 	if err != nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -211,9 +211,9 @@ func (r *restorer) status(backend, ID string) (RestoreStatus, error) {
 	return istatus.(RestoreStatus), nil
 }
 
-func (r *restorer) validate(ctx context.Context, store ObjectStore, req *Request) (*backup.BackupDescriptor, []string, error) {
-	destPath := store.HomeDir(req.ID)
-	meta, err := store.Meta(ctx, req.ID)
+func (r *restorer) validate(ctx context.Context, store nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
+	destPath := store.HomeDir()
+	meta, err := store.Meta(ctx)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {

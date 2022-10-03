@@ -60,6 +60,8 @@ type RestoreStatus struct {
 }
 
 type Manager struct {
+	node string
+	// deps
 	logger     logrus.FieldLogger
 	authorizer authorizer
 	backupper  *backupper
@@ -68,6 +70,7 @@ type Manager struct {
 }
 
 func NewManager(
+	node string,
 	logger logrus.FieldLogger,
 	authorizer authorizer,
 	schema schemaManger,
@@ -75,6 +78,7 @@ func NewManager(
 	backends BackupBackendProvider,
 ) *Manager {
 	m := &Manager{
+		node:       node,
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
@@ -110,7 +114,7 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
-	store, err := backend(m.backends, req.Backend)
+	store, err := nodeBackend(m.backends, req.Backend, req.ID)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -121,7 +125,7 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := store.Initialize(ctx, req.ID); err != nil {
+	if err := store.Initialize(ctx); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
@@ -145,7 +149,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
-	store, err := backend(m.backends, req.Backend)
+	store, err := nodeBackend(m.backends, req.Backend, req.ID)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -198,7 +202,7 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 // in a distributed backup operation
 func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
-	store, err := backend(m.backends, req.Backend)
+	store, err := nodeBackend(m.backends, req.Backend, req.ID)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
 		return ret
@@ -207,7 +211,7 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	// TODO: validate if all req.Classes exist locally
 	switch req.Method {
 	case OpCreate:
-		if err = store.Initialize(ctx, req.ID); err != nil {
+		if err = store.Initialize(ctx); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}
@@ -276,7 +280,7 @@ func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) (*StatusResp
 	return &ret, nil
 }
 
-func (m *Manager) validateBackupRequest(ctx context.Context, store ObjectStore, req *BackupRequest) ([]string, error) {
+func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, req *BackupRequest) ([]string, error) {
 	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
@@ -294,9 +298,9 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store ObjectStore, 
 	if err := m.backupper.sourcer.Backupable(ctx, classes); err != nil {
 		return nil, err
 	}
-	destPath := store.HomeDir(req.ID)
+	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.Meta(ctx, req.ID)
+	_, err := store.Meta(ctx)
 	if err == nil {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
@@ -306,7 +310,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store ObjectStore, 
 	return classes, nil
 }
 
-func (m *Manager) validateRestoreRequst(ctx context.Context, store ObjectStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+func (m *Manager) validateRestoreRequst(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
 		return nil, backup.NewErrUnprocessable(err)
@@ -333,12 +337,14 @@ func validateID(backupID string) error {
 	return nil
 }
 
-func backend(provider BackupBackendProvider, backend string) (ObjectStore, error) {
+func nodeBackend(provider BackupBackendProvider, backend, id string) (nodeStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
-		return &objectStore{}, err
+		return nodeStore{}, err
 	}
-	return &objectStore{caps}, nil
+	return nodeStore{objStore{b: caps, BasePath: id}}, nil
+	// TODO  NODE
+	// return nodeStore{objStore{b: caps, BasePath: fmt.Sprintf("%s/%s", id, node)}}, nil
 }
 
 // basePath of the backup

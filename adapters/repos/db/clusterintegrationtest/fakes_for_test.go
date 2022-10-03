@@ -28,7 +28,7 @@ type node struct {
 	repo             *db.DB
 	schemaManager    *fakeSchemaManager
 	backupManager    *ubak.Manager
-	coordinator      *ubak.Coordinator
+	scheduler        *ubak.Scheduler
 	clusterAPIServer *httptest.Server
 	migrator         *db.Migrator
 	hostname         string
@@ -69,10 +69,12 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	}
 
 	backendProvider := &fakeBackupBackendProvider{}
-	n.backupManager = ubak.NewManager(logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
+	n.backupManager = ubak.NewManager(
+		n.name, logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
-	n.coordinator = ubak.NewCoordinator(&fakeObjectStore{}, n.repo, backupClient, logger, nodeResolver)
+	n.scheduler = ubak.NewScheduler(
+		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
