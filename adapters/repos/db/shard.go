@@ -41,6 +41,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const IdLockPoolSize = 128
+
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
@@ -71,7 +73,7 @@ type Shard struct {
 	status     storagestate.Status
 	statusLock sync.Mutex
 
-	docIdLock sync.Mutex
+	docIdLock []sync.Mutex
 }
 
 type job struct {
@@ -110,6 +112,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 	}
+
+	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
 	if s.maxNumberGoroutines == 0 {
 		return s, errors.New("no workers to add batch-jobs configured.")
 	}
@@ -217,6 +221,12 @@ func (s *Shard) ID() string {
 
 func (s *Shard) DBPathLSM() string {
 	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
+}
+
+func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
+	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
+	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
+	return idBytes[15] % IdLockPoolSize
 }
 
 func (s *Shard) initDBFile(ctx context.Context) error {
