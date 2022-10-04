@@ -104,7 +104,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 
 	// First the object bucket is checked if already an object with the same uuid is present, to determine if it is new
 	// or an update. Afterwards the bucket is updates. To avoid races, only one goroutine can do this at once.
-	s.docIdLock.Lock()
+	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Lock()
 	previous, err := bucket.Get(idBytes)
 	if err != nil {
 		return objectInsertStatus{}, err
@@ -126,7 +126,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	if err := s.upsertObjectDataLSM(bucket, idBytes, data, status.docID); err != nil {
 		return status, errors.Wrap(err, "upsert object data")
 	}
-	s.docIdLock.Unlock()
+	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Unlock()
 	s.metrics.PutObjectUpsertObject(before)
 
 	if !skipInverted {
