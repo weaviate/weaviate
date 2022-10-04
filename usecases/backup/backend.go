@@ -47,6 +47,7 @@ type objStore struct {
 	BasePath string
 }
 
+// Meta gets a node's metadata from object store
 func (s *objStore) HomeDir() string {
 	return s.b.HomeDir(s.BasePath)
 }

@@ -513,7 +513,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 	t.Run("BackendUnregistered", func(t *testing.T) {
 		backendError := errors.New("I do not exist")
 		bm := createManager(nil, nil, nil, backendError)
-		ret := bm.OnCanCommit(ctx, nil, &req)
+		ret := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, ret.Err, backendName)
 	})
 
@@ -524,7 +524,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		backend.On("Initialize", ctx, backupID).Return(errors.New("init meta failed"))
 		bm := createManager(nil, nil, backend, nil)
 
-		resp := bm.OnCanCommit(ctx, nil, &req)
+		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "init")
 		assert.Equal(t, resp.Timeout, time.Duration(0))
 	})
@@ -561,7 +561,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
-		resp := m.OnCanCommit(ctx, nil, &req)
+		resp := m.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "already in progress")
 		assert.Equal(t, resp.Timeout, time.Duration(0))
 	})
@@ -584,7 +584,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		req := req
 		req.Duration = time.Hour
-		got := m.OnCanCommit(ctx, nil, &req)
+		got := m.OnCanCommit(ctx, &req)
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
@@ -619,7 +619,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		req := req
 		req.Duration = time.Hour
-		got := m.OnCanCommit(ctx, nil, &req)
+		got := m.OnCanCommit(ctx, &req)
 		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
 		assert.Equal(t, got, want)
 
@@ -653,7 +653,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 
 		req := req
 		req.Duration = time.Millisecond * 10
-		got := m.OnCanCommit(ctx, nil, &req)
+		got := m.OnCanCommit(ctx, &req)
 		want := &CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
 		assert.Equal(t, got, want)
 

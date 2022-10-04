@@ -55,7 +55,6 @@ func newRestorer(logger logrus.FieldLogger,
 }
 
 func (m *restorer) Restore(ctx context.Context,
-	pr *models.Principal,
 	req *Request,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
@@ -68,14 +67,13 @@ func (m *restorer) Restore(ctx context.Context,
 		Status:  &status,
 		Path:    store.HomeDir(),
 	}
-	if _, err := m.restore(ctx, pr, req, desc, store); err != nil {
+	if _, err := m.restore(ctx, req, desc, store); err != nil {
 		return nil, err
 	}
 	return returnData, nil
 }
 
 func (r *restorer) restore(ctx context.Context,
-	pr *models.Principal,
 	req *Request,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
@@ -126,7 +124,7 @@ func (r *restorer) restore(ctx context.Context,
 			return
 		}
 
-		err = r.restoreAll(context.Background(), pr, desc, store)
+		err = r.restoreAll(context.Background(), desc, store)
 		if err != nil {
 			r.logger.WithField("action", "restore").WithField("backup_id", desc.ID).Error(err)
 		}
@@ -136,13 +134,12 @@ func (r *restorer) restore(ctx context.Context,
 }
 
 func (r *restorer) restoreAll(ctx context.Context,
-	pr *models.Principal,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
 ) (err error) {
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, pr, desc.ID, &cdesc, store); err != nil {
+		if err := r.restoreOne(ctx, desc.ID, &cdesc, store); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -161,8 +158,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	pr *models.Principal, backupID string,
-	desc *backup.ClassDescriptor,
+	backupID string, desc *backup.ClassDescriptor,
 	store nodeStore,
 ) (err error) {
 	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), desc.Name)
@@ -179,7 +175,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
-	if err := r.schema.RestoreClass(ctx, pr, desc); err != nil {
+	if err := r.schema.RestoreClass(ctx, desc); err != nil {
 		if rerr := rollback(); rerr != nil {
 			r.logger.WithField("className", desc.Name).WithField("action", "rollback").WithError(rerr)
 		}
