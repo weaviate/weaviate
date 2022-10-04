@@ -165,7 +165,7 @@ func (c *ClusterBackups) Abort(_ context.Context,
 func (c *ClusterBackups) do(req *http.Request) (body []byte, statusCode int, err error) {
 	httpResp, err := c.client.Do(req)
 	if err != nil {
-		return nil, httpResp.StatusCode, fmt.Errorf("make request: %w", err)
+		return nil, 0, fmt.Errorf("make request: %w", err)
 	}
 
 	body, err = io.ReadAll(httpResp.Body)
