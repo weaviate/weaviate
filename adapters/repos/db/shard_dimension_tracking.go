@@ -44,21 +44,20 @@ func (s *Shard) sendVectorDimensionsMetric(count int) {
 }
 
 func (s *Shard) initDimensionTracking() {
-	if !s.index.Config.TrackVectorDimensions {
-		return
-	}
-
-	go func() {
-		t := time.NewTicker(5 * time.Minute)
-		for {
-			select {
-			case <-s.stopMetrics:
-				return
-			case <-t.C:
-				if s.promMetrics != nil {
-					s.sendVectorDimensionsMetric(s.Dimensions())
+	if s.index.Config.TrackVectorDimensions {
+		// start tracking vector dimensions goroutine only when tracking is enabled
+		go func() {
+			t := time.NewTicker(5 * time.Minute)
+			for {
+				select {
+				case <-s.stopMetrics:
+					return
+				case <-t.C:
+					if s.promMetrics != nil {
+						s.sendVectorDimensionsMetric(s.Dimensions())
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 }
