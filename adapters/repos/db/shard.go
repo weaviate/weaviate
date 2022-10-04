@@ -70,7 +70,7 @@ type Shard struct {
 
 	status      storagestate.Status
 	statusLock  sync.Mutex
-	stopMetrics bool
+	stopMetrics chan struct{}
 }
 
 type job struct {
@@ -108,6 +108,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		resourceScanState:   newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		stopMetrics:         make(chan struct{}, 1),
 	}
 	if s.maxNumberGoroutines == 0 {
 		return s, errors.New("no workers to add batch-jobs configured.")
@@ -258,7 +259,12 @@ func (s *Shard) drop(force bool) error {
 
 	s.cancel <- struct{}{}
 
-	s.stopMetrics = true
+	s.stopMetrics <- struct{}{}
+
+	if s.index.Config.TrackVectorDimensions && s.promMetrics != nil {
+		// send 0 in when index gets dropped
+		s.sendVectorDimensionsMetric(0)
+	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
@@ -515,7 +521,7 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 func (s *Shard) shutdown(ctx context.Context) error {
 	s.cancel <- struct{}{}
 
-	s.stopMetrics = true
+	s.stopMetrics <- struct{}{}
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
