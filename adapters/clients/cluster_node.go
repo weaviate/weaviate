@@ -14,11 +14,11 @@ package clients
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 
+	enterrors "github.com/semi-technologies/weaviate/entities/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -38,25 +38,24 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName string,
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("open http request: %w", err)
+		return nil, enterrors.NewErrOpenHttpRequest(err)
 	}
 
 	res, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("send http request: %w", err)
+		return nil, enterrors.NewErrSendHttpRequest(err)
 	}
 
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
+		return nil, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
 	}
 
 	var nodeStatus models.NodeStatus
 	err = json.Unmarshal(body, &nodeStatus)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshal body: %w", err)
+		return nil, enterrors.NewErrUnmarshalBody(err)
 	}
 
 	return &nodeStatus, nil

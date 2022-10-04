@@ -29,7 +29,7 @@ type DB struct {
 	schemaGetter schemaUC.SchemaGetter
 	config       Config
 	indices      map[string]*Index
-	remoteClient sharding.RemoteIndexClient
+	remoteIndex  sharding.RemoteIndexClient
 	nodeResolver nodeResolver
 	remoteNode   *sharding.RemoteNode
 	promMetrics  *monitoring.PrometheusMetrics
@@ -54,7 +54,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func New(logger logrus.FieldLogger, config Config,
-	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient,
 	promMetrics *monitoring.PrometheusMetrics,
 ) *DB {
@@ -62,7 +62,7 @@ func New(logger logrus.FieldLogger, config Config,
 		logger:       logger,
 		config:       config,
 		indices:      map[string]*Index{},
-		remoteClient: remoteClient,
+		remoteIndex:  remoteIndex,
 		nodeResolver: nodeResolver,
 		remoteNode:   sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
 		promMetrics:  promMetrics,

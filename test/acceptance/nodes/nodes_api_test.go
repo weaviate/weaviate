@@ -117,7 +117,7 @@ func Test_NodesAPI(t *testing.T) {
 		for _, shard := range nodeStatus.Shards {
 			assert.True(t, len(shard.Name) > 0)
 			assert.Equal(t, multiShardClass.Class, shard.Class)
-			assert.Greater(t, shard.ObjectCount, int64(0))
+			assert.GreaterOrEqual(t, shard.ObjectCount, int64(0))
 		}
 		require.NotNil(t, nodeStatus.Stats)
 		assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)

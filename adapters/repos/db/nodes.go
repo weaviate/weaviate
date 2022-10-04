@@ -15,20 +15,20 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
+	enterrors "github.com/semi-technologies/weaviate/entities/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // GetNodeStatuses returns the status of all Weaviate nodes.
 func (db *DB) GetNodeStatuses(ctx context.Context) ([]*models.NodeStatus, error) {
-	var nodeStatuses []*models.NodeStatus
-	for _, nodeName := range db.schemaGetter.Nodes() {
+	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
+	for i, nodeName := range db.schemaGetter.Nodes() {
 		status, err := db.getNodeStatus(ctx, nodeName)
 		if err != nil {
 			return nil, fmt.Errorf("node: %v: %w", nodeName, err)
 		}
-		nodeStatuses = append(nodeStatuses, status)
+		nodeStatuses[i] = status
 	}
 
 	sort.Slice(nodeStatuses, func(i, j int) bool {
@@ -43,11 +43,13 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string) (*models.NodeS
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName)
 	if err != nil {
-		if strings.HasPrefix(err.Error(), "open http request") || strings.HasPrefix(err.Error(), "send http request") {
+		switch err.(type) {
+		case enterrors.ErrOpenHttpRequest, enterrors.ErrSendHttpRequest:
 			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
 			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
+		default:
+			return nil, err
 		}
-		return nil, err
 	}
 	return status, nil
 }

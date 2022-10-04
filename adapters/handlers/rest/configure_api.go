@@ -211,7 +211,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.SchemaManager = schemaManager
 
-	appState.RemoteIncoming = sharding.NewRemoteIndexIncoming(repo)
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	node := appState.Cluster.LocalName()
 

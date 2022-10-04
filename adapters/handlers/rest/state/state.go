@@ -32,21 +32,21 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC               *oidc.Client
-	AnonymousAccess    *anonymous.Client
-	Authorizer         authorization.Authorizer
-	ServerConfig       *config.WeaviateConfig
-	Locks              locks.ConnectorSchemaLock
-	Logger             *logrus.Logger
-	GraphQL            graphql.GraphQL
-	Modules            *modules.Provider
-	SchemaManager      *schema.Manager
-	Cluster            *cluster.State
-	RemoteIncoming     *sharding.RemoteIndexIncoming
-	RemoteNodeIncoming *sharding.RemoteNodeIncoming
-	ClassificationRepo *classifications.DistributedRepo
-	Metrics            *monitoring.PrometheusMetrics
-	BackupManager      *backup.Manager
+	OIDC                *oidc.Client
+	AnonymousAccess     *anonymous.Client
+	Authorizer          authorization.Authorizer
+	ServerConfig        *config.WeaviateConfig
+	Locks               locks.ConnectorSchemaLock
+	Logger              *logrus.Logger
+	GraphQL             graphql.GraphQL
+	Modules             *modules.Provider
+	SchemaManager       *schema.Manager
+	Cluster             *cluster.State
+	RemoteIndexIncoming *sharding.RemoteIndexIncoming
+	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
+	ClassificationRepo  *classifications.DistributedRepo
+	Metrics             *monitoring.PrometheusMetrics
+	BackupManager       *backup.Manager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
