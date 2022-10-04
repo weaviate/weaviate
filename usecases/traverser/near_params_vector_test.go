@@ -253,6 +253,16 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 			want:    []float32{1.0, 1.0, 1.0},
 			wantErr: false,
 		},
+		{
+			name: "Should get vector from nearObject across classes",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					Beacon: crossref.NewLocalhost("SpecifiedClass", "e5dc4a4c-ef0f-3aed-89a3-a73435c6bbcf").String(),
+				},
+			},
+			want:    []float32{0.0, 0.0, 0.0},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -372,7 +382,13 @@ func (f *fakeNearParamsSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID
 func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 ) (*search.Result, error) {
-	return &search.Result{
-		Vector: []float32{1.0, 1.0, 1.0},
-	}, nil
+	if className == "SpecifiedClass" {
+		return &search.Result{
+			Vector: []float32{0.0, 0.0, 0.0},
+		}, nil
+	} else {
+		return &search.Result{
+			Vector: []float32{1.0, 1.0, 1.0},
+		}, nil
+	}
 }
