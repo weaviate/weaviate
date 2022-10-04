@@ -225,14 +225,16 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 				return fmt.Errorf("failed to find hostname for node %q", node)
 			}
 
-			reqChan <- pair{nodeHost{node, host},
+			reqChan <- pair{
+				nodeHost{node, host},
 				&Request{
 					Method:   method,
 					ID:       id,
 					Backend:  backend,
 					Classes:  gr.Classes,
 					Duration: _BookingPeriod,
-				}}
+				},
+			}
 		}
 		return nil
 	})
