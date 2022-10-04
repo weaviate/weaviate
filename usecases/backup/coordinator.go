@@ -192,7 +192,7 @@ func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackup
 
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
-func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]struct{}, error) {
+func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
@@ -240,7 +240,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 	})
 
 	mutex := sync.RWMutex{}
-	nodes := make(map[string]struct{}, len(groups))
+	nodes := make(map[string]string, len(groups))
 	for pair := range reqChan {
 		pair := pair
 		g.Go(func() error {
@@ -252,7 +252,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 				return fmt.Errorf("node %q: %w", pair.n, err)
 			}
 			mutex.Lock()
-			nodes[pair.n.node] = struct{}{}
+			nodes[pair.n.node] = pair.n.host
 			mutex.Unlock()
 			return nil
 		})
@@ -267,7 +267,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 
 // commit tells each participant to commit its backup operation
 // It stores the final result in the provided backend
-func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) {
+func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[string]string) {
 	c.commitAll(ctx, req, nodes)
 
 	for len(nodes) > 0 {
@@ -298,7 +298,7 @@ func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[
 // queryAll queries all participant and store their statuses internally
 //
 // It returns the number of remaining nodes to query in the next round
-func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) int {
+func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutQueryStatus)
 	defer cancel()
 
@@ -306,11 +306,12 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(_MaxNumberConns)
 	i := 0
-	for node := range nodes {
+	for node, hostname := range nodes {
 		j := i
+		hostname := hostname
 		rs[j].node = node
 		g.Go(func() error {
-			rs[j].StatusResponse, rs[j].err = c.client.Status(ctx, rs[j].node, req)
+			rs[j].StatusResponse, rs[j].err = c.client.Status(ctx, hostname, req)
 			return nil
 		})
 		i++
@@ -335,7 +336,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 }
 
 // commitAll tells all participants to proceed with their backup operations
-func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]struct{}) {
+func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]string) {
 	type pair struct {
 		node string
 		err  error
@@ -344,15 +345,15 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	aCounter := int64(len(nodes))
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(_MaxNumberConns)
-	for node := range nodes {
-		node := node
+	for node, hostname := range nodes {
+		node, hostname := node, hostname
 		g.Go(func() error {
 			defer func() {
 				if atomic.AddInt64(&aCounter, -1) == 0 {
 					close(errChan)
 				}
 			}()
-			err := c.client.Commit(ctx, node, req)
+			err := c.client.Commit(ctx, hostname, req)
 			if err != nil {
 				errChan <- pair{node, err}
 			}
@@ -374,12 +375,12 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 }
 
 // abortAll tells every node to abort transaction
-func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map[string]struct{}) {
-	for node := range nodes {
-		if err := c.client.Abort(ctx, node, req); err != nil {
+func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map[string]string) {
+	for name, hostname := range nodes {
+		if err := c.client.Abort(ctx, hostname, req); err != nil {
 			c.log.WithField("action", req.Method).
 				WithField("backup_id", req.ID).
-				WithField("node", node).Errorf("abort %v", err)
+				WithField("node", name).Errorf("abort %v", err)
 		}
 	}
 }
