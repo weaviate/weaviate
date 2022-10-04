@@ -195,8 +195,13 @@ func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackup
 func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]struct{}, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
+
+	type nodeHost struct {
+		node, host string
+	}
+
 	type pair struct {
-		n string
+		n nodeHost
 		r *Request
 	}
 
@@ -220,13 +225,14 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 				return fmt.Errorf("failed to find hostname for node %q", node)
 			}
 
-			reqChan <- pair{host, &Request{
-				Method:   method,
-				ID:       id,
-				Backend:  backend,
-				Classes:  gr.Classes,
-				Duration: _BookingPeriod,
-			}}
+			reqChan <- pair{nodeHost{node, host},
+				&Request{
+					Method:   method,
+					ID:       id,
+					Backend:  backend,
+					Classes:  gr.Classes,
+					Duration: _BookingPeriod,
+				}}
 		}
 		return nil
 	})
@@ -236,7 +242,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 	for pair := range reqChan {
 		pair := pair
 		g.Go(func() error {
-			resp, err := c.client.CanCommit(ctx, pair.n, pair.r)
+			resp, err := c.client.CanCommit(ctx, pair.n.host, pair.r)
 			if err == nil && resp.Timeout == 0 {
 				err = errCannotCommit
 			}
@@ -244,7 +250,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stru
 				return fmt.Errorf("node %q: %w", pair.n, err)
 			}
 			mutex.Lock()
-			nodes[pair.n] = struct{}{}
+			nodes[pair.n.node] = struct{}{}
 			mutex.Unlock()
 			return nil
 		})

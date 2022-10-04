@@ -19,10 +19,6 @@ import (
 )
 
 func TestDistributedBackups(t *testing.T) {
-	t.Skip("test will fail intermittently on tmp dir cleanup " +
-		"due to scheduler goroutines still writing to the tmp dir " +
-		"in the background. we can run this once BackupStatus has been implemented.")
-
 	var (
 		dirName = setupDirectory(t)
 		numObjs = 100
@@ -90,7 +86,7 @@ func TestDistributedBackups(t *testing.T) {
 
 		resp, err := nodes[0].scheduler.Backup(ctx, &models.Principal{}, req)
 		assert.Nil(t, err, "expected nil err, got: %s", err)
-		assert.Empty(t, resp.Error)
+		assert.Empty(t, resp.Error, "expected empty, got: %s", resp.Error)
 		assert.NotEmpty(t, resp.Path)
 		assert.Contains(t, resp.Classes, distributedClass)
 	})
