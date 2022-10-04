@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -126,7 +127,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	return b, nil
 }
 
-func (b *Bucket) IterateObjects(ctx context.Context, f func(obj *storobj.Object) error) {
+func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) {
 
 	i := 0
 	cursor := b.Cursor()

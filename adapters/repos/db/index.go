@@ -124,11 +124,14 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	return index, nil
 }
 
-func (i *Index) IterateObjects(ctx context.Context, cb func(*storobj.Object) error) error {
+func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard *Shard, object *storobj.Object) error) error {
 
 	for _, shard := range i.Shards {
+		wrapper := func(object *storobj.Object) error {
+			return cb(i, shard, object)
+		}
 		bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
-		bucket.IterateObjects(ctx, cb)
+		bucket.IterateObjects(ctx, wrapper)
 	}
 	return nil
 }

@@ -17,7 +17,10 @@ package db
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -30,6 +33,79 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func Benchmark_Migration(b *testing.B) {
+	fmt.Printf("Running benchmark %v times\n", b.N)
+	for i := 0; i < b.N; i++ {
+
+		rand.Seed(time.Now().UnixNano())
+		dir, err := ioutil.TempDir("/tmp", "Migration_benchmark_")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer os.RemoveAll(dir)
+
+		dirName := os.TempDir()
+
+		shardState := singleShardState()
+		logger := logrus.New()
+		schemaGetter := &fakeSchemaGetter{shardState: shardState}
+		repo := New(logger, Config{
+			RootPath:                  dirName,
+			QueryMaximumResults:       1000,
+			MaxImportGoroutinesFactor: 1,
+			TrackVectorDimensions:     true,
+			WantDimensionsReindex:     false,
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+		repo.SetSchemaGetter(schemaGetter)
+		err = repo.WaitForStartup(testCtx())
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer repo.Shutdown(context.Background())
+
+		migrator := NewMigrator(repo, logger)
+
+		class := &models.Class{
+			Class:               "Test",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+		schemaGetter.schema = schema
+
+		repo.config.TrackVectorDimensions = false
+
+		dim := 128
+		for i := 0; i < 10000; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = rand.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "Test", ID: id}
+			err := repo.PutObject(context.Background(), obj, vec)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		fmt.Printf("Added vectors, now migrating\n")
+
+		repo.config.WantDimensionsReindex = true
+		repo.config.TrackVectorDimensions = true
+		migrator.RecalculateVectorDimensions(context.TODO(), repo.GetIndex("Test"))
+		fmt.Printf("Benchmark complete")
+	}
+}
 
 // Rebuild dimensions at startup
 func Test_Migration(t *testing.T) {
@@ -73,7 +149,7 @@ func Test_Migration(t *testing.T) {
 
 	t.Run("import objects with d=128", func(t *testing.T) {
 		dim := 128
-		for i := 0; i < 1000000; i++ {
+		for i := 0; i < 10000; i++ {
 			vec := make([]float32, dim)
 			for j := range vec {
 				vec[j] = rand.Float32()
