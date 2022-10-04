@@ -130,6 +130,10 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 	if err != nil {
 		return err
 	}
+	// make sure there is no active backup
+	if prevID := c.lastOp.renew(req.ID, store.HomeDir()); prevID != "" {
+		return fmt.Errorf("backup %s already in progress", prevID)
+	}
 	c.descriptor = backup.DistributedBackupDescriptor{
 		StartedAt:     time.Now().UTC(),
 		Status:        backup.Started,
@@ -139,11 +143,10 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		Version:       Version,
 		ServerVersion: config.ServerVersion,
 	}
-
-	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, time.Now(), store.HomeDir()); prevID != "" {
-		return fmt.Errorf("backup %s already in progress", prevID)
+	for key := range c.Participants {
+		delete(c.Participants, key)
 	}
+
 	nodes, err := c.canCommit(ctx, OpCreate)
 	if err != nil {
 		c.lastOp.reset()
@@ -188,6 +191,28 @@ func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackup
 	}()
 
 	return nil
+}
+
+func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (reqStat, error) {
+	// check if backup is still active
+	st := c.lastOp.get()
+	if st.ID == req.ID {
+		return st, nil
+	}
+
+	// The backup might have been already created.
+	meta, err := store.Meta(ctx, req.ID)
+	if err != nil {
+		path := fmt.Sprintf("%s/%s", req.ID, GlobalBackupFile)
+		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+	}
+
+	return reqStat{
+		Starttime: meta.StartedAt,
+		ID:        req.ID,
+		Path:      store.HomeDir(),
+		Status:    backup.Status(meta.Status),
+	}, nil
 }
 
 // canCommit asks candidates if they agree to participate in DBRO

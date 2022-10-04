@@ -93,4 +93,12 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.ErrorIs(t, err, errUnknownOp)
 	}
+	{ // OnStatus
+		req := StatusRequest{
+			Method: "Unknown",
+			ID:     "1",
+		}
+		ret := bm.OnStatus(ctx, &req)
+		assert.Contains(t, ret.Err, errUnknownOp.Error())
+	}
 }

@@ -25,7 +25,7 @@ type backupManager interface {
 	OnCanCommit(ctx context.Context, req *backup.Request) *backup.CanCommitResponse
 	OnCommit(ctx context.Context, req *backup.StatusRequest) error
 	OnAbort(ctx context.Context, req *backup.AbortRequest) error
-	OnStatus(ctx context.Context, req *backup.StatusRequest) (*backup.StatusResponse, error)
+	OnStatus(ctx context.Context, req *backup.StatusRequest) *backup.StatusResponse
 }
 
 type backups struct {
@@ -137,13 +137,7 @@ func (b *backups) Status() http.Handler {
 			return
 		}
 
-		resp, err := b.manager.OnStatus(r.Context(), &req)
-		if err != nil {
-			status := http.StatusInternalServerError
-			http.Error(w, fmt.Errorf("abort: %w", err).Error(), status)
-			return
-		}
-
+		resp := b.manager.OnStatus(r.Context(), &req)
 		b, err := json.Marshal(&resp)
 		if err != nil {
 			status := http.StatusInternalServerError

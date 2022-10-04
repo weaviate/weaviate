@@ -24,6 +24,7 @@ import (
 )
 
 type backupper struct {
+	node     string
 	logger   logrus.FieldLogger
 	sourcer  Sourcer
 	backends BackupBackendProvider
@@ -31,9 +32,10 @@ type backupper struct {
 	shardSyncChan
 }
 
-func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
+		node:          node,
 		logger:        logger,
 		sourcer:       sourcer,
 		backends:      backends,
@@ -93,7 +95,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	}
 
 	// The backup might have been already created.
-	store, err := nodeBackend(b.backends, req.Backend, req.ID)
+	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID)
 	if err != nil {
 		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
@@ -127,7 +129,7 @@ func (b *backupper) backup(ctx context.Context,
 		Timeout: expiration,
 	}
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, time.Now(), store.HomeDir()); prevID != "" {
+	if prevID := b.lastOp.renew(id, store.HomeDir()); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 	b.waitingForCoodinatorToCommit.Store(true) // is set to false by wait()
