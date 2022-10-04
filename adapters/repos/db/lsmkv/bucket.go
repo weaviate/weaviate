@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
 )
 
@@ -122,6 +124,25 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
+}
+
+func (b *Bucket) IterateObjects(ctx context.Context, f func(obj *storobj.Object) error) {
+
+	i := 0
+	cursor := b.Cursor()
+	defer cursor.Close()
+
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			log.Printf("cannot unmarshal object %d, %v", i, err)
+			continue
+		}
+		f(obj)
+
+		i++
+	}
+
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {

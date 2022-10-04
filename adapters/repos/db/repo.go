@@ -75,6 +75,7 @@ type Config struct {
 	MaxImportGoroutinesFactor float64
 	FlushIdleAfter            int
 	TrackVectorDimensions     bool
+	WantDimensionsReindex     bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

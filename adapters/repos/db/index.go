@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
@@ -121,6 +122,15 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	}
 
 	return index, nil
+}
+
+func (i *Index) IterateObjects(ctx context.Context, cb func(*storobj.Object) error) error {
+
+	for _, shard := range i.Shards {
+		bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
+		bucket.IterateObjects(ctx, cb)
+	}
+	return nil
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
