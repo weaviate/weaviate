@@ -19,6 +19,10 @@ import (
 )
 
 func TestDistributedBackups(t *testing.T) {
+	t.Skip("test will fail intermittently on tmp dir cleanup " +
+		"due to scheduler goroutines still writing to the tmp dir " +
+		"in the background. we can run this once BackupStatus has been implemented.")
+
 	var (
 		dirName = setupDirectory(t)
 		numObjs = 100
@@ -79,9 +83,6 @@ func TestDistributedBackups(t *testing.T) {
 	})
 
 	t.Run("coordinate backup", func(t *testing.T) {
-		t.Skip("test will fail intermittently on tmp dir cleanup " +
-			"due to scheduler goroutines still writing to the tmp dir " +
-			"in the background. we can run this once BackupStatus has been implemented.")
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 
