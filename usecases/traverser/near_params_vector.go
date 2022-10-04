@@ -210,6 +210,8 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	}
 
 	var id strfmt.UUID
+	targetClassName := className
+
 	if len(params.ID) > 0 {
 		id = strfmt.UUID(params.ID)
 	} else {
@@ -218,9 +220,12 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 			return nil, err
 		}
 		id = ref.TargetID
+		if ref.Class != "" {
+			targetClassName = ref.Class
+		}
 	}
 
-	return v.findVector(ctx, className, id)
+	return v.findVector(ctx, targetClassName, id)
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
