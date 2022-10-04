@@ -56,7 +56,6 @@ type Shard struct {
 	propertyIndices   propertyspecific.Indices
 	deletedDocIDs     *docid.InMemDeletedTracker
 	cleanupInterval   time.Duration
-	cancel            chan struct{}
 	propLengths       *inverted.PropertyLengthTracker
 	randomSource      *bufferedRandomGen
 	versioner         *shardVersioner
@@ -103,12 +102,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		deletedDocIDs: docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
-		cancel:              make(chan struct{}, 1),
 		randomSource:        rand,
 		resourceScanState:   newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		stopMetrics:         make(chan struct{}, 1),
+		stopMetrics:         make(chan struct{}),
 	}
 	if s.maxNumberGoroutines == 0 {
 		return s, errors.New("no workers to add batch-jobs configured.")
@@ -257,13 +255,14 @@ func (s *Shard) drop(force bool) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	s.cancel <- struct{}{}
-
-	s.stopMetrics <- struct{}{}
-
-	if s.index.Config.TrackVectorDimensions && s.promMetrics != nil {
-		// send 0 in when index gets dropped
-		s.sendVectorDimensionsMetric(0)
+	if s.index.Config.TrackVectorDimensions {
+		// tracking vector dimensions goroutine only works when tracking is enabled
+		// that's why we are trying to stop it only in this case
+		s.stopMetrics <- struct{}{}
+		if s.promMetrics != nil {
+			// send 0 in when index gets dropped
+			s.sendVectorDimensionsMetric(0)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
@@ -519,9 +518,11 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
-	s.cancel <- struct{}{}
-
-	s.stopMetrics <- struct{}{}
+	if s.index.Config.TrackVectorDimensions {
+		// tracking vector dimensions goroutine only works when tracking is enabled
+		// that's why we are trying to stop it only in this case
+		s.stopMetrics <- struct{}{}
+	}
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
