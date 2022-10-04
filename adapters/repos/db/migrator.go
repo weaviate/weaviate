@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
@@ -207,4 +208,12 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	conf := inverted.ConfigFromModel(updated)
 
 	return idx.updateInvertedIndexConfig(ctx, conf)
+}
+
+func (m *Migrator) RecalculateVectorDimensions(ctx context.Context, repo *Index) error {
+	repo.IterateObjects(ctx, func(obj *storobj.Object) error {
+		//Reinsert the object, which will update the dimensions property
+		return repo.putObject(ctx, obj)
+	})
+	return nil
 }

@@ -162,6 +162,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
 		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
 		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
+		WantDimensionsReindex:     appState.ServerConfig.Config.WantDimensionsReindex,
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
