@@ -93,6 +93,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
+      "description": "This value is refreshed at a 5min interval.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -140,190 +141,13 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "sum(vector_index_dimensions_total{operation=\"create\"}) - sum(vector_index_dimensions_total{operation=\"delete\"})",
+          "expr": "sum(vector_dimensions_sum)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
         }
       ],
       "title": "Overall Dimension Count",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "purple",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 5,
-        "x": 10,
-        "y": 0
-      },
-      "id": 5,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "9.0.6",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "sum(vector_index_operations{operation=\"create\"})",
-          "interval": "",
-          "legendFormat": "Vector Additions",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "sum(vector_index_operations{operation=\"delete\"})",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Vector Deletions",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "sum(vector_index_operations{operation=\"create\"}) - ignoring(operation) sum(vector_index_operations{operation=\"delete\"})",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Net Vectors",
-          "refId": "C"
-        }
-      ],
-      "title": "Vector Statistics across all Classes",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "purple",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 5,
-        "x": 10,
-        "y": 4
-      },
-      "id": 7,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "9.0.6",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "sum(vector_index_dimensions_total{operation=\"create\"})",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Dim Additions",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "sum(vector_index_dimensions_total{operation=\"delete\"})",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Dim Deletions",
-          "range": true,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "sum(vector_index_dimensions_total{operation=\"create\"}) - ignoring(operation) sum(vector_index_dimensions_total{operation=\"delete\"})",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "Net Dims",
-          "range": true,
-          "refId": "C"
-        }
-      ],
-      "title": "Vector Dimension Statistics across all Classes",
       "type": "stat"
     },
     {
@@ -385,6 +209,91 @@
         }
       ],
       "title": "Object Count per Class / Shard",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "purple",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 9
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.0.6",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(vector_index_operations{operation=\"create\"})",
+          "interval": "",
+          "legendFormat": "Vector Additions",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(vector_index_operations{operation=\"delete\"})",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "Vector Deletions",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "exemplar": true,
+          "expr": "sum(vector_index_operations{operation=\"create\"}) - ignoring(operation) sum(vector_index_operations{operation=\"delete\"})",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "Net Vectors",
+          "refId": "C"
+        }
+      ],
+      "title": "Vector Statistics across all Classes",
       "type": "stat"
     }
   ],
