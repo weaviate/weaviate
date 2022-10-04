@@ -17,7 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/entities/backup"
+	enterrors "github.com/semi-technologies/weaviate/entities/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	nodesUC "github.com/semi-technologies/weaviate/usecases/nodes"
@@ -35,10 +35,10 @@ func (s *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 		case errors.Forbidden:
 			return nodes.NewNodesGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrUnprocessable:
+		case enterrors.ErrUnprocessable:
 			return nodes.NewNodesGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
-		case backup.ErrNotFound:
+		case enterrors.ErrNotFound:
 			return nodes.NewNodesGetNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:

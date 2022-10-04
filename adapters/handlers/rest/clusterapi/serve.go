@@ -30,7 +30,7 @@ func Serve(appState *state.State) {
 		Debugf("serving cluster api on port %d", port)
 
 	schema := NewSchema(appState.SchemaManager.TxManager())
-	indices := NewIndices(appState.RemoteIncoming)
+	indices := NewIndices(appState.RemoteIndexIncoming)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
 	nodes := NewNodes(appState.RemoteNodeIncoming)
 	backups := NewBackups(appState.BackupManager)

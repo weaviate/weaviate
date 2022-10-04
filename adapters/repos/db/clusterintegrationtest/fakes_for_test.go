@@ -63,12 +63,13 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	}
 
 	client := clients.NewRemoteIndex(&http.Client{})
+	nodesClient := clients.NewRemoteNode(&http.Client{})
 	n.repo = db.New(logger, db.Config{
 		FlushIdleAfter:            60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nil)
+	}, client, nodeResolver, nodesClient, nil)
 	n.schemaManager = &fakeSchemaManager{
 		shardState: shardState,
 		schema:     schema.Schema{Objects: &models.Schema{}},
@@ -135,6 +136,18 @@ func (f *fakeSchemaManager) ShardingState(class string) *sharding.State {
 
 func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
 	return nil
+}
+
+func (f *fakeSchemaManager) Nodes() []string {
+	return []string{"node1"}
+}
+
+func (f *fakeSchemaManager) NodeName() string {
+	return "node1"
+}
+
+func (f *fakeSchemaManager) ClusterHealthScore() int {
+	return 0
 }
 
 type nodeResolver struct {
