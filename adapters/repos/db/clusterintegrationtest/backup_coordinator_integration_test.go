@@ -9,8 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build integrationTest
-// +build integrationTest
+//go:build integrationTestSlow
+// +build integrationTestSlow
 
 package clusterintegrationtest
 
@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -37,8 +36,6 @@ func TestDistributedBackups(t *testing.T) {
 	)
 
 	t.Run("setup", func(t *testing.T) {
-		os.Setenv("BACKUP_FILESYSTEM_PATH", dirName)
-
 		overallShardState := multiShardState(numberOfNodes)
 		shardStateSerialized, err := json.Marshal(overallShardState)
 		require.Nil(t, err)
@@ -89,16 +86,41 @@ func TestDistributedBackups(t *testing.T) {
 		})
 	})
 
-	t.Run("coordinate backup", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
+	t.Run("let each node be the coordinator", func(t *testing.T) {
+		for _, node := range nodes {
+			t.Run(fmt.Sprintf("%s: coordinate backup", node.name), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
 
-		req := &backup.BackupRequest{ID: "new-backup", Exclude: []string{"SecondDistributed"}}
+				req := &backup.BackupRequest{ID: "new-backup", Exclude: []string{"SecondDistributed"}}
 
-		resp, err := nodes[0].scheduler.Backup(ctx, &models.Principal{}, req)
-		assert.Nil(t, err, "expected nil err, got: %s", err)
-		assert.Empty(t, resp.Error, "expected empty, got: %s", resp.Error)
-		assert.NotEmpty(t, resp.Path)
-		assert.Contains(t, resp.Classes, distributedClass)
+				resp, err := node.scheduler.Backup(ctx, &models.Principal{}, req)
+				assert.Nil(t, err, "expected nil err, got: %s", err)
+				assert.Empty(t, resp.Error, "expected empty, got: %s", resp.Error)
+				assert.NotEmpty(t, resp.Path)
+				assert.Contains(t, resp.Classes, distributedClass)
+			})
+
+			t.Run(fmt.Sprintf("%s: get backup status", node.name), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+
+				start := time.Now()
+
+				for {
+					if time.Now().After(start.Add(30 * time.Second)) {
+						t.Fatal("backup deadline exceeded")
+
+					}
+					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "", "new-backup")
+					assert.Nil(t, err, "expected nil err, got: %s", err)
+					if resp.Status != nil && *resp.Status == "SUCCESS" {
+						break
+					}
+				}
+			})
+
+			time.Sleep(100 * time.Millisecond)
+		}
 	})
 }

@@ -9,18 +9,23 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build integrationTest
-// +build integrationTest
+//go:build integrationTestSlow
+// +build integrationTestSlow
 
 package clusterintegrationtest
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path"
+	"syscall"
 
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
@@ -80,7 +85,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		panic(err)
 	}
 
-	backendProvider := &fakeBackupBackendProvider{}
+	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewManager(
 		n.name, logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
 
@@ -160,14 +165,20 @@ func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return "", false
 }
 
-type fakeBackupBackendProvider struct{}
+func newFakeBackupBackendProvider(backupsPath string) *fakeBackupBackendProvider {
+	return &fakeBackupBackendProvider{
+		backupsPath: backupsPath,
+	}
+}
+
+type fakeBackupBackendProvider struct {
+	backupsPath string
+}
 
 func (f *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
-	backupsPath := os.Getenv("BACKUP_FILESYSTEM_PATH")
-
 	return &fakeBackupBackend{
 		store:       make(map[string][]byte),
-		backupsPath: backupsPath,
+		backupsPath: f.backupsPath,
 	}, nil
 }
 
@@ -181,10 +192,15 @@ func (f *fakeBackupBackend) HomeDir(backupID string) string {
 }
 
 func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	if err := f.loadStore(backupID); err != nil {
+		return nil, err
+	}
+
 	storeKey := path.Join(backupID, key)
 	if val, ok := f.store[storeKey]; ok {
 		return val, nil
 	}
+
 	return nil, backup.ErrNotFound{}
 }
 
@@ -207,43 +223,78 @@ func (f *fakeBackupBackend) SourceDataPath() string {
 }
 
 func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	contents, err := os.ReadFile(srcPath)
+	fileContents, err := os.ReadFile(path.Join(f.backupsPath, srcPath))
 	if err != nil {
 		return err
 	}
 
+	if err := f.loadStore(backupID); err != nil {
+		return err
+	}
+
 	storeKey := path.Join(backupID, key)
-	f.store[storeKey] = contents
-	return nil
+	f.store[storeKey] = fileContents
+
+	return f.dumpStore(backupID)
 }
 
 func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+	if err := f.loadStore(backupID); err != nil {
+		return err
+	}
+
 	storeKey := path.Join(backupID, key)
 	f.store[storeKey] = byes
-	return nil
+
+	return f.dumpStore(backupID)
 }
 
 func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID string) error {
+	backupDir := f.HomeDir(backupID)
+	if err := os.MkdirAll(backupDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to make backup dir: %w", err)
+	}
+
+	if err := f.dumpStore(backupID); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-type fakeObjectStore struct {
-	modulecapabilities.BackupBackend
-}
+func (f *fakeBackupBackend) loadStore(backupID string) error {
+	backupDir := f.HomeDir(backupID)
 
-func (f *fakeObjectStore) Meta(ctx context.Context, backupID string) (*backup.BackupDescriptor, error) {
-	return nil, nil
-}
+	storeContents, err := os.ReadFile(path.Join(backupDir, "store.json"))
+	pathErr := &fs.PathError{}
+	if err != nil && errors.As(err, &pathErr) && pathErr.Err == syscall.ENOENT {
+		return backup.ErrNotFound{}
+	}
 
-func (f *fakeObjectStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
+	if err != nil {
+		return fmt.Errorf("read store from file")
+	}
+
+	err = json.Unmarshal(storeContents, &f.store)
+	if err != nil {
+		return fmt.Errorf("unmarshal store")
+	}
+
 	return nil
 }
 
-func (f *fakeObjectStore) GlobalMeta(ctx context.Context, backupID string) (*backup.DistributedBackupDescriptor, error) {
-	return nil, nil
-}
+func (f *fakeBackupBackend) dumpStore(backupID string) error {
+	backupDir := f.HomeDir(backupID)
+	b, err := json.Marshal(f.store)
+	if err != nil {
+		return fmt.Errorf("marshal store: %w", err)
+	}
 
-func (f *fakeObjectStore) PutGlobalMeta(ctx context.Context, desc *backup.DistributedBackupDescriptor) error {
+	err = os.WriteFile(path.Join(backupDir, "store.json"), b, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("write store to file: %w", err)
+	}
+
 	return nil
 }
 
