@@ -33,8 +33,8 @@ type reqStat struct {
 }
 
 type backupStat struct {
-	reqStat
 	sync.Mutex
+	reqStat
 }
 
 func (s *backupStat) get() reqStat {
@@ -45,7 +45,7 @@ func (s *backupStat) get() reqStat {
 
 // renew state if and only it is not in use
 // it returns "" in case of success and current id in case of failure
-func (s *backupStat) renew(id string, start time.Time, path string) string {
+func (s *backupStat) renew(id string, path string) string {
 	s.Lock()
 	defer s.Unlock()
 	if s.reqStat.ID != "" {
@@ -53,7 +53,7 @@ func (s *backupStat) renew(id string, start time.Time, path string) string {
 	}
 	s.reqStat.ID = id
 	s.reqStat.Path = path
-	s.reqStat.Starttime = start
+	s.reqStat.Starttime = time.Now().UTC()
 	s.reqStat.Status = backup.Started
 	return ""
 }

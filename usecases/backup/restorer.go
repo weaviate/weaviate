@@ -27,6 +27,7 @@ import (
 )
 
 type restorer struct {
+	node     string // node name
 	logger   logrus.FieldLogger
 	sourcer  Sourcer
 	backends BackupBackendProvider
@@ -40,12 +41,13 @@ type restorer struct {
 	restoreStatusMap sync.Map
 }
 
-func newRestorer(logger logrus.FieldLogger,
+func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	schema schemaManger,
 ) *restorer {
 	return &restorer{
+		node:          node,
 		logger:        logger,
 		sourcer:       sourcer,
 		backends:      backends,
@@ -91,7 +93,7 @@ func (r *restorer) restore(ctx context.Context,
 	destPath := store.HomeDir()
 
 	// make sure there is no active restore
-	if prevID := r.lastOp.renew(req.ID, time.Now(), destPath); prevID != "" {
+	if prevID := r.lastOp.renew(req.ID, destPath); prevID != "" {
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}

@@ -82,10 +82,10 @@ func NewManager(
 		logger:     logger,
 		authorizer: authorizer,
 		backends:   backends,
-		backupper: newBackupper(logger,
+		backupper: newBackupper(node, logger,
 			sourcer,
 			backends),
-		restorer: newRestorer(logger,
+		restorer: newRestorer(node, logger,
 			sourcer,
 			backends,
 			schema,
@@ -114,7 +114,7 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
-	store, err := nodeBackend(m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -149,7 +149,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
-	store, err := nodeBackend(m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
@@ -202,7 +202,7 @@ func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Princ
 // in a distributed backup operation
 func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
-	store, err := nodeBackend(m.backends, req.Backend, req.ID)
+	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
 		return ret
@@ -266,18 +266,32 @@ func (m *Manager) OnAbort(ctx context.Context, req *AbortRequest) error {
 	}
 }
 
-func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
-	st, err := m.backupper.OnStatus(ctx, req)
+func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) *StatusResponse {
 	ret := StatusResponse{
 		Method: req.Method,
 		ID:     req.ID,
-		Status: st.Status,
 	}
-	if err != nil {
+	switch req.Method {
+	case OpCreate:
+		st, err := m.backupper.OnStatus(ctx, req)
+		ret.Status = st.Status
+		if err != nil {
+			ret.Status = backup.Failed
+			ret.Err = err.Error()
+		}
+	case OpRestore:
+		st, err := m.restorer.status(req.Backend, req.ID)
+		ret.Status = st.Status
+		if err != nil {
+			ret.Status = backup.Failed
+			ret.Err = err.Error()
+		}
+	default:
 		ret.Status = backup.Failed
-		ret.Err = err.Error()
+		ret.Err = fmt.Sprintf("%v: %s", errUnknownOp, req.Method)
 	}
-	return &ret, nil
+
+	return &ret
 }
 
 func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, req *BackupRequest) ([]string, error) {
@@ -337,14 +351,12 @@ func validateID(backupID string) error {
 	return nil
 }
 
-func nodeBackend(provider BackupBackendProvider, backend, id string) (nodeStore, error) {
+func nodeBackend(node string, provider BackupBackendProvider, backend, id string) (nodeStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
 		return nodeStore{}, err
 	}
-	return nodeStore{objStore{b: caps, BasePath: id}}, nil
-	// TODO  NODE
-	// return nodeStore{objStore{b: caps, BasePath: fmt.Sprintf("%s/%s", id, node)}}, nil
+	return nodeStore{objStore{b: caps, BasePath: fmt.Sprintf("%s/%s", id, node)}}, nil
 }
 
 // basePath of the backup

@@ -102,10 +102,32 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return nil, backup.NewErrUnprocessable(fmt.Errorf("not implemented"))
 }
 
-func (m *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
+func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
 	backend, backupID string,
 ) (*models.BackupCreateStatusResponse, error) {
-	return nil, backup.NewErrUnprocessable(fmt.Errorf("not implemented"))
+	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
+	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+		return nil, err
+	}
+
+	store, err := coordBackend(s.backends, backend, backupID)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q, did you enable the right module?", backend)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	st, err := s.backupper.OnStatus(ctx, store, &StatusRequest{OpCreate, backupID, backend})
+	if err != nil {
+		return nil, backup.NewErrNotFound(err)
+	}
+	// check if backup is still active
+	status := string(st.Status)
+	return &models.BackupCreateStatusResponse{
+		ID:      backupID,
+		Path:    st.Path,
+		Status:  &status,
+		Backend: backend,
+	}, nil
 }
 
 func (m *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
@@ -141,7 +163,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.GlobalMeta(ctx, req.ID)
+	_, err := store.Meta(ctx, req.ID)
 	if err == nil {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}

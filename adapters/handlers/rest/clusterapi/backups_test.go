@@ -174,8 +174,7 @@ func (m *fakeBackupManager) OnAbort(ctx context.Context, req *backup.AbortReques
 	return args.Error(0)
 }
 
-func (m *fakeBackupManager) OnStatus(ctx context.Context, req *backup.StatusRequest) (*backup.StatusResponse, error) {
+func (m *fakeBackupManager) OnStatus(ctx context.Context, req *backup.StatusRequest) *backup.StatusResponse {
 	args := m.Called(req)
-	return args.Get(0).(*backup.StatusResponse),
-		args.Error(1)
+	return args.Get(0).(*backup.StatusResponse)
 }
