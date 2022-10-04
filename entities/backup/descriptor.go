@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// NodeDescriptor contains data related to one participant in DPRO
+// NodeDescriptor contains data related to one participant in DBRO
 type NodeDescriptor struct {
 	Classes []string `json:"classes"`
 	Status  Status   `json:"status"`

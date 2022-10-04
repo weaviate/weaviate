@@ -359,7 +359,7 @@ func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 	hosts := make(map[string]string)
 	for _, node := range nodes {
-		hosts[node] = mock.Anything
+		hosts[node] = node
 	}
 	return &fakeNodeResolver{hosts: hosts}
 }

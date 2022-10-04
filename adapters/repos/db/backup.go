@@ -36,9 +36,6 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 		if idx == nil {
 			return fmt.Errorf("class %v doesn't exist", c)
 		}
-		if n := db.schemaGetter.ShardingState(c).CountPhysicalShards(); n > 1 {
-			return fmt.Errorf("class %v has %d physical shards", c, n)
-		}
 	}
 	return nil
 }

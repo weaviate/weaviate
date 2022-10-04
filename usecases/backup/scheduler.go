@@ -125,7 +125,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
-	if len(req.Include) > 0 && len(req.Exclude) > 0 {
+	if len(req.Include) == 0 && len(req.Exclude) == 0 {
 		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
 	}
 	classes := req.Include
