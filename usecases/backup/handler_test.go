@@ -23,11 +23,16 @@ import (
 
 type fakeSchemaManger struct {
 	errRestoreClass error
+	nodeName        string
 }
 
 func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor,
 ) error {
 	return f.errRestoreClass
+}
+
+func (f *fakeSchemaManger) NodeName() string {
+	return f.nodeName
 }
 
 type fakeAuthorizer struct{}

@@ -393,7 +393,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		}
 		backend := &fakeBackend{}
 		sourcer := &fakeSourcer{}
-		schema := fakeSchemaManger{errRestoreClass: ErrAny}
+		schema := fakeSchemaManger{errRestoreClass: ErrAny, nodeName: nodeName}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
