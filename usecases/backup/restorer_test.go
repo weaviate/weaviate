@@ -55,7 +55,7 @@ func TestRestoreStatus(t *testing.T) {
 	if err != nil {
 		t.Errorf("get active status: %v", err)
 	}
-	expected := RestoreStatus{Path: path, StartedAt: starTime, Status: backup.Transferring}
+	expected := Status{Path: path, StartedAt: starTime, Status: backup.Transferring}
 	if expected != st {
 		t.Errorf("get active status: got=%v want=%v", st, expected)
 	}
@@ -329,7 +329,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m2.RestorationStatus(ctx, nil, req1.Backend, req1.ID)
@@ -370,7 +370,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m2.RestorationStatus(ctx, nil, req1.Backend, req1.ID)
@@ -412,7 +412,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m2.RestorationStatus(ctx, nil, req1.Backend, req1.ID)
@@ -518,7 +518,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, want1, resp1)
 		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend})
 		assert.Nil(t, err)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m.RestorationStatus(ctx, nil, req.Backend, req.ID)
@@ -554,7 +554,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, want1, resp1)
 		err := m.OnAbort(ctx, &AbortRequest{Method: OpRestore, ID: req.ID})
 		assert.Nil(t, err)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m.RestorationStatus(ctx, nil, req.Backend, req.ID)
@@ -605,7 +605,7 @@ func TestRestoreOnStatus(t *testing.T) {
 	}
 	// cached status
 	m.restorer.lastOp.reset()
-	st := RestoreStatus{Path: path, StartedAt: starTime, Status: backup.Transferring, CompletedAt: starTime}
+	st := Status{Path: path, StartedAt: starTime, Status: backup.Transferring, CompletedAt: starTime}
 	m.restorer.restoreStatusMap.Store("s3/"+id, st)
 	got = m.OnStatus(ctx, &req)
 	if expected != *got {

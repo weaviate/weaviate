@@ -130,12 +130,10 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		starTime    = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
 		nodeHome    = id + "/" + nodeName
 		path        = "bucket/backups/" + nodeHome
-		rawstatus   = string(backup.Transferring)
-		want        = &models.BackupCreateStatusResponse{
-			ID:      id,
-			Path:    path,
-			Status:  &rawstatus,
-			Backend: backendName,
+		want        = &Status{
+			Path:      path,
+			StartedAt: starTime,
+			Status:    backup.Transferring,
 		}
 	)
 
@@ -172,10 +170,76 @@ func TestSchedulerBackupStatus(t *testing.T) {
 
 	t.Run("ReadFromMetadata", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
-		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Transferring)})
+		completedAt := starTime.Add(time.Hour)
+		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: string(backup.Success)})
+		want := want
+		want.CompletedAt = completedAt
+		want.Status = backup.Success
 		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(bytes, nil)
 		fs.backend.On("HomeDir", mock.Anything).Return(path)
 		got, err := fs.scheduler().BackupStatus(ctx, nil, backendName, id)
+		assert.Nil(t, err)
+		assert.Equal(t, want, got)
+	})
+}
+
+func TestSchedulerRestorationStatus(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		id          = "1234"
+		ctx         = context.Background()
+		starTime    = time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)
+		nodeHome    = id + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
+		want        = &Status{
+			Path:      path,
+			StartedAt: starTime,
+			Status:    backup.Transferring,
+		}
+	)
+
+	t.Run("ActiveState", func(t *testing.T) {
+		s := newFakeScheduler(nil).scheduler()
+		s.restorer.lastOp.reqStat = reqStat{
+			Starttime: starTime,
+			ID:        id,
+			Status:    backup.Transferring,
+			Path:      path,
+		}
+		st, err := s.RestorationStatus(ctx, nil, backendName, id)
+		assert.Nil(t, err)
+		assert.Equal(t, want, st)
+	})
+
+	t.Run("GetBackupProvider", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backendErr = ErrAny
+		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("MetdataNotFound", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(nil, ErrAny)
+		_, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id)
+		assert.NotNil(t, err)
+		nerr := backup.ErrNotFound{}
+		if !errors.As(err, &nerr) {
+			t.Errorf("error want=%v got=%v", nerr, err)
+		}
+	})
+
+	t.Run("ReadFromMetadata", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		completedAt := starTime.Add(time.Hour)
+		bytes := marshalMeta(backup.BackupDescriptor{StartedAt: starTime, CompletedAt: completedAt, Status: string(backup.Success)})
+		want := want
+		want.CompletedAt = completedAt
+		want.Status = backup.Success
+		fs.backend.On("GetObject", ctx, id, GlobalRestoreFile).Return(bytes, nil)
+		fs.backend.On("HomeDir", mock.Anything).Return(path)
+		got, err := fs.scheduler().RestorationStatus(ctx, nil, backendName, id)
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
