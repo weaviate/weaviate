@@ -214,10 +214,9 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	count := 0
 
-	//Iterate over all indexes
+	// Iterate over all indexes
 	for _, index := range m.db.indices {
-
-		//Iterate over all shards
+		// Iterate over all shards
 
 		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
 			count = count + 1
