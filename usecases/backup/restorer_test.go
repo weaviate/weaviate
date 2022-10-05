@@ -125,7 +125,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), backendName)
 	})
 
-	t.Run("GetMetdataFile", func(t *testing.T) {
+	t.Run("GetMetadataFile", func(t *testing.T) {
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, ErrAny)
 		backend.On("HomeDir", mock.Anything).Return(path)
@@ -182,7 +182,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), "wrong backup file")
 	})
 
-	t.Run("UknownClass", func(t *testing.T) {
+	t.Run("UnknownClass", func(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(meta)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)

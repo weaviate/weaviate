@@ -155,7 +155,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	meta, err := m.validateRestoreRequst(ctx, store, req)
+	meta, err := m.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +325,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, re
 	return classes, nil
 }
 
-func (m *Manager) validateRestoreRequst(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+func (m *Manager) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
 		return nil, backup.NewErrUnprocessable(err)

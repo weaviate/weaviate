@@ -97,7 +97,7 @@ func (r *restorer) restore(ctx context.Context,
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
-	r.waitingForCoodinatorToCommit.Store(true) // is set to false by wait()
+	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
 	go func() {
 		var err error
