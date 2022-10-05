@@ -34,7 +34,6 @@ import (
 func NewObjectsClassReferencesDeleteParams() *ObjectsClassReferencesDeleteParams {
 	var ()
 	return &ObjectsClassReferencesDeleteParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewObjectsClassReferencesDeleteParams() *ObjectsClassReferencesDeleteParams
 func NewObjectsClassReferencesDeleteParamsWithTimeout(timeout time.Duration) *ObjectsClassReferencesDeleteParams {
 	var ()
 	return &ObjectsClassReferencesDeleteParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewObjectsClassReferencesDeleteParamsWithTimeout(timeout time.Duration) *Ob
 func NewObjectsClassReferencesDeleteParamsWithContext(ctx context.Context) *ObjectsClassReferencesDeleteParams {
 	var ()
 	return &ObjectsClassReferencesDeleteParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ ObjectsClassReferencesDeleteParams contains all the parameters to send to the AP
 for the objects class references delete operation typically these are written to a http.Request
 */
 type ObjectsClassReferencesDeleteParams struct {
-
 	/*Body*/
 	Body *models.SingleRef
 	/*ClassName
@@ -176,7 +172,6 @@ func (o *ObjectsClassReferencesDeleteParams) SetPropertyName(propertyName string
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassReferencesDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

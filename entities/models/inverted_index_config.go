@@ -26,7 +26,6 @@ import (
 //
 // swagger:model InvertedIndexConfig
 type InvertedIndexConfig struct {
-
 	// bm25
 	Bm25 *BM25Config `json:"bm25,omitempty"`
 
@@ -65,7 +64,6 @@ func (m *InvertedIndexConfig) Validate(formats strfmt.Registry) error {
 }
 
 func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Bm25) { // not required
 		return nil
 	}
@@ -83,7 +81,6 @@ func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
 }
 
 func (m *InvertedIndexConfig) validateStopwords(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Stopwords) { // not required
 		return nil
 	}

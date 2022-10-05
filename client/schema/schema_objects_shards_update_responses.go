@@ -99,7 +99,6 @@ func (o *SchemaObjectsShardsUpdateOK) GetPayload() *models.ShardStatus {
 }
 
 func (o *SchemaObjectsShardsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ShardStatus)
 
 	// response payload
@@ -120,15 +119,13 @@ SchemaObjectsShardsUpdateUnauthorized handles this case with default header valu
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsShardsUpdateUnauthorized struct {
-}
+type SchemaObjectsShardsUpdateUnauthorized struct{}
 
 func (o *SchemaObjectsShardsUpdateUnauthorized) Error() string {
 	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsShardsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -155,7 +152,6 @@ func (o *SchemaObjectsShardsUpdateForbidden) GetPayload() *models.ErrorResponse 
 }
 
 func (o *SchemaObjectsShardsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -189,7 +185,6 @@ func (o *SchemaObjectsShardsUpdateNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +218,6 @@ func (o *SchemaObjectsShardsUpdateUnprocessableEntity) GetPayload() *models.Erro
 }
 
 func (o *SchemaObjectsShardsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -257,7 +251,6 @@ func (o *SchemaObjectsShardsUpdateInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *SchemaObjectsShardsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

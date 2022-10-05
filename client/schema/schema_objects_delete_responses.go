@@ -80,15 +80,13 @@ SchemaObjectsDeleteOK handles this case with default header values.
 
 Removed the Object class from the schema.
 */
-type SchemaObjectsDeleteOK struct {
-}
+type SchemaObjectsDeleteOK struct{}
 
 func (o *SchemaObjectsDeleteOK) Error() string {
 	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteOK ", 200)
 }
 
 func (o *SchemaObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -115,7 +113,6 @@ func (o *SchemaObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -136,15 +133,13 @@ SchemaObjectsDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsDeleteUnauthorized struct {
-}
+type SchemaObjectsDeleteUnauthorized struct{}
 
 func (o *SchemaObjectsDeleteUnauthorized) Error() string {
 	return fmt.Sprintf("[DELETE /schema/{className}][%d] schemaObjectsDeleteUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -171,7 +166,6 @@ func (o *SchemaObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -205,7 +199,6 @@ func (o *SchemaObjectsDeleteInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -59,15 +59,13 @@ WeaviateWellknownReadinessOK handles this case with default header values.
 
 The application has completed its start-up routine and is ready to accept traffic.
 */
-type WeaviateWellknownReadinessOK struct {
-}
+type WeaviateWellknownReadinessOK struct{}
 
 func (o *WeaviateWellknownReadinessOK) Error() string {
 	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
 }
 
 func (o *WeaviateWellknownReadinessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -81,14 +79,12 @@ WeaviateWellknownReadinessServiceUnavailable handles this case with default head
 
 The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
 */
-type WeaviateWellknownReadinessServiceUnavailable struct {
-}
+type WeaviateWellknownReadinessServiceUnavailable struct{}
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) Error() string {
 	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }

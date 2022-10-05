@@ -46,7 +46,7 @@ func (o *ClassificationsPostURL) SetBasePath(bp string) {
 func (o *ClassificationsPostURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/classifications/"
+	_path := "/classifications/"
 
 	_basePath := o._basePath
 	if _basePath == "" {

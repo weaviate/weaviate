@@ -25,7 +25,6 @@ import (
 //
 // swagger:model NodeShardStatus
 type NodeShardStatus struct {
-
 	// The name of shard's class.
 	Class string `json:"class"`
 

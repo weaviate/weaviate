@@ -30,7 +30,6 @@ import (
 //
 // swagger:model WhereFilter
 type WhereFilter struct {
-
 	// combine multiple where filters, requires 'And' or 'Or' operator
 	Operands []*WhereFilter `json:"operands"`
 
@@ -86,7 +85,6 @@ func (m *WhereFilter) Validate(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilter) validateOperands(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Operands) { // not required
 		return nil
 	}
@@ -170,7 +168,6 @@ func (m *WhereFilter) validateOperatorEnum(path, location string, value string) 
 }
 
 func (m *WhereFilter) validateOperator(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Operator) { // not required
 		return nil
 	}
@@ -184,7 +181,6 @@ func (m *WhereFilter) validateOperator(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilter) validateValueGeoRange(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ValueGeoRange) { // not required
 		return nil
 	}
