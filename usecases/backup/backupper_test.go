@@ -710,9 +710,9 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 		sourcer = &fakeSourcer{}
 	}
 	if schema == nil {
-		schema = &fakeSchemaManger{}
+		schema = &fakeSchemaManger{nodeName: nodeName}
 	}
 
 	logger, _ := test.NewNullLogger()
-	return NewManager(nodeName, logger, &fakeAuthorizer{}, schema, sourcer, backends)
+	return NewManager(logger, &fakeAuthorizer{}, schema, sourcer, backends)
 }
