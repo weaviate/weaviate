@@ -291,9 +291,11 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Once()
 
 		coordinator := *fc.coordinator()
-		err := coordinator.Restore(ctx, genReq())
+		store := coordStore{objStore{fc.backend, backupID}}
+		err := coordinator.Restore(ctx, store, genReq())
 		assert.Nil(t, err)
 	})
 
@@ -306,7 +308,8 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
 
 		coordinator := *fc.coordinator()
-		err := coordinator.Restore(ctx, genReq())
+		store := coordStore{objStore{fc.backend, backupID}}
+		err := coordinator.Restore(ctx, store, genReq())
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
 	})

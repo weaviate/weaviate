@@ -111,11 +111,10 @@ func TestDistributedBackups(t *testing.T) {
 				for {
 					if time.Now().After(start.Add(30 * time.Second)) {
 						t.Fatal("backup deadline exceeded")
-
 					}
 					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "", "new-backup")
 					assert.Nil(t, err, "expected nil err, got: %s", err)
-					if resp.Status != nil && *resp.Status == "SUCCESS" {
+					if resp != nil && string(resp.Status) == "SUCCESS" {
 						break
 					}
 				}
