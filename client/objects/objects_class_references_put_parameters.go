@@ -34,6 +34,7 @@ import (
 func NewObjectsClassReferencesPutParams() *ObjectsClassReferencesPutParams {
 	var ()
 	return &ObjectsClassReferencesPutParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -43,6 +44,7 @@ func NewObjectsClassReferencesPutParams() *ObjectsClassReferencesPutParams {
 func NewObjectsClassReferencesPutParamsWithTimeout(timeout time.Duration) *ObjectsClassReferencesPutParams {
 	var ()
 	return &ObjectsClassReferencesPutParams{
+
 		timeout: timeout,
 	}
 }
@@ -52,6 +54,7 @@ func NewObjectsClassReferencesPutParamsWithTimeout(timeout time.Duration) *Objec
 func NewObjectsClassReferencesPutParamsWithContext(ctx context.Context) *ObjectsClassReferencesPutParams {
 	var ()
 	return &ObjectsClassReferencesPutParams{
+
 		Context: ctx,
 	}
 }
@@ -70,6 +73,7 @@ ObjectsClassReferencesPutParams contains all the parameters to send to the API e
 for the objects class references put operation typically these are written to a http.Request
 */
 type ObjectsClassReferencesPutParams struct {
+
 	/*Body*/
 	Body models.MultipleRef
 	/*ClassName
@@ -172,6 +176,7 @@ func (o *ObjectsClassReferencesPutParams) SetPropertyName(propertyName string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassReferencesPutParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

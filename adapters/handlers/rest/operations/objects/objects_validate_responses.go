@@ -32,16 +32,19 @@ ObjectsValidateOK Successfully validated.
 
 swagger:response objectsValidateOK
 */
-type ObjectsValidateOK struct{}
+type ObjectsValidateOK struct {
+}
 
 // NewObjectsValidateOK creates ObjectsValidateOK with default headers values
 func NewObjectsValidateOK() *ObjectsValidateOK {
+
 	return &ObjectsValidateOK{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsValidateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -54,16 +57,19 @@ ObjectsValidateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsValidateUnauthorized
 */
-type ObjectsValidateUnauthorized struct{}
+type ObjectsValidateUnauthorized struct {
+}
 
 // NewObjectsValidateUnauthorized creates ObjectsValidateUnauthorized with default headers values
 func NewObjectsValidateUnauthorized() *ObjectsValidateUnauthorized {
+
 	return &ObjectsValidateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsValidateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,6 +83,7 @@ ObjectsValidateForbidden Forbidden
 swagger:response objectsValidateForbidden
 */
 type ObjectsValidateForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -85,6 +92,7 @@ type ObjectsValidateForbidden struct {
 
 // NewObjectsValidateForbidden creates ObjectsValidateForbidden with default headers values
 func NewObjectsValidateForbidden() *ObjectsValidateForbidden {
+
 	return &ObjectsValidateForbidden{}
 }
 
@@ -101,6 +109,7 @@ func (o *ObjectsValidateForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsValidateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -119,6 +128,7 @@ ObjectsValidateUnprocessableEntity Request body is well-formed (i.e., syntactica
 swagger:response objectsValidateUnprocessableEntity
 */
 type ObjectsValidateUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type ObjectsValidateUnprocessableEntity struct {
 
 // NewObjectsValidateUnprocessableEntity creates ObjectsValidateUnprocessableEntity with default headers values
 func NewObjectsValidateUnprocessableEntity() *ObjectsValidateUnprocessableEntity {
+
 	return &ObjectsValidateUnprocessableEntity{}
 }
 
@@ -143,6 +154,7 @@ func (o *ObjectsValidateUnprocessableEntity) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ObjectsValidateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ ObjectsValidateInternalServerError An error has occurred while trying to fulfill
 swagger:response objectsValidateInternalServerError
 */
 type ObjectsValidateInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type ObjectsValidateInternalServerError struct {
 
 // NewObjectsValidateInternalServerError creates ObjectsValidateInternalServerError with default headers values
 func NewObjectsValidateInternalServerError() *ObjectsValidateInternalServerError {
+
 	return &ObjectsValidateInternalServerError{}
 }
 
@@ -185,6 +199,7 @@ func (o *ObjectsValidateInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ObjectsValidateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

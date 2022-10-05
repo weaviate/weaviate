@@ -291,7 +291,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schema := schemaManager.GetSchemaSkipAuth()
 	updateSchemaCallback(schema)
 
-	// Add dimensions to all the objects in the database, if requested by the user
+	//Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.WantDimensionsReindex {
 		appState.Logger.
 			WithField("action", "startup").

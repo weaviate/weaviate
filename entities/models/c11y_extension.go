@@ -25,6 +25,7 @@ import (
 //
 // swagger:model C11yExtension
 type C11yExtension struct {
+
 	// The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'
 	Concept string `json:"concept,omitempty"`
 

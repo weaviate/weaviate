@@ -51,7 +51,7 @@ func (o *SchemaObjectsShardsGetURL) SetBasePath(bp string) {
 func (o *SchemaObjectsShardsGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/schema/{className}/shards"
+	var _path = "/schema/{className}/shards"
 
 	className := o.ClassName
 	if className != "" {

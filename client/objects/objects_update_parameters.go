@@ -34,6 +34,7 @@ import (
 func NewObjectsUpdateParams() *ObjectsUpdateParams {
 	var ()
 	return &ObjectsUpdateParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -43,6 +44,7 @@ func NewObjectsUpdateParams() *ObjectsUpdateParams {
 func NewObjectsUpdateParamsWithTimeout(timeout time.Duration) *ObjectsUpdateParams {
 	var ()
 	return &ObjectsUpdateParams{
+
 		timeout: timeout,
 	}
 }
@@ -52,6 +54,7 @@ func NewObjectsUpdateParamsWithTimeout(timeout time.Duration) *ObjectsUpdatePara
 func NewObjectsUpdateParamsWithContext(ctx context.Context) *ObjectsUpdateParams {
 	var ()
 	return &ObjectsUpdateParams{
+
 		Context: ctx,
 	}
 }
@@ -70,6 +73,7 @@ ObjectsUpdateParams contains all the parameters to send to the API endpoint
 for the objects update operation typically these are written to a http.Request
 */
 type ObjectsUpdateParams struct {
+
 	/*Body*/
 	Body *models.Object
 	/*ID
@@ -140,6 +144,7 @@ func (o *ObjectsUpdateParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

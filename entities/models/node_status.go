@@ -30,6 +30,7 @@ import (
 //
 // swagger:model NodeStatus
 type NodeStatus struct {
+
 	// The gitHash of Weaviate.
 	GitHash string `json:"gitHash,omitempty"`
 
@@ -73,6 +74,7 @@ func (m *NodeStatus) Validate(formats strfmt.Registry) error {
 }
 
 func (m *NodeStatus) validateShards(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Shards) { // not required
 		return nil
 	}
@@ -97,6 +99,7 @@ func (m *NodeStatus) validateShards(formats strfmt.Registry) error {
 }
 
 func (m *NodeStatus) validateStats(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Stats) { // not required
 		return nil
 	}
@@ -146,6 +149,7 @@ func (m *NodeStatus) validateStatusEnum(path, location string, value string) err
 }
 
 func (m *NodeStatus) validateStatus(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}

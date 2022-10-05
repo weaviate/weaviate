@@ -93,6 +93,7 @@ func (o *SchemaObjectsShardsGetOK) GetPayload() models.ShardStatusList {
 }
 
 func (o *SchemaObjectsShardsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -111,13 +112,15 @@ SchemaObjectsShardsGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsShardsGetUnauthorized struct{}
+type SchemaObjectsShardsGetUnauthorized struct {
+}
 
 func (o *SchemaObjectsShardsGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -144,6 +147,7 @@ func (o *SchemaObjectsShardsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -177,6 +181,7 @@ func (o *SchemaObjectsShardsGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -210,6 +215,7 @@ func (o *SchemaObjectsShardsGetInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -129,6 +129,7 @@ func (m *ObjectsGetResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ObjectsGetResponse) validateDeprecations(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -153,6 +154,7 @@ func (m *ObjectsGetResponse) validateDeprecations(formats strfmt.Registry) error
 }
 
 func (m *ObjectsGetResponse) validateResult(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -191,6 +193,7 @@ func (m *ObjectsGetResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ObjectsGetResponseAO2Result
 type ObjectsGetResponseAO2Result struct {
+
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
@@ -218,6 +221,7 @@ func (m *ObjectsGetResponseAO2Result) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ObjectsGetResponseAO2Result) validateErrors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -267,6 +271,7 @@ func (m *ObjectsGetResponseAO2Result) validateStatusEnum(path, location string, 
 }
 
 func (m *ObjectsGetResponseAO2Result) validateStatus(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}

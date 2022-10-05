@@ -25,6 +25,7 @@ import (
 //
 // swagger:model ShardStatusGetResponse
 type ShardStatusGetResponse struct {
+
 	// Name of the shard
 	Name string `json:"name,omitempty"`
 

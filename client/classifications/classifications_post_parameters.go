@@ -34,6 +34,7 @@ import (
 func NewClassificationsPostParams() *ClassificationsPostParams {
 	var ()
 	return &ClassificationsPostParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -43,6 +44,7 @@ func NewClassificationsPostParams() *ClassificationsPostParams {
 func NewClassificationsPostParamsWithTimeout(timeout time.Duration) *ClassificationsPostParams {
 	var ()
 	return &ClassificationsPostParams{
+
 		timeout: timeout,
 	}
 }
@@ -52,6 +54,7 @@ func NewClassificationsPostParamsWithTimeout(timeout time.Duration) *Classificat
 func NewClassificationsPostParamsWithContext(ctx context.Context) *ClassificationsPostParams {
 	var ()
 	return &ClassificationsPostParams{
+
 		Context: ctx,
 	}
 }
@@ -70,6 +73,7 @@ ClassificationsPostParams contains all the parameters to send to the API endpoin
 for the classifications post operation typically these are written to a http.Request
 */
 type ClassificationsPostParams struct {
+
 	/*Params
 	  parameters to start a classification
 
@@ -127,6 +131,7 @@ func (o *ClassificationsPostParams) SetParams(params *models.Classification) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ClassificationsPostParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
