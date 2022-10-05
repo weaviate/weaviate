@@ -45,6 +45,7 @@ type authorizer interface {
 
 type schemaManger interface {
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error
+	NodeName() string
 }
 
 type nodeResolver interface {
@@ -70,13 +71,13 @@ type Manager struct {
 }
 
 func NewManager(
-	node string,
 	logger logrus.FieldLogger,
 	authorizer authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 ) *Manager {
+	node := schema.NodeName()
 	m := &Manager{
 		node:       node,
 		logger:     logger,
