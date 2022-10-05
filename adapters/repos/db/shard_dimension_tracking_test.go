@@ -84,7 +84,7 @@ func Benchmark_Migration(b *testing.B) {
 		repo.config.TrackVectorDimensions = false
 
 		dim := 128
-		for i := 0; i < 10000; i++ {
+		for i := 0; i < 100; i++ {
 			vec := make([]float32, dim)
 			for j := range vec {
 				vec[j] = rand.Float32()
@@ -117,7 +117,7 @@ func Test_Migration(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{
 		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
+		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 		WantDimensionsReindex:     false,
