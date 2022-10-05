@@ -63,7 +63,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 	store, err := coordBackend(s.backends, req.Backend, req.ID)
 	if err != nil {
-		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
+		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
@@ -104,35 +104,42 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
 	backend, backupID string,
-) (*models.BackupCreateStatusResponse, error) {
+) (*Status, error) {
 	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
 	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
 		return nil, err
 	}
-
 	store, err := coordBackend(s.backends, backend, backupID)
 	if err != nil {
-		err = fmt.Errorf("no backup provider %q, did you enable the right module?", backend)
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	st, err := s.backupper.OnStatus(ctx, store, &StatusRequest{OpCreate, backupID, backend})
+	req := &StatusRequest{OpCreate, backupID, backend}
+	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
 	}
-	// check if backup is still active
-	status := string(st.Status)
-	return &models.BackupCreateStatusResponse{
-		ID:      backupID,
-		Path:    st.Path,
-		Status:  &status,
-		Backend: backend,
-	}, nil
+	return st, nil
 }
 
-func (m *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
-) (_ RestoreStatus, err error) {
-	return RestoreStatus{}, backup.NewErrUnprocessable(fmt.Errorf("not implemented"))
+func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID string,
+) (_ *Status, err error) {
+	path := fmt.Sprintf("backups/%s/%s/restore", backend, backupID)
+	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+		return nil, err
+	}
+	store, err := coordBackend(s.backends, backend, backupID)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	req := &StatusRequest{OpRestore, backupID, backend}
+	st, err := s.restorer.OnStatus(ctx, store, req)
+	if err != nil {
+		return nil, backup.NewErrNotFound(err)
+	}
+	return st, nil
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
@@ -163,7 +170,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.Meta(ctx, req.ID)
+	_, err := store.Meta(ctx, GlobalBackupFile)
 	if err == nil {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}

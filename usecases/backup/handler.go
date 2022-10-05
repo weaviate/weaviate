@@ -51,12 +51,12 @@ type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
 
-type RestoreStatus struct {
+type Status struct {
 	Path        string
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Status      backup.Status
-	Err         error
+	Err         string
 }
 
 type Manager struct {
@@ -190,10 +190,10 @@ func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
-) (_ RestoreStatus, err error) {
+) (_ Status, err error) {
 	ppath := fmt.Sprintf("backups/%s/%s/restore", backend, ID)
 	if err := m.authorizer.Authorize(principal, "get", ppath); err != nil {
-		return RestoreStatus{}, err
+		return Status{}, err
 	}
 	return m.restorer.status(backend, ID)
 }

@@ -38,8 +38,9 @@ const (
 	// BackupFile used by a node to store its metadata
 	BackupFile = "backup.json"
 	// GlobalBackupFile used by coordinator to store its metadata
-	GlobalBackupFile = "global_backup.json"
-	_TempDirectory   = ".backup.tmp"
+	GlobalBackupFile  = "backup_config.json"
+	GlobalRestoreFile = "restore_config.json"
+	_TempDirectory    = ".backup.tmp"
 )
 
 type objStore struct {
@@ -114,15 +115,15 @@ type coordStore struct {
 	objStore
 }
 
-// PutGlobalMeta puts coordinator's global metadata into object store
-func (s *coordStore) PutGlobalMeta(ctx context.Context, desc *backup.DistributedBackupDescriptor) error {
-	return s.putMeta(ctx, GlobalBackupFile, desc)
+// PutMeta puts coordinator's global metadata into object store
+func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.DistributedBackupDescriptor) error {
+	return s.putMeta(ctx, filename, desc)
 }
 
 // Meta gets coordinator's global metadata from object store
-func (s *coordStore) Meta(ctx context.Context, backupID string) (*backup.DistributedBackupDescriptor, error) {
+func (s *coordStore) Meta(ctx context.Context, filename string) (*backup.DistributedBackupDescriptor, error) {
 	var backup backup.DistributedBackupDescriptor
-	err := s.meta(ctx, GlobalBackupFile, &backup)
+	err := s.meta(ctx, filename, &backup)
 	return &backup, err
 }
 
