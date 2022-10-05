@@ -102,7 +102,7 @@ func Benchmark_Migration(b *testing.B) {
 
 		repo.config.WantDimensionsReindex = true
 		repo.config.TrackVectorDimensions = true
-		migrator.RecalculateVectorDimensions(context.TODO(), repo.GetIndex("Test"))
+		migrator.RecalculateVectorDimensions(context.TODO())
 		fmt.Printf("Benchmark complete")
 	}
 }
@@ -168,7 +168,7 @@ func Test_Migration(t *testing.T) {
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 	repo.config.WantDimensionsReindex = true
 	repo.config.TrackVectorDimensions = true
-	migrator.RecalculateVectorDimensions(context.TODO(), repo.GetIndex("Test"))
+	migrator.RecalculateVectorDimensions(context.TODO())
 	dimAfter := GetDimensionsFromRepo(repo, "Test")
 	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
 }

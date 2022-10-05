@@ -83,6 +83,10 @@ func (n *NilMigrator) UpdateInvertedIndexConfig(ctx context.Context, className s
 	return nil
 }
 
+func (n *NilMigrator) RecalculateVectorDimensions(ctx context.Context) error {
+	return nil
+}
+
 var schemaTests = []struct {
 	name string
 	fn   func(*testing.T, *Manager)
