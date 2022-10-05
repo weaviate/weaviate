@@ -33,6 +33,7 @@ ObjectsUpdateOK Successfully received.
 swagger:response objectsUpdateOK
 */
 type ObjectsUpdateOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type ObjectsUpdateOK struct {
 
 // NewObjectsUpdateOK creates ObjectsUpdateOK with default headers values
 func NewObjectsUpdateOK() *ObjectsUpdateOK {
+
 	return &ObjectsUpdateOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *ObjectsUpdateOK) SetPayload(payload *models.Object) {
 
 // WriteResponse to the client
 func (o *ObjectsUpdateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ ObjectsUpdateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsUpdateUnauthorized
 */
-type ObjectsUpdateUnauthorized struct{}
+type ObjectsUpdateUnauthorized struct {
+}
 
 // NewObjectsUpdateUnauthorized creates ObjectsUpdateUnauthorized with default headers values
 func NewObjectsUpdateUnauthorized() *ObjectsUpdateUnauthorized {
+
 	return &ObjectsUpdateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsUpdateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ ObjectsUpdateForbidden Forbidden
 swagger:response objectsUpdateForbidden
 */
 type ObjectsUpdateForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type ObjectsUpdateForbidden struct {
 
 // NewObjectsUpdateForbidden creates ObjectsUpdateForbidden with default headers values
 func NewObjectsUpdateForbidden() *ObjectsUpdateForbidden {
+
 	return &ObjectsUpdateForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *ObjectsUpdateForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -138,16 +147,19 @@ ObjectsUpdateNotFound Successful query result but no resource was found.
 
 swagger:response objectsUpdateNotFound
 */
-type ObjectsUpdateNotFound struct{}
+type ObjectsUpdateNotFound struct {
+}
 
 // NewObjectsUpdateNotFound creates ObjectsUpdateNotFound with default headers values
 func NewObjectsUpdateNotFound() *ObjectsUpdateNotFound {
+
 	return &ObjectsUpdateNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -161,6 +173,7 @@ ObjectsUpdateUnprocessableEntity Request body is well-formed (i.e., syntacticall
 swagger:response objectsUpdateUnprocessableEntity
 */
 type ObjectsUpdateUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type ObjectsUpdateUnprocessableEntity struct {
 
 // NewObjectsUpdateUnprocessableEntity creates ObjectsUpdateUnprocessableEntity with default headers values
 func NewObjectsUpdateUnprocessableEntity() *ObjectsUpdateUnprocessableEntity {
+
 	return &ObjectsUpdateUnprocessableEntity{}
 }
 
@@ -185,6 +199,7 @@ func (o *ObjectsUpdateUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ObjectsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -203,6 +218,7 @@ ObjectsUpdateInternalServerError An error has occurred while trying to fulfill t
 swagger:response objectsUpdateInternalServerError
 */
 type ObjectsUpdateInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -211,6 +227,7 @@ type ObjectsUpdateInternalServerError struct {
 
 // NewObjectsUpdateInternalServerError creates ObjectsUpdateInternalServerError with default headers values
 func NewObjectsUpdateInternalServerError() *ObjectsUpdateInternalServerError {
+
 	return &ObjectsUpdateInternalServerError{}
 }
 
@@ -227,6 +244,7 @@ func (o *ObjectsUpdateInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ObjectsUpdateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

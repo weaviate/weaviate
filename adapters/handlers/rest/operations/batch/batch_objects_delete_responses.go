@@ -33,6 +33,7 @@ BatchObjectsDeleteOK Request succeeded, see response body to get detailed inform
 swagger:response batchObjectsDeleteOK
 */
 type BatchObjectsDeleteOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type BatchObjectsDeleteOK struct {
 
 // NewBatchObjectsDeleteOK creates BatchObjectsDeleteOK with default headers values
 func NewBatchObjectsDeleteOK() *BatchObjectsDeleteOK {
+
 	return &BatchObjectsDeleteOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *BatchObjectsDeleteOK) SetPayload(payload *models.BatchDeleteResponse) {
 
 // WriteResponse to the client
 func (o *BatchObjectsDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ BatchObjectsDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response batchObjectsDeleteUnauthorized
 */
-type BatchObjectsDeleteUnauthorized struct{}
+type BatchObjectsDeleteUnauthorized struct {
+}
 
 // NewBatchObjectsDeleteUnauthorized creates BatchObjectsDeleteUnauthorized with default headers values
 func NewBatchObjectsDeleteUnauthorized() *BatchObjectsDeleteUnauthorized {
+
 	return &BatchObjectsDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BatchObjectsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ BatchObjectsDeleteForbidden Forbidden
 swagger:response batchObjectsDeleteForbidden
 */
 type BatchObjectsDeleteForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type BatchObjectsDeleteForbidden struct {
 
 // NewBatchObjectsDeleteForbidden creates BatchObjectsDeleteForbidden with default headers values
 func NewBatchObjectsDeleteForbidden() *BatchObjectsDeleteForbidden {
+
 	return &BatchObjectsDeleteForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *BatchObjectsDeleteForbidden) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *BatchObjectsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ BatchObjectsDeleteUnprocessableEntity Request body is well-formed (i.e., syntact
 swagger:response batchObjectsDeleteUnprocessableEntity
 */
 type BatchObjectsDeleteUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type BatchObjectsDeleteUnprocessableEntity struct {
 
 // NewBatchObjectsDeleteUnprocessableEntity creates BatchObjectsDeleteUnprocessableEntity with default headers values
 func NewBatchObjectsDeleteUnprocessableEntity() *BatchObjectsDeleteUnprocessableEntity {
+
 	return &BatchObjectsDeleteUnprocessableEntity{}
 }
 
@@ -163,6 +174,7 @@ func (o *BatchObjectsDeleteUnprocessableEntity) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *BatchObjectsDeleteUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -181,6 +193,7 @@ BatchObjectsDeleteInternalServerError An error has occurred while trying to fulf
 swagger:response batchObjectsDeleteInternalServerError
 */
 type BatchObjectsDeleteInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -189,6 +202,7 @@ type BatchObjectsDeleteInternalServerError struct {
 
 // NewBatchObjectsDeleteInternalServerError creates BatchObjectsDeleteInternalServerError with default headers values
 func NewBatchObjectsDeleteInternalServerError() *BatchObjectsDeleteInternalServerError {
+
 	return &BatchObjectsDeleteInternalServerError{}
 }
 
@@ -205,6 +219,7 @@ func (o *BatchObjectsDeleteInternalServerError) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *BatchObjectsDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

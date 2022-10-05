@@ -99,6 +99,7 @@ func (o *ObjectsUpdateOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -119,13 +120,15 @@ ObjectsUpdateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsUpdateUnauthorized struct{}
+type ObjectsUpdateUnauthorized struct {
+}
 
 func (o *ObjectsUpdateUnauthorized) Error() string {
 	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateUnauthorized ", 401)
 }
 
 func (o *ObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -152,6 +155,7 @@ func (o *ObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -172,13 +176,15 @@ ObjectsUpdateNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsUpdateNotFound struct{}
+type ObjectsUpdateNotFound struct {
+}
 
 func (o *ObjectsUpdateNotFound) Error() string {
 	return fmt.Sprintf("[PUT /objects/{id}][%d] objectsUpdateNotFound ", 404)
 }
 
 func (o *ObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -205,6 +211,7 @@ func (o *ObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -238,6 +245,7 @@ func (o *ObjectsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

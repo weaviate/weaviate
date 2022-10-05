@@ -80,13 +80,15 @@ ObjectsReferencesUpdateOK handles this case with default header values.
 
 Successfully replaced all the references.
 */
-type ObjectsReferencesUpdateOK struct{}
+type ObjectsReferencesUpdateOK struct {
+}
 
 func (o *ObjectsReferencesUpdateOK) Error() string {
 	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
 }
 
 func (o *ObjectsReferencesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -100,13 +102,15 @@ ObjectsReferencesUpdateUnauthorized handles this case with default header values
 
 Unauthorized or invalid credentials.
 */
-type ObjectsReferencesUpdateUnauthorized struct{}
+type ObjectsReferencesUpdateUnauthorized struct {
+}
 
 func (o *ObjectsReferencesUpdateUnauthorized) Error() string {
 	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -133,6 +137,7 @@ func (o *ObjectsReferencesUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -166,6 +171,7 @@ func (o *ObjectsReferencesUpdateUnprocessableEntity) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -199,6 +205,7 @@ func (o *ObjectsReferencesUpdateInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

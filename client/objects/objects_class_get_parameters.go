@@ -32,6 +32,7 @@ import (
 func NewObjectsClassGetParams() *ObjectsClassGetParams {
 	var ()
 	return &ObjectsClassGetParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -41,6 +42,7 @@ func NewObjectsClassGetParams() *ObjectsClassGetParams {
 func NewObjectsClassGetParamsWithTimeout(timeout time.Duration) *ObjectsClassGetParams {
 	var ()
 	return &ObjectsClassGetParams{
+
 		timeout: timeout,
 	}
 }
@@ -50,6 +52,7 @@ func NewObjectsClassGetParamsWithTimeout(timeout time.Duration) *ObjectsClassGet
 func NewObjectsClassGetParamsWithContext(ctx context.Context) *ObjectsClassGetParams {
 	var ()
 	return &ObjectsClassGetParams{
+
 		Context: ctx,
 	}
 }
@@ -68,6 +71,7 @@ ObjectsClassGetParams contains all the parameters to send to the API endpoint
 for the objects class get operation typically these are written to a http.Request
 */
 type ObjectsClassGetParams struct {
+
 	/*ClassName*/
 	ClassName string
 	/*ID
@@ -154,6 +158,7 @@ func (o *ObjectsClassGetParams) SetInclude(include *string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

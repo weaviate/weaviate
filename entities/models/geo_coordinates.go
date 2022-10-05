@@ -25,6 +25,7 @@ import (
 //
 // swagger:model GeoCoordinates
 type GeoCoordinates struct {
+
 	// The latitude of the point on earth in decimal form
 	Latitude *float32 `json:"latitude,omitempty"`
 

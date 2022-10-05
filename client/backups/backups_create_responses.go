@@ -93,6 +93,7 @@ func (o *BackupsCreateOK) GetPayload() *models.BackupCreateResponse {
 }
 
 func (o *BackupsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.BackupCreateResponse)
 
 	// response payload
@@ -113,13 +114,15 @@ BackupsCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type BackupsCreateUnauthorized struct{}
+type BackupsCreateUnauthorized struct {
+}
 
 func (o *BackupsCreateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /backups/{backend}][%d] backupsCreateUnauthorized ", 401)
 }
 
 func (o *BackupsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -146,6 +149,7 @@ func (o *BackupsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -179,6 +183,7 @@ func (o *BackupsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,6 +217,7 @@ func (o *BackupsCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

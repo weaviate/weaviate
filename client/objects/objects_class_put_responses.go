@@ -99,6 +99,7 @@ func (o *ObjectsClassPutOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsClassPutOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -119,13 +120,15 @@ ObjectsClassPutUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassPutUnauthorized struct{}
+type ObjectsClassPutUnauthorized struct {
+}
 
 func (o *ObjectsClassPutUnauthorized) Error() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutUnauthorized ", 401)
 }
 
 func (o *ObjectsClassPutUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -152,6 +155,7 @@ func (o *ObjectsClassPutForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassPutForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -172,13 +176,15 @@ ObjectsClassPutNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsClassPutNotFound struct{}
+type ObjectsClassPutNotFound struct {
+}
 
 func (o *ObjectsClassPutNotFound) Error() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}][%d] objectsClassPutNotFound ", 404)
 }
 
 func (o *ObjectsClassPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -205,6 +211,7 @@ func (o *ObjectsClassPutUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassPutUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -238,6 +245,7 @@ func (o *ObjectsClassPutInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassPutInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

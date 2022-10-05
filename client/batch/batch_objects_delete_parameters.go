@@ -34,6 +34,7 @@ import (
 func NewBatchObjectsDeleteParams() *BatchObjectsDeleteParams {
 	var ()
 	return &BatchObjectsDeleteParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -43,6 +44,7 @@ func NewBatchObjectsDeleteParams() *BatchObjectsDeleteParams {
 func NewBatchObjectsDeleteParamsWithTimeout(timeout time.Duration) *BatchObjectsDeleteParams {
 	var ()
 	return &BatchObjectsDeleteParams{
+
 		timeout: timeout,
 	}
 }
@@ -52,6 +54,7 @@ func NewBatchObjectsDeleteParamsWithTimeout(timeout time.Duration) *BatchObjects
 func NewBatchObjectsDeleteParamsWithContext(ctx context.Context) *BatchObjectsDeleteParams {
 	var ()
 	return &BatchObjectsDeleteParams{
+
 		Context: ctx,
 	}
 }
@@ -70,6 +73,7 @@ BatchObjectsDeleteParams contains all the parameters to send to the API endpoint
 for the batch objects delete operation typically these are written to a http.Request
 */
 type BatchObjectsDeleteParams struct {
+
 	/*Body*/
 	Body *models.BatchDelete
 
@@ -124,6 +128,7 @@ func (o *BatchObjectsDeleteParams) SetBody(body *models.BatchDelete) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *BatchObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

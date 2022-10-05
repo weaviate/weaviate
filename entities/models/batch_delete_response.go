@@ -30,6 +30,7 @@ import (
 //
 // swagger:model BatchDeleteResponse
 type BatchDeleteResponse struct {
+
 	// If true, objects will not be deleted yet, but merely listed. Defaults to false.
 	DryRun *bool `json:"dryRun,omitempty"`
 
@@ -62,6 +63,7 @@ func (m *BatchDeleteResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponse) validateMatch(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Match) { // not required
 		return nil
 	}
@@ -79,6 +81,7 @@ func (m *BatchDeleteResponse) validateMatch(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponse) validateResults(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Results) { // not required
 		return nil
 	}
@@ -117,6 +120,7 @@ func (m *BatchDeleteResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteResponseMatch
 type BatchDeleteResponseMatch struct {
+
 	// Class (name) which objects will be deleted.
 	Class string `json:"class,omitempty"`
 
@@ -139,6 +143,7 @@ func (m *BatchDeleteResponseMatch) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponseMatch) validateWhere(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Where) { // not required
 		return nil
 	}
@@ -177,6 +182,7 @@ func (m *BatchDeleteResponseMatch) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteResponseResults
 type BatchDeleteResponseResults struct {
+
 	// How many objects should have been deleted but could not be deleted.
 	Failed int64 `json:"failed"`
 
@@ -208,6 +214,7 @@ func (m *BatchDeleteResponseResults) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponseResults) validateObjects(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Objects) { // not required
 		return nil
 	}
@@ -253,6 +260,7 @@ func (m *BatchDeleteResponseResults) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteResponseResultsObjectsItems0
 type BatchDeleteResponseResultsObjectsItems0 struct {
+
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
@@ -288,6 +296,7 @@ func (m *BatchDeleteResponseResultsObjectsItems0) Validate(formats strfmt.Regist
 }
 
 func (m *BatchDeleteResponseResultsObjectsItems0) validateErrors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -305,6 +314,7 @@ func (m *BatchDeleteResponseResultsObjectsItems0) validateErrors(formats strfmt.
 }
 
 func (m *BatchDeleteResponseResultsObjectsItems0) validateID(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -349,6 +359,7 @@ func (m *BatchDeleteResponseResultsObjectsItems0) validateStatusEnum(path, locat
 }
 
 func (m *BatchDeleteResponseResultsObjectsItems0) validateStatus(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}

@@ -93,6 +93,7 @@ func (o *ClassificationsGetOK) GetPayload() *models.Classification {
 }
 
 func (o *ClassificationsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Classification)
 
 	// response payload
@@ -113,13 +114,15 @@ ClassificationsGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ClassificationsGetUnauthorized struct{}
+type ClassificationsGetUnauthorized struct {
+}
 
 func (o *ClassificationsGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetUnauthorized ", 401)
 }
 
 func (o *ClassificationsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -146,6 +149,7 @@ func (o *ClassificationsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -166,13 +170,15 @@ ClassificationsGetNotFound handles this case with default header values.
 
 Not Found - Classification does not exist
 */
-type ClassificationsGetNotFound struct{}
+type ClassificationsGetNotFound struct {
+}
 
 func (o *ClassificationsGetNotFound) Error() string {
 	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetNotFound ", 404)
 }
 
 func (o *ClassificationsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -199,6 +205,7 @@ func (o *ClassificationsGetInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ClassificationsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
