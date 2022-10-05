@@ -62,6 +62,8 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 		}
 	})
 
+	t.Run("nodes api", testNodesAPI(repo))
+
 	t.Run("sorting objects", makeTestSortingClass(repo))
 
 	t.Run("verify objects", makeTestRetrievingBaseClass(repo, data, queryVec,
@@ -105,6 +107,8 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 		_, err := repo.BatchPutObjects(context.Background(), batch)
 		require.Nil(t, err)
 	})
+
+	t.Run("nodes api", testNodesAPI(repo))
 
 	t.Run("verify objects", makeTestRetrievingBaseClass(repo, data, queryVec,
 		groundTruth))
@@ -273,11 +277,13 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 
 	logger, _ := test.NewNullLogger()
 	repo := New(logger, Config{
+		ServerVersion:             "server-version",
+		GitHash:                   "git-hash",
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 
 	return repo, logger
 }
@@ -632,6 +638,40 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func testNodesAPI(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		nodeStatues, err := repo.GetNodeStatuses(context.Background())
+		require.Nil(t, err)
+		require.NotNil(t, nodeStatues)
+
+		require.Len(t, nodeStatues, 1)
+		nodeStatus := nodeStatues[0]
+		assert.NotNil(t, nodeStatus)
+		assert.Equal(t, "node1", nodeStatus.Name)
+		assert.Equal(t, "server-version", nodeStatus.Version)
+		assert.Equal(t, "git-hash", nodeStatus.GitHash)
+		assert.Len(t, nodeStatus.Shards, 6)
+		var testClassShardsCount, testClassObjectsCount int64
+		var testRefClassShardsCount, testRefClassObjectsCount int64
+		for _, status := range nodeStatus.Shards {
+			if status.Class == "TestClass" {
+				testClassShardsCount += 1
+				testClassObjectsCount += status.ObjectCount
+			}
+			if status.Class == "TestRefClass" {
+				testRefClassShardsCount += 1
+				testRefClassObjectsCount += status.ObjectCount
+			}
+		}
+		assert.Equal(t, int64(3), testClassShardsCount)
+		assert.Equal(t, int64(20), testClassObjectsCount)
+		assert.Equal(t, int64(3), testRefClassShardsCount)
+		assert.Equal(t, int64(0), testRefClassObjectsCount)
+		assert.Equal(t, int64(20), nodeStatus.Stats.ObjectCount)
+		assert.Equal(t, int64(6), nodeStatus.Stats.ShardCount)
 	}
 }
 

@@ -22,12 +22,15 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const Weaviate = "weaviate"
+const (
+	Weaviate      = "weaviate"
+	WeaviateNode2 = "weaviate2"
+)
 
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage string,
+	weaviateImage, hostname string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -42,6 +45,10 @@ func startWeaviate(ctx context.Context,
 			Dockerfile:    "Dockerfile",
 			PrintBuildLog: true,
 		}
+	}
+	containerName := Weaviate
+	if hostname != "" {
+		containerName = hostname
 	}
 	env := map[string]string{
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
@@ -62,10 +69,10 @@ func startWeaviate(ctx context.Context,
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
-		Hostname:       Weaviate,
+		Hostname:       containerName,
 		Networks:       []string{networkName},
 		NetworkAliases: map[string][]string{
-			networkName: {Weaviate},
+			networkName: {containerName},
 		},
 		ExposedPorts: []string{"8080/tcp"},
 		AutoRemove:   true,
@@ -86,5 +93,5 @@ func startWeaviate(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	return &DockerContainer{Weaviate, uri, c, nil}, nil
+	return &DockerContainer{containerName, uri, c, nil}, nil
 }

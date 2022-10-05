@@ -32,6 +32,9 @@ import (
 // spec only needs to be parsed once.
 var ServerVersion string
 
+// GitHash keeps the current git hash commit information
+var GitHash = "unknown"
+
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
 

@@ -22,6 +22,7 @@ import (
 	sch "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/semi-technologies/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_GraphQL(t *testing.T) {
@@ -389,35 +390,7 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-	createObjectClass(t, &models.Class{
-		Class: "MultiShard",
-		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
-				"vectorizeClassName": false,
-			},
-		},
-		Properties: []*models.Property{
-			{
-				Name:     "name",
-				DataType: []string{"string"},
-				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
-						"vectorizePropertyName": false,
-					},
-				},
-			},
-		},
-		ShardingConfig: map[string]interface{}{
-			"actualCount":         float64(2),
-			"actualVirtualCount":  float64(128),
-			"desiredCount":        float64(2),
-			"desiredVirtualCount": float64(128),
-			"function":            "murmur3",
-			"key":                 "_id",
-			"strategy":            "hash",
-			"virtualPerPhysical":  float64(128),
-		},
-	})
+	createObjectClass(t, multishard.ClassContextionaryVectorizer())
 
 	createObjectClass(t, &models.Class{
 		Class: "HasDateField",
@@ -920,37 +893,10 @@ func addTestDataRansomNotes(t *testing.T) {
 }
 
 func addTestDataMultiShard(t *testing.T) {
-	var (
-		multiShardID1 strfmt.UUID = "aa44bbee-ca5f-4db7-a412-5fc6a23c534a"
-		multiShardID2 strfmt.UUID = "aa44bbee-ca5f-4db7-a412-5fc6a23c534b"
-		multiShardID3 strfmt.UUID = "aa44bbee-ca5f-4db7-a412-5fc6a23c534c"
-	)
-	createObject(t, &models.Object{
-		Class: "MultiShard",
-		ID:    multiShardID1,
-		Properties: map[string]interface{}{
-			"name": "multi shard one",
-		},
-	})
-	assertGetObjectEventually(t, multiShardID1)
-
-	createObject(t, &models.Object{
-		Class: "MultiShard",
-		ID:    multiShardID2,
-		Properties: map[string]interface{}{
-			"name": "multi shard two",
-		},
-	})
-	assertGetObjectEventually(t, multiShardID2)
-
-	createObject(t, &models.Object{
-		Class: "MultiShard",
-		ID:    multiShardID3,
-		Properties: map[string]interface{}{
-			"name": "multi shard three",
-		},
-	})
-	assertGetObjectEventually(t, multiShardID3)
+	for _, multiShard := range multishard.Objects() {
+		helper.CreateObject(t, multiShard)
+		helper.AssertGetObjectEventually(t, multiShard.Class, multiShard.ID)
+	}
 }
 
 func addTestDataNearObjectSearch(t *testing.T) {
