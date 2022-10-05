@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/coreos/go-oidc"
+	"github.com/coreos/go-oidc/v3/oidc"
 	errors "github.com/go-openapi/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -62,6 +62,8 @@ func (c *Client) init() error {
 		return fmt.Errorf("could not setup provider: %v", err)
 	}
 	c.provider = provider
+
+	// oauth2
 
 	verifier := provider.Verifier(&oidc.Config{
 		ClientID:          c.config.ClientID,

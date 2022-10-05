@@ -3836,6 +3836,14 @@
                 "clientId": {
                   "description": "OAuth Client ID",
                   "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
                 }
               }
             }
