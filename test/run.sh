@@ -81,7 +81,8 @@ function main() {
     suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
     echo_green "Building weaviate image for module acceptance tests..."
     echo "This could take some time..."
-    docker build -t $module_test_image .
+    GIT_HASH=$(git rev-parse --short HEAD)
+    docker build --build-arg GITHASH=$GIT_HASH -t $module_test_image .
     export "TEST_WEAVIATE_IMAGE"=$module_test_image
 
     run_module_tests "$@"

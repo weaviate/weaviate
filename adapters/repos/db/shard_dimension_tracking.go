@@ -25,38 +25,39 @@ func (s *Shard) Dimensions() int {
 	}
 
 	c := b.MapCursor()
+	defer c.Close()
 	sum := 0
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		dimLength := binary.LittleEndian.Uint32(k)
 		sum += int(dimLength) * len(v)
 	}
-	c.Close()
 
 	return sum
 }
 
-func (s *Shard) initDimensionTracking() {
-	if !s.index.Config.TrackVectorDimensions {
-		return
+func (s *Shard) sendVectorDimensionsMetric(count int) {
+	metric, err := s.promMetrics.VectorDimensionsSum.
+		GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
+	if err == nil {
+		metric.Set(float64(count))
 	}
+}
 
-	go func() {
-		t := time.NewTicker(5 * time.Minute)
-
-		for {
-			if s.stopMetrics {
-				return
-			}
-
-			dimCount := s.Dimensions()
-			if s.promMetrics != nil {
-				metric, err := s.promMetrics.VectorDimensionsSum.
-					GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
-				if err == nil {
-					metric.Set(float64(dimCount))
+func (s *Shard) initDimensionTracking() {
+	if s.index.Config.TrackVectorDimensions {
+		// start tracking vector dimensions goroutine only when tracking is enabled
+		go func() {
+			t := time.NewTicker(5 * time.Minute)
+			for {
+				select {
+				case <-s.stopMetrics:
+					return
+				case <-t.C:
+					if s.promMetrics != nil {
+						s.sendVectorDimensionsMetric(s.Dimensions())
+					}
 				}
 			}
-			<-t.C
-		}
-	}()
+		}()
+	}
 }

@@ -48,6 +48,18 @@ func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
 	return f.shardState
 }
 
+func (f *fakeSchemaGetter) Nodes() []string {
+	return []string{"node1"}
+}
+
+func (m *fakeSchemaGetter) NodeName() string {
+	return "node1"
+}
+
+func (m *fakeSchemaGetter) ClusterHealthScore() int {
+	return 0
+}
+
 func singleShardState() *sharding.State {
 	config, err := sharding.ParseConfig(nil, 1)
 	if err != nil {
@@ -408,4 +420,10 @@ type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 	return "", false
+}
+
+type fakeRemoteNodeClient struct{}
+
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error) {
+	return &models.NodeStatus{}, nil
 }

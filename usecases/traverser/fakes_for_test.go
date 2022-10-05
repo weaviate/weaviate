@@ -218,6 +218,18 @@ func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
 
+func (f *fakeSchemaGetter) Nodes() []string {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) NodeName() string {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) ClusterHealthScore() int {
+	panic("not implemented")
+}
+
 type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
