@@ -42,4 +42,5 @@ type Migrator interface {
 		old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
+	RecalculateVectorDimensions(ctx context.Context) error
 }

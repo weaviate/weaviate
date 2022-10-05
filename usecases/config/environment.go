@@ -34,10 +34,9 @@ func FromEnv(config *Config) error {
 	}
 
 	if enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
-		if config.TrackVectorDimensions != true {
-			panic("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP is set to true but TRACK_VECTOR_DIMENSIONS is not set to true")
+		if config.TrackVectorDimensions == true {
+			config.WantDimensionsReindex = true
 		}
-		config.WantDimensionsReindex = true
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {

@@ -211,13 +211,23 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
-func (m *Migrator) RecalculateVectorDimensions(ctx context.Context, repo *Index) error {
+func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	count := 0
-	repo.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
-		count = count + 1
-		err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
-		return err
-	})
+
+	//Iterate over all indexes
+	for _, index := range m.db.indices {
+
+		//Iterate over all shards
+
+		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+			count = count + 1
+			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
+			return err
+		})
+	}
 	fmt.Printf("Recalculated %d objects\n", count)
+	m.logger.
+		WithField("action", "startup").
+		Info("Reindexing dimensions")
 	return nil
 }
