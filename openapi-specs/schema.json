@@ -822,6 +822,91 @@
         }
       }
     },
+    "NodeStats": {
+      "description": "The summary of Weaviate's statistics.",
+      "properties": {
+        "shardCount": {
+          "description": "The count of Weaviate's shards.",
+          "format": "int",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "objectCount": {
+          "description": "The total number of objects in DB.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        }
+      }
+    },
+    "NodeShardStatus": {
+      "description": "The definition of a node shard status response body",
+      "properties": {
+        "name": {
+          "description": "The name of the shard.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "class": {
+          "description": "The name of shard's class.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "objectCount": {
+          "description": "The number of objects in shard.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        }
+      }
+    },
+    "NodeStatus": {
+      "description": "The definition of a backup node status response body",
+      "properties": {
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": ["HEALTHY", "UNHEALTHY", "UNAVAILABLE"]
+        },
+        "version": {
+          "description": "The version of Weaviate.",
+          "type": "string"
+        },
+        "gitHash": {
+          "description": "The gitHash of Weaviate.",
+          "type": "string"
+        },
+        "stats": {
+          "description": "Weaviate overall statistics.",
+          "type": "object",
+          "$ref": "#/definitions/NodeStats"
+        },
+        "shards": {
+          "description": "The list of the shards with it's statistics.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeShardStatus"
+          }
+        }
+      }
+    },
+    "NodeStatusResponse": {
+      "description": "The status of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeStatus"
+          }
+        }
+      }
+    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -3586,6 +3671,49 @@
           },
           "404": {
             "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/nodes": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "operationId": "nodes.get",
+        "x-serviceIds": ["weaviate.nodes.status.get"],
+        "tags": ["nodes"],
+        "responses": {
+          "200": {
+            "description": "Nodes status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/NodeStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

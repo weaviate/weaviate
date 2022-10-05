@@ -19,7 +19,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/google/uuid v1.3.0
 	github.com/graphql-go/graphql v0.7.9
-	github.com/hashicorp/memberlist v0.2.4
+	github.com/hashicorp/memberlist v0.4.0
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/minio/minio-go/v7 v7.0.31
 	github.com/nyaruka/phonenumbers v1.0.54
@@ -37,7 +37,7 @@ require (
 	golang.org/x/net v0.0.0-20220617184016-355a448f1bc9
 	golang.org/x/oauth2 v0.0.0-20220622183110-fd043fe589d2
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
-	golang.org/x/sys v0.0.0-20220615213510-4f61da869c0c
+	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/api v0.85.0
 	google.golang.org/grpc v1.47.0

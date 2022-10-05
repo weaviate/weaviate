@@ -30,8 +30,9 @@ func Serve(appState *state.State) {
 		Debugf("serving cluster api on port %d", port)
 
 	schema := NewSchema(appState.SchemaManager.TxManager())
-	indices := NewIndices(appState.RemoteIncoming)
+	indices := NewIndices(appState.RemoteIndexIncoming)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
+	nodes := NewNodes(appState.RemoteNodeIncoming)
 	backups := NewBackups(appState.BackupManager)
 
 	mux := http.NewServeMux()
@@ -41,6 +42,7 @@ func Serve(appState *state.State) {
 		http.StripPrefix("/classifications/transactions/",
 			classifications.Transactions()))
 
+	mux.Handle("/nodes/", nodes.Nodes())
 	mux.Handle("/indices/", indices.Indices())
 
 	mux.Handle("/backups/can-commit", backups.CanCommit())
