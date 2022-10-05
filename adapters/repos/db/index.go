@@ -125,7 +125,6 @@ func NewIndex(ctx context.Context, config IndexConfig,
 }
 
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard *Shard, object *storobj.Object) error) error {
-
 	for _, shard := range i.Shards {
 		wrapper := func(object *storobj.Object) error {
 			return cb(i, shard, object)

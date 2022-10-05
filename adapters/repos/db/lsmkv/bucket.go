@@ -128,7 +128,6 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) {
-
 	i := 0
 	cursor := b.Cursor()
 	defer cursor.Close()
@@ -143,7 +142,6 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 		i++
 	}
-
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
