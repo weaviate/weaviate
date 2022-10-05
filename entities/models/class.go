@@ -28,7 +28,6 @@ import (
 //
 // swagger:model Class
 type Class struct {
-
 	// Name of the class as URI relative to the schema URL.
 	Class string `json:"class,omitempty"`
 
@@ -76,7 +75,6 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Class) validateInvertedIndexConfig(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.InvertedIndexConfig) { // not required
 		return nil
 	}
@@ -94,7 +92,6 @@ func (m *Class) validateInvertedIndexConfig(formats strfmt.Registry) error {
 }
 
 func (m *Class) validateProperties(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Properties) { // not required
 		return nil
 	}

@@ -92,15 +92,13 @@ ObjectsClassPatchNoContent handles this case with default header values.
 
 Successfully applied. No content provided.
 */
-type ObjectsClassPatchNoContent struct {
-}
+type ObjectsClassPatchNoContent struct{}
 
 func (o *ObjectsClassPatchNoContent) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNoContent ", 204)
 }
 
 func (o *ObjectsClassPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -114,15 +112,13 @@ ObjectsClassPatchBadRequest handles this case with default header values.
 
 The patch-JSON is malformed.
 */
-type ObjectsClassPatchBadRequest struct {
-}
+type ObjectsClassPatchBadRequest struct{}
 
 func (o *ObjectsClassPatchBadRequest) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchBadRequest ", 400)
 }
 
 func (o *ObjectsClassPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -136,15 +132,13 @@ ObjectsClassPatchUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassPatchUnauthorized struct {
-}
+type ObjectsClassPatchUnauthorized struct{}
 
 func (o *ObjectsClassPatchUnauthorized) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchUnauthorized ", 401)
 }
 
 func (o *ObjectsClassPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -171,7 +165,6 @@ func (o *ObjectsClassPatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -192,15 +185,13 @@ ObjectsClassPatchNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsClassPatchNotFound struct {
-}
+type ObjectsClassPatchNotFound struct{}
 
 func (o *ObjectsClassPatchNotFound) Error() string {
 	return fmt.Sprintf("[PATCH /objects/{className}/{id}][%d] objectsClassPatchNotFound ", 404)
 }
 
 func (o *ObjectsClassPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -227,7 +218,6 @@ func (o *ObjectsClassPatchUnprocessableEntity) GetPayload() *models.ErrorRespons
 }
 
 func (o *ObjectsClassPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -261,7 +251,6 @@ func (o *ObjectsClassPatchInternalServerError) GetPayload() *models.ErrorRespons
 }
 
 func (o *ObjectsClassPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

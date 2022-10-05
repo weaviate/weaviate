@@ -34,7 +34,6 @@ import (
 func NewObjectsReferencesUpdateParams() *ObjectsReferencesUpdateParams {
 	var ()
 	return &ObjectsReferencesUpdateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewObjectsReferencesUpdateParams() *ObjectsReferencesUpdateParams {
 func NewObjectsReferencesUpdateParamsWithTimeout(timeout time.Duration) *ObjectsReferencesUpdateParams {
 	var ()
 	return &ObjectsReferencesUpdateParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewObjectsReferencesUpdateParamsWithTimeout(timeout time.Duration) *Objects
 func NewObjectsReferencesUpdateParamsWithContext(ctx context.Context) *ObjectsReferencesUpdateParams {
 	var ()
 	return &ObjectsReferencesUpdateParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ ObjectsReferencesUpdateParams contains all the parameters to send to the API end
 for the objects references update operation typically these are written to a http.Request
 */
 type ObjectsReferencesUpdateParams struct {
-
 	/*Body*/
 	Body models.MultipleRef
 	/*ID
@@ -160,7 +156,6 @@ func (o *ObjectsReferencesUpdateParams) SetPropertyName(propertyName string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsReferencesUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

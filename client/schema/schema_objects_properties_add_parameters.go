@@ -34,7 +34,6 @@ import (
 func NewSchemaObjectsPropertiesAddParams() *SchemaObjectsPropertiesAddParams {
 	var ()
 	return &SchemaObjectsPropertiesAddParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewSchemaObjectsPropertiesAddParams() *SchemaObjectsPropertiesAddParams {
 func NewSchemaObjectsPropertiesAddParamsWithTimeout(timeout time.Duration) *SchemaObjectsPropertiesAddParams {
 	var ()
 	return &SchemaObjectsPropertiesAddParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewSchemaObjectsPropertiesAddParamsWithTimeout(timeout time.Duration) *Sche
 func NewSchemaObjectsPropertiesAddParamsWithContext(ctx context.Context) *SchemaObjectsPropertiesAddParams {
 	var ()
 	return &SchemaObjectsPropertiesAddParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ SchemaObjectsPropertiesAddParams contains all the parameters to send to the API 
 for the schema objects properties add operation typically these are written to a http.Request
 */
 type SchemaObjectsPropertiesAddParams struct {
-
 	/*Body*/
 	Body *models.Property
 	/*ClassName*/
@@ -141,7 +137,6 @@ func (o *SchemaObjectsPropertiesAddParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsPropertiesAddParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

@@ -33,7 +33,6 @@ GraphqlPostOK Successful query (with select).
 swagger:response graphqlPostOK
 */
 type GraphqlPostOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type GraphqlPostOK struct {
 
 // NewGraphqlPostOK creates GraphqlPostOK with default headers values
 func NewGraphqlPostOK() *GraphqlPostOK {
-
 	return &GraphqlPostOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *GraphqlPostOK) SetPayload(payload *models.GraphQLResponse) {
 
 // WriteResponse to the client
 func (o *GraphqlPostOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ GraphqlPostUnauthorized Unauthorized or invalid credentials.
 
 swagger:response graphqlPostUnauthorized
 */
-type GraphqlPostUnauthorized struct {
-}
+type GraphqlPostUnauthorized struct{}
 
 // NewGraphqlPostUnauthorized creates GraphqlPostUnauthorized with default headers values
 func NewGraphqlPostUnauthorized() *GraphqlPostUnauthorized {
-
 	return &GraphqlPostUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GraphqlPostUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ GraphqlPostForbidden Forbidden
 swagger:response graphqlPostForbidden
 */
 type GraphqlPostForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type GraphqlPostForbidden struct {
 
 // NewGraphqlPostForbidden creates GraphqlPostForbidden with default headers values
 func NewGraphqlPostForbidden() *GraphqlPostForbidden {
-
 	return &GraphqlPostForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *GraphqlPostForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *GraphqlPostForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ GraphqlPostUnprocessableEntity Request body is well-formed (i.e., syntactically 
 swagger:response graphqlPostUnprocessableEntity
 */
 type GraphqlPostUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type GraphqlPostUnprocessableEntity struct {
 
 // NewGraphqlPostUnprocessableEntity creates GraphqlPostUnprocessableEntity with default headers values
 func NewGraphqlPostUnprocessableEntity() *GraphqlPostUnprocessableEntity {
-
 	return &GraphqlPostUnprocessableEntity{}
 }
 
@@ -174,7 +163,6 @@ func (o *GraphqlPostUnprocessableEntity) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *GraphqlPostUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ GraphqlPostInternalServerError An error has occurred while trying to fulfill the
 swagger:response graphqlPostInternalServerError
 */
 type GraphqlPostInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type GraphqlPostInternalServerError struct {
 
 // NewGraphqlPostInternalServerError creates GraphqlPostInternalServerError with default headers values
 func NewGraphqlPostInternalServerError() *GraphqlPostInternalServerError {
-
 	return &GraphqlPostInternalServerError{}
 }
 
@@ -219,7 +205,6 @@ func (o *GraphqlPostInternalServerError) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *GraphqlPostInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

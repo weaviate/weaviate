@@ -32,7 +32,6 @@ import (
 func NewBackupsRestoreStatusParams() *BackupsRestoreStatusParams {
 	var ()
 	return &BackupsRestoreStatusParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -42,7 +41,6 @@ func NewBackupsRestoreStatusParams() *BackupsRestoreStatusParams {
 func NewBackupsRestoreStatusParamsWithTimeout(timeout time.Duration) *BackupsRestoreStatusParams {
 	var ()
 	return &BackupsRestoreStatusParams{
-
 		timeout: timeout,
 	}
 }
@@ -52,7 +50,6 @@ func NewBackupsRestoreStatusParamsWithTimeout(timeout time.Duration) *BackupsRes
 func NewBackupsRestoreStatusParamsWithContext(ctx context.Context) *BackupsRestoreStatusParams {
 	var ()
 	return &BackupsRestoreStatusParams{
-
 		Context: ctx,
 	}
 }
@@ -71,7 +68,6 @@ BackupsRestoreStatusParams contains all the parameters to send to the API endpoi
 for the backups restore status operation typically these are written to a http.Request
 */
 type BackupsRestoreStatusParams struct {
-
 	/*Backend
 	  Backup backend name e.g. filesystem, gcs, s3.
 
@@ -145,7 +141,6 @@ func (o *BackupsRestoreStatusParams) SetID(id string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsRestoreStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

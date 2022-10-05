@@ -32,7 +32,6 @@ import (
 func NewObjectsHeadParams() *ObjectsHeadParams {
 	var ()
 	return &ObjectsHeadParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -42,7 +41,6 @@ func NewObjectsHeadParams() *ObjectsHeadParams {
 func NewObjectsHeadParamsWithTimeout(timeout time.Duration) *ObjectsHeadParams {
 	var ()
 	return &ObjectsHeadParams{
-
 		timeout: timeout,
 	}
 }
@@ -52,7 +50,6 @@ func NewObjectsHeadParamsWithTimeout(timeout time.Duration) *ObjectsHeadParams {
 func NewObjectsHeadParamsWithContext(ctx context.Context) *ObjectsHeadParams {
 	var ()
 	return &ObjectsHeadParams{
-
 		Context: ctx,
 	}
 }
@@ -71,7 +68,6 @@ ObjectsHeadParams contains all the parameters to send to the API endpoint
 for the objects head operation typically these are written to a http.Request
 */
 type ObjectsHeadParams struct {
-
 	/*ID
 	  Unique ID of the Object.
 
@@ -129,7 +125,6 @@ func (o *ObjectsHeadParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsHeadParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

@@ -87,7 +87,6 @@ func (o *MetaGetOK) GetPayload() *models.Meta {
 }
 
 func (o *MetaGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Meta)
 
 	// response payload
@@ -108,15 +107,13 @@ MetaGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type MetaGetUnauthorized struct {
-}
+type MetaGetUnauthorized struct{}
 
 func (o *MetaGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /meta][%d] metaGetUnauthorized ", 401)
 }
 
 func (o *MetaGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -143,7 +140,6 @@ func (o *MetaGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -177,7 +173,6 @@ func (o *MetaGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

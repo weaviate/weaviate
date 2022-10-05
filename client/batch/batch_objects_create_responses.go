@@ -98,7 +98,6 @@ func (o *BatchObjectsCreateOK) GetPayload() []*models.ObjectsGetResponse {
 }
 
 func (o *BatchObjectsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -117,15 +116,13 @@ BatchObjectsCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type BatchObjectsCreateUnauthorized struct {
-}
+type BatchObjectsCreateUnauthorized struct{}
 
 func (o *BatchObjectsCreateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnauthorized ", 401)
 }
 
 func (o *BatchObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -152,7 +149,6 @@ func (o *BatchObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -186,7 +182,6 @@ func (o *BatchObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -220,7 +215,6 @@ func (o *BatchObjectsCreateInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -236,7 +230,6 @@ BatchObjectsCreateBody batch objects create body
 swagger:model BatchObjectsCreateBody
 */
 type BatchObjectsCreateBody struct {
-
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `json:"fields"`
 
@@ -282,7 +275,6 @@ func (o *BatchObjectsCreateBody) validateFieldsItemsEnum(path, location string, 
 }
 
 func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Fields) { // not required
 		return nil
 	}
@@ -303,7 +295,6 @@ func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
 }
 
 func (o *BatchObjectsCreateBody) validateObjects(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Objects) { // not required
 		return nil
 	}

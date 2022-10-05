@@ -99,7 +99,6 @@ func (o *BackupsRestoreOK) GetPayload() *models.BackupRestoreResponse {
 }
 
 func (o *BackupsRestoreOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.BackupRestoreResponse)
 
 	// response payload
@@ -120,15 +119,13 @@ BackupsRestoreUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type BackupsRestoreUnauthorized struct {
-}
+type BackupsRestoreUnauthorized struct{}
 
 func (o *BackupsRestoreUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /backups/{backend}/{id}/restore][%d] backupsRestoreUnauthorized ", 401)
 }
 
 func (o *BackupsRestoreUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -155,7 +152,6 @@ func (o *BackupsRestoreForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -189,7 +185,6 @@ func (o *BackupsRestoreNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +218,6 @@ func (o *BackupsRestoreUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -257,7 +251,6 @@ func (o *BackupsRestoreInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

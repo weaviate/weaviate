@@ -32,7 +32,6 @@ import (
 func NewClassificationsGetParams() *ClassificationsGetParams {
 	var ()
 	return &ClassificationsGetParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -42,7 +41,6 @@ func NewClassificationsGetParams() *ClassificationsGetParams {
 func NewClassificationsGetParamsWithTimeout(timeout time.Duration) *ClassificationsGetParams {
 	var ()
 	return &ClassificationsGetParams{
-
 		timeout: timeout,
 	}
 }
@@ -52,7 +50,6 @@ func NewClassificationsGetParamsWithTimeout(timeout time.Duration) *Classificati
 func NewClassificationsGetParamsWithContext(ctx context.Context) *ClassificationsGetParams {
 	var ()
 	return &ClassificationsGetParams{
-
 		Context: ctx,
 	}
 }
@@ -71,7 +68,6 @@ ClassificationsGetParams contains all the parameters to send to the API endpoint
 for the classifications get operation typically these are written to a http.Request
 */
 type ClassificationsGetParams struct {
-
 	/*ID
 	  classification id
 
@@ -129,7 +125,6 @@ func (o *ClassificationsGetParams) SetID(id string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ClassificationsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

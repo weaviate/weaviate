@@ -99,7 +99,6 @@ func (o *NodesGetOK) GetPayload() *models.NodeStatusResponse {
 }
 
 func (o *NodesGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.NodeStatusResponse)
 
 	// response payload
@@ -120,15 +119,13 @@ NodesGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type NodesGetUnauthorized struct {
-}
+type NodesGetUnauthorized struct{}
 
 func (o *NodesGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized ", 401)
 }
 
 func (o *NodesGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -155,7 +152,6 @@ func (o *NodesGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -189,7 +185,6 @@ func (o *NodesGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +218,6 @@ func (o *NodesGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -257,7 +251,6 @@ func (o *NodesGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

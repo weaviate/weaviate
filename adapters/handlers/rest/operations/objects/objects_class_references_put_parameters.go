@@ -32,7 +32,6 @@ import (
 // NewObjectsClassReferencesPutParams creates a new ObjectsClassReferencesPutParams object
 // no default values defined in spec.
 func NewObjectsClassReferencesPutParams() ObjectsClassReferencesPutParams {
-
 	return ObjectsClassReferencesPutParams{}
 }
 
@@ -41,7 +40,6 @@ func NewObjectsClassReferencesPutParams() ObjectsClassReferencesPutParams {
 //
 // swagger:parameters objects.class.references.put
 type ObjectsClassReferencesPutParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -160,7 +158,6 @@ func (o *ObjectsClassReferencesPutParams) bindID(rawData []string, hasKey bool, 
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsClassReferencesPutParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

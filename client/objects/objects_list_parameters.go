@@ -31,9 +31,7 @@ import (
 // NewObjectsListParams creates a new ObjectsListParams object
 // with the default values initialized.
 func NewObjectsListParams() *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
+	offsetDefault := int64(0)
 	return &ObjectsListParams{
 		Offset: &offsetDefault,
 
@@ -44,9 +42,7 @@ func NewObjectsListParams() *ObjectsListParams {
 // NewObjectsListParamsWithTimeout creates a new ObjectsListParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewObjectsListParamsWithTimeout(timeout time.Duration) *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
+	offsetDefault := int64(0)
 	return &ObjectsListParams{
 		Offset: &offsetDefault,
 
@@ -57,9 +53,7 @@ func NewObjectsListParamsWithTimeout(timeout time.Duration) *ObjectsListParams {
 // NewObjectsListParamsWithContext creates a new ObjectsListParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewObjectsListParamsWithContext(ctx context.Context) *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
+	offsetDefault := int64(0)
 	return &ObjectsListParams{
 		Offset: &offsetDefault,
 
@@ -70,9 +64,7 @@ func NewObjectsListParamsWithContext(ctx context.Context) *ObjectsListParams {
 // NewObjectsListParamsWithHTTPClient creates a new ObjectsListParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewObjectsListParamsWithHTTPClient(client *http.Client) *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
+	offsetDefault := int64(0)
 	return &ObjectsListParams{
 		Offset:     &offsetDefault,
 		HTTPClient: client,
@@ -84,7 +76,6 @@ ObjectsListParams contains all the parameters to send to the API endpoint
 for the objects list operation typically these are written to a http.Request
 */
 type ObjectsListParams struct {
-
 	/*Class
 	  Class parameter specifies the class from which to query objects
 
@@ -222,7 +213,6 @@ func (o *ObjectsListParams) SetSort(sort *string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

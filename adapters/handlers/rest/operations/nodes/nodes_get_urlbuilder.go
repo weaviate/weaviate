@@ -46,7 +46,7 @@ func (o *NodesGetURL) SetBasePath(bp string) {
 func (o *NodesGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/nodes"
+	_path := "/nodes"
 
 	_basePath := o._basePath
 	if _basePath == "" {
