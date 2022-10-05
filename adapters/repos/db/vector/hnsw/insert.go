@@ -66,6 +66,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	}
 
 	h.nodes[node.id] = node
+	h.cache.preload(node.id, nodeVec)
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil

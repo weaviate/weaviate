@@ -1170,7 +1170,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 3,
+						Count: 2,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(2.0),
@@ -1178,7 +1178,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 2,
+						Count: 1,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(3.0),

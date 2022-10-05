@@ -12,7 +12,6 @@
 package test
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -39,6 +38,18 @@ const (
 
 	objectNoPropsClassID1 = "dfa3b21e-ca5f-4db7-a412-5fc6a23c5301"
 	objectNoPropsClassID2 = "dfa3b21e-ca5f-4db7-a412-5fc6a23c5311"
+)
+
+const (
+	cityClassName = "City"
+)
+
+const (
+	duplicatesClassName = "DuplicatesClass"
+
+	objectDuplicatesClassID1_4el = "a8076f34-ec16-4333-a963-00c89c5ba001"
+	objectDuplicatesClassID2_3el = "a8076f34-ec16-4333-a963-00c89c5ba002"
+	objectDuplicatesClassID3_2el = "a8076f34-ec16-4333-a963-00c89c5ba003"
 )
 
 func arrayClassSchema() *models.Class {
@@ -267,7 +278,7 @@ func aggregateArrayClassQuery(filters, groupBy string) string {
 						maximum
 						mean
 						median
-						# mode
+						mode
 						sum
 					}
 					ints{
@@ -277,7 +288,7 @@ func aggregateArrayClassQuery(filters, groupBy string) string {
 						maximum
 						mean
 						median
-						# mode
+						mode
 						sum
 					}
 					datesAsStrings{
@@ -372,179 +383,306 @@ func aggregateNoPropsQuery(filters string) string {
 	return fmt.Sprintf(query, noPropsClassName, params)
 }
 
-type gqlAggregateHelper struct{}
+func aggregateCityQuery(filters, groupBy string) string {
+	query := `{
+			Aggregate {
+				%s
+				%s
+				{
+					meta {
+						count
+					}
+					name {
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					cityArea {
+						count
+						type
+						minimum
+						maximum
+						mean
+						median
+						mode
+						sum
+					}
+					isCapital {
+						count
+						type
+						totalTrue
+						totalFalse
+						percentageTrue
+						percentageFalse
+					}
+					population {
+						count
+						type
+						minimum
+						maximum
+						mean
+						median
+						mode
+						sum
+					}
+					cityRights {
+						count
+					}
+					history {
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					museums {
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					timezones {
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					inCountry {
+						pointingTo
+						type
+					}
+					%s
+				}
+			}
+		}`
 
-func (h *gqlAggregateHelper) booleans(count, totalFalse, totalTrue int64,
-	percentageFalse, percentageTrue float64,
-) map[string]interface{} {
-	return map[string]interface{}{
-		"count":           json.Number(fmt.Sprint(count)),
-		"percentageFalse": json.Number(fmt.Sprint(percentageFalse)),
-		"percentageTrue":  json.Number(fmt.Sprint(percentageTrue)),
-		"totalFalse":      json.Number(fmt.Sprint(totalFalse)),
-		"totalTrue":       json.Number(fmt.Sprint(totalTrue)),
-		"type":            "boolean[]",
+	params := ""
+	if filters != "" || groupBy != "" {
+		params = fmt.Sprintf(
+			`(
+				%s
+				%s
+			)`, filters, groupBy)
+	}
+	groupedBy := ""
+	if groupBy != "" {
+		groupedBy = `groupedBy{
+						value
+						path
+					}`
+	}
+
+	return fmt.Sprintf(query, cityClassName, params, groupedBy)
+}
+
+func duplicatesClassSchema() *models.Class {
+	return &models.Class{
+		Class: duplicatesClassName,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:         "strings",
+				DataType:     []string{"string[]"},
+				Tokenization: models.PropertyTokenizationWord,
+			},
+			{
+				Name:         "texts",
+				DataType:     []string{"text[]"},
+				Tokenization: models.PropertyTokenizationWord,
+			},
+			{
+				Name:     "numbers",
+				DataType: []string{"number[]"},
+			},
+			{
+				Name:     "ints",
+				DataType: []string{"int[]"},
+			},
+			{
+				Name:     "booleans",
+				DataType: []string{"boolean[]"},
+			},
+			{
+				Name:     "datesAsStrings",
+				DataType: []string{"date[]"},
+			},
+		},
 	}
 }
 
-func (h *gqlAggregateHelper) booleans0() map[string]interface{} {
-	return map[string]interface{}{
-		"count":           json.Number("0"),
-		"percentageFalse": nil,
-		"percentageTrue":  nil,
-		"totalFalse":      json.Number("0"),
-		"totalTrue":       json.Number("0"),
-		"type":            "boolean[]",
+func duplicatesClassObjects() []*models.Object {
+	return []*models.Object{
+		objectDuplicatesClass4el(),
+		objectDuplicatesClass3el(),
+		objectDuplicatesClass2el(),
 	}
 }
 
-func (h *gqlAggregateHelper) ints(count, maximum, minimum, mode, sum int64,
-	median, mean float64,
-) map[string]interface{} {
-	return map[string]interface{}{
-		"count":   json.Number(fmt.Sprint(count)),
-		"maximum": json.Number(fmt.Sprint(maximum)),
-		"mean":    json.Number(fmt.Sprint(mean)),
-		"median":  json.Number(fmt.Sprint(median)),
-		"minimum": json.Number(fmt.Sprint(minimum)),
-		// "mode":    json.Number(fmt.Sprint(mode)),
-		"sum":  json.Number(fmt.Sprint(sum)),
-		"type": "int[]",
+func objectDuplicatesClass4el() *models.Object {
+	return &models.Object{
+		Class: duplicatesClassName,
+		ID:    objectDuplicatesClassID1_4el,
+		Properties: map[string]interface{}{
+			"strings":  []string{"Astr", "Astr", "Astr", "Bstr"},
+			"texts":    []string{"Atxt", "Atxt", "Atxt", "Btxt"},
+			"numbers":  []float64{1.0, 1.0, 1.0, 2.0},
+			"ints":     []int{101, 101, 101, 102},
+			"booleans": []bool{true, true, true, false},
+			"datesAsStrings": []string{
+				"2021-06-01T22:18:59.640162Z",
+				"2021-06-01T22:18:59.640162Z",
+				"2021-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+			},
+		},
 	}
 }
 
-func (h *gqlAggregateHelper) ints0() map[string]interface{} {
-	return map[string]interface{}{
-		"count":   json.Number("0"),
-		"maximum": nil,
-		"mean":    nil,
-		"median":  nil,
-		"minimum": nil,
-		// "mode":    nil,
-		"sum":  nil,
-		"type": "int[]",
+func objectDuplicatesClass3el() *models.Object {
+	return &models.Object{
+		Class: duplicatesClassName,
+		ID:    objectDuplicatesClassID2_3el,
+		Properties: map[string]interface{}{
+			"strings":  []string{"Astr", "Astr", "Bstr"},
+			"texts":    []string{"Atxt", "Atxt", "Btxt"},
+			"numbers":  []float64{1.0, 1.0, 2.0},
+			"ints":     []int{101, 101, 102},
+			"booleans": []bool{true, true, false},
+			"datesAsStrings": []string{
+				"2021-06-01T22:18:59.640162Z",
+				"2021-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+			},
+		},
 	}
 }
 
-func (h *gqlAggregateHelper) numbers(count int64,
-	maximum, minimum, mode, sum, median, mean float64,
-) map[string]interface{} {
-	return map[string]interface{}{
-		"count":   json.Number(fmt.Sprint(count)),
-		"maximum": json.Number(fmt.Sprint(maximum)),
-		"mean":    json.Number(fmt.Sprint(mean)),
-		"median":  json.Number(fmt.Sprint(median)),
-		"minimum": json.Number(fmt.Sprint(minimum)),
-		// "mode":    json.Number(fmt.Sprint(mode)),
-		"sum":  json.Number(fmt.Sprint(sum)),
-		"type": "number[]",
+func objectDuplicatesClass2el() *models.Object {
+	return &models.Object{
+		Class: duplicatesClassName,
+		ID:    objectDuplicatesClassID3_2el,
+		Properties: map[string]interface{}{
+			"strings":  []string{"Astr", "Bstr"},
+			"texts":    []string{"Atxt", "Btxt"},
+			"numbers":  []float64{1.0, 2.0},
+			"ints":     []int{101, 102},
+			"booleans": []bool{true, false},
+			"datesAsStrings": []string{
+				"2021-06-01T22:18:59.640162Z",
+				"2022-06-02T22:18:59.640162Z",
+			},
+		},
 	}
 }
 
-func (h *gqlAggregateHelper) numbers0() map[string]interface{} {
-	return map[string]interface{}{
-		"count":   json.Number("0"),
-		"maximum": nil,
-		"mean":    nil,
-		"median":  nil,
-		"minimum": nil,
-		// "mode":    nil,
-		"sum":  nil,
-		"type": "number[]",
-	}
-}
+func aggregateDuplicatesClassQuery(filters, groupBy string) string {
+	query := `{
+			Aggregate {
+				%s
+				%s
+				{
+					meta{
+						count
+					}
+					booleans{
+						count
+						type
+						totalTrue
+						totalFalse
+						percentageTrue
+						percentageFalse
+					}
+					strings{
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					texts{
+						count
+						type
+						topOccurrences {
+							value
+							occurs
+						}
+					}
+					numbers{
+						count
+						type
+						minimum
+						maximum
+						mean
+						median
+						mode
+						sum
+					}
+					ints{
+						count
+						type
+						minimum
+						maximum
+						mean
+						median
+						mode
+						sum
+					}
+					datesAsStrings{
+						count
+					}
+					%s
+				}
+			}
+		}`
 
-func (h *gqlAggregateHelper) strings(count int64, values []string, occurrences []int64,
-) map[string]interface{} {
-	to := make([]interface{}, len(values))
-	for i := range values {
-		to[i] = map[string]interface{}{
-			"occurs": json.Number(fmt.Sprint(occurrences[i])),
-			"value":  values[i],
-		}
+	params := ""
+	if filters != "" || groupBy != "" {
+		params = fmt.Sprintf(
+			`(
+				%s
+				%s
+			)`, filters, groupBy)
+	}
+	groupedBy := ""
+	if groupBy != "" {
+		groupedBy = `groupedBy{
+						value
+						path
+					}`
 	}
 
-	return map[string]interface{}{
-		"count":          json.Number(fmt.Sprint(count)),
-		"topOccurrences": to,
-		"type":           "string[]",
-	}
-}
-
-func (h *gqlAggregateHelper) strings0() map[string]interface{} {
-	return map[string]interface{}{
-		"count":          json.Number("0"),
-		"topOccurrences": []interface{}{},
-		"type":           "string[]",
-	}
-}
-
-func (h *gqlAggregateHelper) texts(count int64, values []string, occurrences []int64,
-) map[string]interface{} {
-	to := make([]interface{}, len(values))
-	for i := range values {
-		to[i] = map[string]interface{}{
-			"occurs": json.Number(fmt.Sprint(occurrences[i])),
-			"value":  values[i],
-		}
-	}
-
-	return map[string]interface{}{
-		"count":          json.Number(fmt.Sprint(count)),
-		"topOccurrences": to,
-		"type":           "text[]",
-	}
-}
-
-func (h *gqlAggregateHelper) texts0() map[string]interface{} {
-	return map[string]interface{}{
-		"count":          json.Number("0"),
-		"topOccurrences": []interface{}{},
-		"type":           "text[]",
-	}
-}
-
-func (h *gqlAggregateHelper) dates(count int64) map[string]interface{} {
-	return map[string]interface{}{
-		"count": json.Number(fmt.Sprint(count)),
-	}
-}
-
-func (h *gqlAggregateHelper) dates0() map[string]interface{} {
-	return map[string]interface{}{
-		"count": json.Number("0"),
-	}
-}
-
-func (h *gqlAggregateHelper) meta(count int64) map[string]interface{} {
-	return map[string]interface{}{
-		"count": json.Number(fmt.Sprint(count)),
-	}
-}
-
-func (h *gqlAggregateHelper) groupedBy(value string, path ...interface{}) map[string]interface{} {
-	return map[string]interface{}{
-		"value": value,
-		"path":  path,
-	}
+	return fmt.Sprintf(query, duplicatesClassName, params, groupedBy)
 }
 
 type aggregateTestCase struct {
-	name     string
-	filters  string
-	expected interface{}
+	name              string
+	filters           string
+	groupedAssertions map[string][]assertFunc // map[groupedBy]assertionsForGroup
 }
 
 type aggregateArrayClassTestCases struct{}
 
-func (ts *aggregateArrayClassTestCases) WithoutFilters(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithoutFilters(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
-		name:     "without filters",
-		expected: expected,
+		name:              "without filters",
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereFilter_AllResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereFilter_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where filter (all results)",
 		filters: `
@@ -553,11 +691,11 @@ func (ts *aggregateArrayClassTestCases) WithWhereFilter_AllResults(expected inte
 				path: ["id"]
 				valueString: "*"
 			}`,
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithData(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where filter (results with data)",
 		filters: fmt.Sprintf(`
@@ -566,11 +704,11 @@ func (ts *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithData(expected
 				path: ["id"]
 				valueString: "%s"
 			}`, objectArrayClassID1_4el[:35]+"?"),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithoutData(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithoutData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where filter (results without data)",
 		filters: fmt.Sprintf(`
@@ -579,11 +717,11 @@ func (ts *aggregateArrayClassTestCases) WithWhereFilter_ResultsWithoutData(expec
 				path: ["id"]
 				valueString: "%s"
 			}`, objectArrayClassID5_0el[:35]+"?"),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereFilter_NoResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereFilter_NoResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where filter (no results)",
 		filters: fmt.Sprintf(`
@@ -592,11 +730,11 @@ func (ts *aggregateArrayClassTestCases) WithWhereFilter_NoResults(expected inter
 				path: ["id"]
 				valueString: "%s"
 			}`, notExistingObjectId),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithNearObjectFilter_AllResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithNearObjectFilter_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with nearObject filter (all results)",
 		filters: fmt.Sprintf(`
@@ -604,11 +742,11 @@ func (ts *aggregateArrayClassTestCases) WithNearObjectFilter_AllResults(expected
 				id: "%s"
 				certainty: 0.1
 			}`, objectArrayClassID1_4el),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithData(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with nearObject filter (results with data)",
 		filters: fmt.Sprintf(`
@@ -616,11 +754,11 @@ func (ts *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithData(exp
 				id: "%s"
 				certainty: 0.98
 			}`, objectArrayClassID1_4el),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithoutData(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithoutData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with nearObject filter (results without data)",
 		filters: fmt.Sprintf(`
@@ -628,11 +766,11 @@ func (ts *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithoutData(
 				id: "%s"
 				certainty: 1
 			}`, objectArrayClassID5_0el),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_AllResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where & nearObject filters (all results)",
 		filters: fmt.Sprintf(`
@@ -645,11 +783,11 @@ func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_AllResults
 				id: "%s"
 				certainty: 0.1
 			}`, objectArrayClassID1_4el),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWithData(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWithData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where & nearObject filters (results with data)",
 		filters: fmt.Sprintf(`
@@ -662,11 +800,11 @@ func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWit
 				id: "%s"
 				certainty: 0.98
 			}`, objectArrayClassID1_4el[:35]+"?", objectArrayClassID1_4el),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWithoutData(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWithoutData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where & nearObject filters (results without data)",
 		filters: fmt.Sprintf(`
@@ -679,11 +817,11 @@ func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWit
 				id: "%s"
 				certainty: 1
 			}`, objectArrayClassID5_0el[:35]+"?", objectArrayClassID5_0el),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_NoResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_NoResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where & nearObject filters (no results)",
 		filters: fmt.Sprintf(`
@@ -696,20 +834,20 @@ func (ts *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_NoResults(
 				id: "%s"
 				certainty: 0.1
 			}`, notExistingObjectId, objectArrayClassID1_4el),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
 type aggregateNoPropsClassTestCases struct{}
 
-func (ts *aggregateNoPropsClassTestCases) WithoutFilters(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithoutFilters(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
-		name:     "without filters",
-		expected: expected,
+		name:              "without filters",
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateNoPropsClassTestCases) WithWhereFilter_AllResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithWhereFilter_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where filter (all results)",
 		filters: `
@@ -718,11 +856,11 @@ func (ts *aggregateNoPropsClassTestCases) WithWhereFilter_AllResults(expected in
 				path: ["id"]
 				valueString: "*"
 			}`,
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateNoPropsClassTestCases) WithWhereFilter_SomeResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithWhereFilter_SomeResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where filter (some results)",
 		filters: fmt.Sprintf(`
@@ -731,11 +869,11 @@ func (ts *aggregateNoPropsClassTestCases) WithWhereFilter_SomeResults(expected i
 				path: ["id"]
 				valueString: "%s"
 			}`, objectNoPropsClassID1[:35]+"?"),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateNoPropsClassTestCases) WithWhereFilter_NoResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithWhereFilter_NoResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where filter (no results)",
 		filters: fmt.Sprintf(`
@@ -744,11 +882,11 @@ func (ts *aggregateNoPropsClassTestCases) WithWhereFilter_NoResults(expected int
 				path: ["id"]
 				valueString: "%s"
 			}`, notExistingObjectId),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateNoPropsClassTestCases) WithNearObjectFilter_AllResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithNearObjectFilter_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with nearObject filter (all results)",
 		filters: fmt.Sprintf(`
@@ -756,11 +894,11 @@ func (ts *aggregateNoPropsClassTestCases) WithNearObjectFilter_AllResults(expect
 				id: "%s"
 				certainty: 0.1
 			}`, objectNoPropsClassID1),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_AllResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where & nearObject filters (all results)",
 		filters: fmt.Sprintf(`
@@ -773,11 +911,11 @@ func (ts *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_AllResul
 				id: "%s"
 				certainty: 0.1
 			}`, objectNoPropsClassID1),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_SomeResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_SomeResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where & nearObject filters (some results)",
 		filters: fmt.Sprintf(`
@@ -790,11 +928,11 @@ func (ts *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_SomeResu
 				id: "%s"
 				certainty: 1
 			}`, objectNoPropsClassID1[:35]+"?", objectNoPropsClassID1),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
 	}
 }
 
-func (ts *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_NoResults(expected interface{}) aggregateTestCase {
+func (tc *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_NoResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
 	return aggregateTestCase{
 		name: "with where & nearObject filters (no results)",
 		filters: fmt.Sprintf(`
@@ -807,6 +945,219 @@ func (ts *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_NoResult
 				id: "%s"
 				certainty: 0.1
 			}`, notExistingObjectId, objectNoPropsClassID1),
-		expected: expected,
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+type aggregateCityTestCases struct{}
+
+func (tc *aggregateCityTestCases) WithoutFilters(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name:              "without filters",
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereFilter_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (all results)",
+		filters: `
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "*"
+			}`,
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereFilter_ResultsWithData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (results with data)",
+		filters: `
+			where: {
+				operator: Equal,
+				path: ["isCapital"],
+				valueBoolean: true
+			}`,
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereFilter_ResultsWithoutData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (results without data)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}`, nullisland),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereFilter_NoResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (no results)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}`, notExistingObjectId),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithNearObjectFilter_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with nearObject filter (all results)",
+		filters: fmt.Sprintf(`
+			nearObject: {
+				id: "%s"
+				certainty: 0.1
+			}`, berlin),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithNearObjectFilter_ResultsWithData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with nearObject filter (results with data)",
+		filters: fmt.Sprintf(`
+			nearObject: {
+				id: "%s"
+				certainty: 0.81
+			}`, berlin),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithNearObjectFilter_ResultsWithoutData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with nearObject filter (results without data)",
+		filters: fmt.Sprintf(`
+			nearObject: {
+				id: "%s"
+				certainty: 0.9
+			}`, nullisland),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where & nearObject filters (all results)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "*"
+			}
+			nearObject: {
+				id: "%s"
+				certainty: 0.1
+			}`, berlin),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_ResultsWithData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where & nearObject filters (results with data)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Equal,
+				path: ["isCapital"],
+				valueBoolean: true
+			}
+			nearObject: {
+				id: "%s"
+				certainty: 0.81
+			}`, berlin),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_ResultsWithoutData(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where & nearObject filters (results without data)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}
+			nearObject: {
+				id: "%s"
+				certainty: 0.9
+			}`, nullisland, nullisland),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_NoResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where & nearObject filters (no results)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}
+			nearObject: {
+				id: "%s"
+				certainty: 0.1
+			}`, notExistingObjectId, berlin),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+type aggregateDuplicatesClassTestCases struct{}
+
+func (tc *aggregateDuplicatesClassTestCases) WithoutFilters(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name:              "without filters",
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_AllResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (all results)",
+		filters: `
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "*"
+			}`,
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_SomeResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (some results)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}`, objectDuplicatesClassID1_4el),
+		groupedAssertions: groupedAssertions,
+	}
+}
+
+func (tc *aggregateDuplicatesClassTestCases) WithWhereFilter_NoResults(groupedAssertions map[string][]assertFunc) aggregateTestCase {
+	return aggregateTestCase{
+		name: "with where filter (no results)",
+		filters: fmt.Sprintf(`
+			where: {
+				operator: Like
+				path: ["id"]
+				valueString: "%s"
+			}`, notExistingObjectId),
+		groupedAssertions: groupedAssertions,
 	}
 }
