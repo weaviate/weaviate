@@ -28,8 +28,6 @@ type BackupState struct {
 }
 
 // Backupable returns whether all given class can be backed up.
-//
-// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
 		idx := db.GetIndex(schema.ClassName(c))
@@ -41,15 +39,10 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 }
 
 // ListBackupable returns a list of all classes which can be backed up.
-//
-// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
 func (db *DB) ListBackupable() []string {
 	cs := make([]string, 0, len(db.indices))
 	for _, idx := range db.indices {
 		cls := string(idx.Config.ClassName)
-		if n := db.schemaGetter.ShardingState(cls).CountPhysicalShards(); n > 1 {
-			continue
-		}
 		cs = append(cs, cls)
 	}
 	return cs
