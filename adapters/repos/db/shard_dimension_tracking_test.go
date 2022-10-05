@@ -149,7 +149,7 @@ func Test_Migration(t *testing.T) {
 
 	t.Run("import objects with d=128", func(t *testing.T) {
 		dim := 128
-		for i := 0; i < 10000; i++ {
+		for i := 0; i < 100; i++ {
 			vec := make([]float32, dim)
 			for j := range vec {
 				vec[j] = rand.Float32()
