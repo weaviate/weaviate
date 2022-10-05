@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/classifications"
 	"github.com/semi-technologies/weaviate/client/graphql"
 	"github.com/semi-technologies/weaviate/client/meta"
+	"github.com/semi-technologies/weaviate/client/nodes"
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/operations"
 	"github.com/semi-technologies/weaviate/client/schema"
@@ -79,6 +80,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
+	cli.Nodes = nodes.New(transport, formats)
 	cli.Objects = objects.New(transport, formats)
 	cli.Operations = operations.New(transport, formats)
 	cli.Schema = schema.New(transport, formats)
@@ -137,6 +139,8 @@ type Weaviate struct {
 
 	Meta meta.ClientService
 
+	Nodes nodes.ClientService
+
 	Objects objects.ClientService
 
 	Operations operations.ClientService
@@ -156,6 +160,7 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Classifications.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)
+	c.Nodes.SetTransport(transport)
 	c.Objects.SetTransport(transport)
 	c.Operations.SetTransport(transport)
 	c.Schema.SetTransport(transport)

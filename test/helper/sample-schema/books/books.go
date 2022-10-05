@@ -34,7 +34,7 @@ func class(vectorizer string) *models.Class {
 	return &models.Class{
 		Class: "Books",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			vectorizer: map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -43,7 +43,7 @@ func class(vectorizer string) *models.Class {
 				Name:     "title",
 				DataType: []string{"string"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": false,
 					},
 				},
@@ -52,7 +52,7 @@ func class(vectorizer string) *models.Class {
 				Name:     "description",
 				DataType: []string{"string"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": false,
 					},
 				},

@@ -134,6 +134,11 @@ func (f *fakeClusterState) NodeCount() int {
 	return len(f.hosts)
 }
 
+func (f *fakeClusterState) ClusterHealthScore() int {
+	// 0 - healty, >0 - unhealthy
+	return 0
+}
+
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class,

@@ -37,12 +37,10 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	return m.addClass(ctx, principal, class)
+	return m.addClass(ctx, class)
 }
 
-func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
-	d *backup.ClassDescriptor,
-) error {
+func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -69,7 +67,7 @@ func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err = m.validateCanAddClass(ctx, principal, class, true)
+	err = m.validateCanAddClass(ctx, class, true)
 	if err != nil {
 		return err
 	}
@@ -103,8 +101,7 @@ func (m *Manager) RestoreClass(ctx context.Context, principal *models.Principal,
 	return out
 }
 
-func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
-	class *models.Class,
+func (m *Manager) addClass(ctx context.Context, class *models.Class,
 ) error {
 	m.Lock()
 	defer m.Unlock()
@@ -113,7 +110,7 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
-	err := m.validateCanAddClass(ctx, principal, class, false)
+	err := m.validateCanAddClass(ctx, class, false)
 	if err != nil {
 		return err
 	}
@@ -229,7 +226,7 @@ func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
 }
 
 func (m *Manager) validateCanAddClass(
-	ctx context.Context, principal *models.Principal, class *models.Class,
+	ctx context.Context, class *models.Class,
 	relaxCrossRefValidation bool,
 ) error {
 	if err := m.validateClassNameUniqueness(class.Class); err != nil {
@@ -242,7 +239,7 @@ func (m *Manager) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class, existingPropertyNames, principal, relaxCrossRefValidation); err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[property.Name] = true
@@ -262,8 +259,7 @@ func (m *Manager) validateCanAddClass(
 
 func (m *Manager) validateProperty(
 	property *models.Property, class *models.Class,
-	existingPropertyNames map[string]bool, principal *models.Principal,
-	relaxCrossRefValidation bool,
+	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
 ) error {
 	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
 		return err
@@ -278,10 +274,7 @@ func (m *Manager) validateProperty(
 	}
 
 	// Validate data type of property.
-	schema, err := m.GetSchema(principal)
-	if err != nil {
-		return err
-	}
+	schema := m.GetSchemaSkipAuth()
 
 	propertyDataType, err := (&schema).FindPropertyDataTypeWithRefs(property.DataType,
 		relaxCrossRefValidation)

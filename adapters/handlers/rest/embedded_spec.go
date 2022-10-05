@@ -831,6 +831,53 @@ func init() {
         ]
       }
     },
+    "/nodes": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes.get",
+        "responses": {
+          "200": {
+            "description": "Nodes status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/NodeStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.nodes.status.get"
+        ]
+      }
+    },
     "/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
@@ -3370,6 +3417,95 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NodeShardStatus": {
+      "description": "The definition of a node shard status response body",
+      "properties": {
+        "class": {
+          "description": "The name of shard's class.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "name": {
+          "description": "The name of the shard.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "objectCount": {
+          "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "NodeStats": {
+      "description": "The summary of Weaviate's statistics.",
+      "properties": {
+        "objectCount": {
+          "description": "The total number of objects in DB.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "shardCount": {
+          "description": "The count of Weaviate's shards.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        }
+      }
+    },
+    "NodeStatus": {
+      "description": "The definition of a backup node status response body",
+      "properties": {
+        "gitHash": {
+          "description": "The gitHash of Weaviate.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "shards": {
+          "description": "The list of the shards with it's statistics.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeShardStatus"
+          }
+        },
+        "stats": {
+          "description": "Weaviate overall statistics.",
+          "type": "object",
+          "$ref": "#/definitions/NodeStats"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE"
+          ]
+        },
+        "version": {
+          "description": "The version of Weaviate.",
+          "type": "string"
+        }
+      }
+    },
+    "NodeStatusResponse": {
+      "description": "The status of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeStatus"
+          }
+        }
+      }
+    },
     "Object": {
       "type": "object",
       "properties": {
@@ -4825,6 +4961,53 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.query.meta"
+        ]
+      }
+    },
+    "/nodes": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes.get",
+        "responses": {
+          "200": {
+            "description": "Nodes status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/NodeStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.nodes.status.get"
         ]
       }
     },
@@ -7551,6 +7734,95 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
+      }
+    },
+    "NodeShardStatus": {
+      "description": "The definition of a node shard status response body",
+      "properties": {
+        "class": {
+          "description": "The name of shard's class.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "name": {
+          "description": "The name of the shard.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "objectCount": {
+          "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        }
+      }
+    },
+    "NodeStats": {
+      "description": "The summary of Weaviate's statistics.",
+      "properties": {
+        "objectCount": {
+          "description": "The total number of objects in DB.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "shardCount": {
+          "description": "The count of Weaviate's shards.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        }
+      }
+    },
+    "NodeStatus": {
+      "description": "The definition of a backup node status response body",
+      "properties": {
+        "gitHash": {
+          "description": "The gitHash of Weaviate.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "shards": {
+          "description": "The list of the shards with it's statistics.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeShardStatus"
+          }
+        },
+        "stats": {
+          "description": "Weaviate overall statistics.",
+          "type": "object",
+          "$ref": "#/definitions/NodeStats"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE"
+          ]
+        },
+        "version": {
+          "description": "The version of Weaviate.",
+          "type": "string"
+        }
+      }
+    },
+    "NodeStatusResponse": {
+      "description": "The status of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeStatus"
+          }
+        }
       }
     },
     "Object": {
