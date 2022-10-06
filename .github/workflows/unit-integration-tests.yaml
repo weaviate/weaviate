@@ -1,0 +1,45 @@
+name: Unit and integration tests
+
+on: [push, fork, pull_request]
+
+jobs:
+  Unittests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Unit test
+        run: go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
+      - name: Codecov Unit
+        uses: codecov/codecov-action@v3
+        if: github.event_name == 'pull_request'
+        with:
+          fail_ci_if_error: true
+          files: ./coverage-unit.txt
+          flags: unittests
+          verbose: true
+  Integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Integration test
+        run: ./test/integration/run.sh --include-slow
+      - name: Codecov Integration
+        uses: codecov/codecov-action@v3
+        if: github.event_name == 'pull_request'
+        with:
+          fail_ci_if_error: true
+          files: ./coverage-integration.txt
+          flags: integration
+          verbose: true
+
+
