@@ -168,6 +168,7 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
 	defer repo.Shutdown(context.Background())
+
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
@@ -596,6 +597,8 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			t.Run("can import", func(t *testing.T) {
 				batchRes, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+
+				fmt.Printf("!!!batchRes: %+v\n", batchRes)
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
 					require.Len(t, batchRes, 53)
