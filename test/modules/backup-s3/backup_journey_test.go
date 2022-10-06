@@ -24,7 +24,6 @@ import (
 )
 
 const (
-	weaviateEndpoint = "WEAVIATE_ENDPOINT"
 	envMinioEndpoint = "MINIO_ENDPOINT"
 	envAwsRegion     = "AWS_REGION"
 	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
