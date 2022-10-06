@@ -84,7 +84,7 @@ func (s *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes
 	args := s.Called(ctx, backupID, key, bytes)
 	if key == BackupFile {
 		json.Unmarshal(bytes, &s.meta)
-	} else if key == GlobalBackupFile {
+	} else if key == GlobalBackupFile || key == GlobalRestoreFile {
 		json.Unmarshal(bytes, &s.glMeta)
 		close(s.doneChan)
 	}

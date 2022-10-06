@@ -78,8 +78,8 @@ type shardSyncChan struct {
 	// lastOp makes sure backup operations are mutually exclusive
 	lastOp backupStat
 
-	// waitingForCoodinatorToCommit use while waiting for the coordinator to take the next action
-	waitingForCoodinatorToCommit atomic.Bool
+	// waitingForCoordinatorToCommit use while waiting for the coordinator to take the next action
+	waitingForCoordinatorToCommit atomic.Bool
 	//  coordChan used to communicate with the coordinator
 	coordChan chan interface{}
 
@@ -89,7 +89,7 @@ type shardSyncChan struct {
 
 // waitForCoordinator to confirm or to abort previous operation
 func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) error {
-	defer c.waitingForCoodinatorToCommit.Store(false)
+	defer c.waitingForCoordinatorToCommit.Store(false)
 	if d == 0 {
 		return nil
 	}
@@ -121,7 +121,7 @@ func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) error {
 // OnCommit will be triggered when the coordinator confirms the execution of a previous operation
 func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error {
 	st := c.lastOp.get()
-	if st.ID == req.ID && c.waitingForCoodinatorToCommit.Load() {
+	if st.ID == req.ID && c.waitingForCoordinatorToCommit.Load() {
 		c.coordChan <- *req
 		return nil
 	}
@@ -131,7 +131,7 @@ func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error 
 // Abort tells a node to abort the previous backup operation
 func (c *shardSyncChan) OnAbort(_ context.Context, req *AbortRequest) error {
 	st := c.lastOp.get()
-	if st.ID == req.ID && c.waitingForCoodinatorToCommit.Load() {
+	if st.ID == req.ID && c.waitingForCoordinatorToCommit.Load() {
 		c.coordChan <- *req
 		return nil
 	}

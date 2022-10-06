@@ -45,18 +45,19 @@ type authorizer interface {
 
 type schemaManger interface {
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error
+	NodeName() string
 }
 
 type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
 
-type RestoreStatus struct {
+type Status struct {
 	Path        string
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Status      backup.Status
-	Err         error
+	Err         string
 }
 
 type Manager struct {
@@ -70,13 +71,13 @@ type Manager struct {
 }
 
 func NewManager(
-	node string,
 	logger logrus.FieldLogger,
 	authorizer authorizer,
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 ) *Manager {
+	node := schema.NodeName()
 	m := &Manager{
 		node:       node,
 		logger:     logger,
@@ -154,7 +155,7 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	meta, err := m.validateRestoreRequst(ctx, store, req)
+	meta, err := m.validateRestoreRequest(ctx, store, req)
 	if err != nil {
 		return nil, err
 	}
@@ -190,10 +191,10 @@ func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
-) (_ RestoreStatus, err error) {
+) (_ Status, err error) {
 	ppath := fmt.Sprintf("backups/%s/%s/restore", backend, ID)
 	if err := m.authorizer.Authorize(principal, "get", ppath); err != nil {
-		return RestoreStatus{}, err
+		return Status{}, err
 	}
 	return m.restorer.status(backend, ID)
 }
@@ -324,7 +325,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, re
 	return classes, nil
 }
 
-func (m *Manager) validateRestoreRequst(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+func (m *Manager) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
 		return nil, backup.NewErrUnprocessable(err)

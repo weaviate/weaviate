@@ -49,7 +49,7 @@ const (
 	_MaxNumberConns     = 16
 )
 
-type nodeMap map[string]backup.NodeDescriptor
+type nodeMap map[string]*backup.NodeDescriptor
 
 // participantStatus tracks status of a participant in a DBRO
 type participantStatus struct {
@@ -163,7 +163,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes)
-		if err := store.PutGlobalMeta(ctx, &c.descriptor); err != nil {
+		if err := store.PutMeta(ctx, GlobalBackupFile, &c.descriptor); err != nil {
 			c.log.WithField("action", OpCreate).
 				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
 		}
@@ -173,10 +173,19 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 }
 
 // Restore coordinates a distributed restoration among participants
-func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackupDescriptor) error {
+func (c *coordinator) Restore(ctx context.Context, store coordStore, req *backup.DistributedBackupDescriptor) error {
+	// make sure there is no active backup
+	if prevID := c.lastOp.renew(req.ID, store.HomeDir()); prevID != "" {
+		return fmt.Errorf("restoration %s already in progress", prevID)
+	}
 	c.descriptor = *req
+	for key := range c.Participants {
+		delete(c.Participants, key)
+	}
+	c.descriptor.StartedAt = time.Now().UTC()
 	nodes, err := c.canCommit(ctx, OpRestore)
 	if err != nil {
+		c.lastOp.reset()
 		return err
 	}
 
@@ -185,33 +194,41 @@ func (c *coordinator) Restore(ctx context.Context, req *backup.DistributedBackup
 		ID:      req.ID,
 		Backend: req.Backend,
 	}
-
 	go func() {
+		defer c.lastOp.reset()
 		c.commit(context.Background(), &statusReq, nodes)
+		if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
+			c.log.WithField("action", OpCreate).
+				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
+		}
 	}()
 
 	return nil
 }
 
-func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (reqStat, error) {
+func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (*Status, error) {
 	// check if backup is still active
 	st := c.lastOp.get()
 	if st.ID == req.ID {
-		return st, nil
+		return &Status{Path: st.Path, StartedAt: st.Starttime, Status: st.Status}, nil
 	}
-
+	filename := GlobalBackupFile
+	if req.Method == OpRestore {
+		filename = GlobalRestoreFile
+	}
 	// The backup might have been already created.
-	meta, err := store.Meta(ctx, req.ID)
+	meta, err := store.Meta(ctx, filename)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, GlobalBackupFile)
-		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+		return nil, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
 	}
 
-	return reqStat{
-		Starttime: meta.StartedAt,
-		ID:        req.ID,
-		Path:      store.HomeDir(),
-		Status:    backup.Status(meta.Status),
+	return &Status{
+		Path:        store.HomeDir(),
+		StartedAt:   meta.StartedAt,
+		CompletedAt: meta.CompletedAt,
+		Status:      meta.Status,
+		Err:         meta.Error,
 	}, nil
 }
 
@@ -421,7 +438,7 @@ func (c *coordinator) groupByShard(ctx context.Context, classes []string) (nodeM
 		for _, node := range nodes {
 			nd, ok := m[node]
 			if !ok {
-				nd = backup.NodeDescriptor{Classes: make([]string, 0, 5)}
+				nd = &backup.NodeDescriptor{Classes: make([]string, 0, 5)}
 			}
 			nd.Classes = append(nd.Classes, cls)
 			m[node] = nd

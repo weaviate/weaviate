@@ -23,17 +23,142 @@ type NodeDescriptor struct {
 	Error   string   `json:"error"`
 }
 
-// DistributedBAckupDescriptor contains everything need to competely restore a distributed backup
+// DistributedBAckupDescriptor contains everything need to completely restore a distributed backup
 type DistributedBackupDescriptor struct {
-	StartedAt     time.Time                 `json:"startedAt"`
-	CompletedAt   time.Time                 `json:"completedAt"`
-	ID            string                    `json:"id"`      // User created backup id
-	Backend       string                    `json:"backend"` // object store: s3, gcs, ..
-	Nodes         map[string]NodeDescriptor `json:"nodes"`
-	Status        Status                    `json:"status"`  //
-	Version       string                    `json:"version"` //
-	ServerVersion string                    `json:"serverVersion"`
-	Error         string                    `json:"error"`
+	StartedAt     time.Time                  `json:"startedAt"`
+	CompletedAt   time.Time                  `json:"completedAt"`
+	ID            string                     `json:"id"`      // User created backup id
+	Backend       string                     `json:"backend"` // object store: s3, gcs, ..
+	Nodes         map[string]*NodeDescriptor `json:"nodes"`
+	Status        Status                     `json:"status"`  //
+	Version       string                     `json:"version"` //
+	ServerVersion string                     `json:"serverVersion"`
+	Error         string                     `json:"error"`
+}
+
+// Len returns how many nodes exist in d
+func (d *DistributedBackupDescriptor) Len() int {
+	return len(d.Nodes)
+}
+
+// Count number of classes
+func (d *DistributedBackupDescriptor) Count() int {
+	count := 0
+	for _, desc := range d.Nodes {
+		count += len(desc.Classes)
+	}
+	return count
+}
+
+// RemoveEmpty removes any nodes with an empty class list
+func (d *DistributedBackupDescriptor) RemoveEmpty() *DistributedBackupDescriptor {
+	for node, desc := range d.Nodes {
+		if len(desc.Classes) == 0 {
+			delete(d.Nodes, node)
+		}
+	}
+	return d
+}
+
+// Classes returns all classes contained in d
+func (d *DistributedBackupDescriptor) Classes() []string {
+	set := make(map[string]struct{}, 32)
+	for _, desc := range d.Nodes {
+		for _, cls := range desc.Classes {
+			set[cls] = struct{}{}
+		}
+	}
+	lst := make([]string, len(set))
+	i := 0
+	for cls := range set {
+		lst[i] = cls
+		i++
+	}
+	return lst
+}
+
+// Filter classes based on predicate
+func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
+	for _, desc := range d.Nodes {
+		cs := make([]string, 0, len(desc.Classes))
+		for _, cls := range desc.Classes {
+			if pred(cls) {
+				cs = append(cs, cls)
+			}
+		}
+		if len(cs) != len(desc.Classes) {
+			desc.Classes = cs
+		}
+	}
+}
+
+// Include only these classes and remove everything else
+func (d *DistributedBackupDescriptor) Include(classes []string) {
+	if len(classes) == 0 {
+		return
+	}
+	set := make(map[string]struct{}, len(classes))
+	for _, cls := range classes {
+		set[cls] = struct{}{}
+	}
+	pred := func(s string) bool {
+		_, ok := set[s]
+		return ok
+	}
+	d.Filter(pred)
+}
+
+// Exclude removes classes from d
+func (d *DistributedBackupDescriptor) Exclude(classes []string) {
+	if len(classes) == 0 {
+		return
+	}
+	set := make(map[string]struct{}, len(classes))
+	for _, cls := range classes {
+		set[cls] = struct{}{}
+	}
+	pred := func(s string) bool {
+		_, ok := set[s]
+		return !ok
+	}
+	d.Filter(pred)
+}
+
+// AllExist checks if all classes exist in d.
+// It returns either "" or the first class which it could not find
+func (d *DistributedBackupDescriptor) AllExist(classes []string) string {
+	if len(classes) == 0 {
+		return ""
+	}
+	set := make(map[string]struct{}, len(classes))
+	for _, cls := range classes {
+		set[cls] = struct{}{}
+	}
+	for _, dest := range d.Nodes {
+		for _, cls := range dest.Classes {
+			delete(set, cls)
+			if len(set) == 0 {
+				return ""
+			}
+		}
+	}
+	first := ""
+	for k := range set {
+		first = k
+		break
+	}
+	return first
+}
+
+func (d *DistributedBackupDescriptor) Validate() error {
+	if d.StartedAt.IsZero() || d.ID == "" ||
+		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
+		return fmt.Errorf("attribute mismatch: [id versions time error]")
+	}
+	if len(d.Nodes) == 0 {
+		return fmt.Errorf("empty list of node descriptors")
+	}
+	return nil
 }
 
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
@@ -80,41 +205,41 @@ func (d *BackupDescriptor) List() []string {
 	return lst
 }
 
-// Include only these classes and remove everything else
-func (d *BackupDescriptor) Include(classes []string) {
-	if len(classes) == 0 {
-		return
-	}
-	imap := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		imap[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := imap[s]
-		return ok
-	}
-	d.Filter(pred)
-}
-
 // AllExist checks if all classes exist in d.
 // It returns either "" or the first class which it could not find
 func (d *BackupDescriptor) AllExist(classes []string) string {
 	if len(classes) == 0 {
 		return ""
 	}
-	emap := make(map[string]struct{}, len(classes))
+	set := make(map[string]struct{}, len(classes))
 	for _, cls := range classes {
-		emap[cls] = struct{}{}
+		set[cls] = struct{}{}
 	}
 	for _, dest := range d.Classes {
-		delete(emap, dest.Name)
+		delete(set, dest.Name)
 	}
 	first := ""
-	for k := range emap {
+	for k := range set {
 		first = k
 		break
 	}
 	return first
+}
+
+// Include only these classes and remove everything else
+func (d *BackupDescriptor) Include(classes []string) {
+	if len(classes) == 0 {
+		return
+	}
+	set := make(map[string]struct{}, len(classes))
+	for _, cls := range classes {
+		set[cls] = struct{}{}
+	}
+	pred := func(s string) bool {
+		_, ok := set[s]
+		return ok
+	}
+	d.Filter(pred)
 }
 
 // Exclude removes classes from d
@@ -122,12 +247,12 @@ func (d *BackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	imap := make(map[string]struct{}, len(classes))
+	set := make(map[string]struct{}, len(classes))
 	for _, cls := range classes {
-		imap[cls] = struct{}{}
+		set[cls] = struct{}{}
 	}
 	pred := func(s string) bool {
-		_, ok := imap[s]
+		_, ok := set[s]
 		return !ok
 	}
 	d.Filter(pred)
@@ -148,7 +273,7 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 func (d *BackupDescriptor) Validate() error {
 	if d.StartedAt.IsZero() || d.ID == "" ||
 		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
-		return fmt.Errorf("invalid file: [id versions time error]")
+		return fmt.Errorf("attribute mismatch: [id versions time error]")
 	}
 	for _, c := range d.Classes {
 		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {

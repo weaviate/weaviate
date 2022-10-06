@@ -97,22 +97,21 @@ func (r *restorer) restore(ctx context.Context,
 		err := fmt.Errorf("restore %s already in progress", prevID)
 		return ret, err
 	}
-	r.waitingForCoodinatorToCommit.Store(true) // is set to false by wait()
+	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
 	go func() {
 		var err error
-		status := RestoreStatus{
+		status := Status{
 			Path:      destPath,
 			StartedAt: time.Now().UTC(),
 			Status:    backup.Transferring,
-			Err:       nil,
 		}
 		defer func() {
 			status.CompletedAt = time.Now().UTC()
 			if err == nil {
 				status.Status = backup.Success
 			} else {
-				status.Err = err
+				status.Err = err.Error()
 				status.Status = backup.Failed
 			}
 			r.restoreStatusMap.Store(basePath(req.Backend, req.ID), status)
@@ -196,9 +195,9 @@ func (r *restorer) AnyExists(cs []string) string {
 	return ""
 }
 
-func (r *restorer) status(backend, ID string) (RestoreStatus, error) {
+func (r *restorer) status(backend, ID string) (Status, error) {
 	if st := r.lastOp.get(); st.ID == ID {
-		return RestoreStatus{
+		return Status{
 			Path:      st.Path,
 			StartedAt: st.Starttime,
 			Status:    st.Status,
@@ -208,9 +207,9 @@ func (r *restorer) status(backend, ID string) (RestoreStatus, error) {
 	istatus, ok := r.restoreStatusMap.Load(ref)
 	if !ok {
 		err := fmt.Errorf("status not found: %s", ref)
-		return RestoreStatus{}, backup.NewErrNotFound(err)
+		return Status{}, backup.NewErrNotFound(err)
 	}
-	return istatus.(RestoreStatus), nil
+	return istatus.(Status), nil
 }
 
 func (r *restorer) validate(ctx context.Context, store nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {

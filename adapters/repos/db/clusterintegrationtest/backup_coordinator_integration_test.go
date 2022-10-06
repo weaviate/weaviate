@@ -29,7 +29,6 @@ import (
 )
 
 func TestDistributedBackups(t *testing.T) {
-	t.Skip()
 	var (
 		dirName = setupDirectory(t)
 		numObjs = 100
@@ -114,7 +113,7 @@ func TestDistributedBackups(t *testing.T) {
 					}
 					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "", "new-backup")
 					assert.Nil(t, err, "expected nil err, got: %s", err)
-					if resp.Status != nil && *resp.Status == "SUCCESS" {
+					if resp != nil && string(resp.Status) == "SUCCESS" {
 						break
 					}
 				}

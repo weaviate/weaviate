@@ -76,7 +76,7 @@ loop:
 func newNumericalAggregator() *numericalAggregator {
 	return &numericalAggregator{
 		min:          math.MaxFloat64,
-		max:          math.SmallestNonzeroFloat64,
+		max:          -math.MaxFloat64,
 		valueCounter: map[float64]uint64{},
 		pairs:        make([]floatCountPair, 0),
 	}
@@ -108,7 +108,8 @@ func (a *numericalAggregator) buildPairsFromCounts() {
 	a.pairs = append(a.pairs, make([]floatCountPair, 0, len(a.valueCounter))...)
 
 	for value, count := range a.valueCounter {
-		if count > a.maxCount {
+		// get one with higher count or lower value if counts are equal
+		if count > a.maxCount || (count == a.maxCount && value < a.mode) {
 			a.maxCount = count
 			a.mode = value
 		}
