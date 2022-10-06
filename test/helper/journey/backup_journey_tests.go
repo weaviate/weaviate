@@ -15,8 +15,8 @@ import (
 	"testing"
 )
 
-// BackupJourneyTests this method gathers all backup related e2e tests
-func BackupJourneyTests(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
+// BackupJourneyTests_SingleNode this method gathers all backup related e2e tests
+func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
 	// This is a simple test which covers almost the same scenario as singleShardBackupJourneyTest
 	// but is left here to be expanded in the future with a more complex example
 	// like adding there a new reference property and trying to run the test with 2 classes which
@@ -27,5 +27,17 @@ func BackupJourneyTests(t *testing.T, weaviateEndpoint, backend, className, back
 
 	t.Run("single shard backup", func(t *testing.T) {
 		singleShardBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID)
+	})
+}
+
+// BackupJourneyTests_Cluster this method gathers all backup related e2e tests to be run on a cluster
+func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID string, weaviateEndpoints ...string) {
+	t.Run("cluster backup", func(t *testing.T) {
+		if len(weaviateEndpoints) <= 1 {
+			t.Fatal("must provide more than one node for cluster backup test")
+		}
+
+		coordinator := weaviateEndpoints[0]
+		clusterBackupJourneyTest(t, backend, className, backupID, coordinator, weaviateEndpoints[1:]...)
 	})
 }

@@ -38,7 +38,7 @@ func Test_BackupJourney(t *testing.T) {
 	}()
 
 	t.Run("backup-filesystem", func(t *testing.T) {
-		journey.BackupJourneyTests(t, compose.GetWeaviate().URI(),
+		journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 			"filesystem", "FileSystemClass", "filesystem-backup-1")
 	})
 }

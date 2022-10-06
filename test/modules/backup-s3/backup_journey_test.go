@@ -68,7 +68,7 @@ func Test_BackupJourney(t *testing.T) {
 
 	// journey tests
 	t.Run("backup-s3", func(t *testing.T) {
-		journey.BackupJourneyTests(t, os.Getenv(weaviateEndpoint),
+		journey.BackupJourneyTests_SingleNode(t, os.Getenv(weaviateEndpoint),
 			"s3", s3BackupJourneyClassName, s3BackupJourneyBackupID)
 	})
 }
