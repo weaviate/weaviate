@@ -17,7 +17,7 @@ import (
 
 // BackupJourneyTests_SingleNode this method gathers all backup related e2e tests
 func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
-	// This is a simple test which covers almost the same scenario as singleShardBackupJourneyTest
+	// This is a simple test which covers almost the same scenario as singleNodeBackupJourneyTest
 	// but is left here to be expanded in the future with a more complex example
 	// like adding there a new reference property and trying to run the test with 2 classes which
 	// one of those classes is a class with a reference property
@@ -25,8 +25,8 @@ func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, clas
 		backupAndRestoreJourneyTest(t, weaviateEndpoint, backend)
 	})
 
-	t.Run("single shard backup", func(t *testing.T) {
-		singleShardBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID)
+	t.Run("single node backup", func(t *testing.T) {
+		singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID)
 	})
 }
 
