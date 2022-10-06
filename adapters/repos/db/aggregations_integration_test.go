@@ -102,9 +102,8 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
-	// TODO: does not work currently, part of https://semi-technology.atlassian.net/browse/WEAVIATE-328
-	// t.Run("numerical aggregations with filters",
-	//	testNumericalAggregationsWithFilters(repo))
+	t.Run("numerical aggregations with filters",
+		testNumericalAggregationsWithFilters(repo))
 
 	t.Run("date aggregations with grouping",
 		testDateAggregationsWithGrouping(repo, true))
@@ -1170,7 +1169,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 3,
+						Count: 2,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(2.0),
@@ -1178,7 +1177,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 2,
+						Count: 1,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(3.0),

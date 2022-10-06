@@ -132,7 +132,7 @@ func (b *backupper) backup(ctx context.Context,
 	if prevID := b.lastOp.renew(id, store.HomeDir()); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
-	b.waitingForCoodinatorToCommit.Store(true) // is set to false by wait()
+	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
 	go func() {
 		defer b.lastOp.reset()

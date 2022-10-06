@@ -141,9 +141,7 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		Path:    restoreStatus.Path,
 		Backend: params.Backend,
 	}
-	if restoreStatus.Err != nil {
-		payload.Error = restoreStatus.Err.Error()
-	}
+	payload.Error = restoreStatus.Err
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)
 }
 

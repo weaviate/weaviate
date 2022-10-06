@@ -242,6 +242,14 @@ func (c *shardedLockCache) obtainAllLocks() {
 // dimensionality
 func (c *shardedLockCache) dimensions(id uint64) int {
 	c.shardedLocks[id%shardFactor].RLock()
+	if int(id) >= len(c.cache) {
+		// if an object has no vector it could have a higher doc id than the size
+		// of the vector index, in this case we can assume it has no dimensions
+		// (since it had no vector), but cannot actually check, as this would lead
+		// to an OOM error
+		c.shardedLocks[id%shardFactor].RUnlock()
+		return 0
+	}
 	vec := c.cache[id]
 	c.shardedLocks[id%shardFactor].RUnlock()
 

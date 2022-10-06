@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
@@ -30,6 +31,7 @@ type Scheduler struct {
 	backends   BackupBackendProvider
 }
 
+// TODO replace Manager with Scheduler in rest/handlers
 // NewScheduler creates a new scheduler with two coordinators
 func NewScheduler(
 	authorizer authorizer,
@@ -63,7 +65,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 	store, err := coordBackend(s.backends, req.Backend, req.ID)
 	if err != nil {
-		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
+		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
@@ -99,40 +101,79 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (*models.BackupRestoreResponse, error) {
-	return nil, backup.NewErrUnprocessable(fmt.Errorf("not implemented"))
+	path := fmt.Sprintf("backups/%s/%s/restore", req.Backend, req.ID)
+	if err := s.authorizer.Authorize(pr, "restore", path); err != nil {
+		return nil, err
+	}
+	store, err := coordBackend(s.backends, req.Backend, req.ID)
+	if err != nil {
+		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	meta, err := s.validateRestoreRequest(ctx, store, req)
+	if err != nil {
+		if errors.Is(err, errMetaNotFound) {
+			return nil, backup.NewErrNotFound(err)
+		}
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	status := string(backup.Started)
+	data := &models.BackupRestoreResponse{
+		Backend: req.Backend,
+		ID:      req.ID,
+		Path:    store.HomeDir(),
+		Classes: meta.Classes(),
+	}
+	err = s.restorer.Restore(ctx, store, meta)
+	if err != nil {
+		status = string(backup.Failed)
+		data.Error = err.Error()
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	data.Status = &status
+	return data, nil
 }
 
 func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
 	backend, backupID string,
-) (*models.BackupCreateStatusResponse, error) {
+) (*Status, error) {
 	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
 	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
 		return nil, err
 	}
-
 	store, err := coordBackend(s.backends, backend, backupID)
 	if err != nil {
-		err = fmt.Errorf("no backup provider %q, did you enable the right module?", backend)
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	st, err := s.backupper.OnStatus(ctx, store, &StatusRequest{OpCreate, backupID, backend})
+	req := &StatusRequest{OpCreate, backupID, backend}
+	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
 	}
-	// check if backup is still active
-	status := string(st.Status)
-	return &models.BackupCreateStatusResponse{
-		ID:      backupID,
-		Path:    st.Path,
-		Status:  &status,
-		Backend: backend,
-	}, nil
+	return st, nil
 }
 
-func (m *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
-) (_ RestoreStatus, err error) {
-	return RestoreStatus{}, backup.NewErrUnprocessable(fmt.Errorf("not implemented"))
+func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID string,
+) (_ *Status, err error) {
+	path := fmt.Sprintf("backups/%s/%s/restore", backend, backupID)
+	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+		return nil, err
+	}
+	store, err := coordBackend(s.backends, backend, backupID)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+	req := &StatusRequest{OpRestore, backupID, backend}
+	st, err := s.restorer.OnStatus(ctx, store, req)
+	if err != nil {
+		return nil, backup.NewErrNotFound(err)
+	}
+	return st, nil
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
@@ -163,7 +204,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.Meta(ctx, req.ID)
+	_, err := store.Meta(ctx, GlobalBackupFile)
 	if err == nil {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
@@ -171,4 +212,43 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 		return nil, fmt.Errorf("check if backup %q exists at %q: %w", req.ID, destPath, err)
 	}
 	return classes, nil
+}
+
+func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
+	if len(req.Include) > 0 && len(req.Exclude) > 0 {
+		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
+		return nil, err
+	}
+	destPath := store.HomeDir()
+	meta, err := store.Meta(ctx, GlobalBackupFile)
+	if err != nil {
+		notFoundErr := backup.ErrNotFound{}
+		if errors.As(err, &notFoundErr) {
+			return nil, fmt.Errorf("%w: %q", errMetaNotFound, destPath)
+		}
+		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
+	}
+	if meta.ID != req.ID {
+		return nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+	}
+	if meta.Status != backup.Success {
+		return nil, fmt.Errorf("invalid backup %s status: %s", destPath, meta.Status)
+	}
+	if err := meta.Validate(); err != nil {
+		return nil, fmt.Errorf("corrupted backup file: %w", err)
+	}
+	cs := meta.Classes()
+	if len(req.Include) > 0 {
+		if first := meta.AllExist(req.Include); first != "" {
+			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
+			return nil, err
+		}
+		meta.Include(req.Include)
+	} else {
+		meta.Exclude(req.Exclude)
+	}
+	if meta.RemoveEmpty().Count() == 0 {
+		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
+	}
+	return meta, nil
 }
