@@ -22,7 +22,7 @@ import (
 )
 
 type backupHandlers struct {
-	manager *ubak.Manager
+	manager *ubak.Scheduler
 }
 
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
@@ -55,10 +55,6 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO: update s.manager.CreateBackupStatus to fetch the target classes internally
-	// Maybe not since classes are returned when restore is call the first time
-	// Also this would result in keeping this data in memory over the app life time
-	// I suggest to remove it from both restore and backup responses
 	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
@@ -76,7 +72,16 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	return backups.NewBackupsCreateStatusOK().WithPayload(status)
+
+	strStatus := string(status.Status)
+	payload := models.BackupCreateStatusResponse{
+		Status:  &strStatus,
+		ID:      params.ID,
+		Path:    status.Path,
+		Backend: params.Backend,
+		Error:   status.Err,
+	}
+	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
 }
 
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
@@ -112,11 +117,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO: update s.manager.RestoreBackupStatus to fetch the target classes internally
-	// Maybe not since classes are returned when restore is call the first time
-	// Also this would result in keeping this data in memory over the app life time
-	// I suggest to remove it from both restore and backup responses
-	restoreStatus, err := s.manager.RestorationStatus(
+	status, err := s.manager.RestorationStatus(
 		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
@@ -134,21 +135,21 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	status := string(restoreStatus.Status)
+	strStatus := string(status.Status)
 	payload := models.BackupRestoreStatusResponse{
-		Status:  &status,
+		Status:  &strStatus,
 		ID:      params.ID,
-		Path:    restoreStatus.Path,
+		Path:    status.Path,
 		Backend: params.Backend,
+		Error:   status.Err,
 	}
-	payload.Error = restoreStatus.Err
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)
 }
 
 func setupBackupHandlers(api *operations.WeaviateAPI,
-	backupManager *ubak.Manager,
+	scheduler *ubak.Scheduler,
 ) {
-	h := &backupHandlers{backupManager}
+	h := &backupHandlers{scheduler}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.
