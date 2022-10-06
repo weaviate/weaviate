@@ -216,7 +216,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
+		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
 		return nil, err
 	}
 	destPath := store.HomeDir()

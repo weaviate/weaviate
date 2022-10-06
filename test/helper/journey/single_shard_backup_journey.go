@@ -47,11 +47,10 @@ func singleShardBackupJourney(t *testing.T, className, backend, backupID string)
 	t.Run("create backup", func(t *testing.T) {
 		resp, err := helper.CreateBackup(t, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
-
 		// wait for create success
 		createTime := time.Now()
 		for {
-			if time.Now().After(createTime.Add(10 * time.Second)) {
+			if time.Now().After(createTime.Add(21 * time.Second)) {
 				break
 			}
 
@@ -65,6 +64,7 @@ func singleShardBackupJourney(t *testing.T, className, backend, backupID string)
 			if *resp.Payload.Status == string(backup.Success) {
 				break
 			}
+			time.Sleep(time.Second * 1)
 		}
 
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
@@ -87,7 +87,7 @@ func singleShardBackupJourney(t *testing.T, className, backend, backupID string)
 		// wait for restore success
 		restoreTime := time.Now()
 		for {
-			if time.Now().After(restoreTime.Add(10 * time.Second)) {
+			if time.Now().After(restoreTime.Add(21 * time.Second)) {
 				break
 			}
 

@@ -214,6 +214,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
+	backupScheduler := backup.NewScheduler(
+		appState.Authorizer,
+		clients.NewClusterBackups(clusterHttpClient),
+		repo, appState.Modules,
+		appState.Cluster,
+		appState.Logger)
+
 	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
@@ -257,7 +264,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
-	setupBackupHandlers(api, backupManager)
+	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, schemaManager, repo, appState)
 
 	api.ServerShutdown = func() {
