@@ -97,7 +97,7 @@ function run_unit_tests() {
     echo "Skipping unit test"
     return
   fi
-  go test -v -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
+  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
 }
 
 function run_integration_tests() {
@@ -112,7 +112,7 @@ function run_integration_tests() {
 function run_acceptance_tests() {
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
     for pkg in $(go list ./... | grep 'test/acceptance'); do
-      if ! go test -v -count 1 -race "$pkg"; then
+      if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -122,7 +122,7 @@ function run_acceptance_tests() {
 function run_module_tests() {
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
     for pkg in $(go list ./... | grep 'test/modules'); do
-      if ! go test -v -count 1 -race "$pkg"; then
+      if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
