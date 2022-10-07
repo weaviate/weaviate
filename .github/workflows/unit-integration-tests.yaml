@@ -1,6 +1,6 @@
 name: Unit and integration tests
 
-on: [push, fork, pull_request]
+on: [fork, pull_request]
 
 jobs:
   Unittests:
