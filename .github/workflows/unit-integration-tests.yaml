@@ -15,10 +15,12 @@ jobs:
       - name: Unit and integration test
         run: ./test/run.sh --unit-and-integration-only
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        uses:
+          actions/checkout@master
+          codecov/codecov-action@v3
         if: github.event_name != 'pull_request'
         with:
           fail_ci_if_error: true
           files: ./coverage-unit.txt,./coverage-integration.txt
-          flags: unittests, integration
+          flags: unittests,integration
           verbose: true
