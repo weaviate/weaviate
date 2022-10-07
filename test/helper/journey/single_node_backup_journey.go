@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
+func singleNodeBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, className, backupID string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -34,8 +34,8 @@ func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, class
 		addTestObjects(t, className)
 	})
 
-	t.Run("single shard backup", func(t *testing.T) {
-		singleShardBackupJourney(t, className, backend, backupID)
+	t.Run("single node backup", func(t *testing.T) {
+		backupJourney(t, className, backend, backupID)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -43,7 +43,7 @@ func singleShardBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, class
 	})
 }
 
-func singleShardBackupJourney(t *testing.T, className, backend, backupID string) {
+func backupJourney(t *testing.T, className, backend, backupID string) {
 	t.Run("create backup", func(t *testing.T) {
 		resp, err := helper.CreateBackup(t, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)

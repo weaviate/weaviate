@@ -21,6 +21,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	fsBackupJourneyClassName          = "FileSystemBackup"
+	fsBackupJourneyBackupIDSingleNode = "fs-backup-single-node"
+	fsBackupJourneyBackupIDCluster    = "fs-backup-cluster"
+)
+
 func Test_BackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
@@ -29,6 +35,7 @@ func Test_BackupJourney(t *testing.T) {
 		WithBackendFilesystem().
 		WithText2VecContextionary().
 		WithWeaviate().
+		WithWeaviateCluster().
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -38,7 +45,10 @@ func Test_BackupJourney(t *testing.T) {
 	}()
 
 	t.Run("backup-filesystem", func(t *testing.T) {
-		journey.BackupJourneyTests(t, compose.GetWeaviate().URI(),
-			"filesystem", "FileSystemClass", "filesystem-backup-1")
+		journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+			"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode)
+
+		journey.BackupJourneyTests_Cluster(t, "filesystem", fsBackupJourneyClassName,
+			fsBackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
 	})
 }
