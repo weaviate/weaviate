@@ -130,7 +130,9 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 			return cb(i, shard, object)
 		}
 		bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
-		bucket.IterateObjects(ctx, wrapper)
+		if err := bucket.IterateObjects(ctx, wrapper); err != nil {
+			return err
+		}
 	}
 	return nil
 }

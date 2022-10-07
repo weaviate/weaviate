@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -127,7 +126,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	return b, nil
 }
 
-func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) {
+func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
 	i := 0
 	cursor := b.Cursor()
 	defer cursor.Close()
@@ -135,13 +134,14 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
 		if err != nil {
-			log.Printf("cannot unmarshal object %d, %v", i, err)
-			continue
+			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
 		}
 		f(obj)
 
 		i++
 	}
+
+	return nil
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
