@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -218,13 +217,14 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	for _, index := range m.db.indices {
 		// Iterate over all shards
 
-		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+		if err := index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
 			count = count + 1
 			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
 			return err
-		})
+		}); err != nil {
+			return err
+		}
 	}
-	fmt.Printf("Recalculated %d objects\n", count)
 	m.logger.
 		WithField("action", "startup").
 		Info("Reindexing dimensions")
