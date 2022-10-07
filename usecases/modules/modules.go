@@ -590,16 +590,25 @@ func (m *Provider) VectorFromSearchParam(ctx context.Context,
 
 	for _, mod := range m.GetAll() {
 		if m.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+			var moduleName string
+			var vectorSearches modulecapabilities.ArgumentVectorForParams
 			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
-				if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
-					if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-						cfg := NewClassBasedModuleConfig(class, mod.Name())
-						vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
-						if err != nil {
-							return nil, errors.Errorf("vectorize params: %v", err)
-						}
-						return vector, nil
+				moduleName = mod.Name()
+				vectorSearches = searcher.VectorSearches()
+			} else if searchers, ok := mod.(modulecapabilities.DependencySearcher); ok {
+				if dependencySearchers := searchers.VectorSearches(); dependencySearchers != nil {
+					moduleName = class.Vectorizer
+					vectorSearches = dependencySearchers[class.Vectorizer]
+				}
+			}
+			if vectorSearches != nil {
+				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
+					cfg := NewClassBasedModuleConfig(class, moduleName)
+					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
+					if err != nil {
+						return nil, errors.Errorf("vectorize params: %v", err)
 					}
+					return vector, nil
 				}
 			}
 		}
