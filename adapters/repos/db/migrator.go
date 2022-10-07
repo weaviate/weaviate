@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -212,6 +213,9 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	count := 0
+	m.logger.
+		WithField("action", "reindex").
+		Info("Reindexing dimensions")
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
@@ -225,8 +229,14 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			return err
 		}
 	}
-	m.logger.
-		WithField("action", "startup").
-		Info("Reindexing dimensions")
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			m.logger.
+				WithField("action", "reindex").
+				Info("Reindexing dimensions complete.  Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
+		}
+	}()
+
 	return nil
 }
