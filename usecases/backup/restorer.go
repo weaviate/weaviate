@@ -212,9 +212,9 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 	return istatus.(Status), nil
 }
 
-func (r *restorer) validate(ctx context.Context, store nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
+func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
 	destPath := store.HomeDir()
-	meta, err := store.Meta(ctx)
+	meta, err := store.Meta(ctx, req.ID, true)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {

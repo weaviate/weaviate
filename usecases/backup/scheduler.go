@@ -31,7 +31,6 @@ type Scheduler struct {
 	backends   BackupBackendProvider
 }
 
-// TODO replace Manager with Scheduler in rest/handlers
 // NewScheduler creates a new scheduler with two coordinators
 func NewScheduler(
 	authorizer authorizer,
@@ -117,7 +116,6 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
-
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
 		Backend: req.Backend,
@@ -125,7 +123,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Path:    store.HomeDir(),
 		Classes: meta.Classes(),
 	}
-	err = s.restorer.Restore(ctx, store, meta)
+	err = s.restorer.Restore(ctx, store, req.Backend, meta)
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()

@@ -128,6 +128,8 @@ func TestRestoreRequestValidation(t *testing.T) {
 	t.Run("GetMetadataFile", func(t *testing.T) {
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, ErrAny)
+		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, ErrAny)
+
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -138,6 +140,8 @@ func TestRestoreRequestValidation(t *testing.T) {
 		backend = &fakeBackend{}
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, backup.ErrNotFound{})
+
 		m3 := createManager(nil, nil, backend, nil)
 
 		_, err = m3.Restore(ctx, nil, req)
@@ -150,6 +154,20 @@ func TestRestoreRequestValidation(t *testing.T) {
 		backend := &fakeBackend{}
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m2 := createManager(nil, nil, backend, nil)
+		_, err := m2.Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), backup.Failed)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
+	t.Run("FailedOldBackup", func(t *testing.T) {
+		backend := &fakeBackend{}
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, ErrAny)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -473,6 +491,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	t.Run("GetMetdataFile", func(t *testing.T) {
 		backend := &fakeBackend{}
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", mock.Anything).Return(path)
 		bm := createManager(nil, nil, backend, nil)
 		resp := bm.OnCanCommit(ctx, &req)
