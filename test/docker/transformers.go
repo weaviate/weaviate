@@ -24,7 +24,7 @@ import (
 const Text2VecTransformers = "text2vec-transformers"
 
 func startT2VTransformers(ctx context.Context, networkName, transformersImage string) (*DockerContainer, error) {
-	image := "semitechnologies/transformers-inference:distilbert-base-uncased-1.1.0"
+	image := "semitechnologies/transformers-inference:sentence-transformers-gtr-t5-base-1.5.1"
 	if len(transformersImage) > 0 {
 		image = transformersImage
 	}
