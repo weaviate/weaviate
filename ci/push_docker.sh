@@ -9,11 +9,6 @@ function release() {
   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   docker buildx create --use
 
-  if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
-    # only run on non-pr builds, otherwise we have duplicates
-    return 0
-  fi
-
   tag_latest="${DOCKER_REPO}:latest"
   tag_exact=
 
