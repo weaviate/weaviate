@@ -1,0 +1,80 @@
+name: Tests
+
+on: [pull_request, push]
+
+jobs:
+  Unit-Tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Unit test
+        run: ./test/run.sh --unit-only
+      - name: Codecov Unit
+        uses: codecov/codecov-action@v3
+        if: github.event_name == 'pull_request'
+        with:
+          fail_ci_if_error: true
+          files: ./coverage-unit.txt
+          flags: unittests
+          verbose: true
+  Integration-Tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Integration test
+        run: ./test/run.sh --integration-only
+      - name: Codecov Integration
+        uses: codecov/codecov-action@v3
+        if: github.event_name == 'pull_request'
+        with:
+          fail_ci_if_error: true
+          files: ./coverage-integration.txt
+          flags: integration
+          verbose: true
+  Modules-Acceptance-Tests:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Acceptance tests (modules)
+        run: ./test/run.sh --acceptance-module-tests-only
+  Acceptance-Tests:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Acceptance tests (modules)
+        run: ./test/run.sh --acceptance-only
+  Push-Docker:
+    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unittests, Integration]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Push container
+        run: ./ci/push_docker.sh
