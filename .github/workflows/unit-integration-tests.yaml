@@ -1,6 +1,6 @@
 name: Unit and integration tests
 
-on: [fork, pull_request]
+on: [pull_request]
 
 jobs:
   Unittests:
@@ -13,7 +13,7 @@ jobs:
           go-version: 1.19
           cache: true
       - name: Unit test
-        run: go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
+        run: ./test/run.sh --unit-only
       - name: Codecov Unit
         uses: codecov/codecov-action@v3
         if: github.event_name == 'pull_request'
@@ -32,7 +32,7 @@ jobs:
           go-version: 1.19
           cache: true
       - name: Integration test
-        run: ./test/integration/run.sh --include-slow
+        run: ./test/run.sh --integration-only
       - name: Codecov Integration
         uses: codecov/codecov-action@v3
         if: github.event_name == 'pull_request'

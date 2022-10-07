@@ -8,12 +8,16 @@ function main() {
   run_acceptance_tests=false
   run_module_tests=false
   run_unit_and_integration_tests=false
+  run_unit_tests=false
+  run_integration_tests=false
   run_benchmark=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
           --acceptance-only) run_all_tests=false; run_acceptance_tests=true ;;
           --unit-and-integration-only) run_all_tests=false; run_unit_and_integration_tests=true;;
+          --unit-only) run_all_tests=false; run_unit_tests=true;;
+          --integration-only) run_all_tests=false; run_integration_tests=true;;
           --benchmark-only) run_all_tests=false; run_benchmark=true;;
           --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
@@ -35,11 +39,15 @@ function main() {
   rm -rf data
   echo "Done!"
 
-  if $run_unit_and_integration_tests || $run_all_tests
+  if $run_unit_and_integration_tests || $run_unit_tests || $run_all_tests
   then
     echo_green "Run all unit tests..."
     run_unit_tests "$@"
     echo_green "Unit tests successful"
+  fi
+
+  if $run_unit_and_integration_tests || $run_integration_tests || $run_all_tests
+  then
     echo_green "Run integration tests..."
     run_integration_tests "$@"
     echo_green "Integration tests successful"
