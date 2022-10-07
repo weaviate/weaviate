@@ -152,13 +152,14 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 }
 
 func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
+	className := "ThingForBatching"
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
-		FlushIdleAfter:            60,
+		FlushIdleAfter:            1,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -171,21 +172,84 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
-		schemaGetter))
+	t.Run("creating the test class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
-	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimBefore := GetDimensionsFromRepo(repo, className)
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
-	t.Run("batch import things", testBatchImportObjects(repo))
+	simpleInsertObjects(t, repo, className, 103)
 
-	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimAfter := GetDimensionsFromRepo(repo, className)
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
-	t.Run("batch delete things", testBatchDeleteObjects(repo))
+	simpleDeleteObjects(t, repo, className, 103)
 
-	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
-	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
+	dimFinal := GetDimensionsFromRepo(repo, className)
+	require.Equal(t, 303, dimFinal, "2 objects have been deleted")
+}
+
+func simpleDeleteObjects(t *testing.T, repo *DB, className string, count int) {
+
+	performClassSearch := func() ([]search.Result, error) {
+		return repo.ClassSearch(context.Background(), traverser.GetParams{
+			ClassName:  "ThingForBatching",
+			Pagination: &filters.Pagination{Limit: 10000},
+		})
+	}
+
+	// get the initial count of the objects
+	res, err := performClassSearch()
+	require.Nil(t, err)
+	beforeDelete := len(res)
+	cacheSizeBefore := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
+	require.True(t, beforeDelete > 0)
+
+	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+		objects.BatchDeleteParams{
+			ClassName: "ThingForBatching",
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "ThingForBatching",
+								Property: schema.PropertyName("id"),
+							},
+							Value: &filters.Value{
+								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506003",
+								Type:  schema.DataTypeString,
+							},
+						},
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "ThingForBatching",
+								Property: schema.PropertyName("id"),
+							},
+							Value: &filters.Value{
+								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506004",
+								Type:  schema.DataTypeString,
+							},
+						},
+					},
+				},
+			},
+			DryRun: false,
+			Output: "verbose",
+		})
+	cacheSizeAfter := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
+	require.Nil(t, err)
+	require.Equal(t, int64(2), batchDeleteRes.Matches)
+	require.Equal(t, 2, len(batchDeleteRes.Objects))
+	for _, batchRes := range batchDeleteRes.Objects {
+		require.Nil(t, batchRes.Err)
+	}
+	assert.Equal(t, cacheSizeBefore, cacheSizeAfter)
+	res, err = performClassSearch()
+	require.Nil(t, err)
+	assert.Equal(t, beforeDelete-2, len(res))
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
@@ -207,8 +271,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
-		schemaGetter))
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
 	t.Run("batch import things", testBatchImportObjects(repo))
 
@@ -235,8 +298,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
-		schemaGetter))
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
@@ -298,8 +360,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 			},
 		}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
@@ -366,6 +427,29 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 		})
 	}
+}
+
+func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
+	batch := make(objects.BatchObjects, count)
+	for i := 0; i < count; i++ {
+		batch[i] = objects.BatchObject{
+			OriginalIndex: i,
+			Err:           nil,
+			Object: &models.Object{
+				Class: class,
+				Properties: map[string]interface{}{
+					"stringProp": fmt.Sprintf("element %d", i),
+				},
+				ID: strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+			},
+			UUID:   strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+			Vector: []float32{1, 2, 3},
+		}
+	}
+
+	repo.BatchPutObjects(context.Background(), batch)
+	time.Sleep(1 * time.Second)
+
 }
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {
@@ -597,8 +681,6 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			t.Run("can import", func(t *testing.T) {
 				batchRes, err := repo.BatchPutObjects(context.Background(), batch)
 				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
-
-				fmt.Printf("!!!batchRes: %+v\n", batchRes)
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
 					require.Len(t, batchRes, 53)
