@@ -458,18 +458,10 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 	jsonparser.EachKey(data[byteOps.Position:byteOps.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
 		var errParse error
 		switch dataType {
-		case jsonparser.Number:
-			v, err := jsonparser.ParseFloat(value)
+		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
+			val, err := parseValues(dataType, value)
 			errParse = err
-			(*properties)[aggregationProperties[idx]] = v
-		case jsonparser.Boolean:
-			b, err := jsonparser.ParseBoolean(value)
-			errParse = err
-			(*properties)[aggregationProperties[idx]] = b
-		case jsonparser.String:
-			s, err := jsonparser.ParseString(value)
-			errParse = err
-			(*properties)[aggregationProperties[idx]] = s
+			(*properties)[aggregationProperties[idx]] = val
 		case jsonparser.Array: // can be a beacon or an actual array
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
 			beaconVal, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
@@ -491,12 +483,8 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 					var val interface{}
 
 					switch innerDataType {
-					case jsonparser.Number:
-						val, errParse = jsonparser.ParseFloat(innerValue)
-					case jsonparser.String:
-						val, errParse = jsonparser.ParseString(innerValue)
-					case jsonparser.Boolean:
-						val, errParse = jsonparser.ParseBoolean(innerValue)
+					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
+						val, errParse = parseValues(innerDataType, innerValue)
 					default:
 						panic("Unknown data type ArrayEach") // returning an error would be better
 					}
@@ -514,6 +502,19 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 	}, propStrings...)
 
 	return nil
+}
+
+func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
+	switch dt {
+	case jsonparser.Number:
+		return jsonparser.ParseFloat(value)
+	case jsonparser.String:
+		return jsonparser.ParseString(value)
+	case jsonparser.Boolean:
+		return jsonparser.ParseBoolean(value)
+	default:
+		panic("Unknown data type") // returning an error would be better
+	}
 }
 
 // UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
