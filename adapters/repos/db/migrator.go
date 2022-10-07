@@ -231,10 +231,11 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	}
 	go func() {
 		for {
-			time.Sleep(5 * time.Minute)
+
 			m.logger.
 				WithField("action", "reindex").
 				Info("Reindexing dimensions complete.  Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
+			time.Sleep(5 * time.Minute)
 		}
 	}()
 
