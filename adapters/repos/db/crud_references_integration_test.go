@@ -421,7 +421,6 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
 		return 0
 	}
-	
 	repoClassName := schema.ClassName(className)
 	shards := repo.GetIndex(repoClassName).Shards
 	sum := 0
