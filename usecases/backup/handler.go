@@ -265,6 +265,7 @@ func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 	case OpRestore:
 		st, err := m.restorer.status(req.Backend, req.ID)
 		ret.Status = st.Status
+		ret.Err = st.Err
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()
