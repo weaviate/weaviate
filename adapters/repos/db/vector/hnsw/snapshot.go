@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -101,7 +102,10 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 		if err2 != nil {
 			return err2
 		}
-		found[path] = struct{}{}
+
+		if st, err := os.Stat(path); os.IsExist(err) && st.Size() > 0 {
+			found[path] = struct{}{}
+		}
 		return nil
 	})
 	if err != nil {
