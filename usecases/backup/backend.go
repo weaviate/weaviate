@@ -274,10 +274,13 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
-// Function makes sure that created files will be removed in case of an erro
+// Function makes sure that created files will be removed in case of an error
 func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
+	}
+	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
+		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
 	}
 	for _, part := range desc.Shards {
 		for _, key := range part.Files {
@@ -292,15 +295,15 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 		}
 		destPath := path.Join(classTempDir, part.DocIDCounterPath)
 		if err := os.WriteFile(destPath, part.DocIDCounter, os.ModePerm); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
+			return fmt.Errorf("write counter file %s: %w", destPath, err)
 		}
 		destPath = path.Join(classTempDir, part.PropLengthTrackerPath)
 		if err := os.WriteFile(destPath, part.PropLengthTracker, os.ModePerm); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
+			return fmt.Errorf("write prop file %s: %w", destPath, err)
 		}
 		destPath = path.Join(classTempDir, part.ShardVersionPath)
 		if err := os.WriteFile(destPath, part.Version, os.ModePerm); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
+			return fmt.Errorf("write version file %s: %w", destPath, err)
 		}
 	}
 	return nil
