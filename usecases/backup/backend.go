@@ -35,50 +35,107 @@ const (
 )
 
 const (
-	MetaDataFilename = "backup.json"
-	TempDirectory    = ".backup.tmp"
+	// BackupFile used by a node to store its metadata
+	BackupFile = "backup.json"
+	// GlobalBackupFile used by coordinator to store its metadata
+	GlobalBackupFile  = "backup_config.json"
+	GlobalRestoreFile = "restore_config.json"
+	_TempDirectory    = ".backup.tmp"
 )
 
-type objectStore struct {
-	modulecapabilities.BackupBackend
+type objStore struct {
+	b        modulecapabilities.BackupBackend
+	BasePath string
 }
 
-func (s *objectStore) Meta(ctx context.Context, backupID string) (*backup.BackupDescriptor, error) {
-	bytes, err := s.GetObject(ctx, backupID, MetaDataFilename)
-	if err != nil {
-		return nil, err
-	}
-	var backup backup.BackupDescriptor
-	err = json.Unmarshal(bytes, &backup)
-	if err != nil {
-		return nil, fmt.Errorf("marshal meta file: %w", err)
-	}
-	return &backup, nil
+// Meta gets a node's metadata from object store
+func (s *objStore) HomeDir() string {
+	return s.b.HomeDir(s.BasePath)
+}
+
+func (s *objStore) WriteToFile(ctx context.Context, key, destPath string) error {
+	return s.b.WriteToFile(ctx, s.BasePath, key, destPath)
+}
+
+// SourceDataPath is data path of all source files
+func (s *objStore) SourceDataPath() string {
+	return s.b.SourceDataPath()
+}
+
+func (s *objStore) PutFile(ctx context.Context, key, srcPath string) error {
+	return s.b.PutFile(ctx, s.BasePath, key, srcPath)
+}
+
+func (s *objStore) Initialize(ctx context.Context) error {
+	return s.b.Initialize(ctx, s.BasePath)
 }
 
 // meta marshals and uploads metadata
-func (s *objectStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
+func (s *objStore) putMeta(ctx context.Context, key string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
-		return fmt.Errorf("marshal meta file: %w", err)
+		return fmt.Errorf("marshal meta file %q: %w", key, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.PutObject(ctx, desc.ID, MetaDataFilename, bytes); err != nil {
-		return fmt.Errorf("upload meta file: %w", err)
+	if err := s.b.PutObject(ctx, s.BasePath, key, bytes); err != nil {
+		return fmt.Errorf("upload meta file %q: %w", key, err)
 	}
 	return nil
+}
+
+func (s *objStore) meta(ctx context.Context, key string, dest interface{}) error {
+	bytes, err := s.b.GetObject(ctx, s.BasePath, key)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(bytes, dest)
+	if err != nil {
+		return fmt.Errorf("marshal meta file %q: %w", key, err)
+	}
+	return nil
+}
+
+type nodeStore struct {
+	objStore
+}
+
+func (s *nodeStore) Meta(ctx context.Context) (*backup.BackupDescriptor, error) {
+	var backup backup.BackupDescriptor
+	err := s.meta(ctx, BackupFile, &backup)
+	return &backup, err
+}
+
+// meta marshals and uploads metadata
+func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
+	return s.putMeta(ctx, BackupFile, desc)
+}
+
+type coordStore struct {
+	objStore
+}
+
+// PutMeta puts coordinator's global metadata into object store
+func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.DistributedBackupDescriptor) error {
+	return s.putMeta(ctx, filename, desc)
+}
+
+// Meta gets coordinator's global metadata from object store
+func (s *coordStore) Meta(ctx context.Context, filename string) (*backup.DistributedBackupDescriptor, error) {
+	var backup backup.DistributedBackupDescriptor
+	err := s.meta(ctx, filename, &backup)
+	return &backup, err
 }
 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
 	sourcer   Sourcer
-	backend   objectStore
+	backend   nodeStore
 	backupID  string
 	setStatus func(st backup.Status)
 }
 
-func newUploader(sourcer Sourcer, backend objectStore,
+func newUploader(sourcer Sourcer, backend nodeStore,
 	backupID string, setstaus func(st backup.Status),
 ) *uploader {
 	return &uploader{sourcer, backend, backupID, setstaus}
@@ -126,7 +183,7 @@ Loop:
 
 // class uploads one class
 func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescriptor) (err error) {
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.BackupBackend), desc.Name)
+	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), desc.Name)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -142,7 +199,7 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 			return err
 		}
 		for _, fpath := range shard.Files {
-			if err := u.backend.PutFile(ctx, id, fpath, fpath); err != nil {
+			if err := u.backend.PutFile(ctx, fpath, fpath); err != nil {
 				return err
 			}
 		}
@@ -153,23 +210,21 @@ func (u *uploader) class(ctx context.Context, id string, desc backup.ClassDescri
 // fileWriter downloads files from object store and writes files to the destintion folder destDir
 type fileWriter struct {
 	sourcer    Sourcer
-	backend    objectStore
+	backend    nodeStore
 	tempDir    string
 	destDir    string
-	backupID   string
 	movedFiles []string // files successfully moved to destination folder
 }
 
-func newFileWriter(sourcer Sourcer, backend objectStore,
+func newFileWriter(sourcer Sourcer, backend nodeStore,
 	backupID string,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
 		sourcer:    sourcer,
 		backend:    backend,
-		backupID:   backupID,
 		destDir:    destDir,
-		tempDir:    path.Join(destDir, TempDirectory),
+		tempDir:    path.Join(destDir, _TempDirectory),
 		movedFiles: make([]string, 0, 64),
 	}
 }
@@ -212,7 +267,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 			if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
 				return fmt.Errorf("create folder %s: %w", destDir, err)
 			}
-			if err := fw.backend.WriteToFile(ctx, fw.backupID, key, destPath); err != nil {
+			if err := fw.backend.WriteToFile(ctx, key, destPath); err != nil {
 				return fmt.Errorf("write file %s: %w", destPath, err)
 			}
 		}

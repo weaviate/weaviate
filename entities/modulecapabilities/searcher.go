@@ -18,7 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 )
 
-// FindVectorFn method for getting a vector of given object by it's ID
+// FindVectorFn method for getting a vector of given object by its ID
 type FindVectorFn = func(ctx context.Context, className string, id strfmt.UUID) ([]float32, error)
 
 // VectorForParams defines method for passing a raw searcher content to the module

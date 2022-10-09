@@ -52,16 +52,14 @@ func (d *DB) init(ctx context.Context) error {
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),
 				RootPath:                  d.config.RootPath,
-				DiskUseWarningPercentage:  d.config.DiskUseWarningPercentage,
-				DiskUseReadOnlyPercentage: d.config.DiskUseReadOnlyPercentage,
+				ResourceUsage:             d.config.ResourceUsage,
 				QueryMaximumResults:       d.config.QueryMaximumResults,
 				MaxImportGoroutinesFactor: d.config.MaxImportGoroutinesFactor,
-				NodeName:                  d.config.NodeName,
 				FlushIdleAfter:            d.config.FlushIdleAfter,
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
-				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteClient, d.promMetrics)
+				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex, d.promMetrics)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

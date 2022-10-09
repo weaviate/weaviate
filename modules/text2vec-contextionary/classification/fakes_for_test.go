@@ -42,6 +42,18 @@ func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
 
+func (f *fakeSchemaGetter) Nodes() []string {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) NodeName() string {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) ClusterHealthScore() int {
+	panic("not implemented")
+}
+
 type fakeClassificationRepo struct {
 	sync.Mutex
 	db map[strfmt.UUID]models.Classification

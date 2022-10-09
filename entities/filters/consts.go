@@ -14,6 +14,14 @@ package filters
 const (
 	InternalPropBackwardsCompatID  = "id"
 	InternalPropID                 = "_id"
+	InternalNullIndex              = "_nullState"
+	InternalPropertyLength         = "_propertyLength"
 	InternalPropCreationTimeUnix   = "_creationTimeUnix"
 	InternalPropLastUpdateTimeUnix = "_lastUpdateTimeUnix"
+)
+
+// NotNullState is encoded as 0, so it can be read with the IsNull operator and value false.
+const (
+	InternalNotNullState = iota
+	InternalNullState
 )

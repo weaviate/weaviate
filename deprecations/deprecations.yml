@@ -63,17 +63,3 @@ deprecations:
     plannedRemovalVersion: "0.23.0"
     removedIn: "0.23.0"
     removedTime: "2020-12-18T18:00:00+00:00"
-  - id: additional-prop-certainty
-    status: deprecated # switch to removed once feature is completely removed
-    apiType: GraphQL
-    locations:
-    - 'Get {}'
-    - 'Explore {}'
-    msg: "response contains deprecated additional property certainty"
-    mitigation: |-
-      when making Get/Explore queries, refer to 'distance'
-    sinceVersion: "1.14.0"
-    sinceTime: "2022-06-21T19:12:31+00:00"
-    plannedRemovalVersion: "TBD"
-    removedIn: "TBD"
-    removedTime: null

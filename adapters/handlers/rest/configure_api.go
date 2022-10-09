@@ -35,12 +35,12 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/semi-technologies/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/semi-technologies/weaviate/modules/backup-s3"
@@ -48,12 +48,14 @@ import (
 	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
 	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
 	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
+	modcentroid "github.com/semi-technologies/weaviate/modules/ref2vec-centroid"
 	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
+	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -154,16 +156,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
+	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
+		ServerVersion:             config.ServerVersion,
+		GitHash:                   config.GitHash,
 		FlushIdleAfter:            appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
-		DiskUseWarningPercentage:  appState.ServerConfig.Config.DiskUse.WarningPercentage,
-		DiskUseReadOnlyPercentage: appState.ServerConfig.Config.DiskUse.ReadOnlyPercentage,
 		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		NodeName:                  appState.Cluster.LocalName(),
-	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
+		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
+		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -196,7 +200,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		hnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
+		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
 		schemaTxClient)
 	if err != nil {
 		appState.Logger.
@@ -204,9 +208,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
+
 	appState.SchemaManager = schemaManager
 
-	appState.RemoteIncoming = sharding.NewRemoteIndexIncoming(repo)
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
+	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
+
+	backupScheduler := backup.NewScheduler(
+		appState.Authorizer,
+		clients.NewClusterBackups(clusterHttpClient),
+		repo, appState.Modules,
+		appState.Cluster,
+		appState.Logger)
+
+	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
+		schemaManager, repo, appState.Modules)
+	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)
 
@@ -225,7 +242,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Modules, vectorRepo, appState.Modules,
+		appState.Authorizer, vectorRepo, appState.Modules,
 		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
@@ -247,7 +264,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
-	setupBackupHandlers(api, schemaManager, repo, appState)
+	setupBackupHandlers(api, backupScheduler)
+	setupNodesHandlers(api, schemaManager, repo, appState)
 
 	api.ServerShutdown = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -493,6 +511,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstggcs.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modcentroid.Name]; ok {
+		appState.Modules.Register(modcentroid.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modcentroid.Name).
 			Debug("enabled module")
 	}
 

@@ -29,6 +29,7 @@ type Property struct {
 	Name         string
 	Items        []Countable
 	HasFrequency bool
+	Length       int
 }
 
 type Analyzer struct {

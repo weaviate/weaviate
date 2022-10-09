@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,11 +43,8 @@ func Test_Aggregations(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -90,10 +86,8 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -108,9 +102,8 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("numerical aggregations without grouping (formerly Meta)",
 		testNumericalAggregationsWithoutGrouping(repo, false))
 
-	// TODO: does not work currently, part of https://semi-technology.atlassian.net/browse/WEAVIATE-328
-	// t.Run("numerical aggregations with filters",
-	//	testNumericalAggregationsWithFilters(repo))
+	t.Run("numerical aggregations with filters",
+		testNumericalAggregationsWithFilters(repo))
 
 	t.Run("date aggregations with grouping",
 		testDateAggregationsWithGrouping(repo, true))
@@ -1176,7 +1169,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 3,
+						Count: 2,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(2.0),
@@ -1184,7 +1177,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 						Properties: map[string]aggregation.Property{},
 					},
 					{
-						Count: 2,
+						Count: 1,
 						GroupedBy: &aggregation.GroupedBy{
 							Path:  []string{"numbers"},
 							Value: float64(3.0),

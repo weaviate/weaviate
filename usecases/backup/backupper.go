@@ -13,8 +13,8 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
@@ -23,97 +23,42 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type reqStat struct {
-	Starttime time.Time
-	ID        string
-	Status    backup.Status
-	path      string
-}
-
-type backupStat struct {
-	reqStat
-	sync.Mutex
-}
-
-func (s *backupStat) get() reqStat {
-	s.Lock()
-	defer s.Unlock()
-	return s.reqStat
-}
-
-// renew state if and only it is not in use
-// it returns "" in case of success and current id in case of failure
-func (s *backupStat) renew(id string, start time.Time, path string) string {
-	s.Lock()
-	defer s.Unlock()
-	if s.reqStat.ID != "" {
-		return s.reqStat.ID
-	}
-	s.reqStat.ID = id
-	s.reqStat.path = path
-	s.reqStat.Starttime = start
-	s.reqStat.Status = backup.Started
-	return ""
-}
-
-func (s *backupStat) reset() {
-	s.Lock()
-	s.reqStat.ID = ""
-	s.reqStat.path = ""
-	s.reqStat.Status = ""
-	s.Unlock()
-}
-
-func (s *backupStat) set(st backup.Status) {
-	s.Lock()
-	s.reqStat.Status = st
-	s.Unlock()
-}
-
 type backupper struct {
-	logger     logrus.FieldLogger
-	sourcer    Sourcer
-	backends   BackupBackendProvider
-	lastBackup backupStat
+	node     string
+	logger   logrus.FieldLogger
+	sourcer  Sourcer
+	backends BackupBackendProvider
+	// shardCoordinationChan is sync and coordinate operations
+	shardSyncChan
 }
 
-func newBackupper(logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
-		logger:   logger,
-		sourcer:  sourcer,
-		backends: backends,
+		node:          node,
+		logger:        logger,
+		sourcer:       sourcer,
+		backends:      backends,
+		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store objectStore, id string, classes []string,
+	store nodeStore, id string, classes []string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
-	if prevID := b.lastBackup.renew(id, time.Now(), store.HomeDir(id)); prevID != "" {
-		err := fmt.Errorf("backup %s already in progress", prevID)
+	req := Request{
+		Method:  OpCreate,
+		ID:      id,
+		Classes: classes,
+	}
+	if _, err := b.backup(ctx, store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	go func() {
-		defer b.lastBackup.reset()
-		provider := newUploader(b.sourcer, store, id, b.lastBackup.set)
-		result := backup.BackupDescriptor{
-			StartedAt:     time.Now().UTC(),
-			ID:            id,
-			Classes:       make([]backup.ClassDescriptor, 0, len(classes)),
-			Version:       Version,
-			ServerVersion: config.ServerVersion,
-		}
-		if err := provider.all(context.Background(), classes, &result); err != nil {
-			b.logger.WithField("action", "create_backup").
-				Error(err)
-		}
-		result.CompletedAt = time.Now().UTC()
-	}()
 
 	return &backup.CreateMeta{
-		Path:   store.HomeDir(id),
+		Path:   store.HomeDir(),
 		Status: backup.Started,
 	}, nil
 }
@@ -123,45 +68,95 @@ func (b *backupper) Backup(ctx context.Context,
 // If not it fetches the metadata file to get the status
 func (b *backupper) Status(ctx context.Context, backend, bakID string,
 ) (*models.BackupCreateStatusResponse, error) {
+	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend})
+	if err != nil {
+		if errors.Is(err, errMetaNotFound) {
+			err = backup.NewErrNotFound(err)
+		} else {
+			err = backup.NewErrUnprocessable(err)
+		}
+		return nil, err
+	}
 	// check if backup is still active
-	st := b.lastBackup.get()
-	if st.ID == bakID {
-		status := string(st.Status)
-		return &models.BackupCreateStatusResponse{
-			ID:      bakID,
-			Path:    st.path,
-			Status:  &status,
-			Backend: backend,
-		}, nil
-	}
-
-	// The backup might have been already created.
-	store, err := b.objectStore(backend)
-	if err != nil {
-		err = fmt.Errorf("no backup provider %q, did you enable the right module?", backend)
-		return nil, backup.NewErrUnprocessable(err)
-	}
-
-	meta, err := store.Meta(ctx, bakID)
-	if err != nil {
-		return nil, backup.NewErrNotFound(
-			fmt.Errorf("backup status: get metafile %s/%s: %w", bakID, MetaDataFilename, err))
-	}
-
-	status := string(meta.Status)
-
+	status := string(st.Status)
 	return &models.BackupCreateStatusResponse{
 		ID:      bakID,
-		Path:    store.HomeDir(bakID),
+		Path:    st.Path,
 		Status:  &status,
 		Backend: backend,
 	}, nil
 }
 
-func (b *backupper) objectStore(backend string) (objectStore, error) {
-	caps, err := b.backends.BackupBackend(backend)
-	if err != nil {
-		return objectStore{}, err
+func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, error) {
+	// check if backup is still active
+	st := b.lastOp.get()
+	if st.ID == req.ID {
+		return st, nil
 	}
-	return objectStore{caps}, nil
+
+	// The backup might have been already created.
+	store, err := nodeBackend(b.node, b.backends, req.Backend, req.ID)
+	if err != nil {
+		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
+	}
+
+	meta, err := store.Meta(ctx)
+	if err != nil {
+		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
+		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+	}
+
+	return reqStat{
+		Starttime: meta.StartedAt,
+		ID:        req.ID,
+		Path:      store.HomeDir(),
+		Status:    backup.Status(meta.Status),
+	}, nil
+}
+
+// Backup is called by the User
+func (b *backupper) backup(ctx context.Context,
+	store nodeStore, req *Request,
+) (CanCommitResponse, error) {
+	id := req.ID
+	expiration := req.Duration
+	if expiration > _TimeoutShardCommit {
+		expiration = _TimeoutShardCommit
+	}
+	ret := CanCommitResponse{
+		Method:  OpCreate,
+		ID:      req.ID,
+		Timeout: expiration,
+	}
+	// make sure there is no active backup
+	if prevID := b.lastOp.renew(id, store.HomeDir()); prevID != "" {
+		return ret, fmt.Errorf("backup %s already in progress", prevID)
+	}
+	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
+
+	go func() {
+		defer b.lastOp.reset()
+		if err := b.waitForCoordinator(expiration, id); err != nil {
+			b.logger.WithField("action", "create_backup").
+				Error(err)
+			b.lastAsyncError = err
+			return
+
+		}
+		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set)
+		result := backup.BackupDescriptor{
+			StartedAt:     time.Now().UTC(),
+			ID:            id,
+			Classes:       make([]backup.ClassDescriptor, 0, len(req.Classes)),
+			Version:       Version,
+			ServerVersion: config.ServerVersion,
+		}
+		if err := provider.all(context.Background(), req.Classes, &result); err != nil {
+			b.logger.WithField("action", "create_backup").
+				Error(err)
+		}
+		result.CompletedAt = time.Now().UTC()
+	}()
+
+	return ret, nil
 }

@@ -61,7 +61,13 @@ func (s *fakeSourcer) ClassExists(name string) bool {
 
 type fakeBackend struct {
 	mock.Mock
-	meta backup.BackupDescriptor
+	meta     backup.BackupDescriptor
+	glMeta   backup.DistributedBackupDescriptor
+	doneChan chan bool
+}
+
+func newFakeBackend() *fakeBackend {
+	return &fakeBackend{doneChan: make(chan bool)}
 }
 
 func (s *fakeBackend) HomeDir(backupID string) string {
@@ -75,10 +81,13 @@ func (s *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string
 }
 
 func (s *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte) error {
-	if key == MetaDataFilename {
-		json.Unmarshal(bytes, &s.meta)
-	}
 	args := s.Called(ctx, backupID, key, bytes)
+	if key == BackupFile {
+		json.Unmarshal(bytes, &s.meta)
+	} else if key == GlobalBackupFile || key == GlobalRestoreFile {
+		json.Unmarshal(bytes, &s.glMeta)
+		close(s.doneChan)
+	}
 	return args.Error(0)
 }
 
@@ -104,3 +113,5 @@ func (s *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath s
 	args := s.Called(ctx, backupID, key, destPath)
 	return args.Error(0)
 }
+
+// Coordinator

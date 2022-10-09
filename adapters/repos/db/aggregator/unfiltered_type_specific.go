@@ -196,6 +196,56 @@ func (ua unfilteredAggregator) parseAndAddDateRow(agg *dateAggregator, k []byte,
 	return nil
 }
 
+func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
+	prop aggregation.ParamProperty,
+) (*aggregation.Property, error) {
+	out := aggregation.Property{
+		Type:             aggregation.PropertyTypeDate,
+		DateAggregations: map[string]interface{}{},
+	}
+
+	b := ua.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return nil, errors.Errorf("could not find bucket for prop %s", prop.Name)
+	}
+
+	agg := newDateAggregator()
+
+	c := b.Cursor()
+	defer c.Close()
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if err := ua.parseAndAddDateArrayRow(agg, v, prop.Name); err != nil {
+			return nil, err
+		}
+	}
+
+	addDateAggregations(&out, prop.Aggregators, agg)
+
+	return &out, nil
+}
+
+func (ua unfilteredAggregator) parseAndAddDateArrayRow(agg *dateAggregator,
+	v []byte, propName schema.PropertyName,
+) error {
+	items, ok, err := storobj.ParseAndExtractProperty(v, propName.String())
+	if err != nil {
+		return errors.Wrap(err, "parse and extract prop")
+	}
+
+	if !ok {
+		return nil
+	}
+
+	for i := range items {
+		if err := agg.AddTimestamp(items[i]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k []byte,
 	v [][]byte,
 ) error {

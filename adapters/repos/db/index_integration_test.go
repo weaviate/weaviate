@@ -237,5 +237,7 @@ func invertedConfig() *models.InvertedIndexConfig {
 		Stopwords: &models.StopwordConfig{
 			Preset: "none",
 		},
+		IndexNullState:      true,
+		IndexPropertyLength: true,
 	}
 }

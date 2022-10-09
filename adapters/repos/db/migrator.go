@@ -35,19 +35,18 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		IndexConfig{
 			ClassName:                 schema.ClassName(class.Class),
 			RootPath:                  m.db.config.RootPath,
-			DiskUseWarningPercentage:  m.db.config.DiskUseWarningPercentage,
-			DiskUseReadOnlyPercentage: m.db.config.DiskUseReadOnlyPercentage,
+			ResourceUsage:             m.db.config.ResourceUsage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
 			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
-			NodeName:                  m.db.config.NodeName,
 			FlushIdleAfter:            m.db.config.FlushIdleAfter,
+			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
-		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteClient,
+		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.promMetrics)
 	if err != nil {
 		return errors.Wrap(err, "create index")
@@ -73,6 +72,33 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		err := idx.addProperty(ctx, prop)
 		if err != nil {
 			return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
+		}
+
+		if class.InvertedIndexConfig.IndexNullState {
+			err = idx.addNullStateProperty(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
+			}
+		}
+
+		if class.InvertedIndexConfig.IndexPropertyLength {
+			dt := schema.DataType(prop.DataType[0])
+			// some datatypes are not added to the inverted index, so we can skip them here
+			switch dt {
+			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+				schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+			default:
+				err = idx.addPropertyLength(ctx, prop)
+				if err != nil {
+					return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
+				}
+			}
+		}
+	}
+
+	if m.db.config.TrackVectorDimensions {
+		if err := idx.addDimensionsProperty(context.TODO()); err != nil {
+			return errors.Wrap(err, "init id property")
 		}
 	}
 

@@ -129,6 +129,10 @@ func (s *State) LocalName() string {
 	return s.list.LocalNode().Name
 }
 
+func (s *State) ClusterHealthScore() int {
+	return s.list.GetHealthScore()
+}
+
 func (s *State) NodeHostname(nodeName string) (string, bool) {
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
