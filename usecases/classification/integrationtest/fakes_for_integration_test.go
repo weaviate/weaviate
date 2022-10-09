@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -31,6 +30,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
@@ -46,6 +46,18 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
 	return f.shardState
+}
+
+func (f *fakeSchemaGetter) Nodes() []string {
+	return []string{"node1"}
+}
+
+func (m *fakeSchemaGetter) NodeName() string {
+	return "node1"
+}
+
+func (m *fakeSchemaGetter) ClusterHealthScore() int {
+	return 0
 }
 
 func singleShardState() *sharding.State {
@@ -100,17 +112,17 @@ func testSchema() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "ExactCategory",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 				},
 				{
 					Class:               "MainCategory",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 				},
 				{
 					Class:               "Article",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -274,7 +286,7 @@ func testSchemaForZeroShot() schema.Schema {
 			Classes: []*models.Class{
 				{
 					Class:               "FoodType",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -285,7 +297,7 @@ func testSchemaForZeroShot() schema.Schema {
 				},
 				{
 					Class:               "Recipes",
-					VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
@@ -408,4 +420,10 @@ type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 	return "", false
+}
+
+type fakeRemoteNodeClient struct{}
+
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error) {
+	return &models.NodeStatus{}, nil
 }

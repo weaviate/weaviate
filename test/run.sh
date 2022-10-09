@@ -24,6 +24,8 @@ function main() {
   # Jump to root directory
   cd "$( dirname "${BASH_SOURCE[0]}" )"/..
 
+  echo "INFO: In directory $PWD"
+
   echo "INFO: This script will surpress most output, unless a command ultimately fails"
   echo "      Then it will print the output of the failed command."
 
@@ -79,7 +81,8 @@ function main() {
     suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
     echo_green "Building weaviate image for module acceptance tests..."
     echo "This could take some time..."
-    docker build -t $module_test_image .
+    GIT_HASH=$(git rev-parse --short HEAD)
+    docker build --build-arg GITHASH=$GIT_HASH -t $module_test_image .
     export "TEST_WEAVIATE_IMAGE"=$module_test_image
 
     run_module_tests "$@"

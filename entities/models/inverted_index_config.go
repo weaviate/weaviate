@@ -33,6 +33,12 @@ type InvertedIndexConfig struct {
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
 
+	// Index each object with the null state
+	IndexNullState bool `json:"indexNullState,omitempty"`
+
+	// Index length of properties
+	IndexPropertyLength bool `json:"indexPropertyLength,omitempty"`
+
 	// Index each object by its internal timestamps
 	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
 

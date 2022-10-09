@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -34,7 +33,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -62,6 +61,8 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector))
 		}
 	})
+
+	t.Run("nodes api", testNodesAPI(repo))
 
 	t.Run("sorting objects", makeTestSortingClass(repo))
 
@@ -106,6 +107,8 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 		_, err := repo.BatchPutObjects(context.Background(), batch)
 		require.Nil(t, err)
 	})
+
+	t.Run("nodes api", testNodesAPI(repo))
 
 	t.Run("verify objects", makeTestRetrievingBaseClass(repo, data, queryVec,
 		groundTruth))
@@ -160,7 +163,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	t.Run("prepare", func(t *testing.T) {
 		class := &models.Class{
 			Class:             className,
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				CleanupIntervalSeconds: 60,
 			},
@@ -274,13 +277,13 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 
 	logger, _ := test.NewNullLogger()
 	repo := New(logger, Config{
+		ServerVersion:             "server-version",
+		GitHash:                   "git-hash",
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 
 	return repo, logger
 }
@@ -638,6 +641,40 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 	}
 }
 
+func testNodesAPI(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		nodeStatues, err := repo.GetNodeStatuses(context.Background())
+		require.Nil(t, err)
+		require.NotNil(t, nodeStatues)
+
+		require.Len(t, nodeStatues, 1)
+		nodeStatus := nodeStatues[0]
+		assert.NotNil(t, nodeStatus)
+		assert.Equal(t, "node1", nodeStatus.Name)
+		assert.Equal(t, "server-version", nodeStatus.Version)
+		assert.Equal(t, "git-hash", nodeStatus.GitHash)
+		assert.Len(t, nodeStatus.Shards, 6)
+		var testClassShardsCount, testClassObjectsCount int64
+		var testRefClassShardsCount, testRefClassObjectsCount int64
+		for _, status := range nodeStatus.Shards {
+			if status.Class == "TestClass" {
+				testClassShardsCount += 1
+				testClassObjectsCount += status.ObjectCount
+			}
+			if status.Class == "TestRefClass" {
+				testRefClassShardsCount += 1
+				testRefClassObjectsCount += status.ObjectCount
+			}
+		}
+		assert.Equal(t, int64(3), testClassShardsCount)
+		assert.Equal(t, int64(20), testClassObjectsCount)
+		assert.Equal(t, int64(3), testRefClassShardsCount)
+		assert.Equal(t, int64(0), testRefClassObjectsCount)
+		assert.Equal(t, int64(20), nodeStatus.Stats.ObjectCount)
+		assert.Equal(t, int64(6), nodeStatus.Stats.ShardCount)
+	}
+}
+
 func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		performDelete := func(t *testing.T, className string) {
@@ -809,7 +846,7 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 func testClassesForImporting() []*models.Class {
 	return []*models.Class{
 		{
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Class:               "TestClass",
 			Properties: []*models.Property{
@@ -836,7 +873,7 @@ func testClassesForImporting() []*models.Class {
 			},
 		},
 		{
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Class:               "TestRefClass",
 			Properties: []*models.Property{

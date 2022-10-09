@@ -52,7 +52,24 @@ func (s *Shard) initProperties() error {
 						return errors.Wrapf(err, "init property %s", prop.Name)
 					}
 				}
+				if s.index.invertedIndexConfig.IndexNullState {
+					eg.Go(func() error {
+						if err := s.addNullState(context.TODO(), prop); err != nil {
+							return errors.Wrapf(err, "init property %s null state", prop.Name)
+						}
 
+						return nil
+					})
+				}
+				if s.index.invertedIndexConfig.IndexPropertyLength {
+					eg.Go(func() error {
+						if err := s.addPropertyLength(context.TODO(), prop); err != nil {
+							return errors.Wrapf(err, "init property %s null state", prop.Name)
+						}
+
+						return nil
+					})
+				}
 				return nil
 			})
 		}(prop)
@@ -70,6 +87,16 @@ func (s *Shard) initProperties() error {
 		eg.Go(func() error {
 			if err := s.addTimestampProperties(context.TODO()); err != nil {
 				return errors.Wrap(err, "init timestamp properties")
+			}
+
+			return nil
+		})
+	}
+
+	if s.index.Config.TrackVectorDimensions {
+		eg.Go(func() error {
+			if err := s.addDimensionsProperty(context.TODO()); err != nil {
+				return errors.Wrap(err, "init id property")
 			}
 
 			return nil

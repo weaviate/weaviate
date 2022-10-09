@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -28,8 +29,9 @@ type DB struct {
 	schemaGetter schemaUC.SchemaGetter
 	config       Config
 	indices      map[string]*Index
-	remoteClient sharding.RemoteIndexClient
+	remoteIndex  sharding.RemoteIndexClient
 	nodeResolver nodeResolver
+	remoteNode   *sharding.RemoteNode
 	promMetrics  *monitoring.PrometheusMetrics
 	shutdown     chan struct{}
 
@@ -46,21 +48,23 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 		return err
 	}
 
-	d.scanDiskUse()
+	d.scanResourceUsage()
 
 	return nil
 }
 
 func New(logger logrus.FieldLogger, config Config,
-	remoteClient sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
+	remoteNodesClient sharding.RemoteNodeClient,
 	promMetrics *monitoring.PrometheusMetrics,
 ) *DB {
 	return &DB{
 		logger:       logger,
 		config:       config,
 		indices:      map[string]*Index{},
-		remoteClient: remoteClient,
+		remoteIndex:  remoteIndex,
 		nodeResolver: nodeResolver,
+		remoteNode:   sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
 		promMetrics:  promMetrics,
 		shutdown:     make(chan struct{}),
 	}
@@ -70,11 +74,12 @@ type Config struct {
 	RootPath                  string
 	QueryLimit                int64
 	QueryMaximumResults       int64
-	DiskUseWarningPercentage  uint64
-	DiskUseReadOnlyPercentage uint64
+	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	NodeName                  string
 	FlushIdleAfter            int
+	TrackVectorDimensions     bool
+	ServerVersion             string
+	GitHash                   string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

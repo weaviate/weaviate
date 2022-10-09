@@ -41,26 +41,27 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const IdLockPoolSize = 128
+
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index            *Index // a reference to the underlying index, which in turn contains schema information
-	name             string
-	store            *lsmkv.Store
-	counter          *indexcounter.Counter
-	vectorIndex      VectorIndex
-	invertedRowCache *inverted.RowCacher
-	metrics          *Metrics
-	promMetrics      *monitoring.PrometheusMetrics
-	propertyIndices  propertyspecific.Indices
-	deletedDocIDs    *docid.InMemDeletedTracker
-	cleanupInterval  time.Duration
-	cancel           chan struct{}
-	propLengths      *inverted.PropertyLengthTracker
-	randomSource     *bufferedRandomGen
-	versioner        *shardVersioner
-	diskScanState    *diskScanState
+	index             *Index // a reference to the underlying index, which in turn contains schema information
+	name              string
+	store             *lsmkv.Store
+	counter           *indexcounter.Counter
+	vectorIndex       VectorIndex
+	invertedRowCache  *inverted.RowCacher
+	metrics           *Metrics
+	promMetrics       *monitoring.PrometheusMetrics
+	propertyIndices   propertyspecific.Indices
+	deletedDocIDs     *docid.InMemDeletedTracker
+	cleanupInterval   time.Duration
+	propLengths       *inverted.PropertyLengthTracker
+	randomSource      *bufferedRandomGen
+	versioner         *shardVersioner
+	resourceScanState *resourceScanState
 
 	numActiveBatches    int
 	activeBatchesLock   sync.Mutex
@@ -68,8 +69,11 @@ type Shard struct {
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
 
-	status     storagestate.Status
-	statusLock sync.Mutex
+	status      storagestate.Status
+	statusLock  sync.Mutex
+	stopMetrics chan struct{}
+
+	docIdLock []sync.Mutex
 }
 
 type job struct {
@@ -102,12 +106,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		deletedDocIDs: docid.NewInMemDeletedTracker(),
 		cleanupInterval: time.Duration(invertedIndexConfig.
 			CleanupIntervalSeconds) * time.Second,
-		cancel:              make(chan struct{}, 1),
 		randomSource:        rand,
-		diskScanState:       newDiskScanState(),
+		resourceScanState:   newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		stopMetrics:         make(chan struct{}),
 	}
+
+	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
 	if s.maxNumberGoroutines == 0 {
 		return s, errors.New("no workers to add batch-jobs configured.")
 	}
@@ -206,6 +212,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
+	s.initDimensionTracking()
+
 	return s, nil
 }
 
@@ -215,6 +223,12 @@ func (s *Shard) ID() string {
 
 func (s *Shard) DBPathLSM() string {
 	return fmt.Sprintf("%s/%s_lsm", s.index.Config.RootPath, s.ID())
+}
+
+func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
+	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
+	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
+	return idBytes[15] % IdLockPoolSize
 }
 
 func (s *Shard) initDBFile(ctx context.Context) error {
@@ -253,7 +267,15 @@ func (s *Shard) drop(force bool) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	s.cancel <- struct{}{}
+	if s.index.Config.TrackVectorDimensions {
+		// tracking vector dimensions goroutine only works when tracking is enabled
+		// that's why we are trying to stop it only in this case
+		s.stopMetrics <- struct{}{}
+		if s.promMetrics != nil {
+			// send 0 in when index gets dropped
+			s.sendVectorDimensionsMetric(0)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
@@ -326,6 +348,23 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	// Note: this data would fit the "Set" type better, but since the "Map" type
+	// is currently optimized better, it is more efficient to use a Map here.
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.DimensionsBucketLSM,
+		lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -335,6 +374,50 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 		return err
 	}
 	if err := s.addLastUpdateTimeUnixProperty(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
+
+	err = s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	err := s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+	if err != nil {
+		return err
+	}
+
+	err = s.store.CreateOrLoadBucket(ctx,
+		helpers.HashBucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
+		lsmkv.WithStrategy(lsmkv.StrategyReplace))
+	if err != nil {
 		return err
 	}
 
@@ -447,7 +530,11 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
-	s.cancel <- struct{}{}
+	if s.index.Config.TrackVectorDimensions {
+		// tracking vector dimensions goroutine only works when tracking is enabled
+		// that's why we are trying to stop it only in this case
+		s.stopMetrics <- struct{}{}
+	}
 
 	if err := s.propLengths.Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")

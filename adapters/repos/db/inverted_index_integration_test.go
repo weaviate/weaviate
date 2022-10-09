@@ -23,32 +23,54 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestIndexByTimestamps_AddClass(t *testing.T) {
+func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
+	class := &models.Class{
+		Class:             "TestClass",
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			Stopwords: &models.StopwordConfig{
+				Preset: "none",
+			},
+			IndexTimestamps:     true,
+			IndexNullState:      true,
+			IndexPropertyLength: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     []string{"string"},
+				Tokenization: "word",
+			},
+		},
+	}
 	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}}
 	repo := New(logger, Config{
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	defer repo.Shutdown(context.Background())
@@ -56,25 +78,6 @@ func TestIndexByTimestamps_AddClass(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("add class", func(t *testing.T) {
-		class := &models.Class{
-			Class:             "TestClass",
-			VectorIndexConfig: hnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: &models.InvertedIndexConfig{
-				CleanupIntervalSeconds: 60,
-				Stopwords: &models.StopwordConfig{
-					Preset: "none",
-				},
-				IndexTimestamps: true,
-			},
-			Properties: []*models.Property{
-				{
-					Name:         "name",
-					DataType:     []string{"string"},
-					Tokenization: "word",
-				},
-			},
-		}
-
 		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 	})
@@ -93,8 +96,168 @@ func TestIndexByTimestamps_AddClass(t *testing.T) {
 
 				updateHashBucket := shd.store.Bucket("hash_property__lastUpdateTimeUnix")
 				assert.NotNil(t, updateHashBucket, "hash_property__creationTimeUnix bucket not found")
+
+				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+
+				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+
 			}
 		}
+	})
+
+	t.Run("Add Objects", func(t *testing.T) {
+		testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+		objWithProperty := &models.Object{
+			ID:         testID1,
+			Class:      "TestClass",
+			Properties: map[string]interface{}{"name": "objectarooni"},
+		}
+		vec := []float32{1, 2, 3}
+		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec))
+
+		testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
+		objWithoutProperty := &models.Object{
+			ID:         testID2,
+			Class:      "TestClass",
+			Properties: map[string]interface{}{"name": nil},
+		}
+		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec))
+	})
+
+	t.Run("delete class", func(t *testing.T) {
+		require.Nil(t, migrator.DropClass(context.Background(), class.Class))
+		for _, idx := range migrator.db.indices {
+			for _, shd := range idx.Shards {
+				require.Nil(t, shd.store.Bucket("property__creationTimeUnix"))
+				require.Nil(t, shd.store.Bucket("hash_property__creationTimeUnix"))
+				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex))
+				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex))
+				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength))
+				require.Nil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength))
+			}
+		}
+	})
+}
+
+func TestIndexNullState_GetClass(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	class := &models.Class{
+		Class:             "TestClass",
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: &models.InvertedIndexConfig{
+			CleanupIntervalSeconds: 60,
+			IndexTimestamps:        true,
+			IndexNullState:         true,
+			IndexPropertyLength:    true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+			{
+				Name:     "number array",
+				DataType: []string{"number[]"},
+			},
+		},
+	}
+
+	shardState := singleShardState()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}}
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(testCtx())
+	migrator := NewMigrator(repo, logger)
+
+	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+	testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+	objWithProperty := &models.Object{
+		ID:         testID1,
+		Class:      "TestClass",
+		Properties: map[string]interface{}{"name": "objectarooni", "number array": []float64{0.5, 1.4}},
+	}
+	require.Nil(t, repo.PutObject(context.Background(), objWithProperty, []float32{1, 2, 3}))
+
+	testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
+	objWithoutProperty := &models.Object{
+		ID:         testID2,
+		Class:      "TestClass",
+		Properties: map[string]interface{}{"name": nil, "number array": nil},
+	}
+	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}))
+
+	require.Equal(t, 1, len(migrator.db.indices["testclass"].Shards))
+	for _, shd := range migrator.db.indices["testclass"].Shards {
+		bucket := shd.store.Bucket("property_name" + filters.InternalNullIndex)
+		require.NotNil(t, bucket)
+	}
+
+	tests := map[string]strfmt.UUID{"filterNull": testID1, "filterNonNull": testID2}
+	for name, searchVal := range tests {
+		t.Run("test "+name+" directly on nullState property", func(t *testing.T) {
+			createTimeStringFilter := &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    "TestClass",
+						Property: "name_nullState",
+					},
+					Value: &filters.Value{
+						Value: searchVal != testID1,
+						Type:  "boolean",
+					},
+				},
+			}
+
+			res1, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				ClassName:  "TestClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    createTimeStringFilter,
+			})
+			require.Nil(t, err)
+			assert.Len(t, res1, 1)
+			assert.Equal(t, searchVal, res1[0].ID)
+		})
+	}
+
+	t.Run("test properly length directly on bucket", func(t *testing.T) {
+		PropLengthFilter := &filters.LocalFilter{
+			Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    "TestClass",
+					Property: "name" + filters.InternalPropertyLength,
+				},
+				Value: &filters.Value{
+					Value: 12,
+					Type:  dtInt,
+				},
+			},
+		}
+		res1, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			ClassName:  "TestClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    PropLengthFilter,
+		})
+		require.Nil(t, err)
+		assert.Len(t, res1, 1)
+		assert.Equal(t, testID1, res1[0].ID)
 	})
 }
 
@@ -104,7 +267,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 
 	class := &models.Class{
 		Class:             "TestClass",
-		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 60,
 			Stopwords: &models.StopwordConfig{
@@ -132,10 +295,8 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -256,6 +417,44 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		assert.Len(t, res4, 1)
 		assert.Equal(t, testID, res4[0].ID)
 	})
+}
+
+// Cannot filter for property length without enabling in the InvertedIndexConfig
+func TestFilterPropertyLengthError(t *testing.T) {
+	class := createClassWithEverything(false, false)
+	migrator, repo, schemaGetter := createRepo(t)
+	defer repo.Shutdown(context.Background())
+	err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	require.Nil(t, err)
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	LengthFilter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On: &filters.Path{
+				Class:    schema.ClassName(carClass.Class),
+				Property: "len(" + schema.PropertyName(class.Properties[0].Name) + ")",
+			},
+			Value: &filters.Value{
+				Value: 1,
+				Type:  dtInt,
+			},
+		},
+	}
+
+	params := traverser.GetParams{
+		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+		ClassName:    class.Class,
+		Pagination:   &filters.Pagination{Limit: 5},
+		Filters:      LengthFilter,
+	}
+	_, err = repo.ClassSearch(context.Background(), params)
+	require.NotNil(t, err)
 }
 
 func msToRFC3339(ms int64) time.Time {

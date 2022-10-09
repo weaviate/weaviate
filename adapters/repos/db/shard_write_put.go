@@ -101,7 +101,11 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	defer s.metrics.PutObject(before)
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	previous, err := bucket.Get([]byte(idBytes))
+
+	// First the object bucket is checked if already an object with the same uuid is present, to determine if it is new
+	// or an update. Afterwards the bucket is updates. To avoid races, only one goroutine can do this at once.
+	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Lock()
+	previous, err := bucket.Get(idBytes)
 	if err != nil {
 		return objectInsertStatus{}, err
 	}
@@ -122,6 +126,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object,
 	if err := s.upsertObjectDataLSM(bucket, idBytes, data, status.docID); err != nil {
 		return status, errors.Wrap(err, "upsert object data")
 	}
+	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Unlock()
 	s.metrics.PutObjectUpsertObject(before)
 
 	if !skipInverted {
@@ -219,7 +224,7 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, previous []byte,
 ) error {
-	props, err := s.analyzeObject(object)
+	props, nilprops, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
@@ -239,7 +244,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	before := time.Now()
 
-	err = s.extendInvertedIndicesLSM(props, status.docID)
+	err = s.extendInvertedIndicesLSM(props, nilprops, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
@@ -247,6 +252,13 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	if err := s.addPropLengths(props); err != nil {
 		return errors.Wrap(err, "store field length values for props")
+	}
+
+	if s.index.Config.TrackVectorDimensions {
+		err = s.extendDimensionTrackerLSM(len(object.Vector), status.docID)
+		if err != nil {
+			return errors.Wrap(err, "track dimensions")
+		}
 	}
 
 	return nil
@@ -299,7 +311,7 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 		return errors.Wrap(err, "unmarshal previous object")
 	}
 
-	previousInvertProps, err := s.analyzeObject(previousObject)
+	previousInvertProps, _, err := s.analyzeObject(previousObject)
 	if err != nil {
 		return errors.Wrap(err, "analyze previous object")
 	}
@@ -307,6 +319,13 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, status.oldDocID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
+	}
+
+	if s.index.Config.TrackVectorDimensions {
+		err = s.removeDimensionsLSM(len(previousObject.Vector), status.oldDocID)
+		if err != nil {
+			return errors.Wrap(err, "track dimensions (delete)")
+		}
 	}
 
 	return nil

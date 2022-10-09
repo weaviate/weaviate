@@ -13,6 +13,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/pkg/errors"
@@ -38,6 +39,7 @@ const (
 	BackupFileSystem = "backup-filesystem"
 	BackupS3         = "backup-s3"
 	BackupGCS        = "backup-gcs"
+	Ref2VecCentroid  = "ref2vec-centroid"
 )
 
 type Compose struct {
@@ -54,7 +56,9 @@ type Compose struct {
 	withContextionary       bool
 	withQnATransformers     bool
 	withWeaviate            bool
+	withWeaviateCluster     bool
 	withSUMTransformers     bool
+	withCentroid            bool
 }
 
 func New() *Compose {
@@ -121,8 +125,20 @@ func (d *Compose) WithSUMTransformers() *Compose {
 	return d
 }
 
+func (d *Compose) WithRef2VecCentroid() *Compose {
+	d.withCentroid = true
+	d.enableModules = append(d.enableModules, Ref2VecCentroid)
+	return d
+}
+
 func (d *Compose) WithWeaviate() *Compose {
 	d.withWeaviate = true
+	return d
+}
+
+func (d *Compose) WithWeaviateCluster() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateCluster = true
 	return d
 }
 
@@ -214,10 +230,25 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withWeaviate {
 		image := os.Getenv(envTestWeaviateImage)
+		hostname := Weaviate
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image)
+			envSettings, networkName, image, hostname)
 		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", Weaviate)
+			return nil, errors.Wrapf(err, "start %s", hostname)
+		}
+		containers = append(containers, container)
+	}
+	if d.withWeaviateCluster {
+		image := os.Getenv(envTestWeaviateImage)
+		hostname := WeaviateNode2
+		envSettings["CLUSTER_HOSTNAME"] = "node2"
+		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
+		envSettings["CLUSTER_DATA_BIND_PORT"] = "7103"
+		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+			envSettings, networkName, image, hostname)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
 	}

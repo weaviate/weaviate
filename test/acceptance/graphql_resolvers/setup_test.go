@@ -22,6 +22,7 @@ import (
 	sch "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/semi-technologies/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_GraphQL(t *testing.T) {
@@ -41,7 +42,8 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (companies)", addTestDataCompanies)
 	t.Run("import test data (person)", addTestDataPersons)
 	t.Run("import test data (pizzas)", addTestDataPizzas)
-	t.Run("import test data (array class)", addTestDataArrayClasses)
+	t.Run("import test data (array class)", addTestDataArrayClass)
+	t.Run("import test data (duplicates class)", addTestDataDuplicatesClass)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 	t.Run("import test data (multi shard)", addTestDataMultiShard)
 	t.Run("import test data (date field class)", addDateFieldClass)
@@ -63,12 +65,15 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
 
 	// aggregate tests
-	t.Run("aggregates without grouping or filters", aggregatesWithoutGroupingOrFilters)
-	t.Run("aggregates local meta with filters", localMetaWithFilters)
+	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
+	t.Run("aggregates arrayClass without grouping", aggregateArrayClassWithoutGroupByTest)
+	t.Run("aggregates arrayClass with grouping", aggregateArrayClassWithGroupByTest)
+	t.Run("aggregates duplicatesClass without grouping", aggregateDuplicatesClassWithoutGroupByTest)
+	t.Run("aggregates duplicatesClass with grouping", aggregateDuplicatesClassWithGroupByTest)
+	t.Run("aggregates city without grouping", aggregateCityClassWithoutGroupByTest)
+	t.Run("aggregates city with grouping", aggregateCityClassWithGroupByTest)
+
 	t.Run("aggregates local meta string props not set everywhere", localMeta_StringPropsNotSetEverywhere)
-	t.Run("aggregates array class without grouping or filters", aggregatesArrayClassWithoutGroupingOrFilters)
-	t.Run("aggregates array class with grouping", aggregatesArrayClassWithGrouping)
-	t.Run("aggregates array class with grouping and nearObject", aggregatesArrayClassWithGroupingAndNearObject)
 	t.Run("aggregates local meta with where and nearText filters", localMetaWithWhereAndNearTextFilters)
 	t.Run("aggregates local meta with where and nearObject filters", localMetaWithWhereAndNearObjectFilters)
 	t.Run("aggregates local meta with nearVector filters", localMetaWithNearVectorFilter)
@@ -77,7 +82,6 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("aggregates on date fields", aggregatesOnDateFields)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
-	t.Run("aggregate sanity checks", runningAggregateArrayClassSanityCheck)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -86,11 +90,12 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "City")
 	deleteObjectClass(t, "Airport")
 	deleteObjectClass(t, "Company")
-	deleteObjectClass(t, "ArrayClass")
 	deleteObjectClass(t, "RansomNote")
 	deleteObjectClass(t, "MultiShard")
 	deleteObjectClass(t, "HasDateField")
-	deleteObjectClass(t, "ClassWithoutProperties")
+	deleteObjectClass(t, arrayClassName)
+	deleteObjectClass(t, duplicatesClassName)
+	deleteObjectClass(t, noPropsClassName)
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -129,6 +134,7 @@ func addTestSchema(t *testing.T) {
 				"vectorizeClassName": true,
 			},
 		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexTimestamps: true},
 		Properties: []*models.Property{
 			{
 				Name:     "name",
@@ -372,43 +378,6 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class: "ArrayClass",
-		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
-				"vectorizeClassName": true,
-			},
-		},
-		Properties: []*models.Property{
-			{
-				Name:         "strings",
-				DataType:     []string{"string[]"},
-				Tokenization: models.PropertyTokenizationWord,
-			},
-			{
-				Name:         "texts",
-				DataType:     []string{"text[]"},
-				Tokenization: models.PropertyTokenizationWord,
-			},
-			{
-				Name:     "numbers",
-				DataType: []string{"number[]"},
-			},
-			{
-				Name:     "ints",
-				DataType: []string{"int[]"},
-			},
-			{
-				Name:     "booleans",
-				DataType: []string{"boolean[]"},
-			},
-			{
-				Name:     "datesAsStrings",
-				DataType: []string{"date[]"},
-			},
-		},
-	})
-
-	createObjectClass(t, &models.Class{
 		Class: "RansomNote",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
@@ -423,35 +392,7 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-	createObjectClass(t, &models.Class{
-		Class: "MultiShard",
-		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
-				"vectorizeClassName": false,
-			},
-		},
-		Properties: []*models.Property{
-			{
-				Name:     "name",
-				DataType: []string{"string"},
-				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
-						"vectorizePropertyName": false,
-					},
-				},
-			},
-		},
-		ShardingConfig: map[string]interface{}{
-			"actualCount":         float64(2),
-			"actualVirtualCount":  float64(128),
-			"desiredCount":        float64(2),
-			"desiredVirtualCount": float64(128),
-			"function":            "murmur3",
-			"key":                 "_id",
-			"strategy":            "hash",
-			"virtualPerPhysical":  float64(128),
-		},
-	})
+	createObjectClass(t, multishard.ClassContextionaryVectorizer())
 
 	createObjectClass(t, &models.Class{
 		Class: "HasDateField",
@@ -487,14 +428,9 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-	createObjectClass(t, &models.Class{
-		Class: "ClassWithoutProperties",
-		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
-				"vectorizeClassName": true,
-			},
-		},
-	})
+	createObjectClass(t, noPropsClassSchema())
+	createObjectClass(t, arrayClassSchema())
+	createObjectClass(t, duplicatesClassSchema())
 }
 
 const (
@@ -518,6 +454,13 @@ const (
 	fruttiDiMare    strfmt.UUID = "a828e9aa-d1b6-4644-8569-30d404e31a0d"
 	hawaii          strfmt.UUID = "ed75037b-0748-4970-811e-9fe835ed41d1"
 	doener          strfmt.UUID = "a655292d-1b93-44a1-9a47-57b6922bb455"
+)
+
+var (
+	historyAmsterdam  = "Due to its geographical location in what used to be wet peatland, the founding of Amsterdam is of a younger age than the founding of other urban centers in the Low Countries. However, in and around the area of what later became Amsterdam, local farmers settled as early as three millennia ago. They lived along the prehistoric IJ river and upstream of its tributary Amstel. The prehistoric IJ was a shallow and quiet stream in peatland behind beach ridges. This secluded area could grow there into an important local settlement center, especially in the late Bronze Age, the Iron Age and the Roman Age. Neolithic and Roman artefacts have also been found downstream of this area, in the prehistoric Amstel bedding under Amsterdam's Damrak and Rokin, such as shards of Bell Beaker culture pottery (2200-2000 BC) and a granite grinding stone (2700-2750 BC).[27][28] But the location of these artefacts around the river banks of the Amstel probably point to a presence of a modest semi-permanent or seasonal settlement of the previous mentioned local farmers. A permanent settlement would not have been possible, since the river mouth and the banks of the Amstel in this period in time were too wet for permanent habitation"
+	historyRotterdam  = "On 7 July 1340, Count Willem IV of Holland granted city rights to Rotterdam, whose population then was only a few thousand.[14] Around the year 1350, a shipping canal (the Rotterdamse Schie) was completed, which provided Rotterdam access to the larger towns in the north, allowing it to become a local trans-shipment centre between the Netherlands, England and Germany, and to urbanize"
+	historyBerlin     = "The earliest evidence of settlements in the area of today's Berlin are remnants of a house foundation dated to 1174, found in excavations in Berlin Mitte,[27] and a wooden beam dated from approximately 1192.[28] The first written records of towns in the area of present-day Berlin date from the late 12th century. Spandau is first mentioned in 1197 and Köpenick in 1209, although these areas did not join Berlin until 1920.[29] The central part of Berlin can be traced back to two towns. Cölln on the Fischerinsel is first mentioned in a 1237 document, and Berlin, across the Spree in what is now called the Nikolaiviertel, is referenced in a document from 1244.[28] 1237 is considered the founding date of the city.[30] The two towns over time formed close economic and social ties, and profited from the staple right on the two important trade routes Via Imperii and from Bruges to Novgorod.[12] In 1307, they formed an alliance with a common external policy, their internal administrations still being separated"
+	historyDusseldorf = "The first written mention of Düsseldorf (then called Dusseldorp in the local Low Rhenish dialect) dates back to 1135. Under Emperor Friedrich Barbarossa the small town of Kaiserswerth to the north of Düsseldorf became a well-fortified outpost, where soldiers kept a watchful eye on every movement on the Rhine. Kaiserswerth eventually became a suburb of Düsseldorf in 1929. In 1186, Düsseldorf came under the rule of the Counts of Berg. 14 August 1288 is one of the most important dates in the history of Düsseldorf. On this day the sovereign Count Adolf VIII of Berg granted the village on the banks of the Düssel town privileges. Before this, a bloody struggle for power had taken place between the Archbishop of Cologne and the count of Berg, culminating in the Battle of Worringen"
 )
 
 func addTestDataCityAirport(t *testing.T) {
@@ -558,7 +501,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"cityRights": mustParseYear("1400"),
 			"timezones":  []string{"CET", "CEST"},
 			"museums":    []string{"Stedelijk Museum", "Rijksmuseum"},
-			"history":    "Due to its geographical location in what used to be wet peatland, the founding of Amsterdam is of a younger age than the founding of other urban centers in the Low Countries. However, in and around the area of what later became Amsterdam, local farmers settled as early as three millennia ago. They lived along the prehistoric IJ river and upstream of its tributary Amstel. The prehistoric IJ was a shallow and quiet stream in peatland behind beach ridges. This secluded area could grow there into an important local settlement center, especially in the late Bronze Age, the Iron Age and the Roman Age. Neolithic and Roman artefacts have also been found downstream of this area, in the prehistoric Amstel bedding under Amsterdam's Damrak and Rokin, such as shards of Bell Beaker culture pottery (2200-2000 BC) and a granite grinding stone (2700-2750 BC).[27][28] But the location of these artefacts around the river banks of the Amstel probably point to a presence of a modest semi-permanent or seasonal settlement of the previous mentioned local farmers. A permanent settlement would not have been possible, since the river mouth and the banks of the Amstel in this period in time were too wet for permanent habitation",
+			"history":    historyAmsterdam,
 			"phoneNumber": map[string]interface{}{
 				"input": "+311000004",
 			},
@@ -580,7 +523,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"cityRights": mustParseYear("1283"),
 			"timezones":  []string{"CET", "CEST"},
 			"museums":    []string{"Museum Boijmans Van Beuningen", "Wereldmuseum", "Witte de With Center for Contemporary Art"},
-			"history":    "On 7 July 1340, Count Willem IV of Holland granted city rights to Rotterdam, whose population then was only a few thousand.[14] Around the year 1350, a shipping canal (the Rotterdamse Schie) was completed, which provided Rotterdam access to the larger towns in the north, allowing it to become a local trans-shipment centre between the Netherlands, England and Germany, and to urbanize",
+			"history":    historyRotterdam,
 			"phoneNumber": map[string]interface{}{
 				"input": "+311000000",
 			},
@@ -602,7 +545,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"cityRights": mustParseYear("1400"),
 			"timezones":  []string{"CET", "CEST"},
 			"museums":    []string{"German Historical Museum"},
-			"history":    "The earliest evidence of settlements in the area of today's Berlin are remnants of a house foundation dated to 1174, found in excavations in Berlin Mitte,[27] and a wooden beam dated from approximately 1192.[28] The first written records of towns in the area of present-day Berlin date from the late 12th century. Spandau is first mentioned in 1197 and Köpenick in 1209, although these areas did not join Berlin until 1920.[29] The central part of Berlin can be traced back to two towns. Cölln on the Fischerinsel is first mentioned in a 1237 document, and Berlin, across the Spree in what is now called the Nikolaiviertel, is referenced in a document from 1244.[28] 1237 is considered the founding date of the city.[30] The two towns over time formed close economic and social ties, and profited from the staple right on the two important trade routes Via Imperii and from Bruges to Novgorod.[12] In 1307, they formed an alliance with a common external policy, their internal administrations still being separated",
+			"history":    historyBerlin,
 			"phoneNumber": map[string]interface{}{
 				"input": "+311000002",
 			},
@@ -628,7 +571,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"cityRights": mustParseYear("1135"),
 			"timezones":  []string{"CET", "CEST"},
 			"museums":    []string{"Schlossturm", "Schiffahrt Museum", "Onomato"},
-			"history":    "The first written mention of Düsseldorf (then called Dusseldorp in the local Low Rhenish dialect) dates back to 1135. Under Emperor Friedrich Barbarossa the small town of Kaiserswerth to the north of Düsseldorf became a well-fortified outpost, where soldiers kept a watchful eye on every movement on the Rhine. Kaiserswerth eventually became a suburb of Düsseldorf in 1929. In 1186, Düsseldorf came under the rule of the Counts of Berg. 14 August 1288 is one of the most important dates in the history of Düsseldorf. On this day the sovereign Count Adolf VIII of Berg granted the village on the banks of the Düssel town privileges. Before this, a bloody struggle for power had taken place between the Archbishop of Cologne and the count of Berg, culminating in the Battle of Worringen",
+			"history":    historyDusseldorf,
 			"phoneNumber": map[string]interface{}{
 				"input": "+311000001",
 			},
@@ -919,116 +862,24 @@ func addTestDataCVC(t *testing.T) {
 }
 
 func addTestDataNoProperties(t *testing.T) {
-	var (
-		EmptyID1 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a"
-		EmptyID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
-	)
-	createObject(t, &models.Object{
-		Class: "ClassWithoutProperties",
-		ID:    EmptyID1,
-	})
-	assertGetObjectEventually(t, EmptyID1)
-
-	createObject(t, &models.Object{
-		Class: "ClassWithoutProperties",
-		ID:    EmptyID2,
-	})
-	assertGetObjectEventually(t, EmptyID2)
+	for _, object := range noPropsClassObjects() {
+		createObject(t, object)
+		assertGetObjectEventually(t, object.ID)
+	}
 }
 
-func addTestDataArrayClasses(t *testing.T) {
-	var (
-		arrayClassID1 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534a"
-		arrayClassID2 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534b"
-		arrayClassID3 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534c"
-		arrayClassID4 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534d"
-		arrayClassID5 strfmt.UUID = "cfa3b21e-ca5f-4db7-a412-5fc6a23c534e"
-	)
-	createObject(t, &models.Object{
-		Class: "ArrayClass",
-		ID:    arrayClassID1,
-		Properties: map[string]interface{}{
-			"strings":  []string{"a", "b", "c"},
-			"texts":    []string{"a", "b", "c"},
-			"numbers":  []float64{1.0, 2.0, 3.0},
-			"ints":     []int{1, 2, 3},
-			"booleans": []bool{true, true},
-			"datesAsStrings": []string{
-				"2022-06-01T22:18:59.640162Z",
-				"2022-06-02T22:18:59.640162Z",
-				"2022-06-03T22:18:59.640162Z",
-			},
-			"dates": []time.Time{
-				time.Date(1234, 5, 6, 7, 8, 9, 10, time.UTC),
-				time.Date(1235, 6, 7, 8, 9, 10, 11, time.UTC),
-				time.Date(1236, 7, 8, 9, 10, 11, 12, time.UTC),
-			},
-		},
-	})
-	assertGetObjectEventually(t, arrayClassID1)
+func addTestDataArrayClass(t *testing.T) {
+	for _, object := range arrayClassObjects() {
+		createObject(t, object)
+		assertGetObjectEventually(t, object.ID)
+	}
+}
 
-	createObject(t, &models.Object{
-		Class: "ArrayClass",
-		ID:    arrayClassID2,
-		Properties: map[string]interface{}{
-			"strings":  []string{"a", "b"},
-			"texts":    []string{"a", "b"},
-			"numbers":  []float64{1.0, 2.0},
-			"ints":     []int{1, 2},
-			"booleans": []bool{false, false},
-			"datesAsStrings": []string{
-				"2022-06-01T22:18:59.640162Z",
-				"2022-06-02T22:18:59.640162Z",
-			},
-			"dates": []time.Time{
-				time.Date(1235, 6, 7, 8, 9, 10, 11, time.UTC),
-				time.Date(2012, 7, 8, 9, 10, 11, 12, time.UTC),
-			},
-		},
-	})
-	assertGetObjectEventually(t, arrayClassID2)
-
-	createObject(t, &models.Object{
-		Class: "ArrayClass",
-		ID:    arrayClassID3,
-		Properties: map[string]interface{}{
-			"strings":  []string{"a"},
-			"texts":    []string{"a"},
-			"numbers":  []float64{1.0},
-			"ints":     []int{1.0},
-			"booleans": []bool{true, false},
-			"datesAsStrings": []string{
-				"2022-06-01T22:18:59.640162Z",
-			},
-			"dates": []time.Time{
-				time.Date(467, 6, 7, 8, 9, 10, 11, time.UTC),
-			},
-		},
-	})
-	assertGetObjectEventually(t, arrayClassID3)
-
-	// object without properties
-	createObject(t, &models.Object{
-		Class: "ArrayClass",
-		ID:    arrayClassID4,
-	})
-	assertGetObjectEventually(t, arrayClassID4)
-
-	// object with nil properties
-	createObject(t, &models.Object{
-		Class: "ArrayClass",
-		ID:    arrayClassID5,
-		Properties: map[string]interface{}{
-			"strings":        nil,
-			"texts":          nil,
-			"numbers":        nil,
-			"ints":           nil,
-			"booleans":       nil,
-			"datesAsStrings": nil,
-			"dates":          nil,
-		},
-	})
-	assertGetObjectEventually(t, arrayClassID5)
+func addTestDataDuplicatesClass(t *testing.T) {
+	for _, object := range duplicatesClassObjects() {
+		createObject(t, object)
+		assertGetObjectEventually(t, object.ID)
+	}
 }
 
 func addTestDataRansomNotes(t *testing.T) {
@@ -1059,37 +910,10 @@ func addTestDataRansomNotes(t *testing.T) {
 }
 
 func addTestDataMultiShard(t *testing.T) {
-	var (
-		multiShardID1 strfmt.UUID = "aa44bbee-ca5f-4db7-a412-5fc6a23c534a"
-		multiShardID2 strfmt.UUID = "aa44bbee-ca5f-4db7-a412-5fc6a23c534b"
-		multiShardID3 strfmt.UUID = "aa44bbee-ca5f-4db7-a412-5fc6a23c534c"
-	)
-	createObject(t, &models.Object{
-		Class: "MultiShard",
-		ID:    multiShardID1,
-		Properties: map[string]interface{}{
-			"name": "multi shard one",
-		},
-	})
-	assertGetObjectEventually(t, multiShardID1)
-
-	createObject(t, &models.Object{
-		Class: "MultiShard",
-		ID:    multiShardID2,
-		Properties: map[string]interface{}{
-			"name": "multi shard two",
-		},
-	})
-	assertGetObjectEventually(t, multiShardID2)
-
-	createObject(t, &models.Object{
-		Class: "MultiShard",
-		ID:    multiShardID3,
-		Properties: map[string]interface{}{
-			"name": "multi shard three",
-		},
-	})
-	assertGetObjectEventually(t, multiShardID3)
+	for _, multiShard := range multishard.Objects() {
+		helper.CreateObject(t, multiShard)
+		helper.AssertGetObjectEventually(t, multiShard.Class, multiShard.ID)
+	}
 }
 
 func addTestDataNearObjectSearch(t *testing.T) {

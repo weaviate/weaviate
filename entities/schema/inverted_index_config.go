@@ -16,6 +16,8 @@ type InvertedIndexConfig struct {
 	BM25                   BM25Config
 	Stopwords              StopwordConfig
 	IndexTimestamps        bool
+	IndexNullState         bool
+	IndexPropertyLength    bool
 }
 
 type BM25Config struct {

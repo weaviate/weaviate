@@ -24,19 +24,50 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBatchPutObjectsWithDimensions(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
+
+	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
+
+	t.Run("batch import things", testBatchImportObjects(repo))
+	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
+
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 1809, dimAfter, "Dimensions are present after import")
+}
 
 func TestBatchPutObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
@@ -48,11 +79,35 @@ func TestBatchPutObjects(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{},
-		&fakeNodeResolver{}, nil)
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
+
+	t.Run("batch import things", testBatchImportObjects(repo))
+	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
+}
+
+func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -62,8 +117,74 @@ func TestBatchPutObjects(t *testing.T) {
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
+
+	dimensions := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimensions, "Dimensions are empty before import")
+
+	t.Run("batch import things", testBatchImportObjectsNoVector(repo))
+
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimAfter, "Dimensions are empty after import (no vectors in import)")
+}
+
+func TestBatchPutObjectsNoVectors(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
+
+	t.Run("batch import things", testBatchImportObjectsNoVector(repo))
+}
+
+func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+
+	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
+
 	t.Run("batch import things", testBatchImportObjects(repo))
-	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
+
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
+
+	t.Run("batch delete things", testBatchDeleteObjects(repo))
+
+	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
@@ -76,10 +197,9 @@ func TestBatchDeleteObjects(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -88,8 +208,47 @@ func TestBatchDeleteObjects(t *testing.T) {
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
+
 	t.Run("batch import things", testBatchImportObjects(repo))
+
 	t.Run("batch delete things", testBatchDeleteObjects(repo))
+}
+
+func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	queryMaximumResults := int64(20)
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       queryMaximumResults,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
+		schemaGetter))
+
+	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
+
+	t.Run("batch import things", testBatchImportObjects(repo))
+
+	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
+
+	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults))
+
+	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
+	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
@@ -103,10 +262,8 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
-		DiskUseWarningPercentage:  config.DefaultDiskUseWarningPercentage,
-		DiskUseReadOnlyPercentage: config.DefaultDiskUseReadonlyPercentage,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -125,7 +282,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 	return func(t *testing.T) {
 		class := &models.Class{
 			Class:               "ThingForBatching",
-			VectorIndexConfig:   hnsw.NewDefaultUserConfig(),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: invertedConfig(),
 			Properties: []*models.Property{
 				{
@@ -146,6 +303,67 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
 		}
+	}
+}
+
+func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("with a prior validation error, but nothing to cause errors in the db", func(t *testing.T) {
+			batch := objects.BatchObjects{
+				objects.BatchObject{
+					OriginalIndex: 0,
+					Err:           nil,
+					Object: &models.Object{
+						Class: "ThingForBatching",
+						Properties: map[string]interface{}{
+							"stringProp": "first element",
+						},
+						ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+					},
+					UUID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+				},
+				objects.BatchObject{
+					OriginalIndex: 1,
+					Err:           fmt.Errorf("already has a validation error"),
+					Object: &models.Object{
+						Class: "ThingForBatching",
+						Properties: map[string]interface{}{
+							"stringProp": "second element",
+						},
+						ID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+					},
+					UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+				},
+				objects.BatchObject{
+					OriginalIndex: 2,
+					Err:           nil,
+					Object: &models.Object{
+						Class: "ThingForBatching",
+						Properties: map[string]interface{}{
+							"stringProp": "third element",
+						},
+						ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+					},
+					UUID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+				},
+			}
+
+			t.Run("can import", func(t *testing.T) {
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch)
+				require.Nil(t, err)
+
+				assert.Nil(t, batchRes[0].Err)
+				assert.Nil(t, batchRes[2].Err)
+			})
+
+			params := traverser.GetParams{
+				ClassName:  "ThingForBatching",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    nil,
+			}
+			_, err := repo.ClassSearch(context.Background(), params)
+			require.Nil(t, err)
+		})
 	}
 }
 

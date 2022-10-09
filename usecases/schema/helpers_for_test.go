@@ -135,6 +135,10 @@ func (f *fakeClusterState) NodeCount() int {
 	return 1
 }
 
+func (f *fakeClusterState) ClusterHealthScore() int {
+	return 0
+}
+
 type fakeTxClient struct{}
 
 func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {

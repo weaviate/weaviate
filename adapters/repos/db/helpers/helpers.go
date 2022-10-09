@@ -14,9 +14,10 @@ package helpers
 import "fmt"
 
 var (
-	ObjectsBucket    = []byte("objects")
-	ObjectsBucketLSM = "objects"
-	DocIDBucket      = []byte("doc_ids")
+	ObjectsBucket       = []byte("objects")
+	ObjectsBucketLSM    = "objects"
+	DimensionsBucketLSM = "dimensions"
+	DocIDBucket         = []byte("doc_ids")
 )
 
 // BucketFromPropName creates the byte-representation used as the bucket name

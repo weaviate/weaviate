@@ -28,31 +28,21 @@ type BackupState struct {
 }
 
 // Backupable returns whether all given class can be backed up.
-//
-// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
 		idx := db.GetIndex(schema.ClassName(c))
 		if idx == nil {
 			return fmt.Errorf("class %v doesn't exist", c)
 		}
-		if n := db.schemaGetter.ShardingState(c).CountPhysicalShards(); n > 1 {
-			return fmt.Errorf("class %v has %d physical shards", c, n)
-		}
 	}
 	return nil
 }
 
 // ListBackupable returns a list of all classes which can be backed up.
-//
-// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
 func (db *DB) ListBackupable() []string {
 	cs := make([]string, 0, len(db.indices))
 	for _, idx := range db.indices {
 		cls := string(idx.Config.ClassName)
-		if n := db.schemaGetter.ShardingState(cls).CountPhysicalShards(); n > 1 {
-			continue
-		}
 		cs = append(cs, cls)
 	}
 	return cs
@@ -97,6 +87,38 @@ func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
 
 func (db *DB) ClassExists(name string) bool {
 	return db.GetIndex(schema.ClassName(name)) != nil
+}
+
+func (db *DB) Shards(ctx context.Context, class string) []string {
+	unique := make(map[string]struct{})
+
+	ss := db.schemaGetter.ShardingState(class)
+	for _, shard := range ss.Physical {
+		unique[shard.BelongsToNode] = struct{}{}
+	}
+
+	var (
+		nodes   = make([]string, len(unique))
+		counter = 0
+	)
+
+	for node := range unique {
+		nodes[counter] = node
+		counter++
+	}
+
+	return nodes
+}
+
+func (db *DB) ListClasses(ctx context.Context) []string {
+	classes := db.schemaGetter.GetSchemaSkipAuth().Objects.Classes
+	classNames := make([]string, len(classes))
+
+	for i, class := range classes {
+		classNames[i] = class.Class
+	}
+
+	return classNames
 }
 
 // descriptor record everything needed to restore a class
