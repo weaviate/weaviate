@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -123,6 +122,4 @@ func TestDistributedBackups(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 	})
-
-	os.RemoveAll(dirName)
 }
