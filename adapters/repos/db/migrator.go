@@ -104,8 +104,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 	}
 
+	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	idx.notifyReady()
+	m.db.indexLock.Unlock()
 
 	return nil
 }
