@@ -17,8 +17,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"math/rand"
 	"os"
 	"testing"
@@ -39,10 +37,8 @@ func Benchmark_Migration(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 
 		rand.Seed(time.Now().UnixNano())
-		dir, err := ioutil.TempDir("/tmp", "Migration_benchmark_")
-		if err != nil {
-			log.Fatal(err)
-		}
+		dir := b.TempDir()
+
 		defer os.RemoveAll(dir)
 
 		dirName := os.TempDir()
@@ -59,7 +55,7 @@ func Benchmark_Migration(b *testing.B) {
 		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 		defer repo.Shutdown(context.Background())
 		repo.SetSchemaGetter(schemaGetter)
-		err = repo.WaitForStartup(testCtx())
+		err := repo.WaitForStartup(testCtx())
 		if err != nil {
 			b.Fatal(err)
 		}
