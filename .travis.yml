@@ -76,18 +76,9 @@ jobs:
   include:
   - name: "Unit and integration tests"
     stage: test
-    script: 
+    if: type != pull_request OR fork = true
+    script:
     - ./test/run.sh --unit-and-integration-only || travis_terminate 1
-    - |
-      if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
-          # send to codecov.io
-          rm -f coverage.txt || true; mv coverage-unit.txt coverage.txt
-          bash <(curl -s https://codecov.io/bash) -F unittests
-
-          rm -f coverage.txt || true; mv coverage-integration.txt coverage.txt
-          bash <(curl -s https://codecov.io/bash) -F integration
-          rm -f coverage.txt
-      fi
   - name: "Acceptance tests (requiring docker to run)"
     stage: test
     if: type != pull_request OR fork = true
