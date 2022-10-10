@@ -55,8 +55,9 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	require.Nil(t, err)
 
 	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
 
-	simpleInsertObjects(t, repo, "ThingForBatching", 201)
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
