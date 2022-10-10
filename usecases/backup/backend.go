@@ -100,10 +100,23 @@ type nodeStore struct {
 	objStore
 }
 
-func (s *nodeStore) Meta(ctx context.Context) (*backup.BackupDescriptor, error) {
-	var backup backup.BackupDescriptor
-	err := s.meta(ctx, BackupFile, &backup)
-	return &backup, err
+// Meta gets meta data using standard path or deprecated old path
+//
+// adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
+func (s *nodeStore) Meta(ctx context.Context, backupID string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+	var result backup.BackupDescriptor
+	err := s.meta(ctx, BackupFile, &result)
+	if err != nil {
+		cs := &objStore{s.b, backupID} // for backward compatibility
+		if err := cs.meta(ctx, BackupFile, &result); err == nil {
+			if adjustBasePath {
+				s.objStore.BasePath = backupID
+			}
+			return &result, nil
+		}
+	}
+
+	return &result, err
 }
 
 // meta marshals and uploads metadata
@@ -122,9 +135,15 @@ func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.
 
 // Meta gets coordinator's global metadata from object store
 func (s *coordStore) Meta(ctx context.Context, filename string) (*backup.DistributedBackupDescriptor, error) {
-	var backup backup.DistributedBackupDescriptor
-	err := s.meta(ctx, filename, &backup)
-	return &backup, err
+	var result backup.DistributedBackupDescriptor
+	err := s.meta(ctx, filename, &result)
+	if err != nil && filename == GlobalBackupFile {
+		var oldBackup backup.BackupDescriptor
+		if err := s.meta(ctx, BackupFile, &oldBackup); err == nil {
+			return oldBackup.ToDistributed(), nil
+		}
+	}
+	return &result, err
 }
 
 // uploader uploads backup artifacts. This includes db files and metadata

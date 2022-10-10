@@ -27,10 +27,7 @@ import (
 // Version of backup structure
 const Version = "1.0"
 
-// TODO
-// 1. maybe add node to the base path when initializing backup module
-// the base path = "bucket/node/backupID" or something like that
-// 2. error handling need to be implemented properly.
+// TODO error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
 
 var regExpID = regexp.MustCompile("^[a-z0-9_-]+$")
@@ -191,9 +188,12 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		return ret
 	}
 
-	// TODO: validate if all req.Classes exist locally
 	switch req.Method {
 	case OpCreate:
+		if err := m.backupper.sourcer.Backupable(ctx, req.Classes); err != nil {
+			ret.Err = err.Error()
+			return ret
+		}
 		if err = store.Initialize(ctx); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
@@ -205,7 +205,7 @@ func (m *Manager) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		}
 		ret.Timeout = res.Timeout
 	case OpRestore:
-		meta, _, err := m.restorer.validate(ctx, store, req)
+		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret
@@ -268,6 +268,8 @@ func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()
+		} else if st.Err != "" {
+			ret.Err = st.Err
 		}
 	default:
 		ret.Status = backup.Failed
@@ -297,7 +299,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, re
 	}
 	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.Meta(ctx)
+	_, err := store.Meta(ctx, req.ID, false)
 	if err == nil {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
@@ -312,7 +314,7 @@ func (m *Manager) validateRestoreRequest(ctx context.Context, store nodeStore, r
 		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	meta, cs, err := m.restorer.validate(ctx, store, &Request{ID: req.ID, Classes: req.Include})
+	meta, cs, err := m.restorer.validate(ctx, &store, &Request{ID: req.ID, Classes: req.Include})
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
 			return nil, backup.NewErrNotFound(err)

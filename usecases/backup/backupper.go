@@ -100,9 +100,12 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 		return reqStat{}, fmt.Errorf("no backup provider %q, did you enable the right module?", req.Backend)
 	}
 
-	meta, err := store.Meta(ctx)
-	if err != nil {
-		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
+	meta, err := store.Meta(ctx, req.ID, false)
+	path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
+	if err != nil || meta.Error != "" {
+		if meta.Error != "" {
+			err = errors.New(meta.Error)
+		}
 		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
 	}
 
