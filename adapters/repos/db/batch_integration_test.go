@@ -181,27 +181,13 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	dimAfter := GetDimensionsFromRepo(repo, className)
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
-	simpleDeleteObjects(t, repo, className, 103)
+	delete2Objects(t, repo, className)
 
 	dimFinal := GetDimensionsFromRepo(repo, className)
 	require.Equal(t, 303, dimFinal, "2 objects have been deleted")
 }
 
-func simpleDeleteObjects(t *testing.T, repo *DB, className string, count int) {
-
-	performClassSearch := func() ([]search.Result, error) {
-		return repo.ClassSearch(context.Background(), traverser.GetParams{
-			ClassName:  "ThingForBatching",
-			Pagination: &filters.Pagination{Limit: 10000},
-		})
-	}
-
-	// get the initial count of the objects
-	res, err := performClassSearch()
-	require.Nil(t, err)
-	beforeDelete := len(res)
-	cacheSizeBefore := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
-	require.True(t, beforeDelete > 0)
+func delete2Objects(t *testing.T, repo *DB, className string) {
 
 	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
 		objects.BatchDeleteParams{
@@ -238,17 +224,9 @@ func simpleDeleteObjects(t *testing.T, repo *DB, className string, count int) {
 			DryRun: false,
 			Output: "verbose",
 		})
-	cacheSizeAfter := filterCacheSize(repo.GetIndex(schema.ClassName("ThingForBatching")))
 	require.Nil(t, err)
-	require.Equal(t, int64(2), batchDeleteRes.Matches)
-	require.Equal(t, 2, len(batchDeleteRes.Objects))
-	for _, batchRes := range batchDeleteRes.Objects {
-		require.Nil(t, batchRes.Err)
-	}
-	assert.Equal(t, cacheSizeBefore, cacheSizeAfter)
-	res, err = performClassSearch()
-	require.Nil(t, err)
-	assert.Equal(t, beforeDelete-2, len(res))
+	require.Equal(t, 2, len(batchDeleteRes.Objects), "Objects deleted")
+
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
@@ -281,7 +259,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
-	queryMaximumResults := int64(20)
+	queryMaximumResults := int64(2000)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
@@ -307,10 +285,10 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
-	simpleDeleteObjects(t, repo, "ThingForBatching", 103)
+	delete2Objects(t, repo, "ThingForBatching")
 
 	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
-	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
+	require.Equal(t, 303, dimFinal, "Dimensions have been deleted")
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
