@@ -9,8 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build integrationTestSlow
-// +build integrationTestSlow
+//go:build integrationTest
+// +build integrationTest
 
 package clusterintegrationtest
 

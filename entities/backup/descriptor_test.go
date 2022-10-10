@@ -187,6 +187,45 @@ func TestValidateBackup(t *testing.T) {
 	}
 }
 
+func TestBackwardCompatibility(t *testing.T) {
+	timept := time.Now().UTC()
+	tests := []struct {
+		desc    BackupDescriptor
+		success bool
+	}{
+		// first level check
+		{desc: BackupDescriptor{}},
+		{desc: BackupDescriptor{ID: "1"}},
+		{desc: BackupDescriptor{ID: "1", Version: "1"}},
+		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1"}},
+		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept}},
+		{desc: BackupDescriptor{ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept, Error: "err"}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name:   "n",
+				Shards: []ShardDescriptor{{Name: "n", Node: ""}},
+			}},
+		}},
+		{desc: BackupDescriptor{
+			ID: "1", Version: "1", ServerVersion: "1", StartedAt: timept,
+			Classes: []ClassDescriptor{{
+				Name: "n",
+				Shards: []ShardDescriptor{{
+					Name: "n", Node: "n",
+				}},
+			}},
+		}, success: true},
+	}
+	for i, tc := range tests {
+		desc := tc.desc.ToDistributed()
+		err := desc.Validate()
+		if got := err == nil; got != tc.success {
+			t.Errorf("%d. validate(%+v): want=%v got=%v err=%v", i, tc.desc, tc.success, got, err)
+		}
+	}
+}
+
 func TestDistributedBackup(t *testing.T) {
 	d := DistributedBackupDescriptor{
 		Nodes: map[string]*NodeDescriptor{

@@ -27,8 +27,7 @@ type NodeDescriptor struct {
 type DistributedBackupDescriptor struct {
 	StartedAt     time.Time                  `json:"startedAt"`
 	CompletedAt   time.Time                  `json:"completedAt"`
-	ID            string                     `json:"id"`      // User created backup id
-	Backend       string                     `json:"backend"` // object store: s3, gcs, ..
+	ID            string                     `json:"id"` // User created backup id
 	Nodes         map[string]*NodeDescriptor `json:"nodes"`
 	Status        Status                     `json:"status"`  //
 	Version       string                     `json:"version"` //
@@ -296,4 +295,27 @@ func (d *BackupDescriptor) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ToDistributed is used just for backward compatibility with the old version.
+func (d *BackupDescriptor) ToDistributed() *DistributedBackupDescriptor {
+	node, cs := "", d.List()
+	for _, xs := range d.Classes {
+		for _, s := range xs.Shards {
+			node = s.Node
+		}
+	}
+	result := &DistributedBackupDescriptor{
+		StartedAt:     d.StartedAt,
+		CompletedAt:   d.CompletedAt,
+		ID:            d.ID,
+		Status:        Status(d.Status),
+		Version:       d.Version,
+		ServerVersion: d.ServerVersion,
+		Error:         d.Error,
+	}
+	if node != "" && len(cs) > 0 {
+		result.Nodes = map[string]*NodeDescriptor{node: {Classes: cs}}
+	}
+	return result
 }
