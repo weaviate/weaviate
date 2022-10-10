@@ -55,9 +55,8 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	require.Nil(t, err)
 
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
+	simpleInsertObjects(t, repo, "ThingForBatching", 201)
 
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
@@ -302,12 +301,12 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
-	t.Run("batch import things", testBatchImportObjects(repo))
+	simpleInsertObjects(t, repo, "ThingForBatching", 103)
 
 	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
-	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults))
+	simpleDeleteObjects(t, repo, "ThingForBatching", 103)
 
 	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
