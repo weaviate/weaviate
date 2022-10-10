@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -93,15 +94,25 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 		files   []string
 	)
 
-	err := filepath.WalkDir(logRoot, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(logRoot, func(pth string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			return nil
 		}
-		path, err2 := filepath.Rel(h.commitLog.RootPath(), path)
-		if err2 != nil {
-			return err2
+
+		st, statErr := os.Stat(pth)
+		if statErr != nil {
+			return statErr
 		}
-		found[path] = struct{}{}
+
+		// only list non-empty files
+		if st.Size() > 0 {
+			rel, relErr := filepath.Rel(h.commitLog.RootPath(), pth)
+			if relErr != nil {
+				return relErr
+			}
+			found[rel] = struct{}{}
+		}
+
 		return nil
 	})
 	if err != nil {

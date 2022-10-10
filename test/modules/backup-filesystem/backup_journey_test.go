@@ -28,8 +28,6 @@ const (
 )
 
 func Test_BackupJourney(t *testing.T) {
-	t.Skip()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
