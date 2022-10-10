@@ -4,7 +4,6 @@ require (
 	cloud.google.com/go/storage v1.24.0
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/buger/jsonparser v1.1.1
-	github.com/coreos/go-oidc v2.1.0+incompatible
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/go-connections v0.4.0
@@ -34,8 +33,8 @@ require (
 	github.com/testcontainers/testcontainers-go v0.13.0
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.5
-	golang.org/x/net v0.0.0-20220617184016-355a448f1bc9
-	golang.org/x/oauth2 v0.0.0-20220622183110-fd043fe589d2
+	golang.org/x/net v0.0.0-20220826154423-83b083e8dc8b
+	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
 	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10
 	gonum.org/v1/gonum v0.9.1
@@ -44,7 +43,10 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-require golang.org/x/text v0.3.7
+require (
+	github.com/coreos/go-oidc/v3 v3.4.0
+	golang.org/x/text v0.3.7
+)
 
 require (
 	cloud.google.com/go v0.102.1 // indirect
@@ -105,7 +107,6 @@ require (
 	github.com/opencontainers/runc v1.0.2 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/pquerna/cachecontrol v0.0.0-20201205024021-ac21108117ac // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
@@ -121,7 +122,7 @@ require (
 	google.golang.org/genproto v0.0.0-20220617124728-180714bec0ad // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/ini.v1 v1.57.0 // indirect
-	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
+	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

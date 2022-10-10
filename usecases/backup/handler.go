@@ -29,7 +29,7 @@ const Version = "1.0"
 
 // TODO
 // 1. maybe add node to the base path when initializing backup module
-// the base path = "bucket/node/backupid" or somthing like that
+// the base path = "bucket/node/backupID" or something like that
 // 2. error handling need to be implemented properly.
 // Current error handling is not idiomatic and relays on string comparisons which makes testing very brittle.
 
@@ -111,10 +111,6 @@ type BackupRequest struct {
 
 func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
 ) (*models.BackupCreateResponse, error) {
-	path := fmt.Sprintf("backups/%s/%s", req.Backend, req.ID)
-	if err := m.authorizer.Authorize(pr, "add", path); err != nil {
-		return nil, err
-	}
 	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
@@ -146,10 +142,6 @@ func (m *Manager) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (*models.BackupRestoreResponse, error) {
-	path := fmt.Sprintf("backups/%s/%s/restore", req.Backend, req.ID)
-	if err := m.authorizer.Authorize(pr, "restore", path); err != nil {
-		return nil, err
-	}
 	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q, did you enable the right module?", req.Backend)
@@ -181,21 +173,11 @@ func (m *Manager) Restore(ctx context.Context, pr *models.Principal,
 func (m *Manager) BackupStatus(ctx context.Context, principal *models.Principal,
 	backend, backupID string,
 ) (*models.BackupCreateStatusResponse, error) {
-	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
-	err := m.authorizer.Authorize(principal, "get", path)
-	if err != nil {
-		return nil, err
-	}
-
 	return m.backupper.Status(ctx, backend, backupID)
 }
 
 func (m *Manager) RestorationStatus(ctx context.Context, principal *models.Principal, backend, ID string,
 ) (_ Status, err error) {
-	ppath := fmt.Sprintf("backups/%s/%s/restore", backend, ID)
-	if err := m.authorizer.Authorize(principal, "get", ppath); err != nil {
-		return Status{}, err
-	}
 	return m.restorer.status(backend, ID)
 }
 
@@ -300,7 +282,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, re
 		return nil, err
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
+		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
 	}
 	classes := req.Include
 	if len(classes) == 0 {
@@ -327,7 +309,7 @@ func (m *Manager) validateBackupRequest(ctx context.Context, store nodeStore, re
 
 func (m *Manager) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot be both empty")
+		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
 		return nil, backup.NewErrUnprocessable(err)
 	}
 	meta, cs, err := m.restorer.validate(ctx, store, &Request{ID: req.ID, Classes: req.Include})

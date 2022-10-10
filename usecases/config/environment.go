@@ -67,6 +67,10 @@ func FromEnv(config *Config) error {
 			config.Authentication.OIDC.ClientID = v
 		}
 
+		if v := os.Getenv("AUTHENTICATION_OIDC_SCOPES"); v != "" {
+			config.Authentication.OIDC.Scopes = strings.Split(v, ",")
+		}
+
 		if v := os.Getenv("AUTHENTICATION_OIDC_USERNAME_CLAIM"); v != "" {
 			config.Authentication.OIDC.UsernameClaim = v
 		}
