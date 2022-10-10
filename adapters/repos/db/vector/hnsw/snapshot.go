@@ -99,16 +99,16 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 			return nil
 		}
 
-		st, err := os.Stat(pth)
-		if err != nil {
-			return err
+		st, statErr := os.Stat(pth)
+		if statErr != nil {
+			return statErr
 		}
 
 		// only list non-empty files
 		if st.Size() > 0 {
-			rel, err := filepath.Rel(h.commitLog.RootPath(), pth)
-			if err != nil {
-				return err
+			rel, relErr := filepath.Rel(h.commitLog.RootPath(), pth)
+			if relErr != nil {
+				return relErr
 			}
 			found[rel] = struct{}{}
 		}
