@@ -30,8 +30,21 @@ type FindVectorFn = func(ctx context.Context, className string, id strfmt.UUID) 
 type VectorForParams = func(ctx context.Context, params interface{},
 	className string, findVectorFn FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error)
 
+// ArgumentVectorForParams contains argument definitions and it's respective
+// vector for params search method
+type ArgumentVectorForParams = map[string]VectorForParams
+
 // Searcher defines all methods for all searchers
 // for getting a vector from a given raw searcher content
 type Searcher interface {
-	VectorSearches() map[string]VectorForParams
+	VectorSearches() ArgumentVectorForParams
+}
+
+// ModuleArgumentVectorForParams contains module's argument definitions and it's
+// vector for params search method
+type ModuleArgumentVectorForParams = map[string]ArgumentVectorForParams
+
+// DependencySearcher defines all of the available searches loaded as a dependency
+type DependencySearcher interface {
+	VectorSearches() ModuleArgumentVectorForParams
 }
