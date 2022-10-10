@@ -196,7 +196,8 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, req *backup
 	}
 	go func() {
 		defer c.lastOp.reset()
-		c.commit(context.Background(), &statusReq, nodes)
+		ctx := context.Background()
+		c.commit(ctx, &statusReq, nodes)
 		if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
 			c.log.WithField("action", OpCreate).
 				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
@@ -219,7 +220,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename)
 	if err != nil {
-		path := fmt.Sprintf("%s/%s", req.ID, GlobalBackupFile)
+		path := fmt.Sprintf("%s/%s", req.ID, filename)
 		return nil, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
 	}
 

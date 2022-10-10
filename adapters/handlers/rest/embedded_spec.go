@@ -107,6 +107,14 @@ func init() {
                 "href": {
                   "description": "The Location to redirect to",
                   "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
                 }
               }
             }
@@ -4240,6 +4248,14 @@ func init() {
                 "href": {
                   "description": "The Location to redirect to",
                   "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
                 }
               }
             }
