@@ -52,11 +52,13 @@ func TestDistributedSetup(t *testing.T) {
 	t.Run("individual imports", func(t *testing.T) {
 		dirName := setupDirectory(t)
 		testDistributed(t, dirName, false)
+		os.RemoveAll(dirName)
 	})
 
 	t.Run("batched imports", func(t *testing.T) {
 		dirName := setupDirectory(t)
 		testDistributed(t, dirName, true)
+		os.RemoveAll(dirName)
 	})
 }
 
