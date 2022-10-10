@@ -28,10 +28,8 @@ import (
 )
 
 const (
-	AWS_ROLE_ARN                = "AWS_ROLE_ARN"
-	AWS_WEB_IDENTITY_TOKEN_FILE = "AWS_WEB_IDENTITY_TOKEN_FILE"
-	AWS_REGION                  = "AWS_REGION"
-	AWS_DEFAULT_REGION          = "AWS_DEFAULT_REGION"
+	AWS_REGION         = "AWS_REGION"
+	AWS_DEFAULT_REGION = "AWS_DEFAULT_REGION"
 )
 
 type s3 struct {
@@ -46,10 +44,12 @@ func New(config Config, logger logrus.FieldLogger, dataPath string) (*s3, error)
 	if len(region) == 0 {
 		region = os.Getenv(AWS_DEFAULT_REGION)
 	}
-	creds := credentials.NewEnvAWS()
-	if len(os.Getenv(AWS_WEB_IDENTITY_TOKEN_FILE)) > 0 && len(os.Getenv(AWS_ROLE_ARN)) > 0 {
-		creds = credentials.NewIAM("")
+
+	creds := credentials.NewIAM("")
+	if _, err := creds.Get(); err != nil {
+		creds = credentials.NewEnvAWS()
 	}
+
 	client, err := minio.New(config.Endpoint(), &minio.Options{
 		Creds:  creds,
 		Region: region,

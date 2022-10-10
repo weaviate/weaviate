@@ -269,6 +269,8 @@ func (m *Manager) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 		if err != nil {
 			ret.Status = backup.Failed
 			ret.Err = err.Error()
+		} else if st.Err != "" {
+			ret.Err = st.Err
 		}
 	default:
 		ret.Status = backup.Failed
