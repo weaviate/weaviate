@@ -51,11 +51,11 @@ func Benchmark_Migration(b *testing.B) {
 		logger := logrus.New()
 		schemaGetter := &fakeSchemaGetter{shardState: shardState}
 		repo := New(logger, Config{
-			RootPath:                  dirName,
-			QueryMaximumResults:       1000,
-			MaxImportGoroutinesFactor: 1,
-			TrackVectorDimensions:     true,
-			WantDimensionsReindex:     false,
+			RootPath:                         dirName,
+			QueryMaximumResults:              1000,
+			MaxImportGoroutinesFactor:        1,
+			TrackVectorDimensions:            true,
+			ReindexVectorDimensionsAtStartup: false,
 		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 		defer repo.Shutdown(context.Background())
 		repo.SetSchemaGetter(schemaGetter)
@@ -100,7 +100,7 @@ func Benchmark_Migration(b *testing.B) {
 
 		fmt.Printf("Added vectors, now migrating\n")
 
-		repo.config.WantDimensionsReindex = true
+		repo.config.ReindexVectorDimensionsAtStartup = true
 		repo.config.TrackVectorDimensions = true
 		migrator.RecalculateVectorDimensions(context.TODO())
 		fmt.Printf("Benchmark complete")
@@ -116,11 +116,11 @@ func Test_Migration(t *testing.T) {
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{
-		RootPath:                  dirName,
-		QueryMaximumResults:       1000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-		WantDimensionsReindex:     false,
+		RootPath:                         dirName,
+		QueryMaximumResults:              1000,
+		MaxImportGoroutinesFactor:        1,
+		TrackVectorDimensions:            true,
+		ReindexVectorDimensionsAtStartup: false,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	defer repo.Shutdown(context.Background())
 	repo.SetSchemaGetter(schemaGetter)
@@ -167,7 +167,7 @@ func Test_Migration(t *testing.T) {
 
 	dimBefore := GetDimensionsFromRepo(repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
-	repo.config.WantDimensionsReindex = true
+	repo.config.ReindexVectorDimensionsAtStartup = true
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
 	dimAfter := GetDimensionsFromRepo(repo, "Test")
