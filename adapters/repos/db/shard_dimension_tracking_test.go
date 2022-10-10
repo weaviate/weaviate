@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"os"
 	"testing"
 	"time"
 
@@ -37,11 +36,7 @@ func Benchmark_Migration(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 
 		rand.Seed(time.Now().UnixNano())
-		dir := b.TempDir()
-
-		defer os.RemoveAll(dir)
-
-		dirName := os.TempDir()
+		dirName := b.TempDir()
 
 		shardState := singleShardState()
 		logger := logrus.New()
