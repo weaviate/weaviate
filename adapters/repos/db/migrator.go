@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -215,7 +216,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	count := 0
 	m.logger.
 		WithField("action", "reindex").
-		Info("Reindexing dimensions")
+		Info("Reindexing dimensions, this may take a while")
 
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
@@ -234,7 +235,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 
 			m.logger.
 				WithField("action", "reindex").
-				Info("Reindexing dimensions complete.  Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
+				Warn(fmt.Sprintf("Reindexed %v objects.  Reindexing dimensions complete.  Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count))
 			time.Sleep(5 * time.Minute)
 		}
 	}()

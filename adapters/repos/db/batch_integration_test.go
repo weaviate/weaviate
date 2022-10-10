@@ -62,8 +62,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
-	t.Run("batch import things", testBatchImportObjects(repo))
-	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
+	simpleInsertObjects(t, repo, "ThingForBatching", 603)
 
 	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 1809, dimAfter, "Dimensions are present after import")
@@ -448,8 +447,6 @@ func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
 	}
 
 	repo.BatchPutObjects(context.Background(), batch)
-	time.Sleep(1 * time.Second)
-
 }
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {

@@ -66,26 +66,26 @@ type Flags struct {
 
 // Config outline of the config file
 type Config struct {
-	Name                      string         `json:"name" yaml:"name"`
-	Debug                     bool           `json:"debug" yaml:"debug"`
-	QueryDefaults             QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults       int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
-	Contextionary             Contextionary  `json:"contextionary" yaml:"contextionary"`
-	Authentication            Authentication `json:"authentication" yaml:"authentication"`
-	Authorization             Authorization  `json:"authorization" yaml:"authorization"`
-	Origin                    string         `json:"origin" yaml:"origin"`
-	Persistence               Persistence    `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule   string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	EnableModules             string         `json:"enable_modules" yaml:"enable_modules"`
-	ModulesPath               string         `json:"modules_path" yaml:"modules_path"`
-	AutoSchema                AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                   cluster.Config `json:"cluster" yaml:"cluster"`
-	Monitoring                Monitoring     `json:"monitoring" yaml:"monitoring"`
-	Profiling                 Profiling      `json:"profiling" yaml:"profiling"`
-	ResourceUsage             ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
-	MaxImportGoroutinesFactor float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	TrackVectorDimensions     bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	WantDimensionsReindex     bool           `json:"want_dimensions_reindex" yaml:"want_dimensions_reindex"`
+	Name                             string         `json:"name" yaml:"name"`
+	Debug                            bool           `json:"debug" yaml:"debug"`
+	QueryDefaults                    QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults              int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
+	Contextionary                    Contextionary  `json:"contextionary" yaml:"contextionary"`
+	Authentication                   Authentication `json:"authentication" yaml:"authentication"`
+	Authorization                    Authorization  `json:"authorization" yaml:"authorization"`
+	Origin                           string         `json:"origin" yaml:"origin"`
+	Persistence                      Persistence    `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule          string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	EnableModules                    string         `json:"enable_modules" yaml:"enable_modules"`
+	ModulesPath                      string         `json:"modules_path" yaml:"modules_path"`
+	AutoSchema                       AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                          cluster.Config `json:"cluster" yaml:"cluster"`
+	Monitoring                       Monitoring     `json:"monitoring" yaml:"monitoring"`
+	Profiling                        Profiling      `json:"profiling" yaml:"profiling"`
+	ResourceUsage                    ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
+	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	ReindexVectorDimensionsAtStartup bool           `json:"want_dimensions_reindex" yaml:"want_dimensions_reindex"`
 }
 
 type moduleProvider interface {
