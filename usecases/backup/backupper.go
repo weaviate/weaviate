@@ -101,8 +101,11 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	}
 
 	meta, err := store.Meta(ctx, req.ID, false)
-	if err != nil {
-		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
+	path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
+	if err != nil || meta.Error != "" {
+		if meta.Error != "" {
+			err = errors.New(meta.Error)
+		}
 		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
 	}
 

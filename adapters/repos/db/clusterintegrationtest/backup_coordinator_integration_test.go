@@ -9,8 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build integrationTestSlow
-// +build integrationTestSlow
+//go:build integrationTest
+// +build integrationTest
 
 package clusterintegrationtest
 
@@ -28,19 +28,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var backend *fakeBackupBackend
+
 func TestDistributedBackups(t *testing.T) {
 	var (
-		dirName = setupDirectory(t)
-		numObjs = 100
-		nodes   []*node
+		dirName  = setupDirectory(t)
+		numObjs  = 100
+		numNodes = 3
+		backupID = "new-backup"
+		nodes    []*node
 	)
 
 	t.Run("setup", func(t *testing.T) {
-		overallShardState := multiShardState(numberOfNodes)
+		overallShardState := multiShardState(numNodes)
 		shardStateSerialized, err := json.Marshal(overallShardState)
 		require.Nil(t, err)
 
-		for i := 0; i < numberOfNodes; i++ {
+		backend = &fakeBackupBackend{
+			backupsPath: dirName,
+			backupID:    backupID,
+			startedAt:   time.Now(),
+		}
+
+		for i := 0; i < numNodes; i++ {
 			node := &node{
 				name: fmt.Sprintf("node-%d", i),
 			}
@@ -92,7 +102,8 @@ func TestDistributedBackups(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 
-				req := &backup.BackupRequest{ID: "new-backup", Exclude: []string{"SecondDistributed"}}
+				req := &backup.BackupRequest{ID: backupID, Backend: "fake-backend",
+					Include: []string{distributedClass}}
 
 				resp, err := node.scheduler.Backup(ctx, &models.Principal{}, req)
 				assert.Nil(t, err, "expected nil err, got: %s", err)
@@ -111,15 +122,60 @@ func TestDistributedBackups(t *testing.T) {
 					if time.Now().After(start.Add(30 * time.Second)) {
 						t.Fatal("backup deadline exceeded")
 					}
-					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "", "new-backup")
+					resp, err := node.scheduler.BackupStatus(ctx, &models.Principal{}, "fake-backend", backupID)
 					assert.Nil(t, err, "expected nil err, got: %s", err)
 					if resp != nil && string(resp.Status) == "SUCCESS" {
 						break
 					}
+					if resp != nil && string(resp.Status) == "FAILED" {
+						t.Fatalf("backup failed: %q", resp.Err)
+					}
 				}
 			})
 
-			time.Sleep(100 * time.Millisecond)
+			t.Run(fmt.Sprintf("%s: restore to cluster", node.name), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+
+				req := &backup.BackupRequest{ID: backupID, Backend: "fake-backend",
+					Include: []string{distributedClass}}
+
+				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req)
+				assert.Nil(t, err, "expected nil err, got: %s", err)
+				assert.Empty(t, resp.Error, "expected empty, got: %s", resp.Error)
+				assert.NotEmpty(t, resp.Path)
+				assert.Contains(t, resp.Classes, distributedClass)
+			})
+
+			t.Run(fmt.Sprintf("%s: get restore status", node.name), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+
+				start := time.Now()
+
+				for {
+					if time.Now().After(start.Add(30 * time.Second)) {
+						t.Fatal("restore deadline exceeded")
+					}
+					resp, err := node.scheduler.RestorationStatus(ctx, &models.Principal{}, "fake-backend", backupID)
+					assert.Nil(t, err, "expected nil err, got: %s", err)
+					if resp != nil && string(resp.Status) == "SUCCESS" {
+						break
+					}
+					if resp != nil && string(resp.Status) == "FAILED" {
+						t.Fatalf("restore failed: %q", resp.Err)
+					}
+				}
+			})
+
+			backend.reset()
+		}
+	})
+
+	t.Run("shutdown", func(t *testing.T) {
+		for _, node := range nodes {
+			err := node.repo.Shutdown(context.Background())
+			require.Nil(t, err, "expected nil, got: %v", err)
 		}
 	})
 }
