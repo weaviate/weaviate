@@ -94,18 +94,25 @@ func (h *hnsw) ListFiles(ctx context.Context) ([]string, error) {
 		files   []string
 	)
 
-	err := filepath.WalkDir(logRoot, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(logRoot, func(pth string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			return nil
 		}
-		path, err2 := filepath.Rel(h.commitLog.RootPath(), path)
-		if err2 != nil {
-			return err2
+
+		st, err := os.Stat(pth)
+		if err != nil {
+			return err
 		}
 
-		if st, err := os.Stat(path); os.IsExist(err) && st.Size() > 0 {
-			found[path] = struct{}{}
+		// only list non-empty files
+		if st.Size() > 0 {
+			rel, err := filepath.Rel(h.commitLog.RootPath(), pth)
+			if err != nil {
+				return err
+			}
+			found[rel] = struct{}{}
 		}
+
 		return nil
 	})
 	if err != nil {
