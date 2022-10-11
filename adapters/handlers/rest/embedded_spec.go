@@ -850,7 +850,7 @@ func init() {
           "200": {
             "description": "Nodes status successfully returned",
             "schema": {
-              "$ref": "#/definitions/NodeStatusResponse"
+              "$ref": "#/definitions/NodesStatusResponse"
             }
           },
           "401": {
@@ -3502,7 +3502,7 @@ func init() {
         }
       }
     },
-    "NodeStatusResponse": {
+    "NodesStatusResponse": {
       "description": "The status of all of the Weaviate nodes",
       "type": "object",
       "properties": {
@@ -4991,7 +4991,7 @@ func init() {
           "200": {
             "description": "Nodes status successfully returned",
             "schema": {
-              "$ref": "#/definitions/NodeStatusResponse"
+              "$ref": "#/definitions/NodesStatusResponse"
             }
           },
           "401": {
@@ -7829,7 +7829,7 @@ func init() {
         }
       }
     },
-    "NodeStatusResponse": {
+    "NodesStatusResponse": {
       "description": "The status of all of the Weaviate nodes",
       "type": "object",
       "properties": {
