@@ -14,6 +14,8 @@ package backup
 import (
 	"fmt"
 	"time"
+
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // NodeDescriptor contains data related to one participant in DBRO
@@ -158,6 +160,22 @@ func (d *DistributedBackupDescriptor) Validate() error {
 		return fmt.Errorf("empty list of node descriptors")
 	}
 	return nil
+}
+
+func (d *DistributedBackupDescriptor) NewRestoreMeta() *DistributedBackupDescriptor {
+	for _, node := range d.Nodes {
+		node.Status = Started
+		node.Error = ""
+	}
+
+	return &DistributedBackupDescriptor{
+		StartedAt:     time.Now(),
+		ID:            d.ID,
+		Nodes:         d.Nodes,
+		Status:        Started,
+		Version:       d.Version,
+		ServerVersion: config.ServerVersion,
+	}
 }
 
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class

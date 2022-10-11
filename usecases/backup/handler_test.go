@@ -41,7 +41,7 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 	return nil
 }
 
-func TestFilerClasses(t *testing.T) {
+func TestFilterClasses(t *testing.T) {
 	tests := []struct {
 		in  []string
 		xs  []string
