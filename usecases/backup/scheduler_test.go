@@ -484,7 +484,7 @@ func TestSchedulerRestoration(t *testing.T) {
 		fs.client.On("CanCommit", any, node, any).Return(cresp, nil)
 		fs.client.On("Commit", any, node, sReq).Return(nil)
 		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
-		fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Once()
+		fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 		s := fs.scheduler()
 		resp, err := s.Restore(ctx, nil, &req)
 		assert.Nil(t, err)
