@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -221,7 +220,6 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		// Iterate over all shards
-
 		if err := index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
 			count = count + 1
 			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
@@ -232,10 +230,9 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	}
 	go func() {
 		for {
-
 			m.logger.
 				WithField("action", "reindex").
-				Warn(fmt.Sprintf("Reindexed %v objects.  Reindexing dimensions complete.  Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count))
+				Warnf("Reindexed %v objects. Reindexing dimensions complete. Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count)
 			time.Sleep(5 * time.Minute)
 		}
 	}()

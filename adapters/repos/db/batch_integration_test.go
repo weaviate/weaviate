@@ -259,7 +259,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
-	queryMaximumResults := int64(20000000000000)
+	queryMaximumResults := int64(200)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
