@@ -1,6 +1,12 @@
 name: Tests
 
-on: [pull_request, push]
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - '**'
+  pull_request:
 
 jobs:
   Unit-Tests:
@@ -16,7 +22,6 @@ jobs:
         run: ./test/run.sh --unit-only
       - name: Codecov Unit
         uses: codecov/codecov-action@v3
-        if: github.event_name == 'pull_request'
         with:
           fail_ci_if_error: true
           files: ./coverage-unit.txt
@@ -35,7 +40,6 @@ jobs:
         run: ./test/run.sh --integration-only
       - name: Codecov Integration
         uses: codecov/codecov-action@v3
-        if: github.event_name == 'pull_request'
         with:
           fail_ci_if_error: true
           files: ./coverage-integration.txt
@@ -43,7 +47,6 @@ jobs:
           verbose: true
   Modules-Acceptance-Tests:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v3
       - name: Set up Go
@@ -55,7 +58,6 @@ jobs:
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v3
       - name: Set up Go
@@ -68,7 +70,7 @@ jobs:
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && ${{ ! github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v3
       - name: Login to Docker Hub
