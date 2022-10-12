@@ -1531,7 +1531,7 @@
     },
     "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
-    "version": "1.15.3"
+    "version": "1.15.4"
   },
   "parameters": {
     "CommonOffsetParameterQuery": {
@@ -3836,6 +3836,14 @@
                 "clientId": {
                   "description": "OAuth Client ID",
                   "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
                 }
               }
             }

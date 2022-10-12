@@ -25,8 +25,6 @@ type Sourcer interface { // implemented by the index
 	ReleaseBackup(_ context.Context, id, class string) error
 
 	// Backupable returns whether all given class can be backed up.
-	//
-	// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
 	Backupable(_ context.Context, classes []string) error
 
 	// BackupDescriptors returns a channel of class descriptors.

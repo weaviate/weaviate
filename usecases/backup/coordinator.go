@@ -138,7 +138,6 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		StartedAt:     time.Now().UTC(),
 		Status:        backup.Started,
 		ID:            req.ID,
-		Backend:       req.Backend,
 		Nodes:         groups,
 		Version:       Version,
 		ServerVersion: config.ServerVersion,
@@ -147,7 +146,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		delete(c.Participants, key)
 	}
 
-	nodes, err := c.canCommit(ctx, OpCreate)
+	nodes, err := c.canCommit(ctx, OpCreate, req.Backend)
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -173,17 +172,20 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 }
 
 // Restore coordinates a distributed restoration among participants
-func (c *coordinator) Restore(ctx context.Context, store coordStore, req *backup.DistributedBackupDescriptor) error {
+func (c *coordinator) Restore(ctx context.Context, store coordStore, backend string, desc *backup.DistributedBackupDescriptor) error {
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, store.HomeDir()); prevID != "" {
+	if prevID := c.lastOp.renew(desc.ID, store.HomeDir()); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
 	}
-	c.descriptor = *req
+
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
-	c.descriptor.StartedAt = time.Now().UTC()
-	nodes, err := c.canCommit(ctx, OpRestore)
+
+	meta := desc.NewRestoreMeta()
+	c.descriptor = *meta
+
+	nodes, err := c.canCommit(ctx, OpRestore, backend)
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -191,18 +193,24 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, req *backup
 
 	statusReq := StatusRequest{
 		Method:  OpRestore,
-		ID:      req.ID,
-		Backend: req.Backend,
+		ID:      desc.ID,
+		Backend: backend,
 	}
+
 	go func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes)
 		if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
-			c.log.WithField("action", OpCreate).
-				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
+			c.log.WithField("action", OpRestore).
+				WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
 		}
 	}()
+
+	if err := store.PutMeta(ctx, GlobalRestoreFile, meta); err != nil {
+		c.log.WithField("action", OpRestore).
+			WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+	}
 
 	return nil
 }
@@ -235,7 +243,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
-func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]string, error) {
+func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
@@ -248,7 +256,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stri
 		r *Request
 	}
 
-	id, backend := c.descriptor.ID, c.descriptor.Backend
+	id := c.descriptor.ID
 	groups := c.descriptor.Nodes
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -289,7 +297,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stri
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, pair.n.host, pair.r)
 			if err == nil && resp.Timeout == 0 {
-				err = errCannotCommit
+				err = fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
 			}
 			if err != nil {
 				return fmt.Errorf("node %q: %w", pair.n, err)
@@ -312,12 +320,13 @@ func (c *coordinator) canCommit(ctx context.Context, method Op) (map[string]stri
 // It stores the final result in the provided backend
 func (c *coordinator) commit(ctx context.Context, req *StatusRequest, nodes map[string]string) {
 	c.commitAll(ctx, req, nodes)
-
+	retryAfter := c.timeoutNextRound / 5 // 2s for first time
 	for len(nodes) > 0 {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(c.timeoutNextRound):
+		case <-time.After(retryAfter):
+			retryAfter = c.timeoutNextRound
 			c.queryAll(ctx, req, nodes)
 		}
 	}

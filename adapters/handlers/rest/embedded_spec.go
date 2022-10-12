@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.3"
+    "version": "1.15.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -107,6 +107,14 @@ func init() {
                 "href": {
                   "description": "The Location to redirect to",
                   "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
                 }
               }
             }
@@ -4181,7 +4189,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.3"
+    "version": "1.15.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -4240,6 +4248,14 @@ func init() {
                 "href": {
                   "description": "The Location to redirect to",
                   "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
                 }
               }
             }

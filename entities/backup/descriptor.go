@@ -14,6 +14,8 @@ package backup
 import (
 	"fmt"
 	"time"
+
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // NodeDescriptor contains data related to one participant in DBRO
@@ -27,8 +29,7 @@ type NodeDescriptor struct {
 type DistributedBackupDescriptor struct {
 	StartedAt     time.Time                  `json:"startedAt"`
 	CompletedAt   time.Time                  `json:"completedAt"`
-	ID            string                     `json:"id"`      // User created backup id
-	Backend       string                     `json:"backend"` // object store: s3, gcs, ..
+	ID            string                     `json:"id"` // User created backup id
 	Nodes         map[string]*NodeDescriptor `json:"nodes"`
 	Status        Status                     `json:"status"`  //
 	Version       string                     `json:"version"` //
@@ -159,6 +160,22 @@ func (d *DistributedBackupDescriptor) Validate() error {
 		return fmt.Errorf("empty list of node descriptors")
 	}
 	return nil
+}
+
+func (d *DistributedBackupDescriptor) NewRestoreMeta() *DistributedBackupDescriptor {
+	for _, node := range d.Nodes {
+		node.Status = Started
+		node.Error = ""
+	}
+
+	return &DistributedBackupDescriptor{
+		StartedAt:     time.Now(),
+		ID:            d.ID,
+		Nodes:         d.Nodes,
+		Status:        Started,
+		Version:       d.Version,
+		ServerVersion: config.ServerVersion,
+	}
 }
 
 // ShardDescriptor contains everything needed to completely restore a partition of a specific class
@@ -296,4 +313,27 @@ func (d *BackupDescriptor) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ToDistributed is used just for backward compatibility with the old version.
+func (d *BackupDescriptor) ToDistributed() *DistributedBackupDescriptor {
+	node, cs := "", d.List()
+	for _, xs := range d.Classes {
+		for _, s := range xs.Shards {
+			node = s.Node
+		}
+	}
+	result := &DistributedBackupDescriptor{
+		StartedAt:     d.StartedAt,
+		CompletedAt:   d.CompletedAt,
+		ID:            d.ID,
+		Status:        Status(d.Status),
+		Version:       d.Version,
+		ServerVersion: d.ServerVersion,
+		Error:         d.Error,
+	}
+	if node != "" && len(cs) > 0 {
+		result.Nodes = map[string]*NodeDescriptor{node: {Classes: cs}}
+	}
+	return result
 }

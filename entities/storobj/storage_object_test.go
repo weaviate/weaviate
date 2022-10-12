@@ -13,6 +13,7 @@ package storobj
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -337,4 +338,66 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, []float64{1.1, 2.1}, prop)
 	})
+}
+
+func TestExtractionOfSingleProperties(t *testing.T) {
+	expected := map[string]interface{}{
+		"intArray":       []interface{}{1., 2., 5000.},
+		"time":           "2011-11-23T01:52:23.000004234Z",
+		"ref":            []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		"beacon":         []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		"textArray":      []interface{}{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
+		"stringArrayUTF": []interface{}{"語", "b"},
+		"numberArray":    []interface{}{1.1, 2.1},
+		"boolArray":      []interface{}{true, false, true},
+	}
+	properties := map[string]interface{}{
+		"numberArray":    []float64{1.1, 2.1},
+		"intArray":       []int32{1, 2, 5000},
+		"stringArrayUTF": []string{"語", "b"},
+		"textArray":      []string{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
+		"foo":            float64(17),
+		"string":         "single string",
+		"bool":           true,
+		"time":           time.Date(2011, 11, 23, 1, 52, 23, 4234, time.UTC),
+		"boolArray":      []bool{true, false, true},
+		"beacon":         []map[string]interface{}{{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		"ref":            []models.SingleRef{{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"}},
+	}
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties:         properties,
+		},
+		[]float32{1, 2, 0.7},
+	)
+
+	before.SetDocID(7)
+	byteObject, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	var propertyNames []string
+	var propStrings [][]string
+	for key := range properties {
+		propertyNames = append(propertyNames, key)
+		propStrings = append(propStrings, []string{key})
+	}
+
+	extractedProperties := map[string]interface{}{}
+
+	// test with reused property map
+	for i := 0; i < 2; i++ {
+		require.Nil(t, UnmarshalPropertiesFromObject(byteObject, &extractedProperties, propertyNames, propStrings))
+		for key := range properties {
+			if _, ok := expected[key]; !ok {
+				expected[key] = properties[key]
+			}
+
+			require.Equal(t, expected[key], extractedProperties[key])
+		}
+
+	}
 }
