@@ -14,6 +14,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"sync"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -61,6 +62,7 @@ func (s *fakeSourcer) ClassExists(name string) bool {
 
 type fakeBackend struct {
 	mock.Mock
+	sync.RWMutex
 	meta     backup.BackupDescriptor
 	glMeta   backup.DistributedBackupDescriptor
 	doneChan chan bool
@@ -71,27 +73,37 @@ func newFakeBackend() *fakeBackend {
 }
 
 func (s *fakeBackend) HomeDir(backupID string) string {
+	s.RLock()
+	defer s.RUnlock()
 	args := s.Called(backupID)
 	return args.String(0)
 }
 
 func (s *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+	s.Lock()
+	defer s.Unlock()
 	args := s.Called(ctx, backupID, key, srcPath)
 	return args.Error(0)
 }
 
 func (s *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte) error {
+	s.Lock()
+	defer s.Unlock()
 	args := s.Called(ctx, backupID, key, bytes)
 	if key == BackupFile {
 		json.Unmarshal(bytes, &s.meta)
 	} else if key == GlobalBackupFile || key == GlobalRestoreFile {
 		json.Unmarshal(bytes, &s.glMeta)
-		close(s.doneChan)
+		if s.glMeta.Status == backup.Success || s.glMeta.Status == backup.Failed {
+			close(s.doneChan)
+		}
 	}
 	return args.Error(0)
 }
 
 func (s *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+	s.RLock()
+	defer s.RUnlock()
 	args := s.Called(ctx, backupID, key)
 	if args.Get(0) != nil {
 		return args.Get(0).([]byte), args.Error(1)
@@ -100,18 +112,22 @@ func (s *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]by
 }
 
 func (s *fakeBackend) Initialize(ctx context.Context, backupID string) error {
+	s.Lock()
+	defer s.Unlock()
 	args := s.Called(ctx, backupID)
 	return args.Error(0)
 }
 
 func (s *fakeBackend) SourceDataPath() string {
+	s.RLock()
+	defer s.RUnlock()
 	args := s.Called()
 	return args.String(0)
 }
 
 func (s *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+	s.Lock()
+	defer s.Unlock()
 	args := s.Called(ctx, backupID, key, destPath)
 	return args.Error(0)
 }
-
-// Coordinator

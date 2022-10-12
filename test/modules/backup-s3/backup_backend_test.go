@@ -49,7 +49,7 @@ func Test_S3Backend_Backup(t *testing.T) {
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	dataDir := t.TempDir()
@@ -130,7 +130,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 }
 
 func moduleLevelCopyObjects(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	dataDir := t.TempDir()
@@ -155,21 +155,21 @@ func moduleLevelCopyObjects(t *testing.T) {
 		s3, err := s3.New(s3Config, logger, dataDir)
 		require.Nil(t, err)
 
-		t.Run("put object to backet", func(t *testing.T) {
+		t.Run("put object to bucket", func(t *testing.T) {
 			err := s3.PutObject(testCtx, backupID, key, []byte("hello"))
-			assert.Nil(t, err)
+			assert.Nil(t, err, "expected nil, got: %v", err)
 		})
 
-		t.Run("get object from backet", func(t *testing.T) {
+		t.Run("get object from bucket", func(t *testing.T) {
 			meta, err := s3.GetObject(testCtx, backupID, key)
-			assert.Nil(t, err)
+			assert.Nil(t, err, "expected nil, got: %v", err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
 	})
 }
 
 func moduleLevelCopyFiles(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	dataDir := t.TempDir()
