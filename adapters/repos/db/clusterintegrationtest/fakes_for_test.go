@@ -9,23 +9,20 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build integrationTestSlow
-// +build integrationTestSlow
+//go:build integrationTest
+// +build integrationTest
 
 package clusterintegrationtest
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path"
-	"syscall"
+	"sync"
+	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
@@ -76,8 +73,9 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		MaxImportGoroutinesFactor: 1,
 	}, client, nodeResolver, nodesClient, nil)
 	n.schemaManager = &fakeSchemaManager{
-		shardState: shardState,
-		schema:     schema.Schema{Objects: &models.Schema{}},
+		shardState:   shardState,
+		schema:       schema.Schema{Objects: &models.Schema{}},
+		nodeResolver: nodeResolver,
 	}
 
 	n.repo.SetSchemaGetter(n.schemaManager)
@@ -127,8 +125,9 @@ func (f fakeNodes) LocalName() string {
 }
 
 type fakeSchemaManager struct {
-	schema     schema.Schema
-	shardState *sharding.State
+	schema       schema.Schema
+	shardState   *sharding.State
+	nodeResolver *nodeResolver
 }
 
 func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
@@ -144,11 +143,11 @@ func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDes
 }
 
 func (f *fakeSchemaManager) Nodes() []string {
-	return []string{"node1"}
+	return []string{"NOT SET"}
 }
 
 func (f *fakeSchemaManager) NodeName() string {
-	return "node1"
+	return f.nodeResolver.local
 }
 
 func (f *fakeSchemaManager) ClusterHealthScore() int {
@@ -188,127 +187,124 @@ type fakeBackupBackendProvider struct {
 	backupsPath string
 }
 
-func (f *fakeBackupBackendProvider) BackupBackend(backend string) (modulecapabilities.BackupBackend, error) {
-	return &fakeBackupBackend{
-		store:       make(map[string][]byte),
-		backupsPath: f.backupsPath,
-	}, nil
+func (f *fakeBackupBackendProvider) BackupBackend(_ string) (modulecapabilities.BackupBackend, error) {
+	return backend, nil
 }
 
 type fakeBackupBackend struct {
-	store       map[string][]byte
+	sync.Mutex
 	backupsPath string
+	backupID    string
+	counter     int
+	startedAt   time.Time
 }
 
 func (f *fakeBackupBackend) HomeDir(backupID string) string {
-	return path.Join(f.backupsPath, backupID)
+	f.Lock()
+	defer f.Unlock()
+	return f.backupsPath
 }
 
 func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
-	if err := f.loadStore(backupID); err != nil {
-		return nil, err
+	f.Lock()
+	defer f.Unlock()
+
+	f.counter++
+
+	if f.counter <= 2 {
+		return nil, backup.ErrNotFound{}
 	}
 
-	storeKey := path.Join(backupID, key)
-	if val, ok := f.store[storeKey]; ok {
-		return val, nil
+	var resp interface{}
+
+	if key == ubak.GlobalBackupFile {
+		resp = f.successGlobalMeta()
+	} else {
+		resp = f.successLocalMeta()
 	}
 
-	return nil, backup.ErrNotFound{}
+	b, _ := json.Marshal(resp)
+	return b, nil
 }
 
 func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
-	storeKey := path.Join(backupID, key)
-	contents, ok := f.store[storeKey]
-	if !ok {
-		return backup.ErrNotFound{}
-	}
-
-	if err := os.WriteFile(destPath, contents, os.ModePerm); err != nil {
-		return err
-	}
-
+	f.Lock()
+	defer f.Unlock()
 	return nil
 }
 
 func (f *fakeBackupBackend) SourceDataPath() string {
+	f.Lock()
+	defer f.Unlock()
 	return f.backupsPath
 }
 
 func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	fileContents, err := os.ReadFile(path.Join(f.backupsPath, srcPath))
-	if err != nil {
-		return err
-	}
-
-	if err := f.loadStore(backupID); err != nil {
-		return err
-	}
-
-	storeKey := path.Join(backupID, key)
-	f.store[storeKey] = fileContents
-
-	return f.dumpStore(backupID)
+	f.Lock()
+	defer f.Unlock()
+	return nil
 }
 
 func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
-	if err := f.loadStore(backupID); err != nil {
-		return err
-	}
-
-	storeKey := path.Join(backupID, key)
-	f.store[storeKey] = byes
-
-	return f.dumpStore(backupID)
+	f.Lock()
+	defer f.Unlock()
+	return nil
 }
 
 func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID string) error {
-	backupDir := f.HomeDir(backupID)
-	if err := os.MkdirAll(backupDir, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to make backup dir: %w", err)
-	}
-
-	if err := f.dumpStore(backupID); err != nil {
-		return err
-	}
-
+	f.Lock()
+	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) loadStore(backupID string) error {
-	backupDir := f.HomeDir(backupID)
-
-	storeContents, err := os.ReadFile(path.Join(backupDir, "store.json"))
-	pathErr := &fs.PathError{}
-	if err != nil && errors.As(err, &pathErr) && pathErr.Err == syscall.ENOENT {
-		return backup.ErrNotFound{}
+func (f *fakeBackupBackend) successGlobalMeta() backup.DistributedBackupDescriptor {
+	return backup.DistributedBackupDescriptor{
+		StartedAt: f.startedAt,
+		ID:        f.backupID,
+		Nodes: map[string]*backup.NodeDescriptor{
+			"node-0": {
+				Classes: []string{distributedClass},
+				Status:  "SUCCESS",
+			},
+		},
+		Status:        "SUCCESS",
+		Version:       "some-version",
+		ServerVersion: "x.x.x",
 	}
-
-	if err != nil {
-		return fmt.Errorf("read store from file")
-	}
-
-	err = json.Unmarshal(storeContents, &f.store)
-	if err != nil {
-		return fmt.Errorf("unmarshal store")
-	}
-
-	return nil
 }
 
-func (f *fakeBackupBackend) dumpStore(backupID string) error {
-	backupDir := f.HomeDir(backupID)
-	b, err := json.Marshal(f.store)
-	if err != nil {
-		return fmt.Errorf("marshal store: %w", err)
+func (f *fakeBackupBackend) successLocalMeta() backup.BackupDescriptor {
+	return backup.BackupDescriptor{
+		ID:            f.backupID,
+		Status:        "SUCCESS",
+		ServerVersion: "x.x.x",
+		Version:       "some-version",
+		StartedAt:     f.startedAt,
+		Classes: []backup.ClassDescriptor{
+			{
+				Name: distributedClass,
+				Shards: []backup.ShardDescriptor{
+					{
+						Name:                  "123",
+						Node:                  "node-0",
+						Files:                 []string{"some-file.db"},
+						DocIDCounter:          []byte("1"),
+						DocIDCounterPath:      ".",
+						Version:               []byte("1"),
+						ShardVersionPath:      ".",
+						PropLengthTracker:     []byte("1"),
+						PropLengthTrackerPath: ".",
+					},
+				},
+				ShardingState: []byte("sharding state!"),
+				Schema:        []byte("schema!"),
+			},
+		},
 	}
+}
 
-	err = os.WriteFile(path.Join(backupDir, "store.json"), b, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("write store to file: %w", err)
-	}
-
-	return nil
+func (f *fakeBackupBackend) reset() {
+	f.counter = 0
 }
 
 type fakeAuthorizer struct{}

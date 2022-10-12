@@ -49,6 +49,7 @@ type ModuleDependency interface {
 }
 
 type Dependency interface {
+	ModuleName() string
 	Argument() string
 	GraphQLArgument() GraphQLArgument
 	VectorSearch() VectorForParams

@@ -77,7 +77,23 @@ func (os *objectScannerLSM) init() error {
 }
 
 func (os *objectScannerLSM) scan() error {
+	// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
 	docIDBytes := make([]byte, 8)
+
+	// Preallocate strings needed for json unmarshalling
+	propStrings := make([][]string, len(os.properties))
+	for i := range os.properties {
+		propStrings[i] = []string{os.properties[i]}
+	}
+
+	// The typed properties are needed for extraction from json
+	var properties models.PropertySchema
+	propertiesTyped := map[string]interface{}{}
+
+	for _, prop := range os.properties {
+		propertiesTyped[prop] = nil
+	}
+
 	for _, id := range os.pointers {
 		binary.LittleEndian.PutUint64(docIDBytes, id)
 		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
@@ -88,12 +104,13 @@ func (os *objectScannerLSM) scan() error {
 		if res == nil {
 			continue
 		}
-		var properties models.PropertySchema
+
 		if len(os.properties) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, &properties)
+			err = storobj.UnmarshalPropertiesFromObject(res, &propertiesTyped, os.properties, propStrings)
 			if err != nil {
 				return errors.Wrapf(err, "unmarshal data object")
 			}
+			properties = propertiesTyped
 		}
 
 		continueScan, err := os.scanFn(&properties, id)

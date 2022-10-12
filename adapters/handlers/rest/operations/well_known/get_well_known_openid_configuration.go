@@ -97,6 +97,9 @@ type GetWellKnownOpenidConfigurationOKBody struct {
 
 	// The Location to redirect to
 	Href string `yaml:"href,omitempty" json:"href,omitempty"`
+
+	// OAuth Scopes
+	Scopes []string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 }
 
 // Validate validates this get well known openid configuration o k body

@@ -81,7 +81,6 @@ func TestCoordinatedBackup(t *testing.T) {
 			StartedAt:     got.StartedAt,
 			CompletedAt:   got.CompletedAt,
 			ID:            backupID,
-			Backend:       backendName,
 			Status:        backup.Success,
 			Version:       Version,
 			ServerVersion: config.ServerVersion,
@@ -161,7 +160,6 @@ func TestCoordinatedBackup(t *testing.T) {
 			StartedAt:     got.StartedAt,
 			CompletedAt:   got.CompletedAt,
 			ID:            backupID,
-			Backend:       backendName,
 			Status:        backup.Failed,
 			Error:         got.Nodes[nodes[1]].Error,
 			Version:       Version,
@@ -211,7 +209,6 @@ func TestCoordinatedBackup(t *testing.T) {
 			StartedAt:     got.StartedAt,
 			CompletedAt:   got.CompletedAt,
 			ID:            backupID,
-			Backend:       backendName,
 			Status:        backup.Failed,
 			Error:         got.Nodes[nodes[0]].Error,
 			Version:       Version,
@@ -249,7 +246,6 @@ func TestCoordinatedRestore(t *testing.T) {
 				StartedAt:     now,
 				CompletedAt:   now.Add(time.Second).UTC(),
 				ID:            backupID,
-				Backend:       backendName,
 				Status:        backup.Success,
 				Version:       Version,
 				ServerVersion: config.ServerVersion,
@@ -292,11 +288,11 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
-		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Once()
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objStore{fc.backend, backupID}}
-		err := coordinator.Restore(ctx, store, genReq())
+		err := coordinator.Restore(ctx, store, backendName, genReq())
 		assert.Nil(t, err)
 	})
 
@@ -311,7 +307,7 @@ func TestCoordinatedRestore(t *testing.T) {
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objStore{fc.backend, backupID}}
-		err := coordinator.Restore(ctx, store, genReq())
+		err := coordinator.Restore(ctx, store, backendName, genReq())
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
 	})

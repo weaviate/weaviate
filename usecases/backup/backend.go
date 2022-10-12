@@ -48,7 +48,6 @@ type objStore struct {
 	BasePath string
 }
 
-// Meta gets a node's metadata from object store
 func (s *objStore) HomeDir() string {
 	return s.b.HomeDir(s.BasePath)
 }
@@ -100,10 +99,23 @@ type nodeStore struct {
 	objStore
 }
 
-func (s *nodeStore) Meta(ctx context.Context) (*backup.BackupDescriptor, error) {
-	var backup backup.BackupDescriptor
-	err := s.meta(ctx, BackupFile, &backup)
-	return &backup, err
+// Meta gets meta data using standard path or deprecated old path
+//
+// adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
+func (s *nodeStore) Meta(ctx context.Context, backupID string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+	var result backup.BackupDescriptor
+	err := s.meta(ctx, BackupFile, &result)
+	if err != nil {
+		cs := &objStore{s.b, backupID} // for backward compatibility
+		if err := cs.meta(ctx, BackupFile, &result); err == nil {
+			if adjustBasePath {
+				s.objStore.BasePath = backupID
+			}
+			return &result, nil
+		}
+	}
+
+	return &result, err
 }
 
 // meta marshals and uploads metadata
@@ -122,9 +134,15 @@ func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.
 
 // Meta gets coordinator's global metadata from object store
 func (s *coordStore) Meta(ctx context.Context, filename string) (*backup.DistributedBackupDescriptor, error) {
-	var backup backup.DistributedBackupDescriptor
-	err := s.meta(ctx, filename, &backup)
-	return &backup, err
+	var result backup.DistributedBackupDescriptor
+	err := s.meta(ctx, filename, &result)
+	if err != nil && filename == GlobalBackupFile {
+		var oldBackup backup.BackupDescriptor
+		if err := s.meta(ctx, BackupFile, &oldBackup); err == nil {
+			return oldBackup.ToDistributed(), nil
+		}
+	}
+	return &result, err
 }
 
 // uploader uploads backup artifacts. This includes db files and metadata
@@ -255,10 +273,13 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
-// Function makes sure that created files will be removed in case of an erro
+// Function makes sure that created files will be removed in case of an error
 func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
+	}
+	if err := os.MkdirAll(classTempDir, os.ModePerm); err != nil {
+		return fmt.Errorf("create temp class folder %s: %w", classTempDir, err)
 	}
 	for _, part := range desc.Shards {
 		for _, key := range part.Files {
@@ -273,15 +294,15 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 		}
 		destPath := path.Join(classTempDir, part.DocIDCounterPath)
 		if err := os.WriteFile(destPath, part.DocIDCounter, os.ModePerm); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
+			return fmt.Errorf("write counter file %s: %w", destPath, err)
 		}
 		destPath = path.Join(classTempDir, part.PropLengthTrackerPath)
 		if err := os.WriteFile(destPath, part.PropLengthTracker, os.ModePerm); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
+			return fmt.Errorf("write prop file %s: %w", destPath, err)
 		}
 		destPath = path.Join(classTempDir, part.ShardVersionPath)
 		if err := os.WriteFile(destPath, part.Version, os.ModePerm); err != nil {
-			return fmt.Errorf("write file %s: %w", destPath, err)
+			return fmt.Errorf("write version file %s: %w", destPath, err)
 		}
 	}
 	return nil

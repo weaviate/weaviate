@@ -113,7 +113,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("BackendFailure", func(t *testing.T) { //  backend provider fails
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		m2 := createManager(nil, nil, backend, ErrAny)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -126,8 +126,10 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("GetMetadataFile", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, ErrAny)
+		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, ErrAny)
+
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -135,9 +137,11 @@ func TestRestoreRequestValidation(t *testing.T) {
 			t.Errorf("must return an error if it fails to get meta data: %v", err)
 		}
 		// meta data not found
-		backend = &fakeBackend{}
+		backend = newFakeBackend()
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, backup.ErrNotFound{})
+
 		m3 := createManager(nil, nil, backend, nil)
 
 		_, err = m3.Restore(ctx, nil, req)
@@ -147,7 +151,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("FailedBackup", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
@@ -158,8 +162,22 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
 
+	t.Run("FailedOldBackup", func(t *testing.T) {
+		backend := newFakeBackend()
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, ErrAny)
+		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m2 := createManager(nil, nil, backend, nil)
+		_, err := m2.Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), backup.Failed)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
 	t.Run("CorruptedBackupFile", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
@@ -171,7 +189,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("WrongBackupFile", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
@@ -183,7 +201,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("UnknownClass", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(meta)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
@@ -194,7 +212,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("EmptyResultClassList", func(t *testing.T) { //  backup was successful but class list is empty
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(meta)
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
@@ -205,7 +223,7 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("ClassAlreadyExists", func(t *testing.T) { //  one class exists already in DB
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(true)
 		bytes := marshalMeta(meta)
@@ -272,7 +290,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta1)
@@ -309,7 +327,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
@@ -350,7 +368,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
@@ -391,7 +409,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		schema := fakeSchemaManger{errRestoreClass: ErrAny, nodeName: nodeName}
 		sourcer.On("ClassExists", cls).Return(false)
@@ -471,8 +489,9 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	}
 
 	t.Run("GetMetdataFile", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 		backend.On("HomeDir", mock.Anything).Return(path)
 		bm := createManager(nil, nil, backend, nil)
 		resp := bm.OnCanCommit(ctx, &req)
@@ -481,7 +500,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	})
 
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(metadata)
@@ -500,7 +519,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(metadata)
@@ -536,7 +555,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 	t.Run("Abort", func(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(metadata)

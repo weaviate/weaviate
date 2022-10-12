@@ -14,18 +14,23 @@ package dependency
 import "github.com/semi-technologies/weaviate/entities/modulecapabilities"
 
 type NearTextDependecy struct {
-	argument modulecapabilities.GraphQLArgument
-	searcher modulecapabilities.VectorForParams
+	moduleName string
+	argument   modulecapabilities.GraphQLArgument
+	searcher   modulecapabilities.VectorForParams
 }
 
-func New(argument modulecapabilities.GraphQLArgument,
+func New(moduleName string, argument modulecapabilities.GraphQLArgument,
 	searcher modulecapabilities.VectorForParams,
 ) *NearTextDependecy {
-	return &NearTextDependecy{argument, searcher}
+	return &NearTextDependecy{moduleName, argument, searcher}
 }
 
 func (d *NearTextDependecy) Argument() string {
 	return "nearText"
+}
+
+func (d *NearTextDependecy) ModuleName() string {
+	return d.moduleName
 }
 
 func (d *NearTextDependecy) GraphQLArgument() modulecapabilities.GraphQLArgument {
