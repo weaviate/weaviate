@@ -1,27 +1,8 @@
-addons:
-  hosts:
-    - db
+
 git:
   lfs_skip_smudge: true
-before_install: 
-  # install a newer docker version which supports buildx
-  - sudo rm -rf /var/lib/apt/lists/*
-  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-  - sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) edge"
-  - sudo apt-get update
-  - sudo apt-get -y -o Dpkg::Options::="--force-confnew" install docker-ce
-  - mkdir -vp ~/.docker/cli-plugins/
-  - curl --silent -L "https://github.com/docker/buildx/releases/download/v0.3.0/buildx-v0.3.0.linux-amd64" > ~/.docker/cli-plugins/docker-buildx
-  - curl -SL "https://github.com/docker/compose/releases/download/v2.7.0/docker-compose-linux-x86_64" -o ~/.docker/cli-plugins/docker-compose
-  - chmod a+x ~/.docker/cli-plugins/docker-buildx
-  - chmod a+x ~/.docker/cli-plugins/docker-compose
 dist: bionic
-go: 
-  - "1.19"
 env:
-  matrix:
-  # Force using modules.
-  - GO111MODULE=on
   global:
   # location of the open-api specs
   - WEAVIATESCHEMAFILE=openapi-specs/schema.json
@@ -36,23 +17,9 @@ env:
   - secure: lrXRmWTugnKOFFRV0GhJOpPDht4R/3dcr64Vziepkhe1YdWsvShifzElATKplrHwjXuJ6LRJesskrT2+isDrKKLGLLT/AtZ4j3SYqXCXgYtepkq5MV7YeAZbWoaNseSzX+bfGbz/Qc6unGsdEFzJm4300mCoub8Mi42spfcHKfu2eqTOaWEVExoo0P4q8VlomW5kuErQT37cMuDo+J9u1ornV79R16+hzTNs0EazpqwWIwblFOiCUygNsFusZso7fw3RQ/fJWtBP1gT9H5S2MY3PEKRWRqEiiEGTChnEegLgHb1nPgz0r2FrdGshaKMt2ZU1eyq91hFfUfIxbNoRfy3W5wZ9Sp88NsGWftSVrOEibnbkX1eIX34cMiAZGL5Nnz5SxRHTO4sEfWJi9aEvU4EeaO6zXffMR4JHaVHdp+1XwMY+qbfNo8TW7GKDiQFmJMvkn0zrcQVUEi+cUHO8TqsJezjEPuNYKd85IpFvQX3RqrRievmRIJX2/GP2FFy0PlyC4TLmQYd6ZCndQlTGsvxS+Ie5k5Zx7d2RT5bcSwcNE5ZtYuzAfzAl3B/IbB+/9tHEUJK508sl3SkDzTPDzqyttnnfVOVKSShLcWPuw5NMeK7Sdc3F9CBchD19+QZbOsrBCp0zQXboGfwVf3JugAJcKEDCWCSBtOTd1QKaNxA=
 language: go
 install:  
-  # - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-  # - chmod +x ./cc-test-reporter
   - wget https://raw.githubusercontent.com/creativesoftwarefdn/semver-tool/master/src/semver
   - chmod +x semver
 before_script:
-  - sudo apt-get -qq -y update
-  - sudo apt-get -qq -y install jq coreutils 
-  - |
-    # Login to dockerhub (if internal PR)
-    # This used to be part of the deploy step, but since dockerhub introduced rate limiting
-    # we now need to be logged in also for all pull steps, thus it is now at the beginning
-    # of the pipeline
-    if [ -n "$DOCKER_PASSWORD" ]; then
-      echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-    else
-      echo "Cannot login to Dockerhub, as this is an external PR. There is a risk that the build will fail due to rate limiting"
-    fi
   - |
     if [ "$TRAVIS_BRANCH" = "master" ] && [ "$TRAVIS_PULL_REQUEST" = "false" ]; then
       # build the build tools
@@ -74,27 +41,10 @@ before_script:
     fi
 jobs:
   include:
-  - name: "Unit and integration tests"
+  - name: "Dummy"
     stage: test
     if: type != pull_request OR fork = true
     script:
-    - ./test/run.sh --unit-and-integration-only || travis_terminate 1
-  - name: "Acceptance tests (requiring docker to run)"
-    stage: test
-    if: type != pull_request OR fork = true
-    script: 
-    - ./test/run.sh --acceptance-only || travis_terminate 1
-  - name: "Acceptance tests for modules"
-    stage: test
-    if: type != pull_request OR fork = true
-    script:
-    - ./test/run.sh --acceptance-module-tests-only || travis_terminate 1
-  - name: "Push docker container"
-    if: type != pull_request
-    stage: deploy
-    script:
-      - travis_wait 30 ./ci/push_docker.sh
+    - echo "I'm only here to ensure that the before script is run"
 
-services: 
-  - docker
 sudo: required
