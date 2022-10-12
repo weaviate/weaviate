@@ -288,7 +288,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
 		fc.client.On("Status", any, nodes[1], sReq).Return(sresp, nil)
 		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
-		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Once()
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
 
 		coordinator := *fc.coordinator()
 		store := coordStore{objStore{fc.backend, backupID}}

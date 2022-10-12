@@ -177,11 +177,14 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir()); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
 	}
-	c.descriptor = *desc
+
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
-	c.descriptor.StartedAt = time.Now().UTC()
+
+	meta := desc.NewRestoreMeta()
+	c.descriptor = *meta
+
 	nodes, err := c.canCommit(ctx, OpRestore, backend)
 	if err != nil {
 		c.lastOp.reset()
@@ -193,15 +196,21 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 		ID:      desc.ID,
 		Backend: backend,
 	}
+
 	go func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes)
 		if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
-			c.log.WithField("action", OpCreate).
+			c.log.WithField("action", OpRestore).
 				WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
 		}
 	}()
+
+	if err := store.PutMeta(ctx, GlobalRestoreFile, meta); err != nil {
+		c.log.WithField("action", OpRestore).
+			WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+	}
 
 	return nil
 }
