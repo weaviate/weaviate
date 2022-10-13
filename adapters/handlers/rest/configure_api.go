@@ -158,15 +158,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
-		ServerVersion:             config.ServerVersion,
-		GitHash:                   config.GitHash,
-		FlushIdleAfter:            appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
-		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
-		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
-		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
+		ServerVersion:                    config.ServerVersion,
+		GitHash:                          config.GitHash,
+		FlushIdleAfter:                   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		RootPath:                         appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                       appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:              appState.ServerConfig.Config.QueryMaximumResults,
+		MaxImportGoroutinesFactor:        appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:            appState.ServerConfig.Config.TrackVectorDimensions,
+		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
+		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
@@ -295,6 +296,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// manually update schema once
 	schema := schemaManager.GetSchemaSkipAuth()
 	updateSchemaCallback(schema)
+
+	// Add dimensions to all the objects in the database, if requested by the user
+	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
+		appState.Logger.
+			WithField("action", "startup").
+			Info("Reindexing dimensions")
+		migrator.RecalculateVectorDimensions(ctx)
+	}
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }

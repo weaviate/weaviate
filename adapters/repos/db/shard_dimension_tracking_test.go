@@ -31,6 +31,140 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func Benchmark_Migration(b *testing.B) {
+	fmt.Printf("Running benchmark %v times\n", b.N)
+	for i := 0; i < b.N; i++ {
+
+		rand.Seed(time.Now().UnixNano())
+		dirName := b.TempDir()
+
+		shardState := singleShardState()
+		logger := logrus.New()
+		schemaGetter := &fakeSchemaGetter{shardState: shardState}
+		repo := New(logger, Config{
+			RootPath:                         dirName,
+			QueryMaximumResults:              1000,
+			MaxImportGoroutinesFactor:        1,
+			TrackVectorDimensions:            true,
+			ReindexVectorDimensionsAtStartup: false,
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+		defer repo.Shutdown(context.Background())
+		repo.SetSchemaGetter(schemaGetter)
+		err := repo.WaitForStartup(testCtx())
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		migrator := NewMigrator(repo, logger)
+
+		class := &models.Class{
+			Class:               "Test",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+		schemaGetter.schema = schema
+
+		repo.config.TrackVectorDimensions = false
+
+		dim := 128
+		for i := 0; i < 100; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = rand.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "Test", ID: id}
+			err := repo.PutObject(context.Background(), obj, vec)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+
+		fmt.Printf("Added vectors, now migrating\n")
+
+		repo.config.ReindexVectorDimensionsAtStartup = true
+		repo.config.TrackVectorDimensions = true
+		migrator.RecalculateVectorDimensions(context.TODO())
+		fmt.Printf("Benchmark complete")
+	}
+}
+
+// Rebuild dimensions at startup
+func Test_Migration(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	shardState := singleShardState()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	repo := New(logger, Config{
+		RootPath:                         dirName,
+		QueryMaximumResults:              1000,
+		MaxImportGoroutinesFactor:        1,
+		TrackVectorDimensions:            true,
+		ReindexVectorDimensionsAtStartup: false,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	defer repo.Shutdown(context.Background())
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("set schema", func(t *testing.T) {
+		class := &models.Class{
+			Class:               "Test",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+		schemaGetter.schema = schema
+	})
+
+	repo.config.TrackVectorDimensions = false
+
+	t.Run("import objects with d=128", func(t *testing.T) {
+		dim := 128
+		for i := 0; i < 100; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = rand.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "Test", ID: id}
+			err := repo.PutObject(context.Background(), obj, vec)
+			require.Nil(t, err)
+		}
+		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		require.Equal(t, 0, dimAfter, "dimensions should not have been calculated")
+	})
+
+	dimBefore := GetDimensionsFromRepo(repo, "Test")
+	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
+	repo.config.ReindexVectorDimensionsAtStartup = true
+	repo.config.TrackVectorDimensions = true
+	migrator.RecalculateVectorDimensions(context.TODO())
+	dimAfter := GetDimensionsFromRepo(repo, "Test")
+	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
+}
+
 func Test_DimensionTracking(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
