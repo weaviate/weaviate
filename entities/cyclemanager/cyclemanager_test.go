@@ -310,9 +310,9 @@ func TestCycleManager_stopsIfNotAllContextsAreCancelled(t *testing.T) {
 }
 
 func TestCycleManager_doesNotStopIfAllContextsAreCancelled(t *testing.T) {
-	cycleInterval := 5 * time.Millisecond
-	cycleDuration := 1 * time.Millisecond
-	stopTimeout := 5 * time.Millisecond
+	cycleInterval := 50 * time.Millisecond
+	cycleDuration := 10 * time.Millisecond
+	stopTimeout := 50 * time.Millisecond
 
 	p := newProvider(cycleDuration, 1)
 	cm := New(cycleInterval, p.cycleFunc)
@@ -349,11 +349,11 @@ func TestCycleManager_doesNotStopIfAllContextsAreCancelled(t *testing.T) {
 }
 
 func TestCycleManager_cycleFuncStoppedDueToFrequentStopChecks(t *testing.T) {
-	cycleInterval := 5 * time.Millisecond
-	cycleDuration := 30 * time.Millisecond
-	stopTimeout := 15 * time.Millisecond
+	cycleInterval := 50 * time.Millisecond
+	cycleDuration := 300 * time.Millisecond
+	stopTimeout := 100 * time.Millisecond
 
-	// despite cycleDuration is 30ms, cycle function checks every 2ms (30/15) if it needs to be stopped
+	// despite cycleDuration is 30ms, cycle function checks every 20ms (300/15) if it needs to be stopped
 	p := newProviderStoppable(cycleDuration, 1, 15)
 	cm := New(cycleInterval, p.cycleFunc)
 
@@ -379,11 +379,11 @@ func TestCycleManager_cycleFuncStoppedDueToFrequentStopChecks(t *testing.T) {
 }
 
 func TestCycleManager_cycleFuncNotStoppedDueToRareStopChecks(t *testing.T) {
-	cycleInterval := 5 * time.Millisecond
-	cycleDuration := 30 * time.Millisecond
-	stopTimeout := 15 * time.Millisecond
+	cycleInterval := 50 * time.Millisecond
+	cycleDuration := 300 * time.Millisecond
+	stopTimeout := 100 * time.Millisecond
 
-	// despite cycleDuration is 30ms, cycle function checks every 15ms (30/2) if it needs to be stopped
+	// despite cycleDuration is 30ms, cycle function checks every 150ms (300/2) if it needs to be stopped
 	p := newProviderStoppable(cycleDuration, 1, 2)
 	cm := New(cycleInterval, p.cycleFunc)
 
