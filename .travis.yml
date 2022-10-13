@@ -1,6 +1,7 @@
 addons:
   hosts:
     - db
+
 git:
   lfs_skip_smudge: true
 before_install: 
