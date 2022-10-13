@@ -37,7 +37,7 @@ type NodesGetOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.NodeStatusResponse `json:"body,omitempty"`
+	Payload *models.NodesStatusResponse `json:"body,omitempty"`
 }
 
 // NewNodesGetOK creates NodesGetOK with default headers values
@@ -47,13 +47,13 @@ func NewNodesGetOK() *NodesGetOK {
 }
 
 // WithPayload adds the payload to the nodes get o k response
-func (o *NodesGetOK) WithPayload(payload *models.NodeStatusResponse) *NodesGetOK {
+func (o *NodesGetOK) WithPayload(payload *models.NodesStatusResponse) *NodesGetOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the nodes get o k response
-func (o *NodesGetOK) SetPayload(payload *models.NodeStatusResponse) {
+func (o *NodesGetOK) SetPayload(payload *models.NodesStatusResponse) {
 	o.Payload = payload
 }
 
