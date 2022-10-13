@@ -32,6 +32,9 @@ import (
 // spec only needs to be parsed once.
 var ServerVersion string
 
+// GitHash keeps the current git hash commit information
+var GitHash = "unknown"
+
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
 
@@ -81,6 +84,7 @@ type Config struct {
 	Profiling                 Profiling      `json:"profiling" yaml:"profiling"`
 	ResourceUsage             ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	TrackVectorDimensions     bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 }
 
 type moduleProvider interface {

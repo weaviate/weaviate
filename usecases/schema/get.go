@@ -83,6 +83,18 @@ func (m *Manager) ShardingState(className string) *sharding.State {
 	return m.state.ShardingState[className]
 }
 
+func (m *Manager) Nodes() []string {
+	return m.clusterState.AllNames()
+}
+
+func (m *Manager) NodeName() string {
+	return m.clusterState.LocalName()
+}
+
+func (m *Manager) ClusterHealthScore() int {
+	return m.clusterState.ClusterHealthScore()
+}
+
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
 	className string,
 ) (models.ShardStatusList, error) {

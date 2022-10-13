@@ -55,6 +55,7 @@ import (
 	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
+	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -157,14 +158,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
+	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
+		ServerVersion:             config.ServerVersion,
+		GitHash:                   config.GitHash,
 		FlushIdleAfter:            appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
 		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
-	}, remoteIndexClient, appState.Cluster, appState.Metrics) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -209,9 +214,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
+
 	appState.SchemaManager = schemaManager
 
-	appState.RemoteIncoming = sharding.NewRemoteIndexIncoming(repo)
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
+	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
+
+	backupScheduler := backup.NewScheduler(
+		appState.Authorizer,
+		clients.NewClusterBackups(clusterHttpClient),
+		repo, appState.Modules,
+		appState.Cluster,
+		appState.Logger)
+
+	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
+		schemaManager, repo, appState.Modules)
+	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)
 
@@ -252,6 +270,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
+	setupBackupHandlers(api, backupScheduler)
+	setupNodesHandlers(api, schemaManager, repo, appState)
 
 	api.ServerShutdown = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

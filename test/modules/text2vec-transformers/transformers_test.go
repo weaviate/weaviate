@@ -40,8 +40,8 @@ func Test_T2VTransformers(t *testing.T) {
 				Get {
 					Books(
 						nearText: {
-							concepts: ["Andy Weir"]
-							distance: 0.3
+							concepts: ["Frank Herbert"]
+							distance: 0.7
 						}
 					){
 						title
@@ -51,7 +51,7 @@ func Test_T2VTransformers(t *testing.T) {
 		`)
 		books := result.Get("Get", "Books").AsSlice()
 		expected := []interface{}{
-			map[string]interface{}{"title": "Project Hail Mary"},
+			map[string]interface{}{"title": "Dune"},
 		}
 		assert.ElementsMatch(t, expected, books)
 	})

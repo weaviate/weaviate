@@ -29,6 +29,10 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = 2112
 	}
 
+	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+		config.TrackVectorDimensions = true
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
@@ -55,6 +59,10 @@ func FromEnv(config *Config) error {
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CLIENT_ID"); v != "" {
 			config.Authentication.OIDC.ClientID = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_SCOPES"); v != "" {
+			config.Authentication.OIDC.Scopes = strings.Split(v, ",")
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_USERNAME_CLAIM"); v != "" {

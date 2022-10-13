@@ -15,17 +15,14 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/backups"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/semi-technologies/weaviate/usecases/backup"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
 
 type backupHandlers struct {
-	manager *ubak.Manager
+	manager *ubak.Scheduler
 }
 
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
@@ -58,10 +55,6 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO: update s.manager.CreateBackupStatus to fetch the target classes internally
-	// Maybe not since classes are returned when restore is call the first time
-	// Also this would result in keeping this data in memory over the app life time
-	// I suggest to remove it from both restore and backup responses
 	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
 		switch err.(type) {
@@ -79,7 +72,16 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	return backups.NewBackupsCreateStatusOK().WithPayload(status)
+
+	strStatus := string(status.Status)
+	payload := models.BackupCreateStatusResponse{
+		Status:  &strStatus,
+		ID:      params.ID,
+		Path:    status.Path,
+		Backend: params.Backend,
+		Error:   status.Err,
+	}
+	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
 }
 
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
@@ -115,10 +117,6 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO: update s.manager.RestoreBackupStatus to fetch the target classes internally
-	// Maybe not since classes are returned when restore is call the first time
-	// Also this would result in keeping this data in memory over the app life time
-	// I suggest to remove it from both restore and backup responses
 	status, err := s.manager.RestorationStatus(
 		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
 	if err != nil {
@@ -137,26 +135,21 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-	sstatus := string(status.Status)
+	strStatus := string(status.Status)
 	payload := models.BackupRestoreStatusResponse{
-		Status:  &sstatus,
+		Status:  &strStatus,
 		ID:      params.ID,
 		Path:    status.Path,
 		Backend: params.Backend,
-	}
-	if status.Err != nil {
-		payload.Error = status.Err.Error()
+		Error:   status.Err,
 	}
 	return backups.NewBackupsRestoreStatusOK().WithPayload(&payload)
 }
 
 func setupBackupHandlers(api *operations.WeaviateAPI,
-	schemaManger *schemaUC.Manager, repo *db.DB, appState *state.State,
+	scheduler *ubak.Scheduler,
 ) {
-	backupManager := ubak.NewManager(appState.Logger, appState.Authorizer,
-		schemaManger, repo, appState.Modules)
-
-	h := &backupHandlers{backupManager}
+	h := &backupHandlers{scheduler}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.

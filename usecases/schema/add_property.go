@@ -28,11 +28,11 @@ func (m *Manager) AddClassProperty(ctx context.Context, principal *models.Princi
 		return err
 	}
 
-	return m.addClassProperty(ctx, principal, class, property)
+	return m.addClassProperty(ctx, class, property)
 }
 
-func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,
-	prop *models.Property,
+func (m *Manager) addClassProperty(ctx context.Context,
+	className string, prop *models.Property,
 ) error {
 	m.Lock()
 	defer m.Unlock()
@@ -51,7 +51,7 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 	for _, existingProperty := range class.Properties {
 		existingPropertyNames[existingProperty.Name] = true
 	}
-	if err := m.validateProperty(prop, class, existingPropertyNames, principal, false); err != nil {
+	if err := m.validateProperty(prop, class, existingPropertyNames, false); err != nil {
 		return err
 	}
 

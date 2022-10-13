@@ -25,11 +25,21 @@ func NewShardCombiner() *ShardCombiner {
 }
 
 func (sc *ShardCombiner) Do(results []*aggregation.Result) *aggregation.Result {
-	if results[0] == nil || len(results[0].Groups) < 1 {
+	allResultsAreNil := true
+	firstNonNilRes := 0
+	for i, res := range results {
+		if res == nil || len(res.Groups) < 1 {
+			continue
+		}
+		allResultsAreNil = false
+		firstNonNilRes = i
+	}
+
+	if allResultsAreNil {
 		return &aggregation.Result{}
 	}
 
-	if results[0].Groups[0].GroupedBy == nil {
+	if results[firstNonNilRes].Groups[0].GroupedBy == nil {
 		return sc.combineUngrouped(results)
 	}
 
@@ -42,6 +52,9 @@ func (sc *ShardCombiner) combineUngrouped(results []*aggregation.Result) *aggreg
 	}
 
 	for _, shard := range results {
+		if len(shard.Groups) == 0 { // not every shard has results
+			continue
+		}
 		sc.mergeIntoCombinedGroupAtPos(combined.Groups, 0, shard.Groups[0])
 	}
 

@@ -8,12 +8,16 @@ function main() {
   run_acceptance_tests=false
   run_module_tests=false
   run_unit_and_integration_tests=false
+  run_unit_tests=false
+  run_integration_tests=false
   run_benchmark=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
           --acceptance-only) run_all_tests=false; run_acceptance_tests=true ;;
           --unit-and-integration-only) run_all_tests=false; run_unit_and_integration_tests=true;;
+          --unit-only) run_all_tests=false; run_unit_tests=true;;
+          --integration-only) run_all_tests=false; run_integration_tests=true;;
           --benchmark-only) run_all_tests=false; run_benchmark=true;;
           --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
@@ -24,6 +28,8 @@ function main() {
   # Jump to root directory
   cd "$( dirname "${BASH_SOURCE[0]}" )"/..
 
+  echo "INFO: In directory $PWD"
+
   echo "INFO: This script will surpress most output, unless a command ultimately fails"
   echo "      Then it will print the output of the failed command."
 
@@ -33,11 +39,15 @@ function main() {
   rm -rf data
   echo "Done!"
 
-  if $run_unit_and_integration_tests || $run_all_tests
+  if $run_unit_and_integration_tests || $run_unit_tests || $run_all_tests
   then
     echo_green "Run all unit tests..."
     run_unit_tests "$@"
     echo_green "Unit tests successful"
+  fi
+
+  if $run_unit_and_integration_tests || $run_integration_tests || $run_all_tests
+  then
     echo_green "Run integration tests..."
     run_integration_tests "$@"
     echo_green "Integration tests successful"
@@ -79,7 +89,8 @@ function main() {
     suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
     echo_green "Building weaviate image for module acceptance tests..."
     echo "This could take some time..."
-    docker build -t $module_test_image .
+    GIT_HASH=$(git rev-parse --short HEAD)
+    docker build --build-arg GITHASH=$GIT_HASH -t $module_test_image .
     export "TEST_WEAVIATE_IMAGE"=$module_test_image
 
     run_module_tests "$@"

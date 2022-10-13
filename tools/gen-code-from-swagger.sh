@@ -20,9 +20,8 @@ if [ ! -f $SWAGGER ]; then
   chmod +x $SWAGGER
 fi
 
-if ! hash goimports >/dev/null 2>&1; then
-  go install golang.org/x/tools/cmd/goimports@v0.1.12
-fi
+# Always install goimports to ensure that all parties use the same version
+go install golang.org/x/tools/cmd/goimports@v0.1.12
 
 # Explictly get yamplc package
 (go get -u github.com/go-openapi/runtime/yamlpc)
@@ -43,3 +42,5 @@ echo Now add the header to the generated code too.
 
 # echo Add licenses to file.
 # $DIR/create-license-dependency-file.sh
+
+echo Success

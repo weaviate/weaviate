@@ -16,6 +16,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
+const defaultClassName = "Books"
+
 const (
 	Dune                  strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e000"
 	ProjectHailMary       strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e001"
@@ -23,18 +25,23 @@ const (
 )
 
 func ClassContextionaryVectorizer() *models.Class {
-	return class("text2vec-contextionary")
+	return class(defaultClassName, "text2vec-contextionary")
 }
 
 func ClassTransformersVectorizer() *models.Class {
-	return class("text2vec-transformers")
+	return class(defaultClassName, "text2vec-transformers")
 }
 
-func class(vectorizer string) *models.Class {
+func ClassTransformersVectorizerWithName(className string) *models.Class {
+	return class(className, "text2vec-transformers")
+}
+
+func class(className, vectorizer string) *models.Class {
 	return &models.Class{
-		Class: "Books",
+		Class:      className,
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			vectorizer: map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -43,7 +50,7 @@ func class(vectorizer string) *models.Class {
 				Name:     "title",
 				DataType: []string{"string"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": false,
 					},
 				},
@@ -52,7 +59,7 @@ func class(vectorizer string) *models.Class {
 				Name:     "description",
 				DataType: []string{"string"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": false,
 					},
 				},
@@ -62,9 +69,17 @@ func class(vectorizer string) *models.Class {
 }
 
 func Objects() []*models.Object {
+	return objects(defaultClassName)
+}
+
+func ObjectsWithName(className string) []*models.Object {
+	return objects(className)
+}
+
+func objects(className string) []*models.Object {
 	return []*models.Object{
 		{
-			Class: "Books",
+			Class: className,
 			ID:    Dune,
 			Properties: map[string]interface{}{
 				"title":       "Dune",
@@ -72,7 +87,7 @@ func Objects() []*models.Object {
 			},
 		},
 		{
-			Class: "Books",
+			Class: className,
 			ID:    ProjectHailMary,
 			Properties: map[string]interface{}{
 				"title":       "Project Hail Mary",
@@ -80,7 +95,7 @@ func Objects() []*models.Object {
 			},
 		},
 		{
-			Class: "Books",
+			Class: className,
 			ID:    TheLordOfTheIceGarden,
 			Properties: map[string]interface{}{
 				"title":       "The Lord of the Ice Garden",

@@ -25,7 +25,10 @@ const weaviateEndpoint = "WEAVIATE_ENDPOINT"
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviate().WithText2VecContextionary().WithQnATransformers().
+		WithWeaviate().
+		WithText2VecContextionary().
+		WithText2VecTransformers().
+		WithQnATransformers().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))
