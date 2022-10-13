@@ -178,8 +178,8 @@ type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
 	className string, old, updated sharding.Config,
-) error {
-	return nil
+) (*sharding.State, error) {
+	return nil, nil
 }
 
 func (f *fakeScaleOutManager) SetSchemaManager(sm scaling.SchemaManager) {

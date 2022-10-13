@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"io"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -200,6 +201,12 @@ func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 
 func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 	targetStatus string,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,
+	fileName string, payload io.ReadCloser,
 ) error {
 	return nil
 }

@@ -17,6 +17,7 @@ package classification_integration_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"sync"
 
@@ -331,6 +332,12 @@ type fakeRemoteClient struct{}
 
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName,
+	shardName, fileName string, payload io.ReadCloser,
 ) error {
 	return nil
 }
