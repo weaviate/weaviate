@@ -9,22 +9,17 @@ function release() {
   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   docker buildx create --use
 
-  if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
-    # only run on non-pr builds, otherwise we have duplicates
-    return 0
-  fi
-
   tag_latest="${DOCKER_REPO}:latest"
   tag_exact=
 
-  git_hash=$(echo "$TRAVIS_COMMIT" | cut -c1-7)
+  git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
 
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
-  if [ "$TRAVIS_BRANCH" = "master" ]; then
+  if [ "$GITHUB_REF_NAME" = "master" ]; then
     tag_exact="${DOCKER_REPO}:${weaviate_version}-${git_hash}"
-  elif [ -n "$TRAVIS_TAG" ]; then
-        if [ "$TRAVIS_TAG" != "v$weaviate_version" ]; then
-            echo "The release tag ($TRAVIS_TAG) and Weaviate version (v$weaviate_version) are not equal! Can't release."
+  elif [  "$GITHUB_REF_TYPE" == "tag" ]; then
+        if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
+            echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
             return 1
         fi
         tag_exact="${DOCKER_REPO}:${weaviate_version}"
