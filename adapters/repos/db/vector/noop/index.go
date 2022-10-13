@@ -78,3 +78,6 @@ func (i *Index) ResumeMaintenance(context.Context) error {
 
 func (i *Index) PostStartup() {
 }
+
+func (i *Index) Dump(labels ...string) {
+}

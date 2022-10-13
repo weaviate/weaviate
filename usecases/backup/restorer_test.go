@@ -36,7 +36,8 @@ func TestRestoreStatus(t *testing.T) {
 		m           = createManager(nil, nil, nil, nil)
 		ctx         = context.Background()
 		starTime    = time.Now().UTC()
-		path        = "bucket/backups/123"
+		nodeHome    = id + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
 	)
 	// initial state
 	_, err := m.RestorationStatus(ctx, nil, backendType, id)
@@ -44,24 +45,24 @@ func TestRestoreStatus(t *testing.T) {
 		t.Errorf("must return an error if backup doesn't exist")
 	}
 	// active state
-	m.restorer.lastStatus.reqStat = reqStat{
+	m.restorer.lastOp.reqStat = reqStat{
 		Starttime: starTime,
 		ID:        id,
 		Status:    backup.Transferring,
-		path:      path,
+		Path:      path,
 	}
 	st, err := m.RestorationStatus(ctx, nil, backendType, id)
 	if err != nil {
 		t.Errorf("get active status: %v", err)
 	}
-	expected := RestoreStatus{Path: path, StartedAt: starTime, Status: backup.Transferring}
+	expected := Status{Path: path, StartedAt: starTime, Status: backup.Transferring}
 	if expected != st {
 		t.Errorf("get active status: got=%v want=%v", st, expected)
 	}
 	// cached status
-	m.restorer.lastStatus.reset()
+	m.restorer.lastOp.reset()
 	st.CompletedAt = starTime
-	m.restoreStatusMap.Store("s3/"+id, st)
+	m.restorer.restoreStatusMap.Store("s3/"+id, st)
 	st, err = m.RestorationStatus(ctx, nil, backendType, id)
 	if err != nil {
 		t.Errorf("fetch status from map: %v", err)
@@ -81,7 +82,8 @@ func TestRestoreRequestValidation(t *testing.T) {
 		timept      = time.Now().UTC()
 		m           = createManager(nil, nil, nil, nil)
 		ctx         = context.Background()
-		path        = "bucket/backups"
+		nodeHome    = id + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
 		req         = &BackupRequest{
 			Backend: backendName,
 			ID:      id,
@@ -109,8 +111,9 @@ func TestRestoreRequestValidation(t *testing.T) {
 		})
 		assert.NotNil(t, err)
 	})
+
 	t.Run("BackendFailure", func(t *testing.T) { //  backend provider fails
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		m2 := createManager(nil, nil, backend, ErrAny)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -122,9 +125,11 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), backendName)
 	})
 
-	t.Run("GetMetdataFile", func(t *testing.T) {
-		backend := &fakeBackend{}
-		backend.On("GetObject", ctx, id, BackupFile).Return(nil, ErrAny)
+	t.Run("GetMetadataFile", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, ErrAny)
+		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, ErrAny)
+
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -132,9 +137,11 @@ func TestRestoreRequestValidation(t *testing.T) {
 			t.Errorf("must return an error if it fails to get meta data: %v", err)
 		}
 		// meta data not found
-		backend = &fakeBackend{}
+		backend = newFakeBackend()
 		backend.On("HomeDir", mock.Anything).Return(path)
-		backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, req.ID, BackupFile).Return(nil, backup.ErrNotFound{})
+
 		m3 := createManager(nil, nil, backend, nil)
 
 		_, err = m3.Restore(ctx, nil, req)
@@ -144,9 +151,9 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("FailedBackup", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
-		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -154,10 +161,25 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), backup.Failed)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 	})
-	t.Run("CorruptedBackupFile", func(t *testing.T) {
-		backend := &fakeBackend{}
-		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
+
+	t.Run("FailedOldBackup", func(t *testing.T) {
+		backend := newFakeBackend()
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Failed)})
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, ErrAny)
 		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m2 := createManager(nil, nil, backend, nil)
+		_, err := m2.Restore(ctx, nil, req)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), backup.Failed)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
+	t.Run("CorruptedBackupFile", func(t *testing.T) {
+		backend := newFakeBackend()
+		bytes := marshalMeta(backup.BackupDescriptor{ID: id, Status: string(backup.Success)})
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -165,10 +187,11 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "corrupted")
 	})
+
 	t.Run("WrongBackupFile", func(t *testing.T) {
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(backup.BackupDescriptor{ID: "123", Status: string(backup.Success)})
-		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, req)
@@ -177,10 +200,10 @@ func TestRestoreRequestValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), "wrong backup file")
 	})
 
-	t.Run("UknownClass", func(t *testing.T) {
-		backend := &fakeBackend{}
+	t.Run("UnknownClass", func(t *testing.T) {
+		backend := newFakeBackend()
 		bytes := marshalMeta(meta)
-		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}})
@@ -189,21 +212,22 @@ func TestRestoreRequestValidation(t *testing.T) {
 	})
 
 	t.Run("EmptyResultClassList", func(t *testing.T) { //  backup was successful but class list is empty
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		bytes := marshalMeta(meta)
-		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(nil, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id, Exclude: []string{cls}})
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "empty")
 	})
+
 	t.Run("ClassAlreadyExists", func(t *testing.T) { //  one class exists already in DB
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(true)
 		bytes := marshalMeta(meta)
-		backend.On("GetObject", ctx, id, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		m2 := createManager(sourcer, nil, backend, nil)
 		_, err := m2.Restore(ctx, nil, &BackupRequest{ID: id})
@@ -224,7 +248,8 @@ func TestManagerRestoreBackup(t *testing.T) {
 		rawbytes    = []byte("hello")
 		timept      = time.Now().UTC()
 		ctx         = context.Background()
-		path        = "dst/path"
+		nodeHome    = backupID + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
 	)
 	meta1 := backup.BackupDescriptor{
 		ID:            backupID,
@@ -265,11 +290,11 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta1)
-		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		// simulate work by delaying return of SourceDataPath()
 		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Hour)
@@ -302,14 +327,14 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
-		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
+		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
 		m2 := createManager(sourcer, nil, backend, nil)
 		resp1, err := m2.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
@@ -322,7 +347,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m2.RestorationStatus(ctx, nil, req1.Backend, req1.ID)
@@ -343,14 +368,14 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
-		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(ErrAny)
+		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(ErrAny)
 		m2 := createManager(sourcer, nil, backend, nil)
 		resp1, err := m2.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
@@ -363,7 +388,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m2.RestorationStatus(ctx, nil, req1.Backend, req1.ID)
@@ -384,15 +409,15 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		backend := &fakeBackend{}
+		backend := newFakeBackend()
 		sourcer := &fakeSourcer{}
-		schema := fakeSchemaManger{errRestoreClass: ErrAny}
+		schema := fakeSchemaManger{errRestoreClass: ErrAny, nodeName: nodeName}
 		sourcer.On("ClassExists", cls).Return(false)
 		bytes := marshalMeta(meta2)
-		backend.On("GetObject", ctx, backupID, BackupFile).Return(bytes, nil)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 		backend.On("HomeDir", mock.Anything).Return(path)
 		backend.On("SourceDataPath").Return(t.TempDir())
-		backend.On("WriteToFile", ctx, backupID, mock.Anything, mock.Anything).Return(nil)
+		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
 		m2 := createManager(sourcer, &schema, backend, nil)
 		resp1, err := m2.Restore(ctx, nil, &req1)
 		assert.Nil(t, err)
@@ -405,7 +430,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
-		var lastStatus RestoreStatus
+		var lastStatus Status
 		for i := 0; i < 10; i++ {
 			time.Sleep(time.Millisecond * 50)
 			lastStatus, err = m2.RestorationStatus(ctx, nil, req1.Backend, req1.ID)
@@ -419,6 +444,192 @@ func TestManagerRestoreBackup(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, lastStatus.Status, backup.Failed)
 	})
+}
+
+func TestManagerCoordinatedRestore(t *testing.T) {
+	var (
+		backendName = "gcs"
+		rawbytes    = []byte("hello")
+		timept      = time.Now().UTC()
+		cls         = "Class-A"
+		backupID    = "2"
+		ctx         = context.Background()
+		nodeHome    = backupID + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
+		req         = Request{
+			Method:   OpRestore,
+			ID:       backupID,
+			Classes:  []string{cls},
+			Backend:  backendName,
+			Duration: time.Millisecond * 20,
+		}
+	)
+
+	metadata := backup.BackupDescriptor{
+		ID:            backupID,
+		StartedAt:     timept,
+		Version:       "1",
+		ServerVersion: "1",
+		Status:        string(backup.Success),
+		Classes: []backup.ClassDescriptor{{
+			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+			Shards: []backup.ShardDescriptor{
+				{
+					Name: "Shard1", Node: "Node-1",
+					Files:                 []string{"dir1/file1", "dir2/file2"},
+					DocIDCounterPath:      "dir1/counter.txt",
+					ShardVersionPath:      "dir1/version.txt",
+					PropLengthTrackerPath: "dir1/prop.txt",
+					DocIDCounter:          rawbytes,
+					Version:               rawbytes,
+					PropLengthTracker:     rawbytes,
+				},
+			},
+		}},
+	}
+
+	t.Run("GetMetdataFile", func(t *testing.T) {
+		backend := newFakeBackend()
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+		backend.On("HomeDir", mock.Anything).Return(path)
+		bm := createManager(nil, nil, backend, nil)
+		resp := bm.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, errMetaNotFound.Error())
+		assert.Equal(t, resp.Timeout, time.Duration(0))
+	})
+
+	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
+		backend := newFakeBackend()
+		sourcer := &fakeSourcer{}
+		sourcer.On("ClassExists", cls).Return(false)
+		bytes := marshalMeta(metadata)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		// simulate work by delaying return of SourceDataPath()
+		backend.On("SourceDataPath").Return(t.TempDir()).After(time.Minute * 2)
+		m := createManager(sourcer, nil, backend, nil)
+		resp := m.OnCanCommit(ctx, &req)
+		assert.Equal(t, resp.Err, "")
+		resp = m.OnCanCommit(ctx, &req)
+		assert.Contains(t, resp.Err, "already in progress")
+		assert.Equal(t, time.Duration(0), resp.Timeout)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		req := req
+		req.Duration = time.Hour
+		backend := newFakeBackend()
+		sourcer := &fakeSourcer{}
+		sourcer.On("ClassExists", cls).Return(false)
+		bytes := marshalMeta(metadata)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(t.TempDir())
+		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+		resp1 := m.OnCanCommit(ctx, &req)
+		want1 := &CanCommitResponse{
+			Method:  OpRestore,
+			ID:      req.ID,
+			Timeout: _TimeoutShardCommit,
+		}
+		assert.Equal(t, want1, resp1)
+		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend})
+		assert.Nil(t, err)
+		var lastStatus Status
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Millisecond * 50)
+			lastStatus, err = m.RestorationStatus(ctx, nil, req.Backend, req.ID)
+			if err != nil {
+				continue
+			}
+			if lastStatus.Status == backup.Success || lastStatus.Status == backup.Failed {
+				break
+			}
+		}
+		assert.Nil(t, err)
+		assert.Equal(t, lastStatus.Status, backup.Success)
+	})
+
+	t.Run("Abort", func(t *testing.T) {
+		req := req
+		req.Duration = time.Hour
+		backend := newFakeBackend()
+		sourcer := &fakeSourcer{}
+		sourcer.On("ClassExists", cls).Return(false)
+		bytes := marshalMeta(metadata)
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		backend.On("SourceDataPath").Return(t.TempDir())
+		backend.On("WriteToFile", ctx, nodeHome, mock.Anything, mock.Anything).Return(nil)
+		m := createManager(sourcer, nil, backend, nil)
+		resp1 := m.OnCanCommit(ctx, &req)
+		want1 := &CanCommitResponse{
+			Method:  OpRestore,
+			ID:      req.ID,
+			Timeout: _TimeoutShardCommit,
+		}
+		assert.Equal(t, want1, resp1)
+		err := m.OnAbort(ctx, &AbortRequest{Method: OpRestore, ID: req.ID})
+		assert.Nil(t, err)
+		var lastStatus Status
+		for i := 0; i < 10; i++ {
+			time.Sleep(time.Millisecond * 50)
+			lastStatus, err = m.RestorationStatus(ctx, nil, req.Backend, req.ID)
+			if err != nil {
+				continue
+			}
+			if lastStatus.Status == backup.Success || lastStatus.Status == backup.Failed {
+				break
+			}
+		}
+		assert.Nil(t, err)
+		assert.Equal(t, lastStatus.Status, backup.Failed)
+	})
+}
+
+func TestRestoreOnStatus(t *testing.T) {
+	t.Parallel()
+	var (
+		backendType = "s3"
+		id          = "1234"
+		m           = createManager(nil, nil, nil, nil)
+		ctx         = context.Background()
+		starTime    = time.Now().UTC()
+		nodeHome    = id + "/" + nodeName
+		path        = "bucket/backups/" + nodeHome
+		req         = StatusRequest{
+			Method:  OpRestore,
+			ID:      id,
+			Backend: backendType,
+		}
+	)
+	// initial state
+	got := m.OnStatus(ctx, &req)
+	if !strings.Contains(got.Err, "not found") {
+		t.Errorf("must return an error if backup doesn't exist")
+	}
+	// active state
+	m.restorer.lastOp.reqStat = reqStat{
+		Starttime: starTime,
+		ID:        id,
+		Status:    backup.Transferring,
+		Path:      path,
+	}
+	got = m.OnStatus(ctx, &req)
+	expected := StatusResponse{Method: OpRestore, ID: req.ID, Status: backup.Transferring}
+	if expected != *got {
+		t.Errorf("get active status: got=%v want=%v", got, expected)
+	}
+	// cached status
+	m.restorer.lastOp.reset()
+	st := Status{Path: path, StartedAt: starTime, Status: backup.Transferring, CompletedAt: starTime}
+	m.restorer.restoreStatusMap.Store("s3/"+id, st)
+	got = m.OnStatus(ctx, &req)
+	if expected != *got {
+		t.Errorf("fetch status from map got=%v want=%v", st, expected)
+	}
 }
 
 func marshalMeta(m backup.BackupDescriptor) []byte {

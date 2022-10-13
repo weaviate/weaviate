@@ -64,13 +64,16 @@ func Test_Authorization(t *testing.T) {
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
-		// t.Skip()
 		testedMethods := make([]string, len(tests))
 		for i, test := range tests {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&Manager{}) {
+		for _, method := range allExportedMethods(&Scheduler{}) {
+			switch method {
+			case "OnCommit", "OnAbort", "OnCanCommit", "OnStatus":
+				continue
+			}
 			assert.Contains(t, testedMethods, method)
 		}
 	})
@@ -81,11 +84,11 @@ func Test_Authorization(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
-				manager := NewManager(logger, authorizer, nil, nil, nil)
-				require.NotNil(t, manager)
+				s := NewScheduler(authorizer, nil, nil, nil, nil, logger)
+				require.NotNil(t, s)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
-				out, _ := callFuncByName(manager, test.methodName, args...)
+				out, _ := callFuncByName(s, test.methodName, args...)
 
 				require.Len(t, authorizer.calls, 1, "authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),

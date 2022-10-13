@@ -96,5 +96,12 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return errors.Wrap(err, "put inverted indices props")
 	}
 
+	if s.index.Config.TrackVectorDimensions {
+		err = s.removeDimensionsLSM(len(previousObject.Vector), docID)
+		if err != nil {
+			return errors.Wrap(err, "track dimensions (delete)")
+		}
+	}
+
 	return nil
 }

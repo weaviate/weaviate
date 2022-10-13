@@ -21,6 +21,7 @@ import (
 // VectorIndex is anything that indexes vectors efficiently. For an example
 // look at ./vector/hsnw/index.go
 type VectorIndex interface {
+	Dump(labels ...string)
 	Add(id uint64, vector []float32) error
 	Delete(id uint64) error
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)

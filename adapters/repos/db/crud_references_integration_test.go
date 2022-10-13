@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 	"testing"
@@ -120,7 +121,7 @@ func TestNestedReferences(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -415,6 +416,20 @@ func (c *testCounter) reset() {
 	c.count = 0
 }
 
+func GetDimensionsFromRepo(repo *DB, className string) int {
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return 0
+	}
+	repoClassName := schema.ClassName(className)
+	shards := repo.GetIndex(repoClassName).Shards
+	sum := 0
+	for _, shard := range shards {
+		sum += shard.Dimensions()
+	}
+	return sum
+}
+
 func Test_AddingReferenceOneByOne(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
@@ -457,7 +472,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		FlushIdleAfter:            60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, nil)
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -507,11 +523,22 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("add reference between them", func(t *testing.T) {
+		// Get dimensions before adding reference
+		sourceShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
+		targetShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
+
 		err := repo.AddReference(context.Background(),
 			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
 				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", targetID)),
 			})
 		assert.Nil(t, err)
+
+		// Check dimensions after adding reference
+		sourceDimensionAfter := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
+		targetDimensionAfter := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
+
+		require.Equalf(t, sourceShardDimension, sourceDimensionAfter, "dimensions of source should not change")
+		require.Equalf(t, targetShardDimension, targetDimensionAfter, "dimensions of target should not change")
 	})
 
 	t.Run("check reference was added", func(t *testing.T) {

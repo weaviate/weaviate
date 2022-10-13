@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
@@ -41,6 +42,18 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaGetter) ShardingState(class string) *sharding.State {
 	return f.shardState
+}
+
+func (f *fakeSchemaGetter) Nodes() []string {
+	return []string{"node1"}
+}
+
+func (f *fakeSchemaGetter) NodeName() string {
+	return "node1"
+}
+
+func (f *fakeSchemaGetter) ClusterHealthScore() int {
+	return 0
 }
 
 func singleShardState() *sharding.State {
@@ -195,4 +208,10 @@ type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 	return "", false
+}
+
+type fakeRemoteNodeClient struct{}
+
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error) {
+	return &models.NodeStatus{}, nil
 }

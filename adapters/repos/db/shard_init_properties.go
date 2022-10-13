@@ -93,5 +93,15 @@ func (s *Shard) initProperties() error {
 		})
 	}
 
+	if s.index.Config.TrackVectorDimensions {
+		eg.Go(func() error {
+			if err := s.addDimensionsProperty(context.TODO()); err != nil {
+				return errors.Wrap(err, "init id property")
+			}
+
+			return nil
+		})
+	}
+
 	return eg.Wait()
 }

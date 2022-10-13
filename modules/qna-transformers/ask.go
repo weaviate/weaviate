@@ -17,7 +17,7 @@ import (
 )
 
 func (m *QnAModule) initAskSearcher() error {
-	m.searcher = ask.NewSearcher(m.nearTextDependency)
+	m.searcher = ask.NewSearcher(m.nearTextDependencies)
 	return nil
 }
 
@@ -30,11 +30,11 @@ func (m *QnAModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *QnAModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *QnAModule) VectorSearches() modulecapabilities.ModuleArgumentVectorForParams {
 	return m.searcher.VectorSearches()
 }
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
-	_ = modulecapabilities.Searcher(New())
+	_ = modulecapabilities.DependencySearcher(New())
 )

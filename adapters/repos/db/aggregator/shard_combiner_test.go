@@ -135,6 +135,82 @@ func TestShardCombinerMergeNumerical(t *testing.T) {
 	}
 }
 
+func TestShardCombinerMergeNil(t *testing.T) {
+	tests := []struct {
+		name         string
+		results      []*aggregation.Result
+		totalResults int
+	}{
+		{
+			name: "First is nil",
+			results: []*aggregation.Result{
+				{
+					Groups: []aggregation.Group{},
+				},
+				{
+					Groups: []aggregation.Group{{GroupedBy: &aggregation.GroupedBy{Value: 10, Path: []string{"something"}}}},
+				},
+			},
+			totalResults: 1,
+		},
+		{
+			name: "Second is nil",
+			results: []*aggregation.Result{
+				{
+					Groups: []aggregation.Group{{GroupedBy: &aggregation.GroupedBy{Value: 10, Path: []string{"something"}}}},
+				},
+				{
+					Groups: []aggregation.Group{},
+				},
+			},
+			totalResults: 1,
+		},
+		{
+			name: "Both are nil",
+			results: []*aggregation.Result{
+				{
+					Groups: []aggregation.Group{},
+				},
+				{
+					Groups: []aggregation.Group{},
+				},
+			},
+			totalResults: 0,
+		},
+		{
+			name: "Non are nil",
+			results: []*aggregation.Result{
+				{
+					Groups: []aggregation.Group{{GroupedBy: &aggregation.GroupedBy{Value: 9, Path: []string{"other thing"}}}},
+				},
+				{
+					Groups: []aggregation.Group{{GroupedBy: &aggregation.GroupedBy{Value: 10, Path: []string{"something"}}}},
+				},
+			},
+			totalResults: 2,
+		},
+		{
+			name: "Ungrouped with nil",
+			results: []*aggregation.Result{
+				{
+					Groups: []aggregation.Group{{Count: 1}},
+				},
+				{
+					Groups: []aggregation.Group{},
+				},
+			},
+			totalResults: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			combinedResults := NewShardCombiner().Do(tt.results)
+			assert.Equal(t, len(combinedResults.Groups), tt.totalResults)
+		})
+	}
+}
+
 func testNumbers(t *testing.T, numbers1, numbers2 []float64, testMode bool) {
 	sc := NewShardCombiner()
 	numberMap1 := createNumericalAgg(numbers1)

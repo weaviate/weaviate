@@ -16,6 +16,12 @@ export PERSISTENCE_DATA_PATH=${PERSISTENCE_DATA_PATH:-"./data"}
 export ORIGIN=${ORIGIN:-"http://localhost:8080"}
 export QUERY_DEFAULTS_LIMIT=${QUERY_DEFAULTS_LIMIT:-"20"}
 export QUERY_MAXIMUM_RESULTS=${QUERY_MAXIMUM_RESULTS:-"10000"}
+export TRACK_VECTOR_DIMENSIONS=true
+
+function go_run() {
+  GIT_HASH=$(git rev-parse --short HEAD)
+  go run -ldflags "-X github.com/semi-technologies/weaviate/usecases/config.GitHash=$GIT_HASH" $@
+}
 
 case $CONFIG in
   debug)
@@ -41,7 +47,7 @@ case $CONFIG in
       CLUSTER_HOSTNAME="node1" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -74,7 +80,7 @@ case $CONFIG in
       TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-transformers" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -89,7 +95,7 @@ case $CONFIG in
       TRANSFORMERS_QUERY_INFERENCE_API="http://localhost:8007" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-transformers" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -103,7 +109,7 @@ case $CONFIG in
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,qna-transformers" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -117,7 +123,7 @@ case $CONFIG in
       SUM_INFERENCE_API="http://localhost:8008" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,sum-transformers" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -131,7 +137,7 @@ case $CONFIG in
       IMAGE_INFERENCE_API="http://localhost:8002" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,img2vec-neural" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -145,7 +151,7 @@ case $CONFIG in
       NER_INFERENCE_API="http://localhost:8003" \
       ENABLE_MODULES="text2vec-contextionary,ner-transformers" \
       CLUSTER_HOSTNAME="node1" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -159,7 +165,7 @@ case $CONFIG in
       SPELLCHECK_INFERENCE_API="http://localhost:8004" \
       ENABLE_MODULES="text2vec-contextionary,text-spellcheck" \
       CLUSTER_HOSTNAME="node1" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -173,7 +179,7 @@ case $CONFIG in
       CLIP_INFERENCE_API="http://localhost:8005" \
       ENABLE_MODULES="multi2vec-clip" \
       CLUSTER_HOSTNAME="node1" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -192,7 +198,7 @@ case $CONFIG in
       AUTHORIZATION_ADMINLIST_USERS=john@doe.com \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       CLUSTER_HOSTNAME="node1" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080
@@ -206,7 +212,7 @@ case $CONFIG in
       CLIP_INFERENCE_API=http://localhost:8005 \
       ENABLE_MODULES=text2vec-contextionary,text2vec-transformers,multi2vec-clip \
       CLUSTER_HOSTNAME="node1" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080
@@ -217,7 +223,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-openai \
       ENABLE_MODULES="text2vec-openai" \
       CLUSTER_HOSTNAME="node1" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -230,7 +236,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-huggingface \
       ENABLE_MODULES="text2vec-huggingface" \
       CLUSTER_HOSTNAME="node1" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -244,7 +250,7 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=none \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -252,17 +258,17 @@ case $CONFIG in
         --write-timeout=3600s
     ;;
 
-    local-centroid)
-        CLUSTER_HOSTNAME="node1" \
-        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        ENABLE_MODULES="ref2vec-centroid" \
-        go run ./cmd/weaviate-server \
-          --scheme http \
-          --host "127.0.0.1" \
-          --port 8080 \
-          --read-timeout=3600s \
-          --write-timeout=3600s
-      ;;
+  local-centroid)
+      CLUSTER_HOSTNAME="node1" \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      ENABLE_MODULES="ref2vec-centroid" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=3600s \
+        --write-timeout=3600s
+    ;;
 
   local-s3)
       CONTEXTIONARY_URL=localhost:9999 \
@@ -276,7 +282,7 @@ case $CONFIG in
       CLUSTER_HOSTNAME="node1" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
@@ -296,7 +302,7 @@ case $CONFIG in
       CLUSTER_HOSTNAME="node1" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \

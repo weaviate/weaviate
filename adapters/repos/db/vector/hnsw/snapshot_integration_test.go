@@ -48,6 +48,14 @@ func TestBackup_Integration(t *testing.T) {
 	}, enthnsw.NewDefaultUserConfig())
 	require.Nil(t, err)
 
+	t.Run("insert vector into index", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			inc := float32(i)
+			err := idx.Add(uint64(i), []float32{inc, inc + 1, inc + 2})
+			require.Nil(t, err)
+		}
+	})
+
 	// let the index age for a second so that
 	// the commitlogger filenames, which are
 	// based on current timestamp, can differ

@@ -36,9 +36,9 @@ func New() *QnAModule {
 type QnAModule struct {
 	qna                          qnaClient
 	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.Searcher
+	searcher                     modulecapabilities.DependencySearcher
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-	nearTextDependency           modulecapabilities.Dependency
+	nearTextDependencies         []modulecapabilities.Dependency
 	askTextTransformer           modulecapabilities.TextTransform
 }
 
@@ -89,12 +89,13 @@ func (m *QnAModule) InitExtension(modules []modulecapabilities.Module) error {
 }
 
 func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
-	var argument modulecapabilities.GraphQLArgument
-	var searcher modulecapabilities.VectorForParams
+	nearTextDependencies := []modulecapabilities.Dependency{}
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
 		}
+		var argument modulecapabilities.GraphQLArgument
+		var searcher modulecapabilities.VectorForParams
 		if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 			if arg != nil && arg.Arguments() != nil {
 				if nearTextArg, ok := arg.Arguments()["nearText"]; ok {
@@ -109,11 +110,17 @@ func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
 				}
 			}
 		}
+
+		if argument.ExtractFunction != nil && searcher != nil {
+			nearTextDependency := qnaadependency.New(module.Name(), argument, searcher)
+			nearTextDependencies = append(nearTextDependencies, nearTextDependency)
+		}
 	}
-	if argument.ExtractFunction == nil || searcher == nil {
+	if len(nearTextDependencies) == 0 {
 		return errors.New("nearText dependecy not present")
 	}
-	m.nearTextDependency = qnaadependency.New(argument, searcher)
+
+	m.nearTextDependencies = nearTextDependencies
 
 	if err := m.initAskSearcher(); err != nil {
 		return errors.Wrap(err, "init ask searcher")

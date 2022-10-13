@@ -4,7 +4,6 @@ require (
 	cloud.google.com/go/storage v1.24.0
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/buger/jsonparser v1.1.1
-	github.com/coreos/go-oidc v2.1.0+incompatible
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/go-connections v0.4.0
@@ -19,7 +18,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/google/uuid v1.3.0
 	github.com/graphql-go/graphql v0.7.9
-	github.com/hashicorp/memberlist v0.2.4
+	github.com/hashicorp/memberlist v0.4.0
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/minio/minio-go/v7 v7.0.31
 	github.com/nyaruka/phonenumbers v1.0.54
@@ -34,17 +33,20 @@ require (
 	github.com/testcontainers/testcontainers-go v0.13.0
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.5
-	golang.org/x/net v0.0.0-20220617184016-355a448f1bc9
-	golang.org/x/oauth2 v0.0.0-20220622183110-fd043fe589d2
+	golang.org/x/net v0.0.0-20220826154423-83b083e8dc8b
+	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
-	golang.org/x/sys v0.0.0-20220615213510-4f61da869c0c
+	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/api v0.85.0
 	google.golang.org/grpc v1.47.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-require golang.org/x/text v0.3.7
+require (
+	github.com/coreos/go-oidc/v3 v3.4.0
+	golang.org/x/text v0.3.7
+)
 
 require (
 	cloud.google.com/go v0.102.1 // indirect
@@ -105,7 +107,6 @@ require (
 	github.com/opencontainers/runc v1.0.2 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/pquerna/cachecontrol v0.0.0-20201205024021-ac21108117ac // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
@@ -113,7 +114,7 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/stretchr/objx v0.4.0 // indirect
 	github.com/willf/bitset v1.1.11 // indirect
-	go.mongodb.org/mongo-driver v1.10.2 // indirect
+	go.mongodb.org/mongo-driver v1.10.3 // indirect
 	go.opencensus.io v0.23.0 // indirect
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d // indirect
 	golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f // indirect
@@ -121,7 +122,7 @@ require (
 	google.golang.org/genproto v0.0.0-20220617124728-180714bec0ad // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/ini.v1 v1.57.0 // indirect
-	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
+	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
