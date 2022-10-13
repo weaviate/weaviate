@@ -29,7 +29,6 @@ import (
 )
 
 func TestDistributedBackups(t *testing.T) {
-	t.Skip()
 	var (
 		dirName = setupDirectory(t)
 		numObjs = 100
