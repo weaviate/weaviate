@@ -62,8 +62,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
-	t.Run("batch import things", testBatchImportObjects(repo))
-	t.Run("batch import things with geo props", testBatchImportGeoObjects(repo))
+	simpleInsertObjects(t, repo, "ThingForBatching", 603)
 
 	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 1809, dimAfter, "Dimensions are present after import")
@@ -152,13 +151,14 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 }
 
 func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
+	className := "ThingForBatching"
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
-		FlushIdleAfter:            60,
+		FlushIdleAfter:            1,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -168,23 +168,65 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
 	defer repo.Shutdown(context.Background())
+
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
-		schemaGetter))
+	t.Run("creating the test class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
-	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimBefore := GetDimensionsFromRepo(repo, className)
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
-	t.Run("batch import things", testBatchImportObjects(repo))
+	simpleInsertObjects(t, repo, className, 103)
 
-	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimAfter := GetDimensionsFromRepo(repo, className)
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
-	t.Run("batch delete things", testBatchDeleteObjects(repo))
+	delete2Objects(t, repo, className)
 
-	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
-	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
+	dimFinal := GetDimensionsFromRepo(repo, className)
+	require.Equal(t, 303, dimFinal, "2 objects have been deleted")
+}
+
+func delete2Objects(t *testing.T, repo *DB, className string) {
+
+	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
+		objects.BatchDeleteParams{
+			ClassName: "ThingForBatching",
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "ThingForBatching",
+								Property: schema.PropertyName("id"),
+							},
+							Value: &filters.Value{
+								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506003",
+								Type:  schema.DataTypeString,
+							},
+						},
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    "ThingForBatching",
+								Property: schema.PropertyName("id"),
+							},
+							Value: &filters.Value{
+								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506004",
+								Type:  schema.DataTypeString,
+							},
+						},
+					},
+				},
+			},
+			DryRun: false,
+			Output: "verbose",
+		})
+	require.Nil(t, err)
+	require.Equal(t, 2, len(batchDeleteRes.Objects), "Objects deleted")
+
 }
 
 func TestBatchDeleteObjects(t *testing.T) {
@@ -206,8 +248,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
-		schemaGetter))
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
 	t.Run("batch import things", testBatchImportObjects(repo))
 
@@ -218,7 +259,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
-	queryMaximumResults := int64(20)
+	queryMaximumResults := int64(200)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
@@ -234,21 +275,20 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
-	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
-		schemaGetter))
+	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
-	t.Run("batch import things", testBatchImportObjects(repo))
+	simpleInsertObjects(t, repo, "ThingForBatching", 103)
 
 	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
-	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults))
+	delete2Objects(t, repo, "ThingForBatching")
 
 	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
-	require.Equal(t, 0, dimFinal, "Dimensions have been deleted")
+	require.Equal(t, 303, dimFinal, "Dimensions have been deleted")
 }
 
 func TestBatchDeleteObjects_Journey(t *testing.T) {
@@ -297,8 +337,7 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 			},
 		}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 		schemaGetter.schema.Objects = &models.Schema{
 			Classes: []*models.Class{class},
@@ -365,6 +404,27 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 		})
 	}
+}
+
+func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
+	batch := make(objects.BatchObjects, count)
+	for i := 0; i < count; i++ {
+		batch[i] = objects.BatchObject{
+			OriginalIndex: i,
+			Err:           nil,
+			Object: &models.Object{
+				Class: class,
+				Properties: map[string]interface{}{
+					"stringProp": fmt.Sprintf("element %d", i),
+				},
+				ID: strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+			},
+			UUID:   strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+			Vector: []float32{1, 2, 3},
+		}
+	}
+
+	repo.BatchPutObjects(context.Background(), batch)
 }
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {

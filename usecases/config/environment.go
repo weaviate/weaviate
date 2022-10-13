@@ -33,6 +33,12 @@ func FromEnv(config *Config) error {
 		config.TrackVectorDimensions = true
 	}
 
+	if enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+		if config.TrackVectorDimensions {
+			config.ReindexVectorDimensionsAtStartup = true
+		}
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
