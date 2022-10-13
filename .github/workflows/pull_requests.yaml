@@ -18,7 +18,7 @@ jobs:
         with:
           go-version: 1.19
           cache: true
-      - name: Unit test
+      - name: Unit tests
         run: ./test/run.sh --unit-only
       - name: Codecov Unit
         uses: codecov/codecov-action@v3
@@ -36,7 +36,7 @@ jobs:
         with:
           go-version: 1.19
           cache: true
-      - name: Integration test
+      - name: Integration tests
         run: ./test/run.sh --integration-only
       - name: Codecov Integration
         uses: codecov/codecov-action@v3
