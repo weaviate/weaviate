@@ -101,6 +101,8 @@ func FromEnv(config *Config) error {
 		}
 
 		config.Cluster.GossipBindPort = asInt
+	} else {
+		config.Cluster.GossipBindPort = DefaultGossipBindPort
 	}
 
 	if v := os.Getenv("CLUSTER_DATA_BIND_PORT"); v != "" {
@@ -110,6 +112,10 @@ func FromEnv(config *Config) error {
 		}
 
 		config.Cluster.DataBindPort = asInt
+	} else {
+		// it is convention in this server that the data bind point is
+		// equal to the data bind port + 1
+		config.Cluster.DataBindPort = config.Cluster.GossipBindPort + 1
 	}
 
 	if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
@@ -233,6 +239,10 @@ const DefaultQueryMaximumResults = int64(10000)
 const DefaultPersistenceFlushIdleMemtablesAfter = 60
 
 const VectorizerModuleNone = "none"
+
+// DefaultGossipBindPort uses the hashicorp/memberlist default
+// port value assigned with the use of DefaultLocalConfig
+const DefaultGossipBindPort = 7496
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
