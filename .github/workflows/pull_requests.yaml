@@ -21,6 +21,7 @@ jobs:
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Codecov Unit
+        if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
         uses: codecov/codecov-action@v3
         with:
           fail_ci_if_error: true
@@ -39,6 +40,7 @@ jobs:
       - name: Integration test
         run: ./test/run.sh --integration-only
       - name: Codecov Integration
+        if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
         uses: codecov/codecov-action@v3
         with:
           fail_ci_if_error: true
