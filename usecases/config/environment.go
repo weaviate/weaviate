@@ -12,11 +12,13 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/usecases/cluster"
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -91,26 +93,11 @@ func FromEnv(config *Config) error {
 		config.Authorization.AdminList.Users = users
 	}
 
-	config.Cluster.Hostname = os.Getenv("CLUSTER_HOSTNAME")
-	config.Cluster.Join = os.Getenv("CLUSTER_JOIN")
-
-	if v := os.Getenv("CLUSTER_GOSSIP_BIND_PORT"); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return errors.Wrapf(err, "parse CLUSTER_GOSSIP_BIND_PORT as int")
-		}
-
-		config.Cluster.GossipBindPort = asInt
+	clusterCfg, err := parseClusterConfig()
+	if err != nil {
+		return err
 	}
-
-	if v := os.Getenv("CLUSTER_DATA_BIND_PORT"); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return errors.Wrapf(err, "parse CLUSTER_DATA_BIND_PORT as int")
-		}
-
-		config.Cluster.DataBindPort = asInt
-	}
+	config.Cluster = clusterCfg
 
 	if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
 		config.Persistence.DataPath = v
@@ -234,6 +221,10 @@ const DefaultPersistenceFlushIdleMemtablesAfter = 60
 
 const VectorizerModuleNone = "none"
 
+// DefaultGossipBindPort uses the hashicorp/memberlist default
+// port value assigned with the use of DefaultLocalConfig
+const DefaultGossipBindPort = 7946
+
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
@@ -296,4 +287,43 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	}
 
 	return ru, nil
+}
+
+func parseClusterConfig() (cluster.Config, error) {
+	cfg := cluster.Config{}
+
+	cfg.Hostname = os.Getenv("CLUSTER_HOSTNAME")
+	cfg.Join = os.Getenv("CLUSTER_JOIN")
+
+	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
+	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
+
+	if gossipBindSet {
+		asInt, err := strconv.Atoi(gossipBind)
+		if err != nil {
+			return cfg, fmt.Errorf("parse CLUSTER_GOSSIP_BIND_PORT as int: %w", err)
+		}
+		cfg.GossipBindPort = asInt
+	} else {
+		cfg.GossipBindPort = DefaultGossipBindPort
+	}
+
+	if dataBindSet {
+		asInt, err := strconv.Atoi(dataBind)
+		if err != nil {
+			return cfg, fmt.Errorf("parse CLUSTER_DATA_BIND_PORT as int: %w", err)
+		}
+		cfg.DataBindPort = asInt
+	} else {
+		// it is convention in this server that the data bind point is
+		// equal to the data bind port + 1
+		cfg.DataBindPort = cfg.GossipBindPort + 1
+	}
+
+	if cfg.DataBindPort != cfg.GossipBindPort+1 {
+		return cfg, fmt.Errorf("CLUSTER_DATA_BIND_PORT must be one port " +
+			"number greater than CLUSTER_GOSSIP_BIND_PORT")
+	}
+
+	return cfg, nil
 }

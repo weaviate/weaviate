@@ -56,9 +56,6 @@ func startWeaviate(ctx context.Context,
 		"QUERY_DEFAULTS_LIMIT":      "20",
 		"PERSISTENCE_DATA_PATH":     "./data",
 		"DEFAULT_VECTORIZER_MODULE": "none",
-		"CLUSTER_HOSTNAME":          "node1",
-		"CLUSTER_GOSSIP_BIND_PORT":  "7100",
-		"CLUSTER_DATA_BIND_PORT":    "7101",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
