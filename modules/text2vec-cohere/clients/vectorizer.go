@@ -25,7 +25,9 @@ import (
 )
 
 type embeddingsRequest struct {
-	Input []string `json:"texts"`
+	Input    []string `json:"texts"`
+	Model    string   `json:"model,omitempty"`
+	Truncate string   `json:"truncate,omitempty"`
 }
 
 type embedding struct {
@@ -66,20 +68,22 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.url())
+	return v.vectorize(ctx, input, v.url(), v.getModel(config), v.getTruncate(config))
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.url())
+	return v.vectorize(ctx, input, v.url(), v.getModel(config), v.getTruncate(config))
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
-	url string,
+	url string, model string, truncate string,
 ) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
-		Input: input,
+		Input:    input,
+		Model:    model,
+		Truncate: truncate,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
@@ -135,16 +139,24 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
 	}
-	apiKey := ctx.Value("X-Openai-Api-Key")
+	apiKey := ctx.Value("X-Cohere-Api-Key")
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
 		return apiKeyHeader[0], nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-OpenAI-Api-Key " +
-		"nor in environment variable under OPENAI_APIKEY")
+		"neither in request header: X-Cohere-Api-Key " +
+		"nor in environment variable under COHERE_APIKEY")
 }
 
 func (v *vectorizer) url() string {
 	return v.urlBuilder.url()
+}
+
+func (v *vectorizer) getModel(config ent.VectorizationConfig) string {
+	return config.Model
+}
+
+func (v *vectorizer) getTruncate(config ent.VectorizationConfig) string {
+	return config.Truncate
 }
