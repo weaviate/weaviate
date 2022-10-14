@@ -231,6 +231,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	if d.withWeaviate {
 		image := os.Getenv(envTestWeaviateImage)
 		hostname := Weaviate
+		if d.withWeaviateCluster {
+			envSettings["CLUSTER_HOSTNAME"] = "node1"
+			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
+			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
+		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname)
 		if err != nil {
