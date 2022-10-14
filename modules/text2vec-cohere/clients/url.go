@@ -25,6 +25,6 @@ func newCohereUrlBuilder() *cohereUrlBuilder {
 	}
 }
 
-func (o *cohereUrlBuilder) url() string {
-	return fmt.Sprintf("%s%s", o.origin, o.pathMask)
+func (c *cohereUrlBuilder) url() string {
+	return fmt.Sprintf("%s%s", c.origin, c.pathMask)
 }
