@@ -45,6 +45,8 @@ case $CONFIG in
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_HOSTNAME="node1" \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -59,7 +61,7 @@ case $CONFIG in
       CLUSTER_HOSTNAME="node2" \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
-      CLUSTER_JOIN="localhost:7946" \
+      CLUSTER_JOIN="localhost:7100" \
       CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
