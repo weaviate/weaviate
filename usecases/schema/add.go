@@ -177,6 +177,14 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		class.VectorIndexType = "hnsw"
 	}
 
+	if m.config.DefaultVectorDistanceMetric != "" {
+		if class.VectorIndexConfig == nil {
+			class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
+		} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
+			class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+		}
+	}
+
 	if class.InvertedIndexConfig == nil {
 		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
