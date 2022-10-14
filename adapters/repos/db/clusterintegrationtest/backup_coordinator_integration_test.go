@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,6 +95,24 @@ func TestDistributedBackups(t *testing.T) {
 				require.Nil(t, err)
 			}
 		})
+	})
+
+	t.Run("should fail backup with local filesystem backend", func(t *testing.T) {
+		req := &backup.BackupRequest{ID: backupID, Backend: modstgfs.Name,
+			Include: []string{distributedClass}}
+
+		resp, err := nodes[0].scheduler.Backup(context.Background(), &models.Principal{}, req)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "local filesystem backend is not viable for backing up a node cluster")
+	})
+
+	t.Run("should fail restore with local filesystem backend", func(t *testing.T) {
+		req := &backup.BackupRequest{ID: backupID, Backend: modstgfs.Name,
+			Include: []string{distributedClass}}
+
+		resp, err := nodes[0].scheduler.Restore(context.Background(), &models.Principal{}, req)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "local filesystem backend is not viable for backing up a node cluster")
 	})
 
 	t.Run("let each node be the coordinator", func(t *testing.T) {
