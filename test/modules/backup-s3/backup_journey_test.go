@@ -86,7 +86,6 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendS3(s3BackupJourneyBucketName).
 			WithText2VecContextionary().
-			WithWeaviate().
 			WithWeaviateCluster().
 			Start(ctx)
 		require.Nil(t, err)
