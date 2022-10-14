@@ -1,0 +1,53 @@
+package config
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestConfig_AutoSchema(t *testing.T) {
+	t.Run("invalid DefaultNumber", func(t *testing.T) {
+		auth := AutoSchema{
+			DefaultNumber: "float",
+			DefaultString: "string",
+			DefaultDate:   "date",
+		}
+		expected := fmt.Errorf("autoSchema.defaultNumber must be either 'int' or 'number")
+		err := auth.Validate()
+		assert.Equal(t, expected, err)
+	})
+
+	t.Run("invalid DefaultString", func(t *testing.T) {
+		auth := AutoSchema{
+			DefaultNumber: "int",
+			DefaultString: "body",
+			DefaultDate:   "date",
+		}
+		expected := fmt.Errorf("autoSchema.defaultString must be either 'string' or 'text")
+		err := auth.Validate()
+		assert.Equal(t, expected, err)
+	})
+
+	t.Run("invalid DefaultDate", func(t *testing.T) {
+		auth := AutoSchema{
+			DefaultNumber: "int",
+			DefaultString: "string",
+			DefaultDate:   "int",
+		}
+		expected := fmt.Errorf("autoSchema.defaultDate must be either 'date' or 'string' or 'text")
+		err := auth.Validate()
+		assert.Equal(t, expected, err)
+	})
+
+	t.Run("all valid AutoSchema configurations", func(t *testing.T) {
+		auth := AutoSchema{
+			DefaultNumber: "int",
+			DefaultString: "string",
+			DefaultDate:   "date",
+		}
+		err := auth.Validate()
+		assert.Nil(t, err, "should not error")
+	})
+}
