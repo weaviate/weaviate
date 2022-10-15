@@ -122,7 +122,8 @@ func TestResolver(t *testing.T) {
 						search.LocalRef{
 							Class: "SomeClass",
 							Fields: map[string]interface{}{
-								"bar": "some string",
+								"bar":    "some string",
+								"vector": []float32(nil),
 							},
 						},
 					},
@@ -220,11 +221,13 @@ func TestResolver(t *testing.T) {
 										Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
 									},
 								},
+								"vector": []float32(nil),
 								"nestedRef": []interface{}{
 									search.LocalRef{
 										Class: "SomeNestedClass",
 										Fields: map[string]interface{}{
-											"name": "John Doe",
+											"name":   "John Doe",
+											"vector": []float32(nil),
 										},
 									},
 								},
