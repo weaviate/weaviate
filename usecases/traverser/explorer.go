@@ -393,7 +393,9 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 				if refClass.AdditionalProperties.Vector {
 					additionalProperties["vector"] = innerRef.Fields["vector"]
 				}
-				innerRef.Fields["_additional"] = additionalProperties
+				if len(additionalProperties) > 0 {
+					innerRef.Fields["_additional"] = additionalProperties
+				}
 			}
 		}
 	}

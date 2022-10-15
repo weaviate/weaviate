@@ -117,7 +117,8 @@ func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
 	var refs []interface{}
 	for _, selectPropRef := range selectProp.Refs {
 		innerProperties := selectPropRef.RefProperties
-		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerProperties)
+		additionalProperties := selectPropRef.AdditionalProperties
+		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerProperties, additionalProperties)
 		if err != nil {
 			return nil, errors.Wrap(err, "resolve ref")
 		}
@@ -129,10 +130,11 @@ func (r *Resolver) parseRefs(input models.MultipleRef, prop string,
 
 func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
 	innerProperties search.SelectProperties,
+	additionalProperties additional.Properties,
 ) ([]interface{}, error) {
 	var output []interface{}
 	for i, item := range input {
-		resolved, err := r.resolveRef(item, desiredClass, innerProperties)
+		resolved, err := r.resolveRef(item, desiredClass, innerProperties, additionalProperties)
 		if err != nil {
 			return nil, errors.Wrapf(err, "at position %d", i)
 		}
@@ -149,6 +151,7 @@ func (r *Resolver) resolveRefs(input models.MultipleRef, desiredClass string,
 
 func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 	innerProperties search.SelectProperties,
+	additionalProperties additional.Properties,
 ) (*search.LocalRef, error) {
 	var out search.LocalRef
 
@@ -183,7 +186,9 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 		return nil, errors.Wrap(err, "resolve nested ref")
 	}
 
-	nested["vector"] = res.Vector
+	if additionalProperties.Vector {
+		nested["vector"] = res.Vector
+	}
 	out.Fields = nested
 
 	return &out, nil
