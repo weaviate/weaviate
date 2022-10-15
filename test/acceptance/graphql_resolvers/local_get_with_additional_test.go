@@ -287,7 +287,7 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 			}
 		}
 		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		cities := result.Get("Get", "City").AsSlice()
 
 		vector := cities[0].(map[string]interface{})["inCountry"].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"]

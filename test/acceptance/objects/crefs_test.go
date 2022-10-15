@@ -106,9 +106,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 
 	actualThunk := func() interface{} {
 		cityAfterFirstPatch := assertGetObject(t, cityID)
-		properties := cityAfterFirstPatch.Properties.(map[string]interface{})
-		delete(properties, "vector")
-		return properties
+		return cityAfterFirstPatch.Properties
 	}
 
 	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
@@ -234,9 +232,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 
 	actualThunk := func() interface{} {
 		city := assertGetObject(t, cityID)
-		properties := city.Properties.(map[string]interface{})
-		delete(properties, "vector")
-		return properties
+		return city.Properties
 	}
 	t.Log("7. verify first cross ref was added")
 	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
