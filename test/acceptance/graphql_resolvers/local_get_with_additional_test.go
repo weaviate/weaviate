@@ -267,6 +267,33 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 
 		validateProjections(t, 3, projections0, projections1, projections2)
 	})
+
+	t.Run("with _additional vector set in reference", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				City {
+					_additional {
+						vector
+					}
+					inCountry {
+						... on Country {
+							_additional {
+								vector
+							}
+						}
+					}
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		cities := result.Get("Get", "City").AsSlice()
+
+		vector := cities[0].(map[string]interface{})["inCountry"].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"]
+
+		assert.NotNil(t, vector)
+	})
 }
 
 func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {

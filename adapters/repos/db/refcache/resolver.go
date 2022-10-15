@@ -183,6 +183,7 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 		return nil, errors.Wrap(err, "resolve nested ref")
 	}
 
+	nested["vector"] = res.Vector
 	out.Fields = nested
 
 	return &out, nil
