@@ -121,19 +121,28 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 	switch aggType {
 	case aggregation.PropertyTypeNumerical:
 		switch dt {
+		case schema.DataTypeInt:
+			return ua.intProperty(ctx, prop)
 		case schema.DataTypeNumber:
 			return ua.floatProperty(ctx, prop)
 		case schema.DataTypeNumberArray, schema.DataTypeIntArray:
 			return ua.numberArrayProperty(ctx, prop)
-		default:
-			return ua.intProperty(ctx, prop)
+		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+			schema.DataTypeDate, schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber,
+			schema.DataTypeString, schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+			return nil, fmt.Errorf("invalid datatype %v for aggregation %v", dt, aggType)
 		}
 	case aggregation.PropertyTypeBoolean:
 		switch dt {
 		case schema.DataTypeBooleanArray:
 			return ua.boolArrayProperty(ctx, prop)
-		default:
+		case schema.DataTypeBoolean:
 			return ua.boolProperty(ctx, prop)
+		case schema.DataTypeBlob, schema.DataTypeCRef, schema.DataTypeDate, schema.DataTypeDateArray,
+			schema.DataTypeGeoCoordinates, schema.DataTypeInt, schema.DataTypeIntArray, schema.DataTypeNumber,
+			schema.DataTypeNumberArray, schema.DataTypePhoneNumber, schema.DataTypeString, schema.DataTypeStringArray,
+			schema.DataTypeText, schema.DataTypeTextArray:
+			return nil, fmt.Errorf("invalid datatype %v for aggregation %v", dt, aggType)
 		}
 	case aggregation.PropertyTypeText:
 		return ua.textProperty(ctx, prop)
@@ -141,8 +150,13 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 		switch dt {
 		case schema.DataTypeDateArray:
 			return ua.dateArrayProperty(ctx, prop)
-		default:
+		case schema.DataTypeDate:
 			return ua.dateProperty(ctx, prop)
+		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+			schema.DataTypeGeoCoordinates, schema.DataTypeInt, schema.DataTypeIntArray, schema.DataTypeNumber,
+			schema.DataTypeNumberArray, schema.DataTypePhoneNumber, schema.DataTypeString,
+			schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+			return nil, fmt.Errorf("invalid datatype %v for aggregation %v", dt, aggType)
 		}
 	case aggregation.PropertyTypeReference:
 		// ignore, as this is handled outside the repo in the uc
@@ -150,4 +164,5 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 	default:
 		return nil, fmt.Errorf("aggreation type %s not supported yet", aggType)
 	}
+	return nil, fmt.Errorf("11unknown datatype %v for aggregation %v", dt, aggType)
 }

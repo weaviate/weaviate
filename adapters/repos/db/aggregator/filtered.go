@@ -296,7 +296,6 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 		}
 	default:
 		return errors.New(string("Unknown aggregation type " + prop.aggType))
-
 	}
 
 	return nil
