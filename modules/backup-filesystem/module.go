@@ -30,6 +30,12 @@ const (
 	backupsPathName = "BACKUP_FILESYSTEM_PATH"
 )
 
+// WhoAmI returns a list of all names used to refer to BackupFileSystemModule
+func WhoAmI() []string {
+	m := BackupFileSystemModule{}
+	return append(m.AltNames(), m.Name())
+}
+
 type BackupFileSystemModule struct {
 	logger      logrus.FieldLogger
 	dataPath    string // path to the current (operational) data

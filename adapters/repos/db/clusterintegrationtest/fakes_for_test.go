@@ -167,6 +167,10 @@ func (r nodeResolver) LocalName() string {
 	return r.local
 }
 
+func (r nodeResolver) NodeCount() int {
+	return len(*r.nodes)
+}
+
 func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 	for _, node := range *r.nodes {
 		if node.name == nodeName {

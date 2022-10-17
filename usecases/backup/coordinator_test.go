@@ -357,6 +357,13 @@ func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return r.hosts[nodeName], true
 }
 
+func (r *fakeNodeResolver) NodeCount() int {
+	if r.hosts != nil {
+		return len(r.hosts)
+	}
+	return 1
+}
+
 func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 	hosts := make(map[string]string)
 	for _, node := range nodes {

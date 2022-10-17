@@ -52,3 +52,9 @@ func TestBackend_StoreBackup(t *testing.T) {
 		assert.Nil(t, err)
 	})
 }
+
+func TestBackend_WhoAmI(t *testing.T) {
+	names := WhoAmI()
+	assert.Contains(t, names, Name)
+	assert.Contains(t, names, AltName1)
+}

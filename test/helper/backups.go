@@ -35,15 +35,14 @@ func CreateBackupStatus(t *testing.T, backend, backupID string) (*backups.Backup
 	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
-func RestoreBackup(t *testing.T, className, backend, backupID string) {
+func RestoreBackup(t *testing.T, className, backend, backupID string) (*backups.BackupsRestoreOK, error) {
 	params := backups.NewBackupsRestoreParams().
 		WithBackend(backend).
 		WithID(backupID).
 		WithBody(&models.BackupRestoreRequest{
 			Include: []string{className},
 		})
-	resp, err := Client(t).Backups.BackupsRestore(params, nil)
-	AssertRequestOk(t, resp, err, nil)
+	return Client(t).Backups.BackupsRestore(params, nil)
 }
 
 func RestoreBackupStatus(t *testing.T, backend, backupID string) (*backups.BackupsRestoreStatusOK, error) {
