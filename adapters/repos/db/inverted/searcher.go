@@ -329,6 +329,11 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 		hasFrequency = false
 	case "":
 		return nil, fmt.Errorf("data type cannot be empty")
+
+	case schema.DataTypeBlob, schema.DataTypeBooleanArray, schema.DataTypeCRef, schema.DataTypeDateArray,
+		schema.DataTypeGeoCoordinates, schema.DataTypeIntArray, schema.DataTypeNumberArray, schema.DataTypePhoneNumber,
+		schema.DataTypeString, schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+		fallthrough
 	default:
 		return nil, fmt.Errorf("data type %q not supported yet in standalone mode, "+
 			"see %s for details", dt, notimplemented.Link)

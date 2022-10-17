@@ -318,6 +318,10 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
 
+	case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeCRef, schema.DataTypeDate,
+		schema.DataTypeGeoCoordinates, schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypePhoneNumber,
+		schema.DataTypeString, schema.DataTypeText:
+		fallthrough
 	default:
 		// ignore unsupported prop type
 		return nil, nil
@@ -431,6 +435,11 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
+
+	case schema.DataTypeBlob, schema.DataTypeBooleanArray, schema.DataTypeCRef, schema.DataTypeDateArray,
+		schema.DataTypeGeoCoordinates, schema.DataTypeIntArray, schema.DataTypeNumberArray,
+		schema.DataTypePhoneNumber, schema.DataTypeStringArray, schema.DataTypeTextArray:
+		fallthrough
 	default:
 		// ignore unsupported prop type
 		return nil, nil
