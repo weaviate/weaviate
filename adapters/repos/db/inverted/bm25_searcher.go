@@ -49,6 +49,7 @@ type BM25Searcher struct {
 
 type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
+	PropertyCount(prop string) (float32, float32, error)
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema.Schema,
@@ -160,6 +161,107 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 			term, took)
 
 	return ids, nil
+}
+
+func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
+	keywordRanking *searchparams.KeywordRanking,
+	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
+	className schema.ClassName,
+) ([]*storobj.Object, []float32, error) {
+
+	terms := strings.Split(keywordRanking.Query, " ")
+
+	idLists := make([]docPointersWithScore, len(terms))
+
+	for i, term := range terms {
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, keywordRanking.Properties, term)
+
+		if err != nil {
+			return nil, nil, err
+		}
+
+		idLists[i] = ids
+	}
+
+	ids := newScoreMerger(idLists).do()
+	ids = b.sort(ids)
+	objs, scores, err := b.rankedObjectsByDocID(ids, additional)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "resolve doc ids to objects")
+	}
+
+	return objs, scores, nil
+
+}
+
+func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWithScore {
+	//Merge all ids into the first element of the list
+
+	//If there is only one, we are finished
+	if len(idLists) == 1 {
+		return idLists[0]
+	}
+
+	docHash := make(map[uint64]docPointerWithScore)
+
+	total := 0
+
+	for _, list := range idLists {
+		for _, doc := range list.docIDs {
+			//if id is not in the map, add it
+			if _, ok := docHash[doc.id]; !ok {
+				docHash[doc.id] = doc
+			} else {
+				//if id is in the map, add the frequency
+				existing := docHash[doc.id]
+				existing.frequency += doc.frequency
+				docHash[doc.id] = existing
+			}
+
+		}
+		total += int(list.count)
+	}
+
+	//Make list from docHash
+	res := docPointersWithScore{
+		docIDs: make([]docPointerWithScore, len(docHash)),
+		count:  uint64(total),
+	}
+
+	i := 0
+	for _, v := range docHash {
+		res.docIDs[i] = v
+		i++
+	}
+
+	return res
+}
+
+// BM25F
+func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
+	properties []string, term string,
+) (docPointersWithScore, error) {
+	idss := []docPointersWithScore{}
+	for _, property := range properties {
+		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, term)
+		if err != nil {
+			return docPointersWithScore{}, errors.Wrap(err,
+				"read doc ids and their frequencies from inverted index")
+		}
+		idss = append(idss, ids)
+	}
+
+	ids := b.mergeIdss(idss)
+	/*if err := b.score(ids, property); err != nil {
+		return docPointersWithScore{}, err
+	}
+	*/
+	return ids, nil
+}
+
+// BM25F
+func (bm *BM25Searcher) scoreMultiple(idss []docPointersWithScore, propName []string) error {
+	return nil
 }
 
 func (bm *BM25Searcher) score(ids docPointersWithScore, propName string) error {

@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -165,6 +167,18 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	//Catch errors
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithField("panic", r).Error("panic in objectSearch")
+			//Print stack trace
+			buf := make([]byte, 1<<16)
+			runtime.Stack(buf, true)
+			fmt.Printf(string(buf))
+		}
+
+	}()
+
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf("shard was built with an older version of " +
@@ -177,7 +191,8 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version()).
-			Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			//Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			BM25F(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
 	}
 
 	if filters == nil {
