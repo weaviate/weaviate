@@ -484,6 +484,12 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 		default:
 			return nil, fmt.Errorf("unsupported tokenization '%v' configured for data type '%v'", tokenization, dt)
 		}
+
+	case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+		schema.DataTypeDate, schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypeInt,
+		schema.DataTypeIntArray, schema.DataTypeNumber, schema.DataTypeNumberArray, schema.DataTypePhoneNumber,
+		schema.DataTypeStringArray, schema.DataTypeTextArray:
+		fallthrough
 	default:
 		return nil, fmt.Errorf("expected value type to be string or text, got %v", dt)
 	}
@@ -544,6 +550,12 @@ func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	switch valueType {
 	case schema.DataTypeString, schema.DataTypeText:
 		return true
+
+	case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+		schema.DataTypeDate, schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypeInt,
+		schema.DataTypeIntArray, schema.DataTypeNumber, schema.DataTypeNumberArray, schema.DataTypePhoneNumber,
+		schema.DataTypeStringArray, schema.DataTypeTextArray:
+		fallthrough
 	default:
 		return false
 	}

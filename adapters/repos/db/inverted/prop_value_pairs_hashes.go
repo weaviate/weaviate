@@ -33,6 +33,10 @@ func (pv *propValuePair) cacheable() bool {
 		filters.OperatorLessThan, filters.OperatorLessThanEqual,
 		filters.OperatorNotEqual, filters.OperatorLike:
 		return true
+
+	// TODO ok?
+	case filters.OperatorIsNull, filters.OperatorNot, filters.OperatorWithinGeoRange:
+		fallthrough
 	default:
 		return false
 	}

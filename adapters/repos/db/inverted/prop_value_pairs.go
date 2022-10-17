@@ -122,6 +122,11 @@ func (pv *propValuePair) mergeDocIDs(acceptDuplicates bool) (*docPointers, error
 		return mergeAndOptimized(pv.children, acceptDuplicates)
 	case filters.OperatorOr:
 		return mergeOr(pv.children, acceptDuplicates)
+
+	case filters.OperatorEqual, filters.OperatorGreaterThan, filters.OperatorGreaterThanEqual,
+		filters.OperatorIsNull, filters.OperatorLessThan, filters.OperatorLessThanEqual,
+		filters.OperatorLike, filters.OperatorNot, filters.OperatorNotEqual, filters.OperatorWithinGeoRange:
+		fallthrough
 	default:
 		return nil, fmt.Errorf("unsupported operator: %s", pv.operator.Name())
 	}

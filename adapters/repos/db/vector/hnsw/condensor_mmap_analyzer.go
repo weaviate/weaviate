@@ -116,6 +116,10 @@ func (a *MmapCondensorAnalyzer) loop() error {
 			err = a.ReadDeleteNode(a.reader)
 		case ResetIndex:
 			a.index.nodes = make([]mmapIndexNode, 0, 10000)
+
+		// TODO ok?
+		case AddLinksAtLevel, ClearLinksAtLevel:
+			fallthrough
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}

@@ -75,6 +75,11 @@ func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFnFrequency) 
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
+
+	// TODO ok?
+	case filters.OperatorAnd, filters.OperatorIsNull, filters.OperatorNot,
+		filters.OperatorOr, filters.OperatorWithinGeoRange:
+		fallthrough
 	default:
 		return fmt.Errorf("operator not supported in standalone "+
 			"mode, see %s for details", notimplemented.Link)
