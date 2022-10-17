@@ -129,6 +129,9 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.NewList(graphql.String), // String since no graphql date datatype exists
 		}
+
+	case schema.DataTypeCRef:
+		fallthrough
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s; %s",
 			className, property.Name, propertyType.AsPrimitive()))

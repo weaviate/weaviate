@@ -40,6 +40,12 @@ func ClassPropertyField(dataType schema.DataType, class *models.Class,
 	case schema.DataTypeGeoCoordinates:
 		// simply skip for now, see gh-729
 		return nil, nil
+
+	// TODO ok?
+	case schema.DataTypeBooleanArray, schema.DataTypeDateArray, schema.DataTypeIntArray,
+		schema.DataTypeNumberArray, schema.DataTypePhoneNumber, schema.DataTypeStringArray,
+		schema.DataTypeTextArray:
+		fallthrough
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}
