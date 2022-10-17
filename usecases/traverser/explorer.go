@@ -13,6 +13,8 @@ package traverser
 
 import (
 	"context"
+	"fmt"
+	"log"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -135,7 +137,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 	}
 
 	if len(params.KeywordRanking.Properties) > 1 {
-		return nil, errors.Errorf("multi-property keyword search (BM25F) not supported yet")
+		log.Printf("!!! experimental multi-property keyword search (BM25F) support")
 	}
 
 	if len(params.KeywordRanking.Query) == 0 {
@@ -318,6 +320,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 		if params.AdditionalProperties.ID {
 			additionalProperties["id"] = res.ID
+		}
+
+		if params.AdditionalProperties.Score {
+			additionalProperties["score"] = fmt.Sprintf("%v", res.Score)
 		}
 
 		if params.AdditionalProperties.Vector {
