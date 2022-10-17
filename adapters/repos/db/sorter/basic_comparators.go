@@ -44,6 +44,9 @@ func (bcp *basicComparatorProvider) provide(dataType schema.DataType, order stri
 		return newFloat64ArrayComparator(order)
 	case schema.DataTypeGeoCoordinates:
 		return newFloat64ArrayComparator(order)
+
+	case schema.DataTypeCRef:
+		fallthrough
 	default:
 		return newAnyComparator(order)
 	}

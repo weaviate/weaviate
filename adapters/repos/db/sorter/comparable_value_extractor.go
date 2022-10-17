@@ -68,6 +68,9 @@ func (e *comparableValueExtractor) extractFromBytes(objData []byte, propName str
 		case schema.DataTypeGeoCoordinates:
 			fa := e.toFloatArrayFromGeoCoordinates(e.mustExtractGeoCoordinates(value))
 			return &fa
+
+		case schema.DataTypeCRef:
+			fallthrough
 		default:
 			return nil
 		}
@@ -132,6 +135,9 @@ func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, pro
 	case schema.DataTypeGeoCoordinates:
 		fa := e.toFloatArrayFromGeoCoordinates(value.(*models.GeoCoordinates))
 		return &fa
+
+	case schema.DataTypeCRef:
+		fallthrough
 	default:
 		return nil
 	}
