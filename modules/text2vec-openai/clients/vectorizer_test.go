@@ -328,7 +328,6 @@ func Test_getModelString(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-
 				v := New("apiKey", nullLogger())
 				if got := v.getModelString(tt.args.docType, tt.args.model, "query"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
