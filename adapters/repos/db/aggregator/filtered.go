@@ -160,8 +160,13 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 					return err
 				}
 			}
+		case schema.DataTypeBlob, schema.DataTypeCRef, schema.DataTypeDate, schema.DataTypeDateArray,
+			schema.DataTypeGeoCoordinates, schema.DataTypeInt, schema.DataTypeIntArray, schema.DataTypeNumber,
+			schema.DataTypeNumberArray, schema.DataTypePhoneNumber, schema.DataTypeString, schema.DataTypeStringArray,
+			schema.DataTypeText, schema.DataTypeTextArray:
+			return fmt.Errorf("invalid datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		default:
-			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		}
 	case aggregation.PropertyTypeNumerical:
 		analyzeFloat := func(value interface{}) error {
@@ -189,8 +194,12 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 					return err
 				}
 			}
+		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+			schema.DataTypeDate, schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber,
+			schema.DataTypeString, schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+			return fmt.Errorf("invalid datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		default:
-			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		}
 	case aggregation.PropertyTypeText:
 		analyzeString := func(value interface{}) error {
@@ -218,8 +227,12 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 					return err
 				}
 			}
+		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+			schema.DataTypeDate, schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypeInt,
+			schema.DataTypeIntArray, schema.DataTypeNumber, schema.DataTypeNumberArray, schema.DataTypePhoneNumber:
+			return fmt.Errorf("invalid datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		default:
-			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		}
 	case aggregation.PropertyTypeDate:
 		analyzeDate := func(value interface{}) error {
@@ -247,8 +260,13 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 					return err
 				}
 			}
+		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+			schema.DataTypeGeoCoordinates, schema.DataTypeInt, schema.DataTypeIntArray, schema.DataTypeNumber,
+			schema.DataTypeNumberArray, schema.DataTypePhoneNumber, schema.DataTypeString, schema.DataTypeStringArray,
+			schema.DataTypeText, schema.DataTypeTextArray:
+			return fmt.Errorf("invalid datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		default:
-			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, aggregation.PropertyTypeText)
+			return fmt.Errorf("unknown datatype %v for aggregation %v", prop.dataType, prop.aggType)
 		}
 	case aggregation.PropertyTypeReference:
 		if prop.dataType != schema.DataTypeCRef {
