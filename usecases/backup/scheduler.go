@@ -18,7 +18,13 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	"github.com/sirupsen/logrus"
+)
+
+var (
+	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
+	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
 )
 
 // Scheduler assigns backup operations to coordinators.
@@ -183,11 +189,14 @@ func coordBackend(provider BackupBackendProvider, backend, id string) (coordStor
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
+	if s.backupper.nodeResolver.NodeCount() > 1 && isLocalFilesystemBackend(req.Backend) {
+		return nil, errLocalBackendDBRO
+	}
 	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
+		return nil, errIncludeExclude
 	}
 	classes := req.Include
 	if len(classes) == 0 {
@@ -213,9 +222,11 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 }
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
+	if s.restorer.nodeResolver.NodeCount() > 1 && isLocalFilesystemBackend(req.Backend) {
+		return nil, errLocalBackendDBRO
+	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
-		return nil, err
+		return nil, errIncludeExclude
 	}
 	destPath := store.HomeDir()
 	meta, err := store.Meta(ctx, GlobalBackupFile)
@@ -249,4 +260,14 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
 	}
 	return meta, nil
+}
+
+func isLocalFilesystemBackend(backend string) bool {
+	fs := modstgfs.WhoAmI()
+	for _, name := range fs {
+		if backend == name {
+			return true
+		}
+	}
+	return false
 }
