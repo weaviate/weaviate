@@ -27,10 +27,21 @@ type nilProp struct {
 
 func isPropertyForLength(dt schema.DataType) bool {
 	switch dt {
+	case schema.DataTypeIntArray, schema.DataTypeNumberArray, schema.DataTypeDateArray, schema.DataTypeBooleanArray,
+		schema.DataTypeString, schema.DataTypeStringArray, schema.DataTypeText, schema.DataTypeTextArray:
+		return true
 	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		// no length support
+		return false
+	case schema.DataTypeBlob, schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
+		// no inverted index support
+		return false
+	case schema.DataTypeCRef:
+		// for completeness (should not happen, expected value would be class name)
 		return false
 	default:
-		return true
+		// class name
+		return false
 	}
 }
 
