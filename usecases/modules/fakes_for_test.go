@@ -31,6 +31,10 @@ func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabili
 		return newDummyText2VecModule(name)
 	case modulecapabilities.Ref2Vec:
 		return newDummyRef2VecModule(name)
+
+	case modulecapabilities.Backup, modulecapabilities.Extension, modulecapabilities.Img2Vec,
+		modulecapabilities.Multi2Vec, modulecapabilities.Text2MultiVec, modulecapabilities.Text2Text:
+		fallthrough
 	default:
 		return newDummyNonVectorizerModule(name)
 	}

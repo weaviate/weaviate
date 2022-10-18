@@ -52,6 +52,11 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 			case models.PropertyTokenizationWord:
 				return nil
 			}
+
+		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
+			schema.DataTypeDate, schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypeInt,
+			schema.DataTypeIntArray, schema.DataTypeNumber, schema.DataTypeNumberArray, schema.DataTypePhoneNumber:
+			fallthrough
 		default:
 			if tokenization == "" {
 				return nil

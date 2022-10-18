@@ -232,6 +232,11 @@ func (m *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 		modulecapabilities.Text2MultiVec,
 		modulecapabilities.Ref2Vec:
 		return true
+
+	case modulecapabilities.Backup,
+		modulecapabilities.Extension,
+		modulecapabilities.Text2Text:
+		fallthrough
 	default:
 		return false
 	}
