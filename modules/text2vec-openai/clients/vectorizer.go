@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/modules/text2vec-openai/ent"
@@ -89,9 +90,12 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	url := v.host + v.path
+	oaiUrl, err := url.JoinPath(v.host, v.path)
+	if err != nil {
+		return nil, errors.Wrap(err, "join OpenAI API host and path")
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url,
+	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
