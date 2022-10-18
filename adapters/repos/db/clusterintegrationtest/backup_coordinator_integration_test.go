@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/modules/backup-filesystem"
+	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
