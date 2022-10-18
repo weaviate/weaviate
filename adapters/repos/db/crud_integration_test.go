@@ -1816,6 +1816,82 @@ func Test_PutPatchRestart(t *testing.T) {
 	})
 }
 
+func TestCRUDWithEmptyArrays(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+
+	class := &models.Class{
+		Class:               "TestClass",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "stringArray",
+				DataType: []string{string(schema.DataTypeStringArray)},
+			},
+			{
+				Name:     "NumberArray",
+				DataType: []string{string(schema.DataTypeNumberArray)},
+			},
+			{
+				Name:     "BoolArray",
+				DataType: []string{string(schema.DataTypeBooleanArray)},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       100,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	require.Nil(t,
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+	obj1 := &models.Object{
+		ID:    ID,
+		Class: "TestClass",
+		Properties: map[string]interface{}{
+			"stringArray": []string{},
+			"NumberArray": []float64{},
+			"BoolArray":   []bool{},
+		},
+	}
+	obj2 := &models.Object{
+		ID:    ID,
+		Class: "TestClass",
+		Properties: map[string]interface{}{
+			"stringArray": []string{"value"},
+			"NumberArray": []float64{0.5},
+			"BoolArray":   []bool{true},
+		},
+	}
+
+	assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
+	assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
+
+	res, err := repo.ObjectByID(context.Background(), ID, nil,
+		additional.Properties{})
+	require.Nil(t, err)
+	assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+}
+
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	for _, item := range list {
 		if item.ID == id {
