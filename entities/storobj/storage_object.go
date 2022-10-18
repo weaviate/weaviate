@@ -485,6 +485,9 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 					switch innerDataType {
 					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
 						val, errParse = parseValues(innerDataType, innerValue)
+
+					case jsonparser.Array, jsonparser.NotExist, jsonparser.Null, jsonparser.Object, jsonparser.Unknown:
+						fallthrough
 					default:
 						panic("Unknown data type ArrayEach") // returning an error would be better
 					}
@@ -493,6 +496,9 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 				(*properties)[aggregationProperties[idx]] = array
 
 			}
+
+		case jsonparser.NotExist, jsonparser.Null, jsonparser.Object, jsonparser.Unknown:
+			fallthrough
 		default:
 			panic("Unknown data type EachKey") // returning an error would be better
 		}
@@ -512,6 +518,10 @@ func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
 		return jsonparser.ParseString(value)
 	case jsonparser.Boolean:
 		return jsonparser.ParseBoolean(value)
+
+	case jsonparser.Array, jsonparser.NotExist, jsonparser.Null,
+		jsonparser.Object, jsonparser.Unknown:
+		fallthrough
 	default:
 		panic("Unknown data type") // returning an error would be better
 	}

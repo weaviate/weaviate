@@ -47,6 +47,9 @@ func (o Operator) OnValue() bool {
 		OperatorLike,
 		OperatorIsNull:
 		return true
+
+	case OperatorAnd, OperatorNot, OperatorOr:
+		fallthrough
 	default:
 		return false
 	}
