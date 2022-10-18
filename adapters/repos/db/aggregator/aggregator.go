@@ -99,10 +99,8 @@ func (a *Aggregator) aggTypeOfProperty(
 		return aggregation.PropertyTypeText, dt, nil
 	case schema.DataTypeDate, schema.DataTypeDateArray:
 		return aggregation.PropertyTypeDate, dt, nil
-	case schema.DataTypeGeoCoordinates:
-		return "", "", fmt.Errorf("dataType geoCoordinates can't be aggregated")
-	case schema.DataTypePhoneNumber:
-		return "", "", fmt.Errorf("dataType phoneNumber can't be aggregated")
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeCRef:
+		return "", "", fmt.Errorf("dataType %s can't be aggregated", dt)
 	default:
 		return "", "", fmt.Errorf("unrecoginzed dataType %v", schemaProp.DataType[0])
 	}
