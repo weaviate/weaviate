@@ -386,9 +386,14 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 				continue
 			}
 			if innerRef.Class == refClass.ClassName {
+				additionalProperties := make(map[string]interface{})
 				if refClass.AdditionalProperties.ID {
-					additionalProperties := make(map[string]interface{})
 					additionalProperties["id"] = innerRef.Fields["id"]
+				}
+				if refClass.AdditionalProperties.Vector {
+					additionalProperties["vector"] = innerRef.Fields["vector"]
+				}
+				if len(additionalProperties) > 0 {
 					innerRef.Fields["_additional"] = additionalProperties
 				}
 			}

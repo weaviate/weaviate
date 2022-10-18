@@ -275,8 +275,65 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				})
 			}
 
-			actual := manuallyResolveRef(t, obj, data, "toFirst", "description")
+			actual := manuallyResolveRef(t, obj, data, "toFirst", "description", nil)
 			assert.Equal(t, actual, refPayload)
+		}
+	})
+
+	t.Run("query individually with cross-ref vectors and resolve references", func(t *testing.T) {
+		for _, obj := range refData {
+			// if i == 1 {
+			// 	break
+			// }
+			node := nodes[rand.Intn(len(nodes))]
+
+			res, err := node.repo.Object(context.Background(), obj.Class, obj.ID,
+				search.SelectProperties{
+					search.SelectProperty{
+						Name:        "toFirst",
+						IsPrimitive: false,
+						Refs: []search.SelectClass{
+							{
+								ClassName: distributedClass,
+								RefProperties: search.SelectProperties{
+									search.SelectProperty{
+										Name:        "description",
+										IsPrimitive: true,
+									},
+								},
+								AdditionalProperties: additional.Properties{
+									Vector: true,
+								},
+							},
+						},
+					},
+				}, additional.Properties{})
+			require.Nil(t, err)
+			require.NotNil(t, res)
+			props := res.Object().Properties.(map[string]interface{})
+			refProp, ok := props["toFirst"].([]interface{})
+			require.True(t, ok)
+
+			var refPayload []map[string]interface{}
+			var refVector []map[string]interface{}
+			for _, ref := range refProp {
+				parsed, ok := ref.(search.LocalRef)
+				require.True(t, ok)
+				refPayload = append(refPayload, map[string]interface{}{
+					"description": parsed.Fields["description"],
+				})
+				vector, ok := parsed.Fields["vector"].([]float32)
+				require.True(t, ok)
+				require.NotEmpty(t, vector)
+				refVector = append(refVector, map[string]interface{}{
+					"vector": vector,
+				})
+			}
+
+			actual := manuallyResolveRef(t, obj, data, "toFirst", "description", nil)
+			assert.Equal(t, actual, refPayload)
+			actual = manuallyResolveRef(t, obj, data, "toFirst", "vector", node.repo)
+			assert.Equal(t, actual, refVector)
 		}
 	})
 
@@ -985,6 +1042,7 @@ func normalize(v []float32) []float32 {
 func manuallyResolveRef(t *testing.T, obj *models.Object,
 	possibleTargets []*models.Object, localPropName,
 	referencedPropName string,
+	repo *db.DB,
 ) []map[string]interface{} {
 	beacons := obj.Properties.(map[string]interface{})[localPropName].(models.MultipleRef)
 	out := make([]map[string]interface{}, len(beacons))
@@ -994,8 +1052,20 @@ func manuallyResolveRef(t *testing.T, obj *models.Object,
 		require.Nil(t, err)
 		target := findId(possibleTargets, parsed.TargetID)
 		require.NotNil(t, target, "target not found")
-		out[i] = map[string]interface{}{
-			referencedPropName: target.Properties.(map[string]interface{})[referencedPropName],
+		if referencedPropName == "vector" {
+			// find referenced object to get his actual vector from DB
+			require.NotNil(t, repo)
+			res, err := repo.Object(context.Background(), parsed.Class, parsed.TargetID,
+				nil, additional.Properties{Vector: true})
+			require.Nil(t, err)
+			require.NotNil(t, res)
+			out[i] = map[string]interface{}{
+				referencedPropName: res.Vector,
+			}
+		} else {
+			out[i] = map[string]interface{}{
+				referencedPropName: target.Properties.(map[string]interface{})[referencedPropName],
+			}
 		}
 	}
 
