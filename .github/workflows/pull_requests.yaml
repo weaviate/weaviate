@@ -9,7 +9,21 @@ on:
   pull_request:
 
 jobs:
+  Run-Swagger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Run Swagger
+        run: ./tools/gen-code-from-swagger.sh
+      - name: Error on change
+        run: (( `git status -s | wc -l` == 0 )) && exit 0 || exit 1
   Unit-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -29,6 +43,7 @@ jobs:
           flags: unittests
           verbose: true
   Integration-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -48,6 +63,7 @@ jobs:
           flags: integration
           verbose: true
   Modules-Acceptance-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -59,6 +75,7 @@ jobs:
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -69,21 +86,8 @@ jobs:
           cache: true
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-only
-  Run-Swagger:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-          cache: true
-      - name: Run Swagger
-        run: ./tools/gen-code-from-swagger.sh
-      - name: Error on change
-        run: (( `git status -s | wc -l` == 0 )) && exit 0 || exit 1
   Push-Docker:
-    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Run-Swagger]
+    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests]
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
