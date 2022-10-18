@@ -252,23 +252,32 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 		}
 
-		expectedSchemaWithRefs := map[string]interface{}{
-			"name": "Car which is parked in a garage",
-			"id":   id,
-			"parkedAt": []interface{}{
-				search.LocalRef{
-					Class: "MultiRefParkingGarage",
-					Fields: map[string]interface{}{
-						"name": "Luxury Parking Garage",
-						"location": &models.GeoCoordinates{
-							Latitude:  ptFloat32(48.864716),
-							Longitude: ptFloat32(2.349014),
-						},
-						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+		getExpectedSchema := func(withVector bool) map[string]interface{} {
+			fields := map[string]interface{}{
+				"name": "Luxury Parking Garage",
+				"location": &models.GeoCoordinates{
+					Latitude:  ptFloat32(48.864716),
+					Longitude: ptFloat32(2.349014),
+				},
+				"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+			}
+			if withVector {
+				fields["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
+			}
+			return map[string]interface{}{
+				"name": "Car which is parked in a garage",
+				"id":   id,
+				"parkedAt": []interface{}{
+					search.LocalRef{
+						Class:  "MultiRefParkingGarage",
+						Fields: fields,
 					},
 				},
-			},
+			}
 		}
+
+		expectedSchemaWithRefs := getExpectedSchema(false)
+		expectedSchemaWithRefsWithVector := getExpectedSchema(true)
 
 		t.Run("asking for no refs", func(t *testing.T) {
 			res, err := repo.ObjectByID(context.Background(), id, nil, additional.Properties{})
@@ -282,6 +291,13 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+		})
+
+		t.Run("asking for refs of type garage with vector", func(t *testing.T) {
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarageWithVector(true), additional.Properties{})
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedSchemaWithRefsWithVector, res.Schema)
 		})
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
@@ -312,19 +328,28 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			},
 		}
 
-		expectedSchemaWithRefs := map[string]interface{}{
-			"name": "Car which is parked in a lot",
-			"id":   id,
-			"parkedAt": []interface{}{
-				search.LocalRef{
-					Class: "MultiRefParkingLot",
-					Fields: map[string]interface{}{
-						"name": "Fancy Parking Lot",
-						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+		getSchemaWithRefs := func(withVector bool) map[string]interface{} {
+			fields := map[string]interface{}{
+				"name": "Fancy Parking Lot",
+				"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+			}
+			if withVector {
+				fields["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
+			}
+			return map[string]interface{}{
+				"name": "Car which is parked in a lot",
+				"id":   id,
+				"parkedAt": []interface{}{
+					search.LocalRef{
+						Class:  "MultiRefParkingLot",
+						Fields: fields,
 					},
 				},
-			},
+			}
 		}
+
+		expectedSchemaWithRefs := getSchemaWithRefs(false)
+		expectedSchemaWithRefsWithVector := getSchemaWithRefs(true)
 
 		t.Run("asking for no refs", func(t *testing.T) {
 			res, err := repo.ObjectByID(context.Background(), id, nil, additional.Properties{})
@@ -345,6 +370,13 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+		})
+
+		t.Run("asking for refs with vector of type lot", func(t *testing.T) {
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLotWithVector(), additional.Properties{})
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedSchemaWithRefsWithVector, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
@@ -370,61 +402,88 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				},
 			},
 		}
-
-		expectedSchemaWithLotRef := map[string]interface{}{
-			"name": "Car which is parked in two places at the same time (magic!)",
-			"id":   id,
-			"parkedAt": []interface{}{
-				search.LocalRef{
-					Class: "MultiRefParkingLot",
-					Fields: map[string]interface{}{
-						"name": "Fancy Parking Lot",
-						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+		getExpectedSchemaWithLotRef := func(withVector bool) map[string]interface{} {
+			fields := map[string]interface{}{
+				"name": "Fancy Parking Lot",
+				"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+			}
+			if withVector {
+				fields["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
+			}
+			return map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"id":   id,
+				"parkedAt": []interface{}{
+					search.LocalRef{
+						Class:  "MultiRefParkingLot",
+						Fields: fields,
 					},
 				},
-			},
+			}
 		}
-		expectedSchemaWithGarageRef := map[string]interface{}{
-			"name": "Car which is parked in two places at the same time (magic!)",
-			"id":   id,
-			"parkedAt": []interface{}{
-				search.LocalRef{
-					Class: "MultiRefParkingGarage",
-					Fields: map[string]interface{}{
-						"name": "Luxury Parking Garage",
-						"location": &models.GeoCoordinates{
-							Latitude:  ptFloat32(48.864716),
-							Longitude: ptFloat32(2.349014),
-						},
-						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+		expectedSchemaWithLotRef := getExpectedSchemaWithLotRef(false)
+		expectedSchemaWithLotRefWithVector := getExpectedSchemaWithLotRef(true)
+		getExpectedSchemaWithGarageRef := func(withVector bool) map[string]interface{} {
+			fields := map[string]interface{}{
+				"name": "Luxury Parking Garage",
+				"location": &models.GeoCoordinates{
+					Latitude:  ptFloat32(48.864716),
+					Longitude: ptFloat32(2.349014),
+				},
+				"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+			}
+			if withVector {
+				fields["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
+			}
+			return map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"id":   id,
+				"parkedAt": []interface{}{
+					search.LocalRef{
+						Class:  "MultiRefParkingGarage",
+						Fields: fields,
 					},
 				},
-			},
+			}
 		}
-		expectedSchemaWithAllRefs := map[string]interface{}{
-			"name": "Car which is parked in two places at the same time (magic!)",
-			"id":   id,
-			"parkedAt": []interface{}{
-				search.LocalRef{
-					Class: "MultiRefParkingLot",
-					Fields: map[string]interface{}{
-						"name": "Fancy Parking Lot",
-						"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+		expectedSchemaWithGarageRef := getExpectedSchemaWithGarageRef(false)
+		expectedSchemaWithGarageRefWithVector := getExpectedSchemaWithGarageRef(true)
+		getExpectedSchemaWithAllRefs := func(withVector bool) map[string]interface{} {
+			fieldsParkingLot := map[string]interface{}{
+				"name": "Fancy Parking Lot",
+				"id":   strfmt.UUID("1023967b-9512-475b-8ef9-673a110b695d"),
+			}
+			if withVector {
+				fieldsParkingLot["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
+			}
+			fieldsParkingGarage := map[string]interface{}{
+				"name": "Luxury Parking Garage",
+				"location": &models.GeoCoordinates{
+					Latitude:  ptFloat32(48.864716),
+					Longitude: ptFloat32(2.349014),
+				},
+				"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
+			}
+			if withVector {
+				fieldsParkingGarage["vector"] = []float32{1, 2, 3, 4, 5, 6, 7}
+			}
+			return map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"id":   id,
+				"parkedAt": []interface{}{
+					search.LocalRef{
+						Class:  "MultiRefParkingLot",
+						Fields: fieldsParkingLot,
+					},
+					search.LocalRef{
+						Class:  "MultiRefParkingGarage",
+						Fields: fieldsParkingGarage,
 					},
 				},
-				search.LocalRef{
-					Class: "MultiRefParkingGarage",
-					Fields: map[string]interface{}{
-						"name": "Luxury Parking Garage",
-						"location": &models.GeoCoordinates{
-							Latitude:  ptFloat32(48.864716),
-							Longitude: ptFloat32(2.349014),
-						},
-						"id": strfmt.UUID("a7e10b55-1ac4-464f-80df-82508eea1951"),
-					},
-				},
-			},
+			}
 		}
+		expectedSchemaWithAllRefs := getExpectedSchemaWithAllRefs(false)
+		expectedSchemaWithAllRefsWithVector := getExpectedSchemaWithAllRefs(true)
 
 		t.Run("asking for no refs", func(t *testing.T) {
 			res, err := repo.ObjectByID(context.Background(), id, nil, additional.Properties{})
@@ -440,11 +499,25 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 			assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
 		})
 
+		t.Run("asking for refs with vector of type garage", func(t *testing.T) {
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtGarageWithVector(true), additional.Properties{})
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedSchemaWithGarageRefWithVector, res.Schema)
+		})
+
 		t.Run("asking for refs of type lot", func(t *testing.T) {
 			res, err := repo.ObjectByID(context.Background(), id, parkedAtLot(), additional.Properties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
+		})
+
+		t.Run("asking for refs with vector of type lot", func(t *testing.T) {
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtLotWithVector(), additional.Properties{})
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedSchemaWithLotRefWithVector, res.Schema)
 		})
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
@@ -453,10 +526,21 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 			assert.Equal(t, expectedSchemaWithAllRefs, res.Schema)
 		})
+
+		t.Run("asking for refs with vectors of both types", func(t *testing.T) {
+			res, err := repo.ObjectByID(context.Background(), id, parkedAtEitherWithVector(), additional.Properties{})
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedSchemaWithAllRefsWithVector, res.Schema)
+		})
 	})
 }
 
 func parkedAtGarage() search.SelectProperties {
+	return parkedAtGarageWithVector(false)
+}
+
+func parkedAtGarageWithVector(withVector bool) search.SelectProperties {
 	return search.SelectProperties{
 		search.SelectProperty{
 			Name:        "parkedAt",
@@ -469,6 +553,9 @@ func parkedAtGarage() search.SelectProperties {
 							Name:        "name",
 							IsPrimitive: true,
 						},
+					},
+					AdditionalProperties: additional.Properties{
+						Vector: withVector,
 					},
 				},
 			},
@@ -489,6 +576,29 @@ func parkedAtLot() search.SelectProperties {
 							Name:        "name",
 							IsPrimitive: true,
 						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func parkedAtLotWithVector() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
+			Name:        "parkedAt",
+			IsPrimitive: false,
+			Refs: []search.SelectClass{
+				{
+					ClassName: "MultiRefParkingLot",
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
+							Name:        "name",
+							IsPrimitive: true,
+						},
+					},
+					AdditionalProperties: additional.Properties{
+						Vector: true,
 					},
 				},
 			},
@@ -518,6 +628,41 @@ func parkedAtEither() search.SelectProperties {
 							Name:        "name",
 							IsPrimitive: true,
 						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func parkedAtEitherWithVector() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
+			Name:        "parkedAt",
+			IsPrimitive: false,
+			Refs: []search.SelectClass{
+				{
+					ClassName: "MultiRefParkingLot",
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
+							Name:        "name",
+							IsPrimitive: true,
+						},
+					},
+					AdditionalProperties: additional.Properties{
+						Vector: true,
+					},
+				},
+				{
+					ClassName: "MultiRefParkingGarage",
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
+							Name:        "name",
+							IsPrimitive: true,
+						},
+					},
+					AdditionalProperties: additional.Properties{
+						Vector: true,
 					},
 				},
 			},
