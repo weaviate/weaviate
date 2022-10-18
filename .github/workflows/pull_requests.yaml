@@ -9,7 +9,29 @@ on:
   pull_request:
 
 jobs:
+  Run-Swagger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+          cache: true
+      - name: Run Swagger
+        run: ./tools/gen-code-from-swagger.sh
+      - name: Error on change
+        run: |
+          # check if anything is different
+          CHANGED=$(git status -s | wc -l)
+          if [ "$CHANGED" -gt 0 ]; then
+            echo "Please run ./tools/gen-code-from-swagger.sh script and commit changes"
+            exit 1
+          else
+            exit 0
+          fi
   Unit-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -21,6 +43,7 @@ jobs:
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Codecov Unit
+        if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
         uses: codecov/codecov-action@v3
         with:
           fail_ci_if_error: true
@@ -28,6 +51,7 @@ jobs:
           flags: unittests
           verbose: true
   Integration-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -39,6 +63,7 @@ jobs:
       - name: Integration test
         run: ./test/run.sh --integration-only
       - name: Codecov Integration
+        if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
         uses: codecov/codecov-action@v3
         with:
           fail_ci_if_error: true
@@ -46,6 +71,7 @@ jobs:
           flags: integration
           verbose: true
   Modules-Acceptance-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -57,6 +83,7 @@ jobs:
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
+    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

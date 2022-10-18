@@ -18,7 +18,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/modules/backup-filesystem"
+	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	"github.com/sirupsen/logrus"
 )
 
