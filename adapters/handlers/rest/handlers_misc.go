@@ -13,6 +13,7 @@ package rest
 
 import (
 	"fmt"
+	"net/url"
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
@@ -58,7 +59,10 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 				return well_known.NewGetWellKnownOpenidConfigurationNotFound()
 			}
 
-			target := fmt.Sprintf("%s/.well-known/openid-configuration", serverConfig.Config.Authentication.OIDC.Issuer)
+			target, err := url.JoinPath(serverConfig.Config.Authentication.OIDC.Issuer, "/.well-known/openid-configuration")
+			if err != nil {
+				return well_known.NewGetWellKnownOpenidConfigurationInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+			}
 			clientID := serverConfig.Config.Authentication.OIDC.ClientID
 			body := &well_known.GetWellKnownOpenidConfigurationOKBody{
 				Href:     target,
