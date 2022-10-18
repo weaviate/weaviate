@@ -23,6 +23,8 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // GetWellKnownOpenidConfigurationReader is a Reader for the GetWellKnownOpenidConfiguration structure.
@@ -41,6 +43,12 @@ func (o *GetWellKnownOpenidConfigurationReader) ReadResponse(response runtime.Cl
 		return result, nil
 	case 404:
 		result := NewGetWellKnownOpenidConfigurationNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 500:
+		result := NewGetWellKnownOpenidConfigurationInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -103,6 +111,40 @@ func (o *GetWellKnownOpenidConfigurationNotFound) Error() string {
 }
 
 func (o *GetWellKnownOpenidConfigurationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewGetWellKnownOpenidConfigurationInternalServerError creates a GetWellKnownOpenidConfigurationInternalServerError with default headers values
+func NewGetWellKnownOpenidConfigurationInternalServerError() *GetWellKnownOpenidConfigurationInternalServerError {
+	return &GetWellKnownOpenidConfigurationInternalServerError{}
+}
+
+/*
+GetWellKnownOpenidConfigurationInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type GetWellKnownOpenidConfigurationInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *GetWellKnownOpenidConfigurationInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *GetWellKnownOpenidConfigurationInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetWellKnownOpenidConfigurationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
