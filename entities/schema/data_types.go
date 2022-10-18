@@ -104,6 +104,9 @@ func IsArrayType(dt DataType) (DataType, bool) {
 	case DataTypeDateArray:
 		return DataTypeDate, true
 
+	case DataTypeBlob, DataTypeBoolean, DataTypeCRef, DataTypeDate, DataTypeGeoCoordinates, DataTypeInt,
+		DataTypeNumber, DataTypePhoneNumber, DataTypeString, DataTypeText:
+		fallthrough
 	default:
 		return "", false
 	}
