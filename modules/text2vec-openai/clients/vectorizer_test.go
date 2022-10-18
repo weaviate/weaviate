@@ -33,7 +33,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 
-		c := New("apiKEy", nullLogger())
+		c := New("apiKey", nullLogger())
 		c.host = server.URL
 
 		expected := &ent.VectorizationResult{
@@ -54,7 +54,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := New("apiKEy", nullLogger())
+		c := New("apiKey", nullLogger())
 		c.host = server.URL
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
@@ -71,7 +71,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := New("apiKEy", nullLogger())
+		c := New("apiKey", nullLogger())
 		c.host = server.URL
 		_, err := c.Vectorize(context.Background(), "This is my text",
 			ent.VectorizationConfig{})
