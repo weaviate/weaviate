@@ -52,15 +52,17 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 			case models.PropertyTokenizationWord:
 				return nil
 			}
-
-		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeCRef,
-			schema.DataTypeDate, schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypeInt,
-			schema.DataTypeIntArray, schema.DataTypeNumber, schema.DataTypeNumberArray, schema.DataTypePhoneNumber:
-			fallthrough
-		default:
+		case schema.DataTypeBlob, schema.DataTypeBoolean, schema.DataTypeBooleanArray, schema.DataTypeDate,
+			schema.DataTypeDateArray, schema.DataTypeGeoCoordinates, schema.DataTypeInt, schema.DataTypeIntArray,
+			schema.DataTypeNumber, schema.DataTypeNumberArray, schema.DataTypePhoneNumber:
 			if tokenization == "" {
 				return nil
 			}
+
+		case schema.DataTypeCRef:
+			fallthrough
+		default:
+			panic("not primitive type")
 		}
 
 		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
