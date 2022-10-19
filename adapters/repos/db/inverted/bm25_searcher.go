@@ -175,7 +175,8 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	idLists := make([]docPointersWithScore, len(terms))
 
 	for i, term := range terms {
-		ids, err := b.retrieveForSingleTermMultipleProps(ctx, keywordRanking.Properties, term)
+		lower_term := strings.ToLower(term)
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, keywordRanking.Properties, lower_term)
 
 		if err != nil {
 			return nil, nil, err
