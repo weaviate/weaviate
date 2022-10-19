@@ -1841,6 +1841,34 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		},
 	}
+	classRefName := "TestRefClass"
+	classRef := &models.Class{
+		Class:               classRefName,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	classNameWithRefs := "TestClassWithRefs"
+	classWithRefs := &models.Class{
+		Class:               classNameWithRefs,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+			{
+				Name:     "refProp",
+				DataType: []string{classRefName},
+			},
+		},
+	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
 	repo := New(logger, Config{
 		FlushIdleAfter:            60,
@@ -1855,41 +1883,98 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 	require.Nil(t,
 		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-
+	require.Nil(t,
+		migrator.AddClass(context.Background(), classRef, schemaGetter.shardState))
+	require.Nil(t,
+		migrator.AddClass(context.Background(), classWithRefs, schemaGetter.shardState))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
-			Classes: []*models.Class{class},
+			Classes: []*models.Class{class, classRef, classWithRefs},
 		},
 	}
 
-	ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
-	obj1 := &models.Object{
-		ID:    ID,
-		Class: "TestClass",
-		Properties: map[string]interface{}{
-			"stringArray": []string{},
-			"NumberArray": []float64{},
-			"BoolArray":   []bool{},
-		},
-	}
-	obj2 := &models.Object{
-		ID:    ID,
-		Class: "TestClass",
-		Properties: map[string]interface{}{
-			"stringArray": []string{"value"},
-			"NumberArray": []float64{0.5},
-			"BoolArray":   []bool{true},
-		},
-	}
+	t.Run("empty arrays", func(t *testing.T) {
+		objID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+		obj1 := &models.Object{
+			ID:    objID,
+			Class: "TestClass",
+			Properties: map[string]interface{}{
+				"stringArray": []string{},
+				"NumberArray": []float64{},
+				"BoolArray":   []bool{},
+			},
+		}
+		obj2 := &models.Object{
+			ID:    objID,
+			Class: "TestClass",
+			Properties: map[string]interface{}{
+				"stringArray": []string{"value"},
+				"NumberArray": []float64{0.5},
+				"BoolArray":   []bool{true},
+			},
+		}
 
-	assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
-	assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
 
-	res, err := repo.ObjectByID(context.Background(), ID, nil,
-		additional.Properties{})
-	require.Nil(t, err)
-	assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+		res, err := repo.ObjectByID(context.Background(), objID, nil,
+			additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+	})
+
+	t.Run("empty references", func(t *testing.T) {
+		t.Skip()
+		objRefID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390000")
+		objRef := &models.Object{
+			ID:    objRefID,
+			Class: classRefName,
+			Properties: map[string]interface{}{
+				"stringProp": "string prop value",
+			},
+		}
+		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}))
+
+		obj1ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+		obj1 := &models.Object{
+			ID:    obj1ID,
+			Class: classNameWithRefs,
+			Properties: map[string]interface{}{
+				"stringProp": "some prop",
+				"refProp":    models.MultipleRef{},
+			},
+		}
+		obj2ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
+		obj2 := &models.Object{
+			ID:    obj2ID,
+			Class: classNameWithRefs,
+			Properties: map[string]interface{}{
+				"stringProp": "some second prop",
+				"refProp": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(
+							crossref.NewLocalhost(classRefName, objRefID).String()),
+					},
+				},
+			},
+		}
+
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
+
+		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
+			additional.Properties{})
+		require.Nil(t, err)
+		assert.NotNil(t, res)
+		assert.Equal(t, obj1.Properties, res.ObjectWithVector(false).Properties)
+
+		res, err = repo.Object(context.Background(), classNameWithRefs, obj2ID, nil,
+			additional.Properties{})
+		require.Nil(t, err)
+		assert.NotNil(t, res)
+		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+	})
 }
 
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
