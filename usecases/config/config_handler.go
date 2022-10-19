@@ -117,17 +117,12 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 }
 
 func (c Config) validateDefaultVectorDistanceMetric() error {
-	if c.DefaultVectorDistanceMetric == "" {
+	switch c.DefaultVectorDistanceMetric {
+	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
 		return nil
-	}
-
-	if c.DefaultVectorDistanceMetric != hnsw.DistanceCosine && c.DefaultVectorDistanceMetric != hnsw.DistanceDot &&
-		c.DefaultVectorDistanceMetric != hnsw.DistanceL2Squared && c.DefaultVectorDistanceMetric != hnsw.DistanceManhattan &&
-		c.DefaultVectorDistanceMetric != hnsw.DistanceHamming {
+	default:
 		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
 	}
-
-	return nil
 }
 
 type AutoSchema struct {
