@@ -5,7 +5,12 @@ linters:
     - misspell
     - bodyclose
     - gofumpt
-
+    - exhaustive
+linters-settings:
+  exhaustive:
+    # Presence of "default" case in switch statements satisfies exhaustiveness,
+    # even if all enum members are not listed.
+    default-signifies-exhaustive: true
 issues:
   exclude-rules:
     # Exclude some staticcheck messages
