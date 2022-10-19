@@ -183,6 +183,17 @@ func (ko *Object) CreationTimeUnix() int64 {
 	return ko.Object.CreationTimeUnix
 }
 
+func (ko *Object) Score() float32 {
+	props := ko.AdditionalProperties()
+	if props != nil {
+		iface := props["score"]
+		if iface != nil {
+			return iface.(float32)
+		}
+	}
+	return 0
+}
+
 func (ko *Object) ID() strfmt.UUID {
 	return ko.Object.ID
 }
@@ -279,7 +290,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
 		AdditionalProperties: additionalProperties,
-		Score:                1, // TODO: actually score
+		Score:                ko.Score(), // TODO: actually score
 		// TODO: Beacon?
 	}
 }

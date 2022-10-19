@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
 	"runtime/debug"
 	"sort"
@@ -194,6 +195,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 
 }
 
+// BM25F merge the results from multiple properties
 func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWithScore {
 	//Merge all ids into the first element of the list
 
@@ -215,9 +217,9 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWith
 				//if id is in the map, add the frequency
 				existing := docHash[doc.id]
 				existing.frequency += doc.frequency
+				//FIXME!!! We will have a different propLength for each property, how do we combine them?
 				docHash[doc.id] = existing
 			}
-
 		}
 		total += int(list.count)
 	}
@@ -242,6 +244,8 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	properties []string, term string,
 ) (docPointersWithScore, error) {
 	idss := []docPointersWithScore{}
+
+	log.Printf("BM25F: Retrieving for term %s in properties %v", term, properties)
 	for _, property := range properties {
 		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, term)
 		if err != nil {
@@ -252,15 +256,38 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	}
 
 	ids := b.mergeIdss(idss)
-	/*if err := b.score(ids, property); err != nil {
-		return docPointersWithScore{}, err
-	}
-	*/
+	b.scoreBM25F(ids, properties)
 	return ids, nil
 }
 
-// BM25F
-func (bm *BM25Searcher) scoreMultiple(idss []docPointersWithScore, propName []string) error {
+func (bm *BM25Searcher) scoreBM25F(ids docPointersWithScore, propName []string) error {
+
+	totalPropSum := 0.0
+	total := 0.0
+	for _, prop := range propName {
+		propSum, propTotal, err := bm.propLengths.PropertyCount(prop)
+		if err != nil {
+			return errors.Wrap(err, "get property length")
+		}
+		totalPropSum += float64(propSum)
+		total += float64(propTotal)
+	}
+
+	m := totalPropSum / float64(total)
+
+	averageDocLen := float64(m)
+	k1 := bm.config.K1
+	b := bm.config.B
+
+	N := float64(bm.store.Bucket(helpers.ObjectsBucketLSM).Count())
+	n := float64(len(ids.docIDs))
+	idf := math.Log(float64(1) + (N-n+0.5)/(n+0.5))
+	for i, id := range ids.docIDs {
+		docLen := id.propLength
+		tf := id.frequency / (id.frequency + k1*(1-b+b*docLen/averageDocLen))
+		ids.docIDs[i].score = tf * idf
+	}
+
 	return nil
 }
 

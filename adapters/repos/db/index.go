@@ -746,6 +746,18 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
+			if len(keywordRanking.Properties) == 0 {
+				//Loop over classes and find i.Config.ClassName.String()
+				for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {
+					if class.Class == i.Config.ClassName.String() {
+						propHash := class.Properties
+						//Get keys of hash
+						for _, v := range propHash {
+							keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+						}
+					}
+				}
+			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
@@ -761,6 +773,16 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 		outObjects = append(outObjects, objs...)
 		outScores = append(outScores, scores...)
+	}
+
+	for ii, _ := range outObjects {
+		oo := outObjects[ii]
+		os := outScores[ii]
+		if oo.AdditionalProperties() == nil {
+			oo.Object.Additional = make(map[string]interface{})
+		}
+		oo.Object.Additional["score"] = os
+
 	}
 
 	if len(sort) > 0 {
