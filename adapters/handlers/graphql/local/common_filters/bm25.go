@@ -26,6 +26,7 @@ func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {
 		}
 	}
 
+	
 	query, ok := source["query"]
 	if ok {
 		args.Query = query.(string)

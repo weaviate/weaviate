@@ -13,7 +13,6 @@ package traverser
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/go-openapi/strfmt"
@@ -133,7 +132,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 	}
 
 	if len(params.KeywordRanking.Properties) == 0 {
-		return nil, errors.Errorf("keyword search (bm25) requires exactly one property")
+		log.Print("No properties specified for keyword search (bm25), selecting all properties")
 	}
 
 	if len(params.KeywordRanking.Properties) > 1 {
@@ -323,7 +322,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		}
 
 		if params.AdditionalProperties.Score {
-			additionalProperties["score"] = fmt.Sprintf("%v", res.Score)
+			additionalProperties["score"] = res.Score
 		}
 
 		if params.AdditionalProperties.Vector {
