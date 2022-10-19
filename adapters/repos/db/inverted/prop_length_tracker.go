@@ -248,13 +248,14 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 }
 
 func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
-	if uint16(len(t.pages))/4096-1 < page {
+	pagesize := uint64(page * 4096)
+	if uint64(len(t.pages))/4096-1 < uint64(page) {
 		// we need to grow the page buffer
-		newPages := make([]byte, page*4096+4096)
+		newPages := make([]byte, pagesize+4096)
 		copy(newPages[:len(t.pages)], t.pages)
 
 		// the new page must have the correct offset initialized
-		binary.LittleEndian.PutUint16(newPages[page*4096:page*4096+2], 2)
+		binary.LittleEndian.PutUint16(newPages[pagesize:pagesize+2], 2)
 		t.pages = newPages
 	}
 }
