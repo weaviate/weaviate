@@ -174,8 +174,11 @@ func IsBlobDataType(dt []string) bool {
 func IsArrayDataType(dt []string) bool {
 	for i := range dt {
 		switch DataType(dt[i]) {
-		case DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray:
+		case DataTypeStringArray, DataTypeTextArray, DataTypeIntArray,
+			DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray:
 			return true
+		default:
+			// move to the next loop
 		}
 	}
 	return false
