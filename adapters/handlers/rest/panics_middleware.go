@@ -89,6 +89,6 @@ func handleTimeout(err net.Error, logger logrus.FieldLogger, r *http.Request) {
 		"method":      r.Method,
 		"path":        r.URL,
 		"description": "An I/O timeout occurs when the request takes longer than the specified server-side timeout.",
-		"hint":        "Either try increasing the server-side timeout using e.g. '--write-timeout 600s' as a command line flag when starting Weaviate, or try sending a computationally cheaper request, for example by reducing a batch size, reducing a limit, using less complex filters, etc. Note that this error is only thrown if client-side and server-side timeouts are not in sync, more precisely if the client-side timeout is longer than the server side timeout.",
+		"hint":        "Either try increasing the server-side timeout using e.g. '--write-timeout=600s' as a command line flag when starting Weaviate, or try sending a computationally cheaper request, for example by reducing a batch size, reducing a limit, using less complex filters, etc. Note that this error is only thrown if client-side and server-side timeouts are not in sync, more precisely if the client-side timeout is longer than the server side timeout.",
 	}).Errorf("i/o timeout")
 }
