@@ -261,6 +261,58 @@ func TestNestedReferences(t *testing.T) {
 		assert.Equal(t, expectedSchema, res.Schema)
 	})
 
+	t.Run("fully resolving the place with vectors", func(t *testing.T) {
+		expectedSchema := map[string]interface{}{
+			"inCity": []interface{}{
+				search.LocalRef{
+					Class: "City",
+					Fields: map[string]interface{}{
+						"inCountry": []interface{}{
+							search.LocalRef{
+								Class: "Country",
+								Fields: map[string]interface{}{
+									"onContinent": []interface{}{
+										search.LocalRef{
+											Class: "Continent",
+											Fields: map[string]interface{}{
+												"onPlanet": []interface{}{
+													search.LocalRef{
+														Class: "Planet",
+														Fields: map[string]interface{}{
+															"name":   "Earth",
+															"id":     strfmt.UUID("32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf"),
+															"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+														},
+													},
+												},
+												"name":   "North America",
+												"id":     strfmt.UUID("4aad8154-e7f3-45b8-81a6-725171419e55"),
+												"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+											},
+										},
+									},
+									"name":   "USA",
+									"id":     strfmt.UUID("18c80a16-346a-477d-849d-9d92e5040ac9"),
+									"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+								},
+							},
+						},
+						"name":   "San Francisco",
+						"id":     strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
+						"vector": []float32{1, 2, 3, 4, 5, 6, 7},
+					},
+				},
+			},
+			"name": "Tim Apple's Fruit Bar",
+			"id":   strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
+		}
+
+		res, err := repo.ObjectByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			fullyNestedSelectPropertiesWithVector(), additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, expectedSchema, res.Schema)
+	})
+
 	t.Run("partially resolving the place", func(t *testing.T) {
 		expectedSchema := map[string]interface{}{
 			"inCity": []interface{}{
@@ -375,6 +427,66 @@ func fullyNestedSelectProperties() search.SelectProperties {
 								},
 							},
 						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func fullyNestedSelectPropertiesWithVector() search.SelectProperties {
+	return search.SelectProperties{
+		search.SelectProperty{
+			Name:        "inCity",
+			IsPrimitive: false,
+			Refs: []search.SelectClass{
+				{
+					ClassName: "City",
+					RefProperties: search.SelectProperties{
+						search.SelectProperty{
+							Name:        "inCountry",
+							IsPrimitive: false,
+							Refs: []search.SelectClass{
+								{
+									ClassName: "Country",
+									RefProperties: search.SelectProperties{
+										search.SelectProperty{
+											Name:        "onContinent",
+											IsPrimitive: false,
+											Refs: []search.SelectClass{
+												{
+													ClassName: "Continent",
+													RefProperties: search.SelectProperties{
+														search.SelectProperty{
+															Name:        "onPlanet",
+															IsPrimitive: false,
+															Refs: []search.SelectClass{
+																{
+																	ClassName:     "Planet",
+																	RefProperties: nil,
+																	AdditionalProperties: additional.Properties{
+																		Vector: true,
+																	},
+																},
+															},
+														},
+													},
+													AdditionalProperties: additional.Properties{
+														Vector: true,
+													},
+												},
+											},
+										},
+									},
+									AdditionalProperties: additional.Properties{
+										Vector: true,
+									},
+								},
+							},
+						},
+					},
+					AdditionalProperties: additional.Properties{
+						Vector: true,
 					},
 				},
 			},

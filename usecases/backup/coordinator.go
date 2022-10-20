@@ -181,9 +181,7 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
-
-	meta := desc.NewRestoreMeta()
-	c.descriptor = *meta
+	c.descriptor = *desc.NewRestoreMeta()
 
 	nodes, err := c.canCommit(ctx, OpRestore, backend)
 	if err != nil {
@@ -197,6 +195,12 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 		Backend: backend,
 	}
 
+	// initial put so restore status is immediately available
+	if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
+		c.log.WithField("action", OpRestore).
+			WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+	}
+
 	go func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
@@ -206,11 +210,6 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 				WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
 		}
 	}()
-
-	if err := store.PutMeta(ctx, GlobalRestoreFile, meta); err != nil {
-		c.log.WithField("action", OpRestore).
-			WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
-	}
 
 	return nil
 }

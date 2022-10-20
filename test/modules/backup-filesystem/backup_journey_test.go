@@ -31,24 +31,43 @@ func Test_BackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithBackendFilesystem().
-		WithText2VecContextionary().
-		WithWeaviate().
-		WithWeaviateCluster().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminte test containers: %s", err.Error())
-		}
-	}()
+	t.Run("single node", func(t *testing.T) {
+		compose, err := docker.New().
+			WithBackendFilesystem().
+			WithText2VecContextionary().
+			WithWeaviate().
+			Start(ctx)
+		require.Nil(t, err)
 
-	t.Run("backup-filesystem", func(t *testing.T) {
-		journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-			"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode)
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminte test containers: %s", err.Error())
+			}
+		}()
 
-		journey.BackupJourneyTests_Cluster(t, "filesystem", fsBackupJourneyClassName,
-			fsBackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+		t.Run("backup-filesystem", func(t *testing.T) {
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode)
+		})
+	})
+
+	t.Run("multiple nodes", func(t *testing.T) {
+		compose, err := docker.New().
+			WithBackendFilesystem().
+			WithText2VecContextionary().
+			WithWeaviateCluster().
+			Start(ctx)
+		require.Nil(t, err)
+
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminte test containers: %s", err.Error())
+			}
+		}()
+
+		t.Run("backup-filesystem", func(t *testing.T) {
+			journey.BackupJourneyTests_Cluster(t, "filesystem", fsBackupJourneyClassName,
+				fsBackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+		})
 	})
 }

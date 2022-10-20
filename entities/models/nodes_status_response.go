@@ -24,17 +24,17 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// NodeStatusResponse The status of all of the Weaviate nodes
+// NodesStatusResponse The status of all of the Weaviate nodes
 //
-// swagger:model NodeStatusResponse
-type NodeStatusResponse struct {
+// swagger:model NodesStatusResponse
+type NodesStatusResponse struct {
 
 	// nodes
 	Nodes []*NodeStatus `json:"nodes"`
 }
 
-// Validate validates this node status response
-func (m *NodeStatusResponse) Validate(formats strfmt.Registry) error {
+// Validate validates this nodes status response
+func (m *NodesStatusResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateNodes(formats); err != nil {
@@ -47,7 +47,7 @@ func (m *NodeStatusResponse) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *NodeStatusResponse) validateNodes(formats strfmt.Registry) error {
+func (m *NodesStatusResponse) validateNodes(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Nodes) { // not required
 		return nil
@@ -73,7 +73,7 @@ func (m *NodeStatusResponse) validateNodes(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *NodeStatusResponse) MarshalBinary() ([]byte, error) {
+func (m *NodesStatusResponse) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -81,8 +81,8 @@ func (m *NodeStatusResponse) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *NodeStatusResponse) UnmarshalBinary(b []byte) error {
-	var res NodeStatusResponse
+func (m *NodesStatusResponse) UnmarshalBinary(b []byte) error {
+	var res NodesStatusResponse
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

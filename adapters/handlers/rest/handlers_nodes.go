@@ -47,7 +47,7 @@ func (s *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 		}
 	}
 
-	status := &models.NodeStatusResponse{
+	status := &models.NodesStatusResponse{
 		Nodes: nodeStatuses,
 	}
 
