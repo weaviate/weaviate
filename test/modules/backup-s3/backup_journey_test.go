@@ -40,39 +40,69 @@ const (
 )
 
 func Test_BackupJourney(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
+	t.Run("single node", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
 
-	t.Run("pre-instance env setup", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envS3AccessKey, s3BackupJourneyAccessKey))
-		require.Nil(t, os.Setenv(envS3SecretKey, s3BackupJourneySecretKey))
-		require.Nil(t, os.Setenv(envS3Bucket, s3BackupJourneyBucketName))
+		t.Run("pre-instance env setup", func(t *testing.T) {
+			require.Nil(t, os.Setenv(envS3AccessKey, s3BackupJourneyAccessKey))
+			require.Nil(t, os.Setenv(envS3SecretKey, s3BackupJourneySecretKey))
+			require.Nil(t, os.Setenv(envS3Bucket, s3BackupJourneyBucketName))
+		})
+
+		compose, err := docker.New().
+			WithBackendS3(s3BackupJourneyBucketName).
+			WithText2VecContextionary().
+			WithWeaviate().
+			Start(ctx)
+		require.Nil(t, err)
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminte test containers: %s", err.Error())
+			}
+		}()
+
+		t.Run("post-instance env setup", func(t *testing.T) {
+			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
+			helper.SetupClient(compose.GetWeaviate().URI())
+		})
+
+		t.Run("backup-s3", func(t *testing.T) {
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode)
+		})
 	})
 
-	compose, err := docker.New().
-		WithBackendS3(s3BackupJourneyBucketName).
-		WithText2VecContextionary().
-		WithWeaviate().
-		WithWeaviateCluster().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminte test containers: %s", err.Error())
-		}
-	}()
+	t.Run("multiple node", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
 
-	t.Run("post-instance env setup", func(t *testing.T) {
-		createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
-		helper.SetupClient(compose.GetWeaviate().URI())
-	})
+		t.Run("pre-instance env setup", func(t *testing.T) {
+			require.Nil(t, os.Setenv(envS3AccessKey, s3BackupJourneyAccessKey))
+			require.Nil(t, os.Setenv(envS3SecretKey, s3BackupJourneySecretKey))
+			require.Nil(t, os.Setenv(envS3Bucket, s3BackupJourneyBucketName))
+		})
 
-	// journey tests
-	t.Run("backup-s3", func(t *testing.T) {
-		journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-			"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode)
+		compose, err := docker.New().
+			WithBackendS3(s3BackupJourneyBucketName).
+			WithText2VecContextionary().
+			WithWeaviateCluster().
+			Start(ctx)
+		require.Nil(t, err)
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminte test containers: %s", err.Error())
+			}
+		}()
 
-		journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
-			s3BackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+		t.Run("post-instance env setup", func(t *testing.T) {
+			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
+			helper.SetupClient(compose.GetWeaviate().URI())
+		})
+
+		t.Run("backup-s3", func(t *testing.T) {
+			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
+				s3BackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+		})
 	})
 }

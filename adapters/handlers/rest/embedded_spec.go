@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.4"
+    "version": "1.15.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -121,6 +121,12 @@ func init() {
           },
           "404": {
             "description": "Not found, no oidc provider present"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -850,7 +856,7 @@ func init() {
           "200": {
             "description": "Nodes status successfully returned",
             "schema": {
-              "$ref": "#/definitions/NodeStatusResponse"
+              "$ref": "#/definitions/NodesStatusResponse"
             }
           },
           "401": {
@@ -3502,7 +3508,7 @@ func init() {
         }
       }
     },
-    "NodeStatusResponse": {
+    "NodesStatusResponse": {
       "description": "The status of all of the Weaviate nodes",
       "type": "object",
       "properties": {
@@ -4189,7 +4195,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "1.15.4"
+    "version": "1.15.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -4262,6 +4268,12 @@ func init() {
           },
           "404": {
             "description": "Not found, no oidc provider present"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -4991,7 +5003,7 @@ func init() {
           "200": {
             "description": "Nodes status successfully returned",
             "schema": {
-              "$ref": "#/definitions/NodeStatusResponse"
+              "$ref": "#/definitions/NodesStatusResponse"
             }
           },
           "401": {
@@ -7829,7 +7841,7 @@ func init() {
         }
       }
     },
-    "NodeStatusResponse": {
+    "NodesStatusResponse": {
       "description": "The status of all of the Weaviate nodes",
       "type": "object",
       "properties": {

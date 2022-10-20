@@ -87,20 +87,20 @@ NodesGetOK handles this case with default header values.
 Nodes status successfully returned
 */
 type NodesGetOK struct {
-	Payload *models.NodeStatusResponse
+	Payload *models.NodesStatusResponse
 }
 
 func (o *NodesGetOK) Error() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK  %+v", 200, o.Payload)
 }
 
-func (o *NodesGetOK) GetPayload() *models.NodeStatusResponse {
+func (o *NodesGetOK) GetPayload() *models.NodesStatusResponse {
 	return o.Payload
 }
 
 func (o *NodesGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.NodeStatusResponse)
+	o.Payload = new(models.NodesStatusResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

@@ -655,7 +655,11 @@ func newFakeScheduler(resolver nodeResolver) *fakeScheduler {
 	logger, _ := test.NewNullLogger()
 	fc.auth = &fakeAuthorizer{}
 	fc.log = logger
-	fc.nodeResolver = resolver
+	if resolver == nil {
+		fc.nodeResolver = &fakeNodeResolver{}
+	} else {
+		fc.nodeResolver = resolver
+	}
 	return &fc
 }
 

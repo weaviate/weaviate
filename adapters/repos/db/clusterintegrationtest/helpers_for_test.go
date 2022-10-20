@@ -15,6 +15,7 @@
 package clusterintegrationtest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -25,7 +26,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -292,6 +295,7 @@ func normalize(v []float32) []float32 {
 func manuallyResolveRef(t *testing.T, obj *models.Object,
 	possibleTargets []*models.Object, localPropName,
 	referencedPropName string,
+	repo *db.DB,
 ) []map[string]interface{} {
 	beacons := obj.Properties.(map[string]interface{})[localPropName].(models.MultipleRef)
 	out := make([]map[string]interface{}, len(beacons))
@@ -301,8 +305,20 @@ func manuallyResolveRef(t *testing.T, obj *models.Object,
 		require.Nil(t, err)
 		target := findId(possibleTargets, parsed.TargetID)
 		require.NotNil(t, target, "target not found")
-		out[i] = map[string]interface{}{
-			referencedPropName: target.Properties.(map[string]interface{})[referencedPropName],
+		if referencedPropName == "vector" {
+			// find referenced object to get his actual vector from DB
+			require.NotNil(t, repo)
+			res, err := repo.Object(context.Background(), parsed.Class, parsed.TargetID,
+				nil, additional.Properties{Vector: true})
+			require.Nil(t, err)
+			require.NotNil(t, res)
+			out[i] = map[string]interface{}{
+				referencedPropName: res.Vector,
+			}
+		} else {
+			out[i] = map[string]interface{}{
+				referencedPropName: target.Properties.(map[string]interface{})[referencedPropName],
+			}
 		}
 	}
 
