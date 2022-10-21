@@ -145,4 +145,19 @@ func TestVectorizer_Object(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("when rep prop is stored as empty string slice", func(t *testing.T) {
+		ctx := context.Background()
+		repo := &fakeObjectsRepo{}
+		refProps := []interface{}{"toRef"}
+		cfg := fakeClassConfig{"method": "mean", "referenceProperties": refProps}
+
+		obj := &models.Object{
+			Properties: map[string]interface{}{"toRef": []string{}},
+		}
+
+		err := New(cfg, repo.Object).Object(ctx, obj)
+		assert.Nil(t, err)
+		assert.Nil(t, obj.Vector)
+	})
 }
