@@ -20,6 +20,7 @@ import (
 	"math"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -246,9 +247,18 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 ) (docPointersWithScore, error) {
 	idss := []docPointersWithScore{}
 
-	log.Printf("BM25F: Retrieving for term %s in properties %v", term, properties)
+	searchTerm := term
+	boost := 1
+	if strings.Contains(term, "^") {
+		searchTerm = strings.Split(term, "^")[0]
+		boostStr := strings.Split(term, "^")[1]
+		boost, _ = strconv.Atoi(boostStr)
+
+	}
+
+	log.Printf("BM25F: Retrieving for term %s in properties %v", searchTerm, properties)
 	for _, property := range properties {
-		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, term)
+		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
 		if err != nil {
 			return docPointersWithScore{}, errors.Wrap(err,
 				"read doc ids and their frequencies from inverted index")
@@ -257,6 +267,10 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	}
 
 	ids := b.mergeIdss(idss)
+	//Boost the frequencies
+	for i := range ids.docIDs {
+		ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
+	}
 	b.scoreBM25F(ids, properties)
 	return ids, nil
 }
@@ -319,6 +333,9 @@ func (b *BM25Searcher) getIdsWithFrequenciesForTerm(ctx context.Context,
 ) (docPointersWithScore, error) {
 	bucketName := helpers.BucketFromPropNameLSM(prop)
 	bucket := b.store.Bucket(bucketName)
+	if bucket == nil {
+		return docPointersWithScore{}, fmt.Errorf("bucket %v not found", bucketName)
+	}
 
 	return b.docPointersInvertedFrequency(prop, bucket, 0, &propValuePair{
 		operator: filters.OperatorEqual,
