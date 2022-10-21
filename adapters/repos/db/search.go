@@ -13,7 +13,11 @@ package db
 
 import (
 	"context"
+	"time"
+
 	"fmt"
+	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -48,6 +52,21 @@ func (db *DB) GetQueryMaximumResults() int {
 func (db *DB) ClassSearch(ctx context.Context,
 	params traverser.GetParams,
 ) ([]search.Result, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+			debug.PrintStack()
+			
+ 			//Print stack trace
+ 			buf := make([]byte, 1<<16)
+ 			runtime.Stack(buf, true)
+ 			fmt.Printf(string(buf))
+			for {
+				time.Sleep(time.Second)
+			}
+		}
+	}()
+
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
