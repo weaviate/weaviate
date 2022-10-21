@@ -1,3 +1,6 @@
+//go:build integrationTest
+// +build integrationTest
+
 package db
 
 import (
