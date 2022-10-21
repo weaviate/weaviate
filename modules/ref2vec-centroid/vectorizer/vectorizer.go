@@ -122,9 +122,18 @@ func beaconsForVectorization(allProps map[string]interface{},
 	// object, like when caller is AddObject/UpdateObject
 	for prop, val := range allProps {
 		if _, ok := targetRefProps[prop]; ok {
-			refs := val.(models.MultipleRef)
-			for _, ref := range refs {
-				beacons = append(beacons, ref.Beacon)
+			switch refs := val.(type) {
+			case []string:
+				// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2285,
+				// MultipleRef's can appear as empty []string when no actual refs are provided for an
+				// object's reference property.
+				//
+				// if we encounter []string, we assume that it indicates an empty ref prop, and skip it.
+				continue
+			case models.MultipleRef:
+				for _, ref := range refs {
+					beacons = append(beacons, ref.Beacon)
+				}
 			}
 		}
 	}
