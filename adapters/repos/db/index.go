@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -746,7 +747,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
-			if len(keywordRanking.Properties) == 0 {
+			if keywordRanking != nil && len(keywordRanking.Properties) == 0 {
 				//Loop over classes and find i.Config.ClassName.String()
 				for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {
 					if class.Class == i.Config.ClassName.String() {
@@ -775,14 +776,18 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outScores = append(outScores, scores...)
 	}
 
-	for ii, _ := range outObjects {
-		oo := outObjects[ii]
-		os := outScores[ii]
-		if oo.AdditionalProperties() == nil {
-			oo.Object.Additional = make(map[string]interface{})
+	if len(outObjects) == len(outScores) {
+		fmt.Println("-----------------------------------------")
+		for ii, _ := range outObjects {
+			fmt.Printf("outObjects: %+v\n", outObjects[ii])
+			fmt.Printf("outScores: %+v\n", outScores[ii])
+			oo := outObjects[ii]
+			os := outScores[ii]
+			if oo.AdditionalProperties() == nil {
+				oo.Object.Additional = make(map[string]interface{})
+			}
+			oo.Object.Additional["score"] = os
 		}
-		oo.Object.Additional["score"] = os
-
 	}
 
 	if len(sort) > 0 {
