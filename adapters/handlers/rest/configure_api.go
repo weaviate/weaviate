@@ -51,6 +51,7 @@ import (
 	modcentroid "github.com/semi-technologies/weaviate/modules/ref2vec-centroid"
 	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
+	modcohere "github.com/semi-technologies/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
@@ -528,6 +529,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modcentroid.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modcohere.Name]; ok {
+		appState.Modules.Register(modcohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modcohere.Name).
 			Debug("enabled module")
 	}
 
