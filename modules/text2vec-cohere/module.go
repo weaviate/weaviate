@@ -103,7 +103,7 @@ func (m *CohereModule) InitExtension(modules []modulecapabilities.Module) error 
 func (m *CohereModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("HUGGINGFACE_APIKEY")
+	apiKey := os.Getenv("COHERE_APIKEY")
 	client := clients.New(apiKey, logger)
 
 	m.vectorizer = vectorizer.New(client)
