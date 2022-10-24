@@ -750,18 +750,19 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 			//If the request is a BM25F with no properties selected, use all properties
 			//KeywordRanking == nil -> no BM25
-			if keywordRanking != nil && len(keywordRanking.Properties) == 0 {
-				//Loop over classes and find i.Config.ClassName.String()
-				for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {
-					if class.Class == i.Config.ClassName.String() {
-						propHash := class.Properties
-						//Get keys of hash
-						for _, v := range propHash {
-							keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+			
+				if keywordRanking != nil && keywordRanking.Type=="bm25" && len(keywordRanking.Properties) == 0 {
+					//Loop over classes and find i.Config.ClassName.String()
+					for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {
+						if class.Class == i.Config.ClassName.String() {
+							propHash := class.Properties
+							//Get keys of hash
+							for _, v := range propHash {
+								keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+							}
 						}
 					}
 				}
-			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
@@ -779,24 +780,24 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outScores = append(outScores, scores...)
 	}
 
-	if keywordRanking != nil {
-		if len(outObjects) == len(outScores) {
-			fmt.Println("-----------------------------------------")
-			for ii, _ := range outObjects {
-				fmt.Printf("outObjects: %+v\n", outObjects[ii])
+	if keywordRanking.Type == "bm25" {
+		fmt.Printf("outObjects and outScores  in query: %+v,  \n\noutObjects: %+v\n\noutScores: %+v\n", keywordRanking, outObjects, outScores)
+
+		fmt.Println("-----------------------------------------")
+		for ii, _ := range outObjects {
+			fmt.Printf("outObjects: %+v\n", outObjects[ii])
+
+			oo := outObjects[ii]
+			if len(outObjects) == len(outScores) {
 				fmt.Printf("outScores: %+v\n", outScores[ii])
-				oo := outObjects[ii]
 				os := outScores[ii]
 				if oo.AdditionalProperties() == nil {
 					oo.Object.Additional = make(map[string]interface{})
 				}
 				oo.Object.Additional["score"] = os
 			}
-		} else {
-			panic(fmt.Sprintf("outObjects and outScores are not the same length in query: %+v,  \n\noutObjects: %+v\n\noutScores: %+v\n", keywordRanking, outObjects, outScores))
 		}
 	}
-
 	if len(sort) > 0 {
 		if len(shardNames) > 1 {
 			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)

@@ -170,6 +170,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, []float32, error) {
+	fmt.Printf("Searching using BM25F: %+v. %+v, %+v\n", keywordRanking, filter, additional)
 
 	terms := strings.Split(keywordRanking.Query, " ")
 
