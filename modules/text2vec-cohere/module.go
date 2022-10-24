@@ -20,10 +20,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/additional"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/additional/projector"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/clients"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/vectorizer"
+	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/additional"
+	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/additional/projector"
+	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/clients"
+	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 

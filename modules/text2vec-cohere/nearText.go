@@ -13,7 +13,7 @@ package modcohere
 
 import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/neartext"
+	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/neartext"
 )
 
 func (m *CohereModule) initNearText() error {
