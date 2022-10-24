@@ -96,7 +96,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "OpenAI API Key")
+		return nil, errors.Wrapf(err, "Cohere API Key")
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")

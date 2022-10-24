@@ -208,7 +208,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var b map[string]interface{}
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
-	textInput := b["input"].(string)
+	textInput := b["texts"].([]interface{})
 	assert.Greater(f.t, len(textInput), 0)
 
 	embeddingData := map[string]interface{}{
