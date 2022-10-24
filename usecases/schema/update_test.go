@@ -278,6 +278,7 @@ func TestClassUpdates(t *testing.T) {
 				expectedErrMsg := "vector index config: don't think so!"
 				expectedValidateCalledWith := fakeVectorConfig{
 					raw: map[string]interface{}{
+						"distance":  "cosine",
 						"setting-1": "updated-value",
 					},
 				}
@@ -316,11 +317,13 @@ func TestClassUpdates(t *testing.T) {
 					})
 				expectedValidateCalledWith := fakeVectorConfig{
 					raw: map[string]interface{}{
+						"distance":  "cosine",
 						"setting-1": "updated-value",
 					},
 				}
 				expectedUpdateCalledWith := fakeVectorConfig{
 					raw: map[string]interface{}{
+						"distance":  "cosine",
 						"setting-1": "updated-value",
 					},
 				}
@@ -337,6 +340,7 @@ func TestClassUpdates(t *testing.T) {
 				require.NotNil(t, class)
 				expectedVectorIndexConfig := fakeVectorConfig{
 					raw: map[string]interface{}{
+						"distance":  "cosine",
 						"setting-1": "updated-value",
 					},
 				}

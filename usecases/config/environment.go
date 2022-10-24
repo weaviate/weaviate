@@ -167,6 +167,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if v := os.Getenv("DEFAULT_VECTOR_DISTANCE_METRIC"); v != "" {
+		config.DefaultVectorDistanceMetric = v
+	}
+
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
 	}

@@ -135,7 +135,9 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 			DataType: []string{"string"},
 			Name:     "dummy",
 		}},
-		VectorIndexConfig: "this should be parsed",
+		VectorIndexConfig: map[string]interface{}{
+			"dummy": "this should be parsed",
+		},
 	})
 
 	assert.Nil(t, err)
@@ -147,7 +149,10 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
 	assert.Equal(t, fakeVectorConfig{
-		raw: "this should be parsed",
+		raw: map[string]interface{}{
+			"distance": "cosine",
+			"dummy":    "this should be parsed",
+		},
 	}, objectClasses[0].VectorIndexConfig)
 	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
 		"the default was set")
@@ -472,9 +477,12 @@ func newSchemaManager() *Manager {
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
+	dummyConfig := config.Config{
+		DefaultVectorizerModule:     config.VectorizerModuleNone,
+		DefaultVectorDistanceMetric: "cosine",
+	}
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
-		dummyParseVectorConfig, // only option for now
+		dummyConfig, dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{},
 		&fakeTxClient{},
