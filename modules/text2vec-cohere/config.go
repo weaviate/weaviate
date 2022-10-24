@@ -18,7 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/vectorizer"
+	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/vectorizer"
 )
 
 func (m *CohereModule) ClassConfigDefaults() map[string]interface{} {

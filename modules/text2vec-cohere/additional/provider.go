@@ -13,7 +13,7 @@ package additional
 
 import (
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/additional/projector"
+	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/additional/projector"
 )
 
 type GraphQLAdditionalArgumentsProvider struct {
