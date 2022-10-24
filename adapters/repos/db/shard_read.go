@@ -15,8 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
-	"runtime"
 	"time"
 
 	"github.com/go-openapi/strfmt"

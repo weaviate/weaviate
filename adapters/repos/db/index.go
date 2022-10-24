@@ -748,8 +748,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		if local {
 
-			//If the request is a BM25F with no properties selected, use all properties
-			//KeywordRanking == nil -> no BM25
+			//If the request is a BM25F with no properties selected, use all possible properties
+		
 			
 				if keywordRanking != nil && keywordRanking.Type=="bm25" && len(keywordRanking.Properties) == 0 {
 					//Loop over classes and find i.Config.ClassName.String()
@@ -780,7 +780,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outScores = append(outScores, scores...)
 	}
 
-	if keywordRanking.Type == "bm25" {
+	if keywordRanking != nil && keywordRanking.Type == "bm25" {
 		fmt.Printf("outObjects and outScores  in query: %+v,  \n\noutObjects: %+v\n\noutScores: %+v\n", keywordRanking, outObjects, outScores)
 
 		fmt.Println("-----------------------------------------")
