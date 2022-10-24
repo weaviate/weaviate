@@ -516,6 +516,12 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 
+		// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2285,
+		// MultipleRef's can appear as empty []string when no actual refs are provided for an
+		// object's reference property.
+		//
+		// this test asserts that reference properties do not break when they are unmarshalled
+		// as empty string slices.
 		t.Run("when rep prop is stored as empty string slice", func(t *testing.T) {
 			uuid := "cf768bb0-03d8-4464-8f54-f787cf174c01"
 			name := "Transformers"
