@@ -747,6 +747,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
+
+			//If the request is a BM25F with no properties selected, use all properties
+			//KeywordRanking == nil -> no BM25
 			if keywordRanking != nil && len(keywordRanking.Properties) == 0 {
 				//Loop over classes and find i.Config.ClassName.String()
 				for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {
@@ -776,17 +779,21 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outScores = append(outScores, scores...)
 	}
 
-	if len(outObjects) == len(outScores) {
-		fmt.Println("-----------------------------------------")
-		for ii, _ := range outObjects {
-			fmt.Printf("outObjects: %+v\n", outObjects[ii])
-			fmt.Printf("outScores: %+v\n", outScores[ii])
-			oo := outObjects[ii]
-			os := outScores[ii]
-			if oo.AdditionalProperties() == nil {
-				oo.Object.Additional = make(map[string]interface{})
+	if keywordRanking != nil {
+		if len(outObjects) == len(outScores) {
+			fmt.Println("-----------------------------------------")
+			for ii, _ := range outObjects {
+				fmt.Printf("outObjects: %+v\n", outObjects[ii])
+				fmt.Printf("outScores: %+v\n", outScores[ii])
+				oo := outObjects[ii]
+				os := outScores[ii]
+				if oo.AdditionalProperties() == nil {
+					oo.Object.Additional = make(map[string]interface{})
+				}
+				oo.Object.Additional["score"] = os
 			}
-			oo.Object.Additional["score"] = os
+		} else {
+			panic(fmt.Sprintf("outObjects and outScores are not the same length in query: %+v,  \n\noutObjects: %+v\n\noutScores: %+v\n", keywordRanking, outObjects, outScores))
 		}
 	}
 
