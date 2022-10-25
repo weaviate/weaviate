@@ -51,7 +51,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	for _, existingProperty := range class.Properties {
 		existingPropertyNames[existingProperty.Name] = true
 	}
-	if err := m.validateProperty(prop, class, existingPropertyNames, false); err != nil {
+	if err := m.validateProperty(prop, className, existingPropertyNames, false); err != nil {
 		return err
 	}
 

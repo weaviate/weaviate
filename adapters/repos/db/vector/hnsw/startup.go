@@ -39,6 +39,12 @@ func (h *hnsw) init(cfg Config) error {
 
 	h.commitLog = cl
 
+	// report the vector_index_size at server startup.
+	// otherwise on server restart, prometheus reports
+	// a vector_index_size of 0 until more vectors are
+	// added.
+	h.metrics.SetSize(len(h.nodes))
+
 	return nil
 }
 
