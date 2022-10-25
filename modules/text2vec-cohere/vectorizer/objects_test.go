@@ -187,7 +187,7 @@ func TestVectorizingObjects(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
 			expected := strings.Split(test.expectedClientCall, " ")
-			actual := client.lastInput
+			actual := strings.Split(client.lastInput[0], " ")
 			assert.Equal(t, expected, actual)
 			assert.Equal(t, test.expectedCohereModel, client.lastConfig.Model)
 		})
