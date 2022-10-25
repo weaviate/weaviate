@@ -132,6 +132,8 @@ func (d *DB) DeleteIndex(className schema.ClassName) error {
 func (d *DB) Shutdown(ctx context.Context) error {
 	d.shutdown <- struct{}{}
 
+	d.indexLock.Lock()
+	defer d.indexLock.Unlock()
 	for id, index := range d.indices {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)
