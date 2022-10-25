@@ -247,6 +247,7 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	return sum / totalCount, nil
 }
 
+//BM25F
 func (t *PropertyLengthTracker) PropertyCount(propName string) (float32, float32, error) {
 	t.Lock()
 	defer t.Unlock()

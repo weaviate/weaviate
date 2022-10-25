@@ -170,10 +170,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, []float32, error) {
-	fmt.Printf("Searching using BM25F: %+v. %+v, %+v\n", keywordRanking, filter, additional)
-
 	terms := strings.Split(keywordRanking.Query, " ")
-
 	idLists := make([]docPointersWithScore, len(terms))
 
 	for i, term := range terms {
@@ -200,7 +197,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 
 // BM25F merge the results from multiple properties
 func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWithScore {
-	//Merge all ids into the first element of the list
+	//Merge all ids into the first element of the list (i.e. merge the results from different properties but same query)
 
 	//If there is only one, we are finished
 	if len(idLists) == 1 {
@@ -220,7 +217,7 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWith
 				//if id is in the map, add the frequency
 				existing := docHash[doc.id]
 				existing.frequency += doc.frequency
-				//FIXME!!! We will have a different propLength for each property, how do we combine them?
+				//TODO: We will have a different propLength for each property, how do we combine them?
 				docHash[doc.id] = existing
 			}
 		}
@@ -242,7 +239,8 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWith
 	return res
 }
 
-// BM25F
+// BM25F search each given property for a single term.  Results will be combined later
+//TODO: Combine them here?
 func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	properties []string, term string,
 ) (docPointersWithScore, error) {
@@ -276,8 +274,8 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	return ids, nil
 }
 
+//BM25F combine and score the results from multiple properties
 func (bm *BM25Searcher) scoreBM25F(ids docPointersWithScore, propName []string) error {
-
 	totalPropSum := 0.0
 	total := 0.0
 	for _, prop := range propName {
