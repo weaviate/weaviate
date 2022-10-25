@@ -177,6 +177,14 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		class.VectorIndexType = "hnsw"
 	}
 
+	if m.config.DefaultVectorDistanceMetric != "" {
+		if class.VectorIndexConfig == nil {
+			class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
+		} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
+			class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+		}
+	}
+
 	if class.InvertedIndexConfig == nil {
 		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
@@ -239,7 +247,7 @@ func (m *Manager) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class, existingPropertyNames, relaxCrossRefValidation); err != nil {
+		if err := m.validateProperty(property, class.Class, existingPropertyNames, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[property.Name] = true
@@ -258,7 +266,7 @@ func (m *Manager) validateCanAddClass(
 }
 
 func (m *Manager) validateProperty(
-	property *models.Property, class *models.Class,
+	property *models.Property, className string,
 	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
 ) error {
 	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
@@ -270,14 +278,14 @@ func (m *Manager) validateProperty(
 	}
 
 	if existingPropertyNames[property.Name] {
-		return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
+		return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, className)
 	}
 
 	// Validate data type of property.
-	schema := m.GetSchemaSkipAuth()
+	sch := m.GetSchemaSkipAuth()
 
-	propertyDataType, err := (&schema).FindPropertyDataTypeWithRefs(property.DataType,
-		relaxCrossRefValidation)
+	propertyDataType, err := (&sch).FindPropertyDataTypeWithRefs(property.DataType,
+		relaxCrossRefValidation, schema.ClassName(className))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}

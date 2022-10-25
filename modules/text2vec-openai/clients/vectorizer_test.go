@@ -32,15 +32,10 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
-			urlBuilder: &openAIUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
-			},
-			logger: nullLogger(),
-		}
+
+		c := New("apiKey", nullLogger())
+		c.host = server.URL
+
 		expected := &ent.VectorizationResult{
 			Text:       "This is my text",
 			Vector:     []float32{0.1, 0.2, 0.3},
@@ -59,15 +54,8 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
-			urlBuilder: &openAIUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := New("apiKey", nullLogger())
+		c.host = server.URL
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
@@ -83,15 +71,8 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
-			urlBuilder: &openAIUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := New("apiKey", nullLogger())
+		c.host = server.URL
 		_, err := c.Vectorize(context.Background(), "This is my text",
 			ent.VectorizationConfig{})
 
@@ -102,15 +83,8 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &openAIUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := New("", nullLogger())
+		c.host = server.URL
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{"some-key"})
 
@@ -132,15 +106,8 @@ func TestClient(t *testing.T) {
 	t.Run("when OpenAI key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &openAIUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := New("", nullLogger())
+		c.host = server.URL
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
@@ -155,15 +122,9 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Openai-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &openAIUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/v1/engines/%s-search-%s-%s-001/embeddings",
-			},
-			logger: nullLogger(),
-		}
+		c := New("", nullLogger())
+		c.host = server.URL
+
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{""})
 
@@ -233,4 +194,145 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+func Test_getModelString(t *testing.T) {
+	t.Run("getModelStringDocument", func(t *testing.T) {
+		type args struct {
+			docType string
+			model   string
+		}
+		tests := []struct {
+			name string
+			args args
+			want string
+		}{
+			{
+				name: "Document type: text model: ada vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "ada",
+				},
+				want: "text-search-ada-doc-001",
+			},
+			{
+				name: "Document type: text model: babbage vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "babbage",
+				},
+				want: "text-search-babbage-doc-001",
+			},
+			{
+				name: "Document type: text model: curie vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "curie",
+				},
+				want: "text-search-curie-doc-001",
+			},
+			{
+				name: "Document type: text model: davinci vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "davinci",
+				},
+				want: "text-search-davinci-doc-001",
+			},
+			{
+				name: "Document type: code model: ada vectorizationType: code",
+				args: args{
+					docType: "code",
+					model:   "ada",
+				},
+				want: "code-search-ada-code-001",
+			},
+			{
+				name: "Document type: code model: babbage vectorizationType: code",
+				args: args{
+					docType: "code",
+					model:   "babbage",
+				},
+				want: "code-search-babbage-code-001",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				v := New("apiKey", nullLogger())
+				if got := v.getModelString(tt.args.docType, tt.args.model, "document"); got != tt.want {
+					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("getModelStringQuery", func(t *testing.T) {
+		type args struct {
+			docType string
+			model   string
+		}
+		tests := []struct {
+			name string
+			args args
+			want string
+		}{
+			{
+				name: "Document type: text model: ada vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "ada",
+				},
+				want: "text-search-ada-query-001",
+			},
+			{
+				name: "Document type: text model: babbage vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "babbage",
+				},
+				want: "text-search-babbage-query-001",
+			},
+			{
+				name: "Document type: text model: curie vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "curie",
+				},
+				want: "text-search-curie-query-001",
+			},
+			{
+				name: "Document type: text model: davinci vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "davinci",
+				},
+				want: "text-search-davinci-query-001",
+			},
+
+			{
+				name: "Document type: code model: ada vectorizationType: text",
+				args: args{
+					docType: "code",
+					model:   "ada",
+				},
+				want: "code-search-ada-text-001",
+			},
+			{
+				name: "Document type: code model: babbage vectorizationType: text",
+				args: args{
+					docType: "code",
+					model:   "babbage",
+				},
+				want: "code-search-babbage-text-001",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				v := New("apiKey", nullLogger())
+				if got := v.getModelString(tt.args.docType, tt.args.model, "query"); got != tt.want {
+					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
 }
