@@ -36,26 +36,29 @@ func (s *Shard) Dimensions() int {
 }
 
 func (s *Shard) sendVectorDimensionsMetric(count int) {
-	metric, err := s.promMetrics.VectorDimensionsSum.
-		GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
-	if err == nil {
-		metric.Set(float64(count))
+	if s.promMetrics != nil {
+		metric, err := s.promMetrics.VectorDimensionsSum.
+			GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
+		if err == nil {
+			metric.Set(float64(count))
+		}
 	}
 }
 
 func (s *Shard) initDimensionTracking() {
 	if s.index.Config.TrackVectorDimensions {
+		// always send vector dimensions at startup if tracking is enabled
+		s.sendVectorDimensionsMetric(s.Dimensions())
 		// start tracking vector dimensions goroutine only when tracking is enabled
 		go func() {
 			t := time.NewTicker(5 * time.Minute)
+			defer t.Stop()
 			for {
 				select {
 				case <-s.stopMetrics:
 					return
 				case <-t.C:
-					if s.promMetrics != nil {
-						s.sendVectorDimensionsMetric(s.Dimensions())
-					}
+					s.sendVectorDimensionsMetric(s.Dimensions())
 				}
 			}
 		}()
