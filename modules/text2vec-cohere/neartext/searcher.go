@@ -104,7 +104,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	settings localvectorizer.ClassSettings,
 ) ([]float32, error) {
 	var objectVectors [][]float32
-
+	class := className
 	if len(values) > 0 {
 		moveToVector, err := s.vectorizer.Texts(ctx, values, settings)
 		if err != nil {
@@ -125,9 +125,12 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 					return nil, err
 				}
 				id = ref.TargetID
+				if ref.Class != "" {
+					class = ref.Class
+				}
 			}
 
-			vector, err := findVectorFn(ctx, className, id)
+			vector, err := findVectorFn(ctx, class, id)
 			if err != nil {
 				return nil, err
 			}
