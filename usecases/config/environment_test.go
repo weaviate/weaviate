@@ -156,3 +156,20 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
+	t.Run("DefaultVectorDistanceMetricIsEmpty", func(t *testing.T) {
+		os.Clearenv()
+		conf := Config{}
+		FromEnv(&conf)
+		require.Equal(t, "", conf.DefaultVectorDistanceMetric)
+	})
+
+	t.Run("NonEmptyDefaultVectorDistanceMetric", func(t *testing.T) {
+		os.Clearenv()
+		os.Setenv("DEFAULT_VECTOR_DISTANCE_METRIC", "l2-squared")
+		conf := Config{}
+		FromEnv(&conf)
+		require.Equal(t, "l2-squared", conf.DefaultVectorDistanceMetric)
+	})
+}

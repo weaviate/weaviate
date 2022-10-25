@@ -543,4 +543,64 @@ func TestAddClass(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("with default vector distance metric", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		expected := fakeVectorConfig{raw: map[string]interface{}{"distance": "cosine"}}
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: "NewClass"})
+		require.Nil(t, err)
+
+		require.NotNil(t, mgr.state.ObjectSchema)
+		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+	})
+
+	t.Run("with default vector distance metric when class already has VectorIndexConfig", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		expected := fakeVectorConfig{raw: map[string]interface{}{
+			"distance":               "cosine",
+			"otherVectorIndexConfig": "1234",
+		}}
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{
+				Class: "NewClass",
+				VectorIndexConfig: map[string]interface{}{
+					"otherVectorIndexConfig": "1234",
+				},
+			})
+		require.Nil(t, err)
+
+		require.NotNil(t, mgr.state.ObjectSchema)
+		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+	})
+
+	t.Run("with customized distance metric", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		expected := fakeVectorConfig{
+			raw: map[string]interface{}{"distance": "l2-squared"},
+		}
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{
+				Class: "NewClass",
+				VectorIndexConfig: map[string]interface{}{
+					"distance": "l2-squared",
+				},
+			})
+		require.Nil(t, err)
+
+		require.NotNil(t, mgr.state.ObjectSchema)
+		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
+		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+	})
 }
