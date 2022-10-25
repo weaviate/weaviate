@@ -136,7 +136,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 	}
 
 	if len(params.KeywordRanking.Properties) > 1 {
-		log.Printf("!!! experimental multi-property keyword search (BM25F) support")
+		log.Printf("experimental multi-property keyword search (BM25F) active")
 	}
 
 	if len(params.KeywordRanking.Query) == 0 {

@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -781,15 +780,10 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if keywordRanking != nil && keywordRanking.Type == "bm25" {
-		fmt.Printf("outObjects and outScores  in query: %+v,  \n\noutObjects: %+v\n\noutScores: %+v\n", keywordRanking, outObjects, outScores)
-
-		fmt.Println("-----------------------------------------")
-		for ii, _ := range outObjects {
-			fmt.Printf("outObjects: %+v\n", outObjects[ii])
+		for ii := range outObjects {
 
 			oo := outObjects[ii]
 			if len(outObjects) == len(outScores) {
-				fmt.Printf("outScores: %+v\n", outScores[ii])
 				os := outScores[ii]
 				if oo.AdditionalProperties() == nil {
 					oo.Object.Additional = make(map[string]interface{})
