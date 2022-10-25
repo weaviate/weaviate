@@ -31,7 +31,7 @@ type Properties struct {
 	LastUpdateTimeUnix bool                   `json:"lastUpdateTimeUnix"`
 	ModuleParams       map[string]interface{} `json:"moduleParams"`
 	Distance           bool                   `json:"distance"`
-	Score              bool
+	Score              bool                   `json:"score"`
 
 	// ReferenceQuery is used to indicate that a search
 	// is being conducted on behalf of a referenced
