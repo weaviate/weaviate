@@ -64,8 +64,10 @@ func (d *DB) init(ctx context.Context) error {
 				return errors.Wrap(err, "create index")
 			}
 
+			d.indexLock.Lock()
 			d.indices[idx.ID()] = idx
 			idx.notifyReady()
+			d.indexLock.Unlock()
 		}
 	}
 
