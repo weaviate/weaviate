@@ -112,7 +112,6 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 		}
 		objectVectors = append(objectVectors, moveToVector)
 	}
-
 	if len(objects) > 0 {
 		var id strfmt.UUID
 		for _, obj := range objects {
@@ -125,6 +124,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 					return nil, err
 				}
 				id = ref.TargetID
+
 				if ref.Class != "" {
 					class = ref.Class
 				}
