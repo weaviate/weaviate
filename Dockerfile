@@ -19,8 +19,9 @@ RUN go mod download
 FROM build_base AS server_builder
 ARG TARGETARCH
 ARG GITHASH="unknown"
+ARG EXTRA_BUILD_ARGS=""
 COPY . .
-RUN GOOS=linux GOARCH=$TARGETARCH go build  \
+RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" -X github.com/semi-technologies/weaviate/usecases/config.GitHash='"$GITHASH"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
