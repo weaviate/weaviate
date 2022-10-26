@@ -16,7 +16,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math"
 	"runtime/debug"
 	"sort"
@@ -165,6 +164,32 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 	return ids, nil
 }
 
+// Merge BM25F scores of all terms
+func mergeScores (termresults []docPointersWithScore) docPointersWithScore {
+	//Create a hash, iterate over termresults, add the score to the hash, turn the hash into a list
+	resultsHash := make(map[uint64]docPointerWithScore)
+	for _, id := range termresults {
+		for _, doc := range id.docIDs {
+			if _, ok := resultsHash[doc.id]; !ok {
+				resultsHash[doc.id] = doc
+			} else {
+				d := resultsHash[doc.id]
+				d.score += doc.score
+				resultsHash[doc.id] = d
+			}
+		}
+	}
+
+	results := docPointersWithScore{}
+	for _, doc := range resultsHash {
+		results.docIDs = append(results.docIDs, doc)
+	}
+	results.count = uint64(len(results.docIDs))
+
+	return results
+}
+
+
 func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
@@ -184,7 +209,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 		idLists[i] = ids
 	}
 
-	ids := newScoreMerger(idLists).do()
+	ids := mergeScores(idLists)
 	ids = b.sort(ids)
 	objs, scores, err := b.rankedObjectsByDocID(ids, additional)
 	if err != nil {
@@ -217,6 +242,7 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWith
 				//if id is in the map, add the frequency
 				existing := docHash[doc.id]
 				existing.frequency += doc.frequency
+				existing.propLength += doc.propLength
 				//TODO: We will have a different propLength for each property, how do we combine them?
 				docHash[doc.id] = existing
 			}
@@ -255,7 +281,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 
 	}
 
-	log.Printf("BM25F: Retrieving for term %s in properties %v", searchTerm, properties)
 	for _, property := range properties {
 		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
 		if err != nil {
@@ -428,6 +453,8 @@ func (bm *BM25Searcher) rankedObjectsByDocID(found docPointersWithScore,
 		}
 
 		objs[i], scores[i] = unmarshalled, float32(found.docIDs[idx].score)
+
+		fmt.Printf("Scored doc: %v, score: %v, freq: %v, propLen: %v\n", found.docIDs[idx].id, found.docIDs[idx].score, found.docIDs[idx].frequency, found.docIDs[idx].propLength)	
 		i++
 	}
 
