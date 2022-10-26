@@ -229,6 +229,8 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	
+
 	// TODO: metrics
 	if err := s.updateInvertedIndexCleanupOldLSM(status, previous); err != nil {
 		return errors.Wrap(err, "analyze and cleanup previous")
