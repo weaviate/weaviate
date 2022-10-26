@@ -26,7 +26,6 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 	}
 
 	h.metrics.InsertVector()
-	h.metrics.InsertVectorDimensions(len(vector))
 	defer h.insertMetrics.total(before)
 
 	node := &vertex{

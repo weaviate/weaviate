@@ -56,6 +56,7 @@ func (d *DB) init(ctx context.Context) error {
 				QueryMaximumResults:       d.config.QueryMaximumResults,
 				MaxImportGoroutinesFactor: d.config.MaxImportGoroutinesFactor,
 				FlushIdleAfter:            d.config.FlushIdleAfter,
+				TrackVectorDimensions:     d.config.TrackVectorDimensions,
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
