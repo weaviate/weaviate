@@ -278,6 +278,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		if additional.Classification {
 			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
 		}
+
 	}
 
 	return &search.Result{

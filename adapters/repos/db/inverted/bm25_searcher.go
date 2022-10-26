@@ -164,6 +164,19 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 	return ids, nil
 }
 
+func CopyIntoMap(a,b map[string]interface{}) map[string]interface{}{
+	if  b == nil {
+		return a
+	}
+	if a == nil {
+		a = make(map[string]interface{})
+	}
+	for k,v := range b {
+		a[k] = v
+	}
+	return a
+}
+
 // Merge BM25F scores of all terms
 func mergeScores(termresults []docPointersWithScore) docPointersWithScore {
 	//Create a hash, iterate over termresults, add the score to the hash, turn the hash into a list
@@ -176,6 +189,7 @@ func mergeScores(termresults []docPointersWithScore) docPointersWithScore {
 				d := resultsHash[doc.id]
 				d.score += doc.score
 				resultsHash[doc.id] = d
+				CopyIntoMap(d.Additional, doc.Additional)
 			}
 		}
 	}
@@ -220,7 +234,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 }
 
 // BM25F merge the results from multiple properties
-func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWithScore {
+func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, propNames []string) docPointersWithScore {
 	//Merge all ids into the first element of the list (i.e. merge the results from different properties but same query)
 
 	//If there is only one, we are finished
@@ -232,16 +246,23 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWith
 
 	total := 0
 
-	for _, list := range idLists {
+	for i, list := range idLists {
 		for _, doc := range list.docIDs {
 			//if id is not in the map, add it
 			if _, ok := docHash[doc.id]; !ok {
+				if doc.Additional == nil{
+					doc.Additional = make(map[string]interface{})
+				}
+				doc.Additional[propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
+				doc.Additional[propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
 				docHash[doc.id] = doc
 			} else {
 				//if id is in the map, add the frequency
 				existing := docHash[doc.id]
 				existing.frequency += doc.frequency
 				existing.propLength += doc.propLength
+				existing.Additional[propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
+				existing.Additional[propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
 				//TODO: We will have a different propLength for each property, how do we combine them?
 				docHash[doc.id] = existing
 			}
@@ -279,6 +300,8 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 
 	}
 
+	propNames := []string{}
+
 	for _, property := range properties {
 		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
 		if err != nil {
@@ -286,9 +309,10 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 				"read doc ids and their frequencies from inverted index")
 		}
 		idss = append(idss, ids)
+		propNames = append(propNames, property)
 	}
 
-	ids := b.mergeIdss(idss)
+	ids := b.mergeIdss(idss, propNames)
 	//Boost the frequencies
 	for i := range ids.docIDs {
 		ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
@@ -451,7 +475,7 @@ func (bm *BM25Searcher) rankedObjectsByDocID(found docPointersWithScore,
 		}
 
 		objs[i], scores[i] = unmarshalled, float32(found.docIDs[idx].score)
-
+		objs[i].Object.Additional =  CopyIntoMap(objs[i].Object.Additional, found.docIDs[idx].Additional)
 		i++
 	}
 

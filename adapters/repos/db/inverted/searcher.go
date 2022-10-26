@@ -561,6 +561,7 @@ type docPointerWithScore struct {
 	frequency  float64
 	propLength float64
 	score      float64
+	Additional map[string]interface{}
 }
 
 func (d docPointers) IDs() []uint64 {
