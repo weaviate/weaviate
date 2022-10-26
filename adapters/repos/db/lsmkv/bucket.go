@@ -618,12 +618,13 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	// it seems we still need to wait for someone to finish flushing
-	t := time.Tick(50 * time.Millisecond)
+	t := time.NewTicker(50 * time.Millisecond)
+	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-t:
+		case <-t.C:
 			if b.flushing == nil {
 				return nil
 			}

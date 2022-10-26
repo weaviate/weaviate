@@ -193,12 +193,13 @@ func (n *shardedLockCache) deleteAllVectors() {
 
 func (c *shardedLockCache) watchForDeletion() {
 	go func() {
-		t := time.Tick(3 * time.Second)
+		t := time.NewTicker(3 * time.Second)
+		defer t.Stop()
 		for {
 			select {
 			case <-c.cancel:
 				return
-			case <-t:
+			case <-t.C:
 				c.replaceIfFull()
 			}
 		}
