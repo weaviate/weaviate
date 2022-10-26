@@ -165,7 +165,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	
+
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf("shard was built with an older version of " +
@@ -178,11 +178,11 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
-			if keywordRanking != nil && keywordRanking.Type == "bm25" {
-				return searcher.BM25F(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
-			} else {
-				return searcher.Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
-				}		
+		if keywordRanking != nil && keywordRanking.Type == "bm25" {
+			return searcher.BM25F(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+		} else {
+			return searcher.Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+		}
 	}
 
 	if filters == nil {
