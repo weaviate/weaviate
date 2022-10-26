@@ -460,12 +460,12 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 	var asRefs models.MultipleRef
 	asRefs, ok = value.(models.MultipleRef)
 	if !ok {
-		// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2285,
-		// MultipleRef's can appear as empty []string when no actual refs are provided for an
-		// object's reference property.
+		// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+		// an object's reference property.
 		//
-		// if we encounter []string, we assume that it indicates an empty ref prop, and skip it.
-		_, ok := value.([]string)
+		// if we encounter []interface{}, assume it indicates an empty ref prop, and skip it.
+		_, ok := value.([]interface{})
 		if !ok {
 			return fmt.Errorf("expected property %q to be of type models.MutlipleRef,"+
 				" but got %T", prop.Name, value)
