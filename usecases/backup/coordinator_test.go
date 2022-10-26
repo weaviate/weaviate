@@ -311,6 +311,24 @@ func TestCoordinatedRestore(t *testing.T) {
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
 	})
+
+	t.Run("PutInitialMeta", func(t *testing.T) {
+		t.Parallel()
+
+		fc := newFakeCoordinator(nodeResolver)
+		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
+		fc.backend.On("HomeDir", backupID).Return("bucket/" + backupID)
+		fc.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(ErrAny).Once()
+		fc.client.On("Abort", any, nodes[0], abortReq).Return(nil)
+		fc.client.On("Abort", any, nodes[1], abortReq).Return(nil)
+
+		coordinator := *fc.coordinator()
+		store := coordStore{objStore{fc.backend, backupID}}
+		err := coordinator.Restore(ctx, store, backendName, genReq())
+		assert.ErrorIs(t, err, ErrAny)
+		assert.Contains(t, err.Error(), "initial")
+	})
 }
 
 type fakeSelector struct {
