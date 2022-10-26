@@ -165,7 +165,7 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 }
 
 // Merge BM25F scores of all terms
-func mergeScores (termresults []docPointersWithScore) docPointersWithScore {
+func mergeScores(termresults []docPointersWithScore) docPointersWithScore {
 	//Create a hash, iterate over termresults, add the score to the hash, turn the hash into a list
 	resultsHash := make(map[uint64]docPointerWithScore)
 	for _, id := range termresults {
@@ -188,7 +188,6 @@ func mergeScores (termresults []docPointersWithScore) docPointersWithScore {
 
 	return results
 }
-
 
 func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,
@@ -266,7 +265,6 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore) docPointersWith
 }
 
 // BM25F search each given property for a single term.  Results will be combined later
-//TODO: Combine them here?
 func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	properties []string, term string,
 ) (docPointersWithScore, error) {
@@ -299,7 +297,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	return ids, nil
 }
 
-//BM25F combine and score the results from multiple properties
+// BM25F combine and score the results from multiple properties
 func (bm *BM25Searcher) scoreBM25F(ids docPointersWithScore, propName []string) error {
 	totalPropSum := 0.0
 	total := 0.0
@@ -454,7 +452,6 @@ func (bm *BM25Searcher) rankedObjectsByDocID(found docPointersWithScore,
 
 		objs[i], scores[i] = unmarshalled, float32(found.docIDs[idx].score)
 
-		fmt.Printf("Scored doc: %v, score: %v, freq: %v, propLen: %v\n", found.docIDs[idx].id, found.docIDs[idx].score, found.docIDs[idx].frequency, found.docIDs[idx].propLength)	
 		i++
 	}
 
