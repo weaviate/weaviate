@@ -30,8 +30,10 @@ const (
 	DefaultVectorizePropertyName = false
 )
 
-var availableCohereModels = []string{"small", "medium", "large"}
-var availableTruncates = []string{"NONE", "LEFT", "RIGHT"}
+var (
+	availableCohereModels = []string{"small", "medium", "large"}
+	availableTruncates    = []string{"NONE", "LEFT", "RIGHT"}
+)
 
 type classSettings struct {
 	cfg moduletools.ClassConfig
@@ -147,7 +149,11 @@ func (ic *classSettings) getProperty(name, defaultValue string) string {
 	if ok {
 		asString, ok := model.(string)
 		if ok {
-			return strings.ToLower(asString)
+			if name == "truncate" {
+				return asString
+			} else {
+				return strings.ToLower(asString)
+			}
 		}
 	}
 
