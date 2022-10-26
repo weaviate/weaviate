@@ -33,6 +33,7 @@ func TestVectorizingObjects(t *testing.T) {
 		excludedProperty         string // to simulate a schema where property names aren't vectorized
 		excludedClass            string // to simulate a schema where class names aren't vectorized
 		passageModel             string
+		endpointURL              string
 	}
 
 	tests := []testCase{
@@ -168,6 +169,15 @@ func TestVectorizingObjects(t *testing.T) {
 			},
 			expectedClientCall: "super car brand of the car best brand review a very great car",
 		},
+		{
+			name: "empty object with HF Inference Endpoint",
+			input: &models.Object{
+				Class: "Car",
+			},
+			endpointURL:              "https://url.cloud",
+			expectedHuggingFaceModel: "",
+			expectedClientCall:       "car",
+		},
 	}
 
 	for _, test := range tests {
@@ -181,6 +191,7 @@ func TestVectorizingObjects(t *testing.T) {
 				skippedProperty:    test.noindex,
 				vectorizeClassName: test.excludedClass != "Car",
 				passageModel:       test.passageModel,
+				endpointURL:        test.endpointURL,
 			}
 			err := v.Object(context.Background(), test.input, ic)
 
