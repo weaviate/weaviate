@@ -23,6 +23,7 @@ func (c *client) WaitForStartup(initCtx context.Context,
 	interval time.Duration,
 ) error {
 	t := time.NewTicker(interval)
+	defer t.Stop()
 	expired := initCtx.Done()
 	var lastErr error
 	for {
