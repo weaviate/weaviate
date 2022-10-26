@@ -146,12 +146,12 @@ func TestVectorizer_Object(t *testing.T) {
 		}
 	})
 
-	// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2285,
-	// MultipleRef's can appear as empty []string when no actual refs are provided for an
-	// object's reference property.
+	// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+	// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+	// an object's reference property.
 	//
 	// this test asserts that reference properties do not break when they are unmarshalled
-	// as empty string slices.
+	// as empty interface{} slices.
 	t.Run("when rep prop is stored as empty string slice", func(t *testing.T) {
 		ctx := context.Background()
 		repo := &fakeObjectsRepo{}
@@ -159,7 +159,7 @@ func TestVectorizer_Object(t *testing.T) {
 		cfg := fakeClassConfig{"method": "mean", "referenceProperties": refProps}
 
 		obj := &models.Object{
-			Properties: map[string]interface{}{"toRef": []string{}},
+			Properties: map[string]interface{}{"toRef": []interface{}{}},
 		}
 
 		err := New(cfg, repo.Object).Object(ctx, obj)

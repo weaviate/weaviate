@@ -1941,16 +1941,16 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			Class: classNameWithRefs,
 			Properties: map[string]interface{}{
 				"stringProp": "some prop",
-				// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2285,
-				// MultipleRef's will appear as empty []string when no actual refs are provided for an
-				// object's reference property.
+				// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+				// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+				// an object's reference property.
 				//
-				// when this obj1 is unmarshalled from storage, refProp will be represented as []string,
+				// when obj1 is unmarshalled from storage, refProp will be represented as []interface{},
 				// because it is an empty reference property. so when comparing obj1 with the result of
-				// repo.Object, we need this refProp here to be a []string. Note that this is due to our
-				// usage of storobj.Object.MarshallerVersion 1, and future MarshallerVersions may not
-				// have this ambiguous property type limitation.
-				"refProp": []string{},
+				// repo.Object, we need this refProp here to be a []interface{}. Note that this is due
+				// to our usage of storobj.Object.MarshallerVersion 1, and future MarshallerVersions may
+				// not have this ambiguous property type limitation.
+				"refProp": []interface{}{},
 			},
 		}
 		obj2ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
