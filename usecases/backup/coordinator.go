@@ -189,18 +189,15 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 		return err
 	}
 
-	statusReq := StatusRequest{
-		Method:  OpRestore,
-		ID:      desc.ID,
-		Backend: backend,
-	}
-
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
-		c.log.WithField("action", OpRestore).
-			WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+		c.lastOp.reset()
+		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: backend}
+		c.abortAll(ctx, req, nodes)
+		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: backend}
 	go func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
