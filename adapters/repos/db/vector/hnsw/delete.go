@@ -37,7 +37,6 @@ func (h *hnsw) Delete(id uint64) error {
 	defer h.metrics.TrackDelete(before, "total")
 
 	h.metrics.DeleteVector()
-	h.metrics.DeleteVectorDimensions(h.cache.dimensions(id))
 	if err := h.addTombstone(id); err != nil {
 		return err
 	}

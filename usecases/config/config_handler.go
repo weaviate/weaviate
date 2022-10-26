@@ -87,7 +87,7 @@ type Config struct {
 	ResourceUsage                    ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	ReindexVectorDimensionsAtStartup bool           `json:"want_dimensions_reindex" yaml:"want_dimensions_reindex"`
+	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 }
 
 type moduleProvider interface {
