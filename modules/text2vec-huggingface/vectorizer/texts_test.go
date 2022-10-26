@@ -27,6 +27,7 @@ func TestVectorizingTexts(t *testing.T) {
 		expectedClientCall       string
 		expectedHuggingFaceModel string
 		huggingFaceModel         string
+		huggingFaceEndpointURL   string
 	}
 
 	tests := []testCase{
@@ -79,6 +80,13 @@ func TestVectorizingTexts(t *testing.T) {
 			expectedHuggingFaceModel: "sentence-transformers/gtr-t5-xl",
 			expectedClientCall:       "this is sentence 1, and here's number 2",
 		},
+		{
+			name:                     "single word with inference url",
+			input:                    []string{"hello"},
+			huggingFaceEndpointURL:   "http://url.cloud",
+			expectedHuggingFaceModel: "",
+			expectedClientCall:       "hello",
+		},
 	}
 
 	for _, test := range tests {
@@ -88,7 +96,8 @@ func TestVectorizingTexts(t *testing.T) {
 			v := New(client)
 
 			settings := &fakeSettings{
-				queryModel: test.huggingFaceModel,
+				queryModel:  test.huggingFaceModel,
+				endpointURL: test.huggingFaceEndpointURL,
 			}
 			vec, err := v.Texts(context.Background(), test.input, settings)
 
