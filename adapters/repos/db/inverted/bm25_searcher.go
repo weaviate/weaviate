@@ -164,14 +164,14 @@ func (b *BM25Searcher) retrieveScoreAndSortForSingleTerm(ctx context.Context,
 	return ids, nil
 }
 
-func CopyIntoMap(a,b map[string]interface{}) map[string]interface{}{
-	if  b == nil {
+func CopyIntoMap(a, b map[string]interface{}) map[string]interface{} {
+	if b == nil {
 		return a
 	}
 	if a == nil {
 		a = make(map[string]interface{})
 	}
-	for k,v := range b {
+	for k, v := range b {
 		a[k] = v
 	}
 	return a
@@ -250,7 +250,7 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, propNames []str
 		for _, doc := range list.docIDs {
 			//if id is not in the map, add it
 			if _, ok := docHash[doc.id]; !ok {
-				if doc.Additional == nil{
+				if doc.Additional == nil {
 					doc.Additional = make(map[string]interface{})
 				}
 				doc.Additional["BM25F_"+propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
@@ -475,7 +475,7 @@ func (bm *BM25Searcher) rankedObjectsByDocID(found docPointersWithScore,
 		}
 
 		objs[i], scores[i] = unmarshalled, float32(found.docIDs[idx].score)
-		objs[i].Object.Additional =  CopyIntoMap(objs[i].Object.Additional, found.docIDs[idx].Additional)
+		objs[i].Object.Additional = CopyIntoMap(objs[i].Object.Additional, found.docIDs[idx].Additional)
 		i++
 	}
 
