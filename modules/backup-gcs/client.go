@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package gcs
+package modstggcs
 
 import (
 	"context"
@@ -25,23 +25,16 @@ import (
 	"google.golang.org/api/option"
 )
 
-const (
-	GOOGLE_APPLICATION_CREDENTIALS = "GOOGLE_APPLICATION_CREDENTIALS"
-	GOOGLE_CLOUD_PROJECT           = "GOOGLE_CLOUD_PROJECT"
-	GCLOUD_PROJECT                 = "GCLOUD_PROJECT"
-	GCP_PROJECT                    = "GCP_PROJECT"
-)
-
-type gcs struct {
+type gcsClient struct {
 	client    *storage.Client
-	config    Config
+	config    clientConfig
 	projectID string
 	dataPath  string
 }
 
-func New(ctx context.Context, config Config, dataPath string) (*gcs, error) {
+func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
 	options := []option.ClientOption{}
-	if len(os.Getenv(GOOGLE_APPLICATION_CREDENTIALS)) > 0 {
+	if len(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")) > 0 {
 		scopes := []string{
 			"https://www.googleapis.com/auth/devstorage.read_write",
 		}
@@ -53,21 +46,21 @@ func New(ctx context.Context, config Config, dataPath string) (*gcs, error) {
 	} else {
 		options = append(options, option.WithoutAuthentication())
 	}
-	projectID := os.Getenv(GOOGLE_CLOUD_PROJECT)
+	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if len(projectID) == 0 {
-		projectID = os.Getenv(GCLOUD_PROJECT)
+		projectID = os.Getenv("GCLOUD_PROJECT")
 		if len(projectID) == 0 {
-			projectID = os.Getenv(GCP_PROJECT)
+			projectID = os.Getenv("GCP_PROJECT")
 		}
 	}
 	client, err := storage.NewClient(ctx, options...)
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
-	return &gcs{client, config, projectID, dataPath}, nil
+	return &gcsClient{client, *config, projectID, dataPath}, nil
 }
 
-func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
+func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	backupID, objectName string,
 ) ([]byte, error) {
 	// Create bucket reader
@@ -85,20 +78,20 @@ func (g *gcs) getObject(ctx context.Context, bucket *storage.BucketHandle,
 		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
 
-	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(content)))
 	}
 	return content, nil
 }
 
-func (g *gcs) HomeDir(backupID string) string {
-	return "gs://" + path.Join(g.config.BucketName(),
+func (g *gcsClient) HomeDir(backupID string) string {
+	return "gs://" + path.Join(g.config.Bucket,
 		g.makeObjectName(backupID))
 }
 
-func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
-	bucket := g.client.Bucket(g.config.BucketName())
+func (g *gcsClient) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
+	bucket := g.client.Bucket(g.config.Bucket)
 
 	if _, err := bucket.Attrs(ctx); err != nil {
 		return nil, err
@@ -107,12 +100,12 @@ func (g *gcs) findBucket(ctx context.Context) (*storage.BucketHandle, error) {
 	return bucket, nil
 }
 
-func (g *gcs) makeObjectName(parts ...string) string {
+func (g *gcsClient) makeObjectName(parts ...string) string {
 	base := path.Join(parts...)
-	return path.Join(g.config.BackupPath(), base)
+	return path.Join(g.config.BackupPath, base)
 }
 
-func (g *gcs) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
 	objectName := g.makeObjectName(backupID, key)
 
 	if err := ctx.Err(); err != nil {
@@ -138,7 +131,7 @@ func (g *gcs) GetObject(ctx context.Context, backupID, key string) ([]byte, erro
 	return contents, nil
 }
 
-func (g *gcs) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath string) error {
 	srcPath = path.Join(g.dataPath, srcPath)
 	contents, err := os.ReadFile(srcPath)
 	if err != nil {
@@ -148,7 +141,7 @@ func (g *gcs) PutFile(ctx context.Context, backupID, key, srcPath string) error 
 	return g.PutObject(ctx, backupID, key, contents)
 }
 
-func (g *gcs) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (g *gcsClient) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return errors.Wrap(err, "find bucket")
@@ -176,7 +169,7 @@ func (g *gcs) PutObject(ctx context.Context, backupID, key string, byes []byte) 
 	return nil
 }
 
-func (g *gcs) Initialize(ctx context.Context, backupID string) error {
+func (g *gcsClient) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
 	if err := g.PutObject(ctx, backupID, key, []byte("")); err != nil {
@@ -196,7 +189,7 @@ func (g *gcs) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
 
-func (g *gcs) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
 	obj, err := g.GetObject(ctx, backupID, key)
 	if err != nil {
 		return errors.Wrapf(err, "get object '%s'", key)
@@ -214,6 +207,6 @@ func (g *gcs) WriteToFile(ctx context.Context, backupID, key, destPath string) e
 	return nil
 }
 
-func (g *gcs) SourceDataPath() string {
+func (g *gcsClient) SourceDataPath() string {
 	return g.dataPath
 }
