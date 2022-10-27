@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -788,6 +789,16 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 					oo.Object.Additional = make(map[string]interface{})
 				}
 				oo.Object.Additional["score"] = os
+				//Collect all keys starting with "BM25F" and add them to the Additional
+				scoreExplain := ""
+				for k, v := range oo.Object.Additional {
+					if strings.HasPrefix(k, "BM25F") {
+
+						scoreExplain = fmt.Sprintf("%v, %v:%v",  scoreExplain ,k, v)
+						delete(oo.Object.Additional, k)
+					}
+				}
+				oo.Object.Additional["scoreExplain"] = scoreExplain
 			}
 		}
 	}

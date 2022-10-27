@@ -210,6 +210,12 @@ func (b *classBuilder) additionalScoreField() *graphql.Field {
 	}
 }
 
+func (b *classBuilder) additionalScoreExplainField() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.String,
+	}
+}
+
 func (b *classBuilder) additionalLastUpdateTimeUnix() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,
