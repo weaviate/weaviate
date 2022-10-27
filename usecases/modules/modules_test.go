@@ -507,6 +507,10 @@ func (m *dummyBackupModuleWithAltNames) SourceDataPath() string {
 	return ""
 }
 
+func (*dummyBackupModuleWithAltNames) IsExternal() bool {
+	return true
+}
+
 func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath string) error {
 	return nil
 }
