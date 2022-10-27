@@ -290,8 +290,9 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
 		}
 	}
-
-	additionalProperties["scoreExplain"] = ko.ScoreExplain()
+	if ko.ScoreExplain() != "" {
+		additionalProperties["scoreExplain"] = ko.ScoreExplain()
+	}
 
 	return &search.Result{
 		ID:        ko.ID(),
