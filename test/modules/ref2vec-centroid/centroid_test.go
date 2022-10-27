@@ -24,7 +24,6 @@ import (
 )
 
 func TestCentroid(t *testing.T) {
-	t.Skip()
 	helper.SetupClient(os.Getenv(weaviateEndpoint))
 
 	paragraphClass := articles.ParagraphsClass()
