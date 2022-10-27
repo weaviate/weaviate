@@ -32,7 +32,7 @@ type Properties struct {
 	ModuleParams       map[string]interface{} `json:"moduleParams"`
 	Distance           bool                   `json:"distance"`
 	Score              bool                   `json:"score"`
-	ScoreExplain	   bool                   `json:"scoreExplain"`
+	ScoreExplain       bool                   `json:"scoreExplain"`
 
 	// ReferenceQuery is used to indicate that a search
 	// is being conducted on behalf of a referenced

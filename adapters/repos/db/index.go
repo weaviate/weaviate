@@ -794,7 +794,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				for k, v := range oo.Object.Additional {
 					if strings.HasPrefix(k, "BM25F") {
 
-						scoreExplain = fmt.Sprintf("%v, %v:%v",  scoreExplain ,k, v)
+						scoreExplain = fmt.Sprintf("%v, %v:%v", scoreExplain, k, v)
 						delete(oo.Object.Additional, k)
 					}
 				}

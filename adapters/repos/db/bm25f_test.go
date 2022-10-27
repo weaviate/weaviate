@@ -32,7 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BM25FinvertedConfig(k1,b float32) *models.InvertedIndexConfig {
+func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		Bm25: &models.BM25Config{
 			K1: k1,
@@ -47,10 +47,10 @@ func BM25FinvertedConfig(k1,b float32) *models.InvertedIndexConfig {
 	}
 }
 
-func SetupClass (t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1,b float32) {
+func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1,b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
 		Class:               "MyClass",
 		Properties: []*models.Property{
 			{
@@ -114,12 +114,10 @@ func TestBM25FJourney(t *testing.T) {
 	require.Nil(t, err)
 	defer repo.Shutdown(context.Background())
 
-
 	SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
-
 
 	//Check basic search with one property
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey"}
@@ -132,7 +130,7 @@ func TestBM25FJourney(t *testing.T) {
 	require.Equal(t, uint64(5), res[1].DocID())
 
 	//Check scoreExplain
-	require.Contains(t,res[0].Object.Additional["scoreExplain"], "BM25F")
+	require.Contains(t, res[0].Object.Additional["scoreExplain"], "BM25F")
 
 	//Check basic search WITH CAPS
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
@@ -216,23 +214,22 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Nil(t, err)
 	defer repo.Shutdown(context.Background())
 
-
 	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-		//Check scores change when k1 and b are changed
-			//Check boosted
+	//Check scores change when k1 and b are changed
+	//Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey^3"}
 	addit := additional.Properties{}
 	res, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
-		//Print results
-		fmt.Println("--- Start results for search with caps ---")
-		for _, r := range res {
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-		}
+	//Print results
+	fmt.Println("--- Start results for search with caps ---")
+	for _, r := range res {
+		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+	}
 
 	require.Nil(t, err)
 
