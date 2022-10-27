@@ -152,7 +152,7 @@ func TestVectorizer_Object(t *testing.T) {
 	//
 	// this test asserts that reference properties do not break when they are unmarshalled
 	// as empty interface{} slices.
-	t.Run("when rep prop is stored as empty string slice", func(t *testing.T) {
+	t.Run("when rep prop is stored as empty interface{} slice", func(t *testing.T) {
 		ctx := context.Background()
 		repo := &fakeObjectsRepo{}
 		refProps := []interface{}{"toRef"}
