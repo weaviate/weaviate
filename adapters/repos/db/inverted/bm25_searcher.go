@@ -253,16 +253,16 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, propNames []str
 				if doc.Additional == nil{
 					doc.Additional = make(map[string]interface{})
 				}
-				doc.Additional[propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
-				doc.Additional[propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
+				doc.Additional["BM25F_"+propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
+				doc.Additional["BM25F_"+propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
 				docHash[doc.id] = doc
 			} else {
 				//if id is in the map, add the frequency
 				existing := docHash[doc.id]
 				existing.frequency += doc.frequency
 				existing.propLength += doc.propLength
-				existing.Additional[propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
-				existing.Additional[propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
+				existing.Additional["BM25F_"+propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
+				existing.Additional["BM25F_"+propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
 				//TODO: We will have a different propLength for each property, how do we combine them?
 				docHash[doc.id] = existing
 			}
