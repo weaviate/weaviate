@@ -94,7 +94,7 @@ type coordinator struct {
 
 	// state
 	Participants map[string]participantStatus
-	descriptor   backup.DistributedBackupDescriptor
+	descriptor   *backup.DistributedBackupDescriptor
 	shardSyncChan
 
 	// timeouts
@@ -134,7 +134,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 	if prevID := c.lastOp.renew(req.ID, store.HomeDir()); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
-	c.descriptor = backup.DistributedBackupDescriptor{
+	c.descriptor = &backup.DistributedBackupDescriptor{
 		StartedAt:     time.Now().UTC(),
 		Status:        backup.Started,
 		ID:            req.ID,
@@ -162,7 +162,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes)
-		if err := store.PutMeta(ctx, GlobalBackupFile, &c.descriptor); err != nil {
+		if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
 			c.log.WithField("action", OpCreate).
 				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
 		}
@@ -181,7 +181,7 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
-	c.descriptor = *desc.NewRestoreMeta()
+	c.descriptor = desc.ResetStatus()
 
 	nodes, err := c.canCommit(ctx, OpRestore, backend)
 	if err != nil {
@@ -190,7 +190,7 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 	}
 
 	// initial put so restore status is immediately available
-	if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
+	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
 		c.lastOp.reset()
 		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: backend}
 		c.abortAll(ctx, req, nodes)
@@ -202,7 +202,7 @@ func (c *coordinator) Restore(ctx context.Context, store coordStore, backend str
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes)
-		if err := store.PutMeta(ctx, GlobalRestoreFile, &c.descriptor); err != nil {
+		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
 			c.log.WithField("action", OpRestore).
 				WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
 		}
