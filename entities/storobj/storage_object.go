@@ -194,6 +194,17 @@ func (ko *Object) Score() float32 {
 	return 0
 }
 
+func (ko *Object) ScoreExplain() string {
+	props := ko.AdditionalProperties()
+	if props != nil {
+		iface := props["scoreExplain"]
+		if iface != nil {
+			return iface.(string)
+		}
+	}
+	return ""
+}
+
 func (ko *Object) ID() strfmt.UUID {
 	return ko.Object.ID
 }
@@ -280,6 +291,8 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		}
 	}
 
+	additionalProperties["scoreExplain"] = ko.ScoreExplain()
+
 	return &search.Result{
 		ID:        ko.ID(),
 		ClassName: ko.Class().String(),
@@ -291,6 +304,7 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		Updated:              ko.LastUpdateTimeUnix(),
 		AdditionalProperties: additionalProperties,
 		Score:                ko.Score(),
+		ScoreExplain:         ko.ScoreExplain(),
 		// TODO: Beacon?
 	}
 }

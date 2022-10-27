@@ -144,6 +144,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
+	additionalProperties["scoreExplain"] = b.additionalScoreExplainField()
 	// module specific additional properties
 	if b.modulesProvider != nil {
 		for name, field := range b.modulesProvider.GetAdditionalFields(class) {

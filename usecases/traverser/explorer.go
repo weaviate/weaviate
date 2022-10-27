@@ -325,6 +325,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			additionalProperties["score"] = res.Score
 		}
 
+		if params.AdditionalProperties.ScoreExplain {
+			additionalProperties["scoreExplain"] = res.ScoreExplain
+		}
+
 		if params.AdditionalProperties.Vector {
 			additionalProperties["vector"] = res.Vector
 		}
