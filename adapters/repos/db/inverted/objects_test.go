@@ -522,7 +522,7 @@ func TestAnalyzeObject(t *testing.T) {
 		//
 		// this test asserts that reference properties do not break when they are unmarshalled
 		// as empty interface{} slices.
-		t.Run("when rep prop is stored as empty string slice", func(t *testing.T) {
+		t.Run("when rep prop is stored as empty interface{} slice", func(t *testing.T) {
 			uuid := "cf768bb0-03d8-4464-8f54-f787cf174c01"
 			name := "Transformers"
 			schema := map[string]interface{}{
