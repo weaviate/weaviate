@@ -486,7 +486,7 @@ func (ac *additionalCheck) isAdditional(name string) bool {
 	if name == "classification" || name == "certainty" ||
 		name == "distance" || name == "id" || name == "vector" ||
 		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
-		name == "score" {
+		name == "score" || name == "scoreExplain" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -575,6 +575,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "score" {
 							additionalProps.Score = true
+							continue
+						}
+						if additionalProperty == "scoreExplain" {
+							additionalProps.ScoreExplain = true
 							continue
 						}
 						if additionalProperty == "lastUpdateTimeUnix" {
