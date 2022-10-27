@@ -80,7 +80,8 @@ func (m *Module) Init(ctx context.Context,
 
 	config := &clientConfig{
 		Bucket:     os.Getenv(gcsBucket),
-		BackupPath: os.Getenv(gcsPath)}
+		BackupPath: os.Getenv(gcsPath),
+	}
 	if config.Bucket == "" {
 		return errors.Errorf("backup init: '%s' must be set", gcsBucket)
 	}
