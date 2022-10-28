@@ -28,8 +28,6 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	m.Lock()
 	defer m.Unlock()
 
-	fmt.Printf("update class\n")
-
 	err := m.authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
@@ -68,7 +66,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := sharding.ValidateConfigUpdate(initial.ShardingConfig.(sharding.Config),
-		updated.ShardingConfig.(sharding.Config)); err != nil {
+		updated.ShardingConfig.(sharding.Config), m.clusterState); err != nil {
 		return errors.Wrap(err, "sharding config")
 	}
 
