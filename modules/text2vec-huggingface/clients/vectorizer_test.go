@@ -133,31 +133,11 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, expected, res)
 	})
 
-	t.Run("when HuggingFace key is empty", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
-		c := &vectorizer{
-			apiKey:     "",
-			httpClient: &http.Client{},
-			urlBuilder: &huggingFaceUrlBuilder{
-				origin:   server.URL,
-				pathMask: "/pipeline/feature-extraction/%s",
-			},
-			logger: nullLogger(),
-		}
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
-		defer cancel()
-
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
-
-		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "HuggingFace API Key: no api key found "+
-			"neither in request header: X-HuggingFace-Api-Key "+
-			"nor in environment variable under HUGGINGFACE_APIKEY")
-	})
-
-	t.Run("when X-Huggingface-Api-Key header is passed but empty", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
+	t.Run("when a request requires an API KEY", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{
+			t:           t,
+			serverError: errors.Errorf("A valid user or organization token is required"),
+		})
 		defer server.Close()
 		c := &vectorizer{
 			apiKey:     "",
@@ -177,9 +157,7 @@ func TestClient(t *testing.T) {
 			})
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "HuggingFace API Key: no api key found "+
-			"neither in request header: X-HuggingFace-Api-Key "+
-			"nor in environment variable under HUGGINGFACE_APIKEY")
+		assert.Equal(t, err.Error(), "failed with status: 401 error: A valid user or organization token is required")
 	})
 
 	t.Run("when the server returns an error with warnings", func(t *testing.T) {
@@ -231,6 +209,16 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			require.Nil(f.t, err)
 
 			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(outBytes)
+			return
+		case "A valid user or organization token is required":
+			embeddingError := map[string]interface{}{
+				"error": "A valid user or organization token is required",
+			}
+			outBytes, err := json.Marshal(embeddingError)
+			require.Nil(f.t, err)
+
+			w.WriteHeader(http.StatusUnauthorized)
 			w.Write(outBytes)
 			return
 		default:
