@@ -190,10 +190,10 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"message": f.serverError.Error(),
 			"type":    "invalid_request_error",
 		}
-		embedding := map[string]interface{}{
-			"error": embeddingError,
+		embeddingResponse := map[string]interface{}{
+			"message": embeddingError["message"],
 		}
-		outBytes, err := json.Marshal(embedding)
+		outBytes, err := json.Marshal(embeddingResponse)
 		require.Nil(f.t, err)
 
 		w.WriteHeader(http.StatusInternalServerError)
@@ -211,17 +211,10 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	textInput := b["texts"].([]interface{})
 	assert.Greater(f.t, len(textInput), 0)
 
-	embeddingData := map[string]interface{}{
-		"object":    "embedding",
-		"index":     0,
-		"embedding": []float32{0.1, 0.2, 0.3},
+	embeddingResponse := map[string]interface{}{
+		"embeddings": []float32{0.1, 0.2, 0.3},
 	}
-	embedding := map[string]interface{}{
-		"object": "list",
-		"data":   []interface{}{embeddingData},
-	}
-
-	outBytes, err := json.Marshal(embedding)
+	outBytes, err := json.Marshal(embeddingResponse)
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)

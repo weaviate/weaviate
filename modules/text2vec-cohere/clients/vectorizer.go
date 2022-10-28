@@ -30,23 +30,9 @@ type embeddingsRequest struct {
 	Truncate string   `json:"truncate,omitempty"`
 }
 
-type embedding struct {
-	Object string          `json:"object"`
-	Data   []embeddingData `json:"data,omitempty"`
-	Error  *cohereApiError `json:"error,omitempty"`
-}
-
-type embeddingData struct {
-	Object    string    `json:"object"`
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
-}
-
-type cohereApiError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Param   string `json:"param"`
-	Code    string `json:"code"`
+type embeddingsResponse struct {
+	Embeddings []float32 `json:"embeddings,omitempty"`
+	Message    string    `json:"message,omitempty"`
 }
 
 type vectorizer struct {
@@ -106,32 +92,29 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
-
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}
-
-	var resBody embedding
+	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
-
-	if res.StatusCode > 399 {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+	if res.StatusCode != 200 {
+		if resBody.Message != "" {
+			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Message)
 		}
 		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
 	}
 
-	if len(resBody.Data) != 1 {
-		return nil, errors.Errorf("wrong number of embeddings: %v", len(resBody.Data))
+	if len(resBody.Embeddings) == 0 {
+		return nil, errors.Errorf("empty embeddings response")
 	}
 
 	return &ent.VectorizationResult{
 		Text:       input,
-		Dimensions: len(resBody.Data[0].Embedding),
-		Vector:     resBody.Data[0].Embedding,
+		Dimensions: len(resBody.Embeddings),
+		Vector:     resBody.Embeddings,
 	}, nil
 }
 
