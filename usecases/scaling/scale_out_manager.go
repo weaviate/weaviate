@@ -51,6 +51,7 @@ type BackerUpper interface {
 	SingleShardBackup(
 		ctx context.Context, bakID, className, shardName string,
 	) (backup.ClassDescriptor, error)
+	ReleaseBackup(ctx context.Context, bakID, className string) error
 }
 
 func NewScaleOutManager(clusterState clusterState, backerUpper BackerUpper,
@@ -156,9 +157,11 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 			}
 
 		}
-	}
 
-	// TODO: defer relaese snapshot!!!
+		if err := som.backerUpper.ReleaseBackup(ctx, bakID, className); err != nil {
+			return nil, fmt.Errorf("release shard backup: %w", err)
+		}
+	}
 
 	//
 	// - identify target nodes and tell them to create (empty) local shards
