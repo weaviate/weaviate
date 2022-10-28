@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -307,4 +308,31 @@ func TestStateDeepCopy(t *testing.T) {
 	copied.Virtual = append(copied.Virtual, Virtual{})
 
 	assert.Equal(t, control, original, "original still matches control even with changes in copy")
+}
+
+func TestBackwardCompatibilityBefore1_17(t *testing.T) {
+	// As part of v1.17, replication is introduced and the structure of the
+	// physical shard is slightly changed. Instead of `belongsToNode string`, the
+	// association is now `belongsToNodes []string`. A migration helper was
+	// introduced to make sure we're backward compatible.
+
+	oldVersion := State{
+		Physical: map[string]Physical{
+			"hello-replication": {
+				Name:                                 "hello-replication",
+				LegacyBelongsToNodeForBackwardCompat: "the-best-node",
+			},
+		},
+	}
+	oldVersionJSON, err := json.Marshal(oldVersion)
+	require.Nil(t, err)
+
+	var newVersion State
+	err = json.Unmarshal(oldVersionJSON, &newVersion)
+	require.Nil(t, err)
+
+	newVersion.MigrateFromOldFormat()
+
+	assert.Equal(t, []string{"the-best-node"},
+		newVersion.Physical["hello-replication"].BelongsToNodes)
 }
