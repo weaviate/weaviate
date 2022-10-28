@@ -52,6 +52,7 @@ type fakeSettings struct {
 	excludedProperty               string
 	passageModel, queryModel       string
 	waitForModel, useGPU, useCache bool
+	endpointURL                    string
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -64,6 +65,10 @@ func (f *fakeSettings) VectorizePropertyName(propName string) bool {
 
 func (f *fakeSettings) VectorizeClassName() bool {
 	return f.vectorizeClassName
+}
+
+func (f *fakeSettings) EndpointURL() string {
+	return f.endpointURL
 }
 
 func (f *fakeSettings) PassageModel() string {
