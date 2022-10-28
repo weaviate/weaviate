@@ -55,6 +55,12 @@ func (p Physical) BelongsToNode() string {
 	return p.BelongsToNodes[0]
 }
 
+// Adjust Replicas uses a NodeIterator to add new nodes (scale out) or remove
+// existing nodes (scale in) from the "BelongsToNodes" mappings. This is used
+// as part of dynamically changing the replication factor. This method
+// basically controls where a shard will land in the cluster. If we want to add
+// some kind of node bias while scaling in the future, it would probably go
+// here.
 func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
 	if err != nil {
