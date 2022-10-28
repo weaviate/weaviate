@@ -30,7 +30,6 @@ import (
 // NewGraphqlPostParams creates a new GraphqlPostParams object
 // no default values defined in spec.
 func NewGraphqlPostParams() GraphqlPostParams {
-
 	return GraphqlPostParams{}
 }
 
@@ -39,7 +38,6 @@ func NewGraphqlPostParams() GraphqlPostParams {
 //
 // swagger:parameters graphql.post
 type GraphqlPostParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

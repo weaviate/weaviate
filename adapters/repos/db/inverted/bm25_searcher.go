@@ -179,7 +179,7 @@ func CopyIntoMap(a, b map[string]interface{}) map[string]interface{} {
 
 // Merge BM25F scores of all terms
 func mergeScores(termresults []docPointersWithScore) docPointersWithScore {
-	//Create a hash, iterate over termresults, add the score to the hash, turn the hash into a list
+	// Create a hash, iterate over termresults, add the score to the hash, turn the hash into a list
 	resultsHash := make(map[uint64]docPointerWithScore)
 	for _, id := range termresults {
 		for _, doc := range id.docIDs {
@@ -214,7 +214,6 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	for i, term := range terms {
 		lower_term := strings.ToLower(term)
 		ids, err := b.retrieveForSingleTermMultipleProps(ctx, keywordRanking.Properties, lower_term)
-
 		if err != nil {
 			return nil, nil, err
 		}
@@ -230,14 +229,13 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	}
 
 	return objs, scores, nil
-
 }
 
 // BM25F merge the results from multiple properties
 func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, propNames []string) docPointersWithScore {
-	//Merge all ids into the first element of the list (i.e. merge the results from different properties but same query)
+	// Merge all ids into the first element of the list (i.e. merge the results from different properties but same query)
 
-	//If there is only one, we are finished
+	// If there is only one, we are finished
 	if len(idLists) == 1 {
 		return idLists[0]
 	}
@@ -248,7 +246,7 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, propNames []str
 
 	for i, list := range idLists {
 		for _, doc := range list.docIDs {
-			//if id is not in the map, add it
+			// if id is not in the map, add it
 			if _, ok := docHash[doc.id]; !ok {
 				if doc.Additional == nil {
 					doc.Additional = make(map[string]interface{})
@@ -257,20 +255,20 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, propNames []str
 				doc.Additional["BM25F_"+propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
 				docHash[doc.id] = doc
 			} else {
-				//if id is in the map, add the frequency
+				// if id is in the map, add the frequency
 				existing := docHash[doc.id]
 				existing.frequency += doc.frequency
 				existing.propLength += doc.propLength
 				existing.Additional["BM25F_"+propNames[i]+"_frequency"] = fmt.Sprintf("%v", doc.frequency)
 				existing.Additional["BM25F_"+propNames[i]+"_propLength"] = fmt.Sprintf("%v", doc.propLength)
-				//TODO: We will have a different propLength for each property, how do we combine them?
+				// TODO: We will have a different propLength for each property, how do we combine them?
 				docHash[doc.id] = existing
 			}
 		}
 		total += int(list.count)
 	}
 
-	//Make list from docHash
+	// Make list from docHash
 	res := docPointersWithScore{
 		docIDs: make([]docPointerWithScore, len(docHash)),
 		count:  uint64(total),
@@ -313,7 +311,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context,
 	}
 
 	ids := b.mergeIdss(idss, propNames)
-	//Boost the frequencies
+	// Boost the frequencies
 	for i := range ids.docIDs {
 		ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
 	}

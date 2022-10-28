@@ -27,7 +27,6 @@ import (
 // NewSchemaObjectsDeleteParams creates a new SchemaObjectsDeleteParams object
 // no default values defined in spec.
 func NewSchemaObjectsDeleteParams() SchemaObjectsDeleteParams {
-
 	return SchemaObjectsDeleteParams{}
 }
 
@@ -36,7 +35,6 @@ func NewSchemaObjectsDeleteParams() SchemaObjectsDeleteParams {
 //
 // swagger:parameters schema.objects.delete
 type SchemaObjectsDeleteParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

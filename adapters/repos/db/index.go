@@ -748,14 +748,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		if local {
 
-			//If the request is a BM25F with no properties selected, use all possible properties
+			// If the request is a BM25F with no properties selected, use all possible properties
 
 			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
-				//Loop over classes and find i.Config.ClassName.String()
+				// Loop over classes and find i.Config.ClassName.String()
 				for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {
 					if class.Class == i.Config.ClassName.String() {
 						propHash := class.Properties
-						//Get keys of hash
+						// Get keys of hash
 						for _, v := range propHash {
 							keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 						}
@@ -789,7 +789,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 					oo.Object.Additional = make(map[string]interface{})
 				}
 				oo.Object.Additional["score"] = os
-				//Collect all keys starting with "BM25F" and add them to the Additional
+				// Collect all keys starting with "BM25F" and add them to the Additional
 				scoreExplain := ""
 				for k, v := range oo.Object.Additional {
 					if strings.HasPrefix(k, "BM25F") {

@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-
 	"fmt"
 	"sort"
 	"strings"
@@ -49,7 +48,6 @@ func (db *DB) GetQueryMaximumResults() int {
 func (db *DB) ClassSearch(ctx context.Context,
 	params traverser.GetParams,
 ) ([]search.Result, error) {
-
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
