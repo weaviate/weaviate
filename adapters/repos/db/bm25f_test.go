@@ -119,64 +119,64 @@ func TestBM25FJourney(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	//Check basic search with one property
+	// Check basic search with one property
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey"}
 	addit := additional.Properties{}
 	res, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
-	//Check results in correct order
+	// Check results in correct order
 	require.Equal(t, uint64(4), res[0].DocID())
 	require.Equal(t, uint64(5), res[1].DocID())
 
-	//Check scoreExplain
+	// Check scoreExplain
 	require.Contains(t, res[0].Object.Additional["scoreExplain"], "BM25F")
 
-	//Check basic search WITH CAPS
+	// Check basic search WITH CAPS
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
 	addit = additional.Properties{}
 	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	//Print results
+	// Print results
 	fmt.Println("--- Start results for search with caps ---")
 	for _, r := range res {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 	require.Nil(t, err)
 
-	//Check results in correct order
+	// Check results in correct order
 	require.Equal(t, uint64(4), res[0].DocID())
 	require.Equal(t, uint64(5), res[1].DocID())
 
-	//Check boosted
+	// Check boosted
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey^3"}
 	addit = additional.Properties{}
 	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 	require.Nil(t, err)
 
-	//Check results in correct order
+	// Check results in correct order
 	require.Equal(t, uint64(4), res[0].DocID())
 	require.Equal(t, uint64(5), res[1].DocID())
 	require.Equal(t, uint64(6), res[2].DocID())
 	require.Equal(t, uint64(2), res[3].DocID())
-	//Print results
+	// Print results
 	fmt.Println("--- Start results for boosted search ---")
 	for _, r := range res {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
-	//Check scores
+	// Check scores
 	require.Equal(t, float32(0.061129723), res[0].Score())
 	require.Equal(t, float32(0.059050433), res[1].Score())
 	require.Equal(t, float32(0.05252086), res[2].Score())
 	require.Equal(t, float32(0.044437673), res[3].Score())
 
-	//Check search with two terms
+	// Check search with two terms
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
 	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
-	//Check results in correct order
+	// Check results in correct order
 	require.Equal(t, uint64(1), res[0].DocID())
 	require.Equal(t, uint64(4), res[1].DocID())
 	require.Equal(t, uint64(5), res[2].DocID())
@@ -184,12 +184,12 @@ func TestBM25FJourney(t *testing.T) {
 	require.Equal(t, uint64(2), res[4].DocID())
 
 	fmt.Println("Search with no properties")
-	//Check search with no properties (should include all properties)
+	// Check search with no properties (should include all properties)
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
 	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
-	//Check results in correct order
+	// Check results in correct order
 	require.Equal(t, uint64(1), res[0].DocID())
 	require.Equal(t, uint64(4), res[1].DocID())
 	require.Equal(t, uint64(5), res[2].DocID())
@@ -219,13 +219,13 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	//Check scores change when k1 and b are changed
-	//Check boosted
+	// Check scores change when k1 and b are changed
+	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey^3"}
 	addit := additional.Properties{}
 	res, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
-	//Print results
+	// Print results
 	fmt.Println("--- Start results for search with caps ---")
 	for _, r := range res {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
@@ -233,18 +233,18 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 
 	require.Nil(t, err)
 
-	//Check results in correct order
+	// Check results in correct order
 	require.Equal(t, uint64(6), res[0].DocID())
 	require.Equal(t, uint64(3), res[1].DocID())
 	require.Equal(t, uint64(0), res[2].DocID())
 	require.Equal(t, uint64(1), res[3].DocID())
-	//Print results
+	// Print results
 	fmt.Println("--- Start results for boosted search ---")
 	for _, r := range res {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
-	//Check scores
+	// Check scores
 	require.Equal(t, float32(0.02404321), res[0].Score())
 	require.Equal(t, float32(0.014773461), res[1].Score())
 	require.Equal(t, float32(0.014773461), res[2].Score())

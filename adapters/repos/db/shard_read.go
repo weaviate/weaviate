@@ -165,7 +165,6 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf("shard was built with an older version of " +

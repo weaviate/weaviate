@@ -121,8 +121,10 @@ func TestDistributedBackups(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 
-				req := &backup.BackupRequest{ID: backupID, Backend: "fake-backend",
-					Include: []string{distributedClass}}
+				req := &backup.BackupRequest{
+					ID: backupID, Backend: "fake-backend",
+					Include: []string{distributedClass},
+				}
 
 				resp, err := node.scheduler.Backup(ctx, &models.Principal{}, req)
 				assert.Nil(t, err, "expected nil err, got: %s", err)
@@ -156,8 +158,10 @@ func TestDistributedBackups(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 
-				req := &backup.BackupRequest{ID: backupID, Backend: "fake-backend",
-					Include: []string{distributedClass}}
+				req := &backup.BackupRequest{
+					ID: backupID, Backend: "fake-backend",
+					Include: []string{distributedClass},
+				}
 
 				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req)
 				assert.Nil(t, err, "expected nil err, got: %s", err)

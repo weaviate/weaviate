@@ -27,7 +27,6 @@ import (
 // NewBackupsRestoreStatusParams creates a new BackupsRestoreStatusParams object
 // no default values defined in spec.
 func NewBackupsRestoreStatusParams() BackupsRestoreStatusParams {
-
 	return BackupsRestoreStatusParams{}
 }
 
@@ -36,7 +35,6 @@ func NewBackupsRestoreStatusParams() BackupsRestoreStatusParams {
 //
 // swagger:parameters backups.restore.status
 type BackupsRestoreStatusParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
