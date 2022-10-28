@@ -65,7 +65,7 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=none \
       ENABLE_MODULES="backup-filesystem" \
-      go run ./cmd/weaviate-server \
+      go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8081 \
