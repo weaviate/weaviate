@@ -34,6 +34,21 @@ type State struct {
 	localNodeName string
 }
 
+// MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
+// migrates it into the new format for backward-compatibility with all classes
+// created before v1.17
+func (s *State) MigrateFromOldFormat() {
+	for shardName, shard := range s.Physical {
+		if len(shard.LegacyBelongsToNodeForBackwardCompat) > 0 && len(shard.BelongsToNodes) == 0 {
+			shard.BelongsToNodes = []string{
+				shard.LegacyBelongsToNodeForBackwardCompat,
+			}
+			shard.LegacyBelongsToNodeForBackwardCompat = ""
+		}
+		s.Physical[shardName] = shard
+	}
+}
+
 type Virtual struct {
 	Name               string  `json:"name"`
 	Upper              uint64  `json:"upper"`
@@ -46,8 +61,8 @@ type Physical struct {
 	OwnsVirtual    []string `json:"ownsVirtual"`
 	OwnsPercentage float64  `json:"ownsPercentage"`
 
-	// TODO: migrate existing classes on READ
-	BelongsToNodes []string `json:"belongsToNodes"`
+	LegacyBelongsToNodeForBackwardCompat string   `json:"belongsToNode,omitempty"`
+	BelongsToNodes                       []string `json:"belongsToNodes"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It

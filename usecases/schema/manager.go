@@ -206,6 +206,10 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
+	if err := m.checkShardingStateForReplication(ctx); err != nil {
+		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
+	}
+
 	// store in remote repo
 	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
@@ -247,6 +251,14 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			m.state.ShardingState = map[string]*sharding.State{}
 		}
 		m.state.ShardingState[c.Class] = shardState
+	}
+
+	return nil
+}
+
+func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
+	for _, classState := range m.state.ShardingState {
+		classState.MigrateFromOldFormat()
 	}
 
 	return nil
