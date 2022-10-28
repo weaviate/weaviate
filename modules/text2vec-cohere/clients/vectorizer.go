@@ -31,8 +31,8 @@ type embeddingsRequest struct {
 }
 
 type embeddingsResponse struct {
-	Embeddings []float32 `json:"embeddings,omitempty"`
-	Message    string    `json:"message,omitempty"`
+	Embeddings [][]float32 `json:"embeddings,omitempty"`
+	Message    string      `json:"message,omitempty"`
 }
 
 type vectorizer struct {
@@ -113,8 +113,8 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 	return &ent.VectorizationResult{
 		Text:       input,
-		Dimensions: len(resBody.Embeddings),
-		Vector:     resBody.Embeddings,
+		Dimensions: len(resBody.Embeddings[0]),
+		Vector:     resBody.Embeddings[0],
 	}, nil
 }
 

@@ -212,7 +212,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Greater(f.t, len(textInput), 0)
 
 	embeddingResponse := map[string]interface{}{
-		"embeddings": []float32{0.1, 0.2, 0.3},
+		"embeddings": [][]float32{{0.1, 0.2, 0.3}},
 	}
 	outBytes, err := json.Marshal(embeddingResponse)
 	require.Nil(f.t, err)
