@@ -1816,6 +1816,175 @@ func Test_PutPatchRestart(t *testing.T) {
 	})
 }
 
+func TestCRUDWithEmptyArrays(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+
+	class := &models.Class{
+		Class:               "TestClass",
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "stringArray",
+				DataType: []string{string(schema.DataTypeStringArray)},
+			},
+			{
+				Name:     "NumberArray",
+				DataType: []string{string(schema.DataTypeNumberArray)},
+			},
+			{
+				Name:     "BoolArray",
+				DataType: []string{string(schema.DataTypeBooleanArray)},
+			},
+		},
+	}
+	classRefName := "TestRefClass"
+	classRef := &models.Class{
+		Class:               classRefName,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	classNameWithRefs := "TestClassWithRefs"
+	classWithRefs := &models.Class{
+		Class:               classNameWithRefs,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+			{
+				Name:     "refProp",
+				DataType: []string{classRefName},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       100,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	require.Nil(t,
+		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	require.Nil(t,
+		migrator.AddClass(context.Background(), classRef, schemaGetter.shardState))
+	require.Nil(t,
+		migrator.AddClass(context.Background(), classWithRefs, schemaGetter.shardState))
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class, classRef, classWithRefs},
+		},
+	}
+
+	t.Run("empty arrays", func(t *testing.T) {
+		objID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+		obj1 := &models.Object{
+			ID:    objID,
+			Class: "TestClass",
+			Properties: map[string]interface{}{
+				"stringArray": []string{},
+				"NumberArray": []float64{},
+				"BoolArray":   []bool{},
+			},
+		}
+		obj2 := &models.Object{
+			ID:    objID,
+			Class: "TestClass",
+			Properties: map[string]interface{}{
+				"stringArray": []string{"value"},
+				"NumberArray": []float64{0.5},
+				"BoolArray":   []bool{true},
+			},
+		}
+
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
+
+		res, err := repo.ObjectByID(context.Background(), objID, nil,
+			additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+	})
+
+	t.Run("empty references", func(t *testing.T) {
+		objRefID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390000")
+		objRef := &models.Object{
+			ID:    objRefID,
+			Class: classRefName,
+			Properties: map[string]interface{}{
+				"stringProp": "string prop value",
+			},
+		}
+		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}))
+
+		obj1ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+		obj1 := &models.Object{
+			ID:    obj1ID,
+			Class: classNameWithRefs,
+			Properties: map[string]interface{}{
+				"stringProp": "some prop",
+				// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+				// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+				// an object's reference property.
+				//
+				// when obj1 is unmarshalled from storage, refProp will be represented as []interface{},
+				// because it is an empty reference property. so when comparing obj1 with the result of
+				// repo.Object, we need this refProp here to be a []interface{}. Note that this is due
+				// to our usage of storobj.Object.MarshallerVersion 1, and future MarshallerVersions may
+				// not have this ambiguous property type limitation.
+				"refProp": []interface{}{},
+			},
+		}
+		obj2ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
+		obj2 := &models.Object{
+			ID:    obj2ID,
+			Class: classNameWithRefs,
+			Properties: map[string]interface{}{
+				"stringProp": "some second prop",
+				"refProp": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: strfmt.URI(
+							crossref.NewLocalhost(classRefName, objRefID).String()),
+					},
+				},
+			},
+		}
+
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
+
+		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
+			additional.Properties{})
+		require.Nil(t, err)
+		assert.NotNil(t, res)
+		assert.Equal(t, obj1.Properties, res.ObjectWithVector(false).Properties)
+
+		res, err = repo.Object(context.Background(), classNameWithRefs, obj2ID, nil,
+			additional.Properties{})
+		require.Nil(t, err)
+		assert.NotNil(t, res)
+		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+	})
+}
+
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	for _, item := range list {
 		if item.ID == id {

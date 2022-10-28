@@ -119,8 +119,14 @@ function run_integration_tests() {
 
 function run_acceptance_tests() {
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./... | grep 'test/acceptance'); do
+    for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' ); do
       if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+    for pkg in $(go list ./... | grep 'test/acceptance/stress_tests' ); do
+      if ! go test -count 1 "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi

@@ -35,7 +35,6 @@ type cache interface {
 	drop()
 	updateMaxSize(size int64)
 	copyMaxSize() int64
-	dimensions(id uint64) int
 }
 
 func newVectorCachePrefiller(cache cache, index *hnsw,

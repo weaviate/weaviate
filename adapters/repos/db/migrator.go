@@ -13,12 +13,14 @@ package db
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
@@ -102,8 +104,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 	}
 
+	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	idx.notifyReady()
+	m.db.indexLock.Unlock()
 
 	return nil
 }
@@ -207,4 +211,33 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	conf := inverted.ConfigFromModel(updated)
 
 	return idx.updateInvertedIndexConfig(ctx, conf)
+}
+
+func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
+	count := 0
+	m.logger.
+		WithField("action", "reindex").
+		Info("Reindexing dimensions, this may take a while")
+
+	// Iterate over all indexes
+	for _, index := range m.db.indices {
+		// Iterate over all shards
+		if err := index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+			count = count + 1
+			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+	go func() {
+		for {
+			m.logger.
+				WithField("action", "reindex").
+				Warnf("Reindexed %v objects. Reindexing dimensions complete. Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count)
+			time.Sleep(5 * time.Minute)
+		}
+	}()
+
+	return nil
 }

@@ -71,15 +71,16 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
-	RootPath                  string
-	QueryLimit                int64
-	QueryMaximumResults       int64
-	ResourceUsage             config.ResourceUsage
-	MaxImportGoroutinesFactor float64
-	FlushIdleAfter            int
-	TrackVectorDimensions     bool
-	ServerVersion             string
-	GitHash                   string
+	RootPath                         string
+	QueryLimit                       int64
+	QueryMaximumResults              int64
+	ResourceUsage                    config.ResourceUsage
+	MaxImportGoroutinesFactor        float64
+	FlushIdleAfter                   int
+	TrackVectorDimensions            bool
+	ReindexVectorDimensionsAtStartup bool
+	ServerVersion                    string
+	GitHash                          string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -131,6 +132,8 @@ func (d *DB) DeleteIndex(className schema.ClassName) error {
 func (d *DB) Shutdown(ctx context.Context) error {
 	d.shutdown <- struct{}{}
 
+	d.indexLock.Lock()
+	defer d.indexLock.Unlock()
 	for id, index := range d.indices {
 		if err := index.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown index %q", id)

@@ -51,6 +51,13 @@ func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {
 
 					schema[propName] = parsed
 				}
+			} else if len(typed) == 0 {
+				// empty arrays. Here we use []interface{} as a placeholder
+				// type for an empty array, since we cannot determine its
+				// actual type. in the future, we should persist the schema
+				// property type information alongside the value to avoid
+				// this situation
+				schema[propName] = typed
 			} else {
 				parsed, err := parseCrossRef(typed)
 				if err != nil {

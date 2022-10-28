@@ -35,7 +35,7 @@ func clusterBackupJourneyTest(t *testing.T, backend, className, backupID, coordi
 
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
-		backupJourney(t, className, backend, backupID)
+		backupJourney(t, className, backend, backupID, clusterJourney)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {

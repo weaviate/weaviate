@@ -163,7 +163,6 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	require.Nil(t, idx.drop())
-	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
 // tests adding multiple larger batches in parallel using different settings of the goroutine factor.
@@ -175,7 +174,7 @@ func TestShard_ParallelBatches(t *testing.T) {
 	}
 	totalObjects := 1000 * len(batches)
 	ctx := testCtx()
-	shd, _ := testShard(t, context.Background(), "TestClass")
+	shd, idx := testShard(t, context.Background(), "TestClass")
 
 	// add batches in parallel
 	wg := sync.WaitGroup{}
@@ -189,4 +188,5 @@ func TestShard_ParallelBatches(t *testing.T) {
 	wg.Wait()
 
 	require.Equal(t, totalObjects, int(shd.counter.Get()))
+	require.Nil(t, idx.drop())
 }
