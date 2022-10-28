@@ -21,55 +21,59 @@ import (
 )
 
 func TestDetectPrimitiveTypes(t *testing.T) {
-	s := &Schema{}
-
-	for _, type_ := range PrimitiveDataTypes {
-		pdt, err := s.FindPropertyDataType([]string{string(type_)})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if !pdt.IsPrimitive() {
-			t.Fatal("not primitive")
-		}
-
-		if pdt.AsPrimitive() != type_ {
-			t.Fatal("wrong value")
-		}
-	}
-}
-
-func TestNonExistingClassSingleRef(t *testing.T) {
 	s := Empty()
 
-	pdt, err := s.FindPropertyDataType([]string{"NonExistingClass"})
+	for _, dt := range PrimitiveDataTypes {
+		pdt, err := s.FindPropertyDataType([]string{string(dt)})
 
-	if err == nil {
-		t.Fatal("Should have error")
-	}
-
-	assert.EqualError(t, err, ErrRefToNonexistentClass.Error())
-
-	if pdt != nil {
-		t.Fatal("Should return nil result")
+		assert.Nil(t, err)
+		assert.True(t, pdt.IsPrimitive())
+		assert.Equal(t, dt, pdt.AsPrimitive())
 	}
 }
 
 func TestExistingClassSingleRef(t *testing.T) {
+	className := "ExistingClass"
+	s := Empty()
+	s.Objects.Classes = []*models.Class{{Class: className}}
+
+	pdt, err := s.FindPropertyDataType([]string{className})
+
+	assert.Nil(t, err)
+	assert.True(t, pdt.IsReference())
+	assert.True(t, pdt.ContainsClass(ClassName(className)))
+}
+
+func TestNonExistingClassSingleRef(t *testing.T) {
+	className := "NonExistingClass"
 	s := Empty()
 
-	s.Objects.Classes = append(s.Objects.Classes, &models.Class{
-		Class: "ExistingClass",
-	})
+	pdt, err := s.FindPropertyDataType([]string{className})
 
-	pdt, err := s.FindPropertyDataType([]string{"ExistingClass"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.EqualError(t, err, ErrRefToNonexistentClass.Error())
+	assert.Nil(t, pdt)
+}
 
-	if !pdt.IsReference() {
-		t.Fatal("not single ref")
-	}
+func TestNonExistingClassRelaxedCrossValidation(t *testing.T) {
+	className := "NonExistingClass"
+	s := Empty()
+
+	pdt, err := s.FindPropertyDataTypeWithRefs([]string{className}, true, ClassName("AnotherNonExistingClass"))
+
+	assert.Nil(t, err)
+	assert.True(t, pdt.IsReference())
+	assert.True(t, pdt.ContainsClass(ClassName(className)))
+}
+
+func TestNonExistingClassPropertyBelongsTo(t *testing.T) {
+	className := "NonExistingClass"
+	s := Empty()
+
+	pdt, err := s.FindPropertyDataTypeWithRefs([]string{className}, false, ClassName(className))
+
+	assert.Nil(t, err)
+	assert.True(t, pdt.IsReference())
+	assert.True(t, pdt.ContainsClass(ClassName(className)))
 }
 
 func TestGetPropertyDataType(t *testing.T) {

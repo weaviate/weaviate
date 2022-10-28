@@ -21,9 +21,6 @@ import (
 
 func Serve(appState *state.State) {
 	port := appState.ServerConfig.Config.Cluster.DataBindPort
-	if port <= 0 {
-		port = 7946
-	}
 
 	appState.Logger.WithField("port", port).
 		WithField("action", "cluster_api_startup").

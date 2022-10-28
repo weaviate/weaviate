@@ -22,12 +22,13 @@ import (
 func (c *vectorizer) WaitForStartup(initCtx context.Context,
 	interval time.Duration,
 ) error {
-	t := time.Tick(interval)
+	t := time.NewTicker(interval)
+	defer t.Stop()
 	expired := initCtx.Done()
 	var lastErr error
 	for {
 		select {
-		case <-t:
+		case <-t.C:
 			lastErr = c.checkReady(initCtx)
 			if lastErr == nil {
 				return nil

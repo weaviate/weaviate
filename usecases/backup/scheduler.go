@@ -15,10 +15,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
+	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	"github.com/sirupsen/logrus"
+)
+
+var (
+	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
+	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
 )
 
 // Scheduler assigns backup operations to coordinators.
@@ -57,7 +64,11 @@ func NewScheduler(
 }
 
 func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,
-) (*models.BackupCreateResponse, error) {
+) (_ *models.BackupCreateResponse, err error) {
+	defer func(begin time.Time) {
+		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
+	}(time.Now())
+
 	path := fmt.Sprintf("backups/%s/%s", req.Backend, req.ID)
 	if err := s.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
@@ -99,7 +110,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 
 func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
-) (*models.BackupRestoreResponse, error) {
+) (_ *models.BackupRestoreResponse, err error) {
+	defer func(begin time.Time) {
+		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
+	}(time.Now())
 	path := fmt.Sprintf("backups/%s/%s/restore", req.Backend, req.ID)
 	if err := s.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
@@ -136,7 +150,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 
 func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
 	backend, backupID string,
-) (*Status, error) {
+) (_ *Status, err error) {
+	defer func(begin time.Time) {
+		logOperation(s.logger, "backup_status", backupID, backend, begin, err)
+	}(time.Now())
 	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
 	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
 		return nil, err
@@ -157,6 +174,9 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 
 func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID string,
 ) (_ *Status, err error) {
+	defer func(begin time.Time) {
+		logOperation(s.logger, "restoration_status", backupID, backend, time.Now(), err)
+	}(time.Now())
 	path := fmt.Sprintf("backups/%s/%s/restore", backend, backupID)
 	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
 		return nil, err
@@ -183,11 +203,14 @@ func coordBackend(provider BackupBackendProvider, backend, id string) (coordStor
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
+	if s.backupper.nodeResolver.NodeCount() > 1 && isLocalFilesystemBackend(req.Backend) {
+		return nil, errLocalBackendDBRO
+	}
 	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		return nil, fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
+		return nil, errIncludeExclude
 	}
 	classes := req.Include
 	if len(classes) == 0 {
@@ -213,9 +236,11 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 }
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
+	if s.restorer.nodeResolver.NodeCount() > 1 && isLocalFilesystemBackend(req.Backend) {
+		return nil, errLocalBackendDBRO
+	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
-		err := fmt.Errorf("malformed request: 'include' and 'exclude' cannot both contain values")
-		return nil, err
+		return nil, errIncludeExclude
 	}
 	destPath := store.HomeDir()
 	meta, err := store.Meta(ctx, GlobalBackupFile)
@@ -249,4 +274,25 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
 	}
 	return meta, nil
+}
+
+func isLocalFilesystemBackend(backend string) bool {
+	fs := modstgfs.WhoAmI()
+	for _, name := range fs {
+		if backend == name {
+			return true
+		}
+	}
+	return false
+}
+
+func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {
+	le := logger.WithField("action", name).
+		WithField("backup_id", id).WithField("backend", backend).
+		WithField("took", time.Since(begin))
+	if err != nil {
+		le.Error(err)
+	} else {
+		le.Info()
+	}
 }

@@ -57,6 +57,9 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			Get {
 				Company(group: {type: merge, force:1.0}) {
 					name
+					inCity {
+						... on City {name}
+					}
 				}
 			}
 		}
@@ -67,7 +70,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		require.Len(t, companies, 1)
 
 		companyNames := companies[0].(map[string]interface{})["name"].(string)
-		assert.True(t, len(companyNames) > 0)
+		assert.NotEmpty(t, companies)
 
 		mustContain := []string{"Apple", "Google", "Microsoft"}
 		for _, companyName := range mustContain {
@@ -75,6 +78,15 @@ func gettingObjectsWithGrouping(t *testing.T) {
 				t.Errorf("%s not contained in %v", companyName, companyNames)
 			}
 		}
+
+		companyCities := companies[0].(map[string]interface{})["inCity"].([]interface{})
+		expectedCities := []map[string]interface{}{
+			{"name": "Dusseldorf"},
+			{"name": "Amsterdam"},
+			{"name": "Berlin"},
+		}
+
+		assert.ElementsMatch(t, expectedCities, companyCities)
 	})
 
 	t.Run("grouping mode set to merge and force to 0.0", func(t *testing.T) {
@@ -131,6 +143,11 @@ func gettingObjectsWithGrouping(t *testing.T) {
 				Get {
 					Company(group: {type: closest, force:0.1}) {
 						name
+						inCity {
+							... on City {
+								name
+							}
+						}
 					}
 				}
 			}
@@ -147,6 +164,11 @@ func gettingObjectsWithGrouping(t *testing.T) {
 				Get {
 					Company(group:{type:merge force:1.0} where:{path:["id"] operator:Like valueString:"*"}) {
 						name
+						inCity {
+							... on City {
+								name
+							}
+						}
 					}
 				}
 			}
@@ -160,6 +182,15 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			"Microsoft Incorporated, Apple, Apple Incorporated, Google, Microsoft Inc., Microsoft)",
 			groupedName)
 
+		companyCities := grouped[0].(map[string]interface{})["inCity"].([]interface{})
+		expectedCities := []map[string]interface{}{
+			{"name": "Dusseldorf"},
+			{"name": "Amsterdam"},
+			{"name": "Berlin"},
+		}
+
+		assert.ElementsMatch(t, expectedCities, companyCities)
+
 		// this query should yield the same results as the above, as the above where filter will
 		// match all records. checking the previous payload with the one below is a sanity check
 		// for the sake of validating the fix for [github issue 1958]
@@ -169,6 +200,11 @@ func gettingObjectsWithGrouping(t *testing.T) {
 				Get {
 					Company(group:{type:merge force:1.0}) {
 						name
+						inCity {
+							... on City {
+								name
+							}
+						}
 					}
 				}
 			}
@@ -176,6 +212,9 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		result = graphqlhelper.AssertGraphQL(t, helper.RootAuth, queryWithoutWhere)
 		groupedWithoutWhere := result.Get("Get", "Company").AsSlice()
 		assert.Equal(t, grouped, groupedWithoutWhere)
+
+		companyCities = groupedWithoutWhere[0].(map[string]interface{})["inCity"].([]interface{})
+		assert.ElementsMatch(t, expectedCities, companyCities)
 	})
 
 	t.Run("grouping with sort", func(t *testing.T) {
@@ -184,6 +223,11 @@ func gettingObjectsWithGrouping(t *testing.T) {
 				Get {
 					Company(group:{type:merge force:1.0} sort:{path:["name"]}) {
 						name
+						inCity {
+							... on City {
+								name
+							}
+						}
 					}
 				}
 			}
@@ -196,6 +240,15 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		assert.Equal(t, "Apple (Apple Inc., Apple Incorporated, Google, Google Inc., "+
 			"Google Incorporated, Microsoft, Microsoft Inc., Microsoft Incorporated)",
 			groupedName)
+
+		groupedCities := grouped[0].(map[string]interface{})["inCity"].([]interface{})
+		expectedCities := []map[string]interface{}{
+			{"name": "Dusseldorf"},
+			{"name": "Amsterdam"},
+			{"name": "Berlin"},
+		}
+
+		assert.ElementsMatch(t, expectedCities, groupedCities)
 	})
 
 	// temporarily removed due to

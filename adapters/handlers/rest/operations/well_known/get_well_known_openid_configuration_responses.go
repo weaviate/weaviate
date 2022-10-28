@@ -20,6 +20,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // GetWellKnownOpenidConfigurationOKCode is the HTTP code returned for type GetWellKnownOpenidConfigurationOK
@@ -90,4 +92,49 @@ func (o *GetWellKnownOpenidConfigurationNotFound) WriteResponse(rw http.Response
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// GetWellKnownOpenidConfigurationInternalServerErrorCode is the HTTP code returned for type GetWellKnownOpenidConfigurationInternalServerError
+const GetWellKnownOpenidConfigurationInternalServerErrorCode int = 500
+
+/*
+GetWellKnownOpenidConfigurationInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response getWellKnownOpenidConfigurationInternalServerError
+*/
+type GetWellKnownOpenidConfigurationInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGetWellKnownOpenidConfigurationInternalServerError creates GetWellKnownOpenidConfigurationInternalServerError with default headers values
+func NewGetWellKnownOpenidConfigurationInternalServerError() *GetWellKnownOpenidConfigurationInternalServerError {
+
+	return &GetWellKnownOpenidConfigurationInternalServerError{}
+}
+
+// WithPayload adds the payload to the get well known openid configuration internal server error response
+func (o *GetWellKnownOpenidConfigurationInternalServerError) WithPayload(payload *models.ErrorResponse) *GetWellKnownOpenidConfigurationInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the get well known openid configuration internal server error response
+func (o *GetWellKnownOpenidConfigurationInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GetWellKnownOpenidConfigurationInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }

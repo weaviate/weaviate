@@ -41,39 +41,69 @@ func Test_BackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	t.Run("pre-instance env setup", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envGCSCredentials, ""))
-		require.Nil(t, os.Setenv(envGCSProjectID, gcsBackupJourneyProjectID))
-		require.Nil(t, os.Setenv(envGCSBucket, gcsBackupJourneyBucketName))
+	t.Run("single node", func(t *testing.T) {
+		t.Run("pre-instance env setup", func(t *testing.T) {
+			require.Nil(t, os.Setenv(envGCSCredentials, ""))
+			require.Nil(t, os.Setenv(envGCSProjectID, gcsBackupJourneyProjectID))
+			require.Nil(t, os.Setenv(envGCSBucket, gcsBackupJourneyBucketName))
+		})
+
+		compose, err := docker.New().
+			WithBackendGCS(gcsBackupJourneyBucketName).
+			WithText2VecContextionary().
+			WithWeaviate().
+			Start(ctx)
+		require.Nil(t, err)
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminte test containers: %s", err.Error())
+			}
+		}()
+
+		t.Run("post-instance env setup", func(t *testing.T) {
+			require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
+			require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
+
+			createBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+			helper.SetupClient(compose.GetWeaviate().URI())
+		})
+
+		t.Run("backup-gcs", func(t *testing.T) {
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+				"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode)
+		})
 	})
 
-	compose, err := docker.New().
-		WithBackendGCS(gcsBackupJourneyBucketName).
-		WithText2VecContextionary().
-		WithWeaviate().
-		WithWeaviateCluster().
-		Start(ctx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminte test containers: %s", err.Error())
-		}
-	}()
+	t.Run("multiple node", func(t *testing.T) {
+		t.Run("pre-instance env setup", func(t *testing.T) {
+			require.Nil(t, os.Setenv(envGCSCredentials, ""))
+			require.Nil(t, os.Setenv(envGCSProjectID, gcsBackupJourneyProjectID))
+			require.Nil(t, os.Setenv(envGCSBucket, gcsBackupJourneyBucketName))
+		})
 
-	t.Run("post-instance env setup", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
-		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
+		compose, err := docker.New().
+			WithBackendGCS(gcsBackupJourneyBucketName).
+			WithText2VecContextionary().
+			WithWeaviateCluster().
+			Start(ctx)
+		require.Nil(t, err)
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminte test containers: %s", err.Error())
+			}
+		}()
 
-		createBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
-		helper.SetupClient(compose.GetWeaviate().URI())
-	})
+		t.Run("post-instance env setup", func(t *testing.T) {
+			require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
+			require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
 
-	// journey tests
-	t.Run("backup-gcs", func(t *testing.T) {
-		journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-			"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode)
+			createBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+			helper.SetupClient(compose.GetWeaviate().URI())
+		})
 
-		journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-			gcsBackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+		t.Run("backup-gcs", func(t *testing.T) {
+			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
+				gcsBackupJourneyBackupIDCluster, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+		})
 	})
 }

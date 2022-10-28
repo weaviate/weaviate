@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
 )
 
@@ -122,6 +123,24 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	b.metrics.TrackStartupBucket(beforeAll)
 
 	return b, nil
+}
+
+func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
+	i := 0
+	cursor := b.Cursor()
+	defer cursor.Close()
+
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
+		}
+		f(obj)
+
+		i++
+	}
+
+	return nil
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
@@ -599,12 +618,13 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	// it seems we still need to wait for someone to finish flushing
-	t := time.Tick(50 * time.Millisecond)
+	t := time.NewTicker(50 * time.Millisecond)
+	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-t:
+		case <-t.C:
 			if b.flushing == nil {
 				return nil
 			}

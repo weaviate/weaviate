@@ -47,6 +47,7 @@ type schemaManger interface {
 
 type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
+	NodeCount() int
 }
 
 type Status struct {
