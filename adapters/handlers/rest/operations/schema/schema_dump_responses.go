@@ -33,6 +33,7 @@ SchemaDumpOK Successfully dumped the database schema.
 swagger:response schemaDumpOK
 */
 type SchemaDumpOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type SchemaDumpOK struct {
 
 // NewSchemaDumpOK creates SchemaDumpOK with default headers values
 func NewSchemaDumpOK() *SchemaDumpOK {
+
 	return &SchemaDumpOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *SchemaDumpOK) SetPayload(payload *models.Schema) {
 
 // WriteResponse to the client
 func (o *SchemaDumpOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ SchemaDumpUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaDumpUnauthorized
 */
-type SchemaDumpUnauthorized struct{}
+type SchemaDumpUnauthorized struct {
+}
 
 // NewSchemaDumpUnauthorized creates SchemaDumpUnauthorized with default headers values
 func NewSchemaDumpUnauthorized() *SchemaDumpUnauthorized {
+
 	return &SchemaDumpUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaDumpUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ SchemaDumpForbidden Forbidden
 swagger:response schemaDumpForbidden
 */
 type SchemaDumpForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type SchemaDumpForbidden struct {
 
 // NewSchemaDumpForbidden creates SchemaDumpForbidden with default headers values
 func NewSchemaDumpForbidden() *SchemaDumpForbidden {
+
 	return &SchemaDumpForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *SchemaDumpForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SchemaDumpForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -139,6 +148,7 @@ SchemaDumpInternalServerError An error has occurred while trying to fulfill the 
 swagger:response schemaDumpInternalServerError
 */
 type SchemaDumpInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type SchemaDumpInternalServerError struct {
 
 // NewSchemaDumpInternalServerError creates SchemaDumpInternalServerError with default headers values
 func NewSchemaDumpInternalServerError() *SchemaDumpInternalServerError {
+
 	return &SchemaDumpInternalServerError{}
 }
 
@@ -163,6 +174,7 @@ func (o *SchemaDumpInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *SchemaDumpInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

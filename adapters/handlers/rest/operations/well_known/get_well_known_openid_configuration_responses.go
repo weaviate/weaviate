@@ -33,6 +33,7 @@ GetWellKnownOpenidConfigurationOK Successful response, inspect body
 swagger:response getWellKnownOpenidConfigurationOK
 */
 type GetWellKnownOpenidConfigurationOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type GetWellKnownOpenidConfigurationOK struct {
 
 // NewGetWellKnownOpenidConfigurationOK creates GetWellKnownOpenidConfigurationOK with default headers values
 func NewGetWellKnownOpenidConfigurationOK() *GetWellKnownOpenidConfigurationOK {
+
 	return &GetWellKnownOpenidConfigurationOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *GetWellKnownOpenidConfigurationOK) SetPayload(payload *GetWellKnownOpen
 
 // WriteResponse to the client
 func (o *GetWellKnownOpenidConfigurationOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ GetWellKnownOpenidConfigurationNotFound Not found, no oidc provider present
 
 swagger:response getWellKnownOpenidConfigurationNotFound
 */
-type GetWellKnownOpenidConfigurationNotFound struct{}
+type GetWellKnownOpenidConfigurationNotFound struct {
+}
 
 // NewGetWellKnownOpenidConfigurationNotFound creates GetWellKnownOpenidConfigurationNotFound with default headers values
 func NewGetWellKnownOpenidConfigurationNotFound() *GetWellKnownOpenidConfigurationNotFound {
+
 	return &GetWellKnownOpenidConfigurationNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GetWellKnownOpenidConfigurationNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }

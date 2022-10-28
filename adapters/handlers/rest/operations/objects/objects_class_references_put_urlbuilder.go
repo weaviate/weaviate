@@ -55,7 +55,7 @@ func (o *ObjectsClassReferencesPutURL) SetBasePath(bp string) {
 func (o *ObjectsClassReferencesPutURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/objects/{className}/{id}/references/{propertyName}"
+	var _path = "/objects/{className}/{id}/references/{propertyName}"
 
 	className := o.ClassName
 	if className != "" {

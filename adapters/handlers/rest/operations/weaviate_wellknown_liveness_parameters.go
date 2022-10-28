@@ -26,6 +26,7 @@ import (
 // NewWeaviateWellknownLivenessParams creates a new WeaviateWellknownLivenessParams object
 // no default values defined in spec.
 func NewWeaviateWellknownLivenessParams() WeaviateWellknownLivenessParams {
+
 	return WeaviateWellknownLivenessParams{}
 }
 
@@ -34,6 +35,7 @@ func NewWeaviateWellknownLivenessParams() WeaviateWellknownLivenessParams {
 //
 // swagger:parameters weaviate.wellknown.liveness
 type WeaviateWellknownLivenessParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }
