@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"crypto/rand"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -82,6 +83,87 @@ func (f fakeNodes) AllNames() []string {
 
 func (f fakeNodes) LocalName() string {
 	return f.nodes[0]
+}
+
+func TestInitShardWithReplicas(t *testing.T) {
+	type test struct {
+		nodes             []string
+		replicationFactor int
+		shards            int
+	}
+
+	// this tests asserts that nodes are assigned evenly with various
+	// combinations.
+
+	tests := []test{
+		{
+			nodes:             []string{"node1", "node2", "node3"},
+			replicationFactor: 1,
+			shards:            3,
+		},
+		{
+			nodes:             []string{"node1", "node2", "node3"},
+			replicationFactor: 2,
+			shards:            3,
+		},
+		{
+			nodes:             []string{"node1", "node2", "node3"},
+			replicationFactor: 3,
+			shards:            1,
+		},
+		{
+			nodes:             []string{"node1", "node2", "node3"},
+			replicationFactor: 3,
+			shards:            3,
+		},
+		{
+			nodes:             []string{"node1", "node2", "node3"},
+			replicationFactor: 3,
+			shards:            2,
+		},
+		{
+			nodes:             []string{"node1", "node2", "node3", "node4", "node5", "node6"},
+			replicationFactor: 4,
+			shards:            6,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("shards=%d, rf=%d", test.shards, test.replicationFactor),
+			func(t *testing.T) {
+				nodes := fakeNodes{test.nodes}
+				cfg, err := ParseConfig(map[string]interface{}{
+					"desiredCount": float64(test.shards),
+					"replicas":     float64(test.replicationFactor),
+				}, 3)
+				require.Nil(t, err)
+
+				state, err := InitState("my-index", cfg, nodes)
+				require.Nil(t, err)
+
+				nodeCounter := map[string]int{}
+
+				for _, shard := range state.Physical {
+					for _, node := range shard.BelongsToNodes {
+						nodeCounter[node]++
+					}
+				}
+
+				// assert that total no of associations is correct
+				desired := test.shards * test.replicationFactor
+				actual := 0
+				for _, count := range nodeCounter {
+					actual += count
+				}
+				assert.Equal(t, desired, actual, "correct number of node associations")
+
+				// assert that shards are hit evenly
+				expectedAssociations := test.shards * test.replicationFactor / len(test.nodes)
+				for _, count := range nodeCounter {
+					assert.Equal(t, expectedAssociations, count)
+				}
+			})
+	}
 }
 
 func TestAdjustReplicas(t *testing.T) {

@@ -12,6 +12,7 @@
 package sharding
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"sort"
@@ -172,6 +173,29 @@ func (s *State) IsShardLocal(name string) bool {
 	return false
 }
 
+// initPhysical assigns shards to nodes according to the following rules:
+//
+//   - The starting point of the ring is random
+//   - Shard N+1's first node is the right neighbor of shard N's first node
+//   - If a shard has multiple nodes (replication) they are always the right
+//     neighbors of the first node of that shard
+//
+// Example with 3 nodes, 2 shards, replicationFactor=2:
+//
+// Shard 1: Node1, Node2
+// Shard 2: Node2, Node3
+//
+// Example with 3 nodes, 3 shards, replicationFactor=3:
+//
+// Shard 1: Node1, Node2, Node3
+// Shard 2: Node2, Node3, Node1
+// Shard 3: Node3, Node1, Node2
+//
+// Example with 12 nodes, 3 shards, replicationFactor=5:
+//
+// Shard 1: Node7, Node8, Node9, Node10, Node 11
+// Shard 2: Node8, Node9, Node10, Node 11, Node 12
+// Shard 3: Node9, Node10, Node11, Node 12, Node 1
 func (s *State) initPhysical(nodes nodes) error {
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartRandom)
 	if err != nil {
@@ -182,7 +206,27 @@ func (s *State) initPhysical(nodes nodes) error {
 
 	for i := 0; i < s.Config.DesiredCount; i++ {
 		name := generateShardName()
-		s.Physical[name] = Physical{Name: name, BelongsToNodes: []string{it.Next()}}
+		shard := Physical{Name: name}
+		node := it.Next()
+		shard.BelongsToNodes = []string{node}
+		if s.Config.Replicas > 1 {
+			// create a second node iterator and start after the already assigned
+			// one, this way we can identify our next n right neighbors without
+			// affecting the root iterator which will determine the next shard
+			replicationIter, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
+			if err != nil {
+				return fmt.Errorf("assign replication nodes: %w", err)
+			}
+
+			replicationIter.SetStartNode(node)
+			// the first node is already assigned, we only need to assign the
+			// additional nodes
+			for i := s.Config.Replicas; i > 1; i-- {
+				shard.BelongsToNodes = append(shard.BelongsToNodes, replicationIter.Next())
+			}
+		}
+
+		s.Physical[name] = shard
 	}
 
 	return nil
