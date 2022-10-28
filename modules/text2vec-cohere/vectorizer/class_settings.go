@@ -31,8 +31,9 @@ const (
 )
 
 var (
-	availableCohereModels = []string{"small", "medium", "large"}
-	availableTruncates    = []string{"NONE", "LEFT", "RIGHT"}
+	availableCohereModels    = []string{"small", "medium", "large"}
+	experimetnalCohereModels = []string{"multilingual-2210-alpha"}
+	availableTruncates       = []string{"NONE", "LEFT", "RIGHT"}
 )
 
 type classSettings struct {
@@ -114,7 +115,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	}
 
 	model := ic.Model()
-	if !ic.validateCohereSetting(model, availableCohereModels) {
+	if !ic.validateCohereSetting(model, append(availableCohereModels, experimetnalCohereModels...)) {
 		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
 	}
 	truncate := ic.Truncate()
