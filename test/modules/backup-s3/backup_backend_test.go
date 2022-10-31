@@ -22,10 +22,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/modules/backup-s3/s3"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
+	mod "github.com/semi-technologies/weaviate/modules/backup-s3"
 	"github.com/semi-technologies/weaviate/test/docker"
 	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
-	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,9 +72,10 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	})
 
 	t.Run("store backup meta in s3", func(t *testing.T) {
-		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
-		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, dataDir)
+		require.Nil(t, os.Setenv(envS3UseSSL, "false"))
+		require.Nil(t, os.Setenv(envS3Endpoint, endpoint))
+		s3 := mod.New()
+		err := s3.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
@@ -150,9 +153,9 @@ func moduleLevelCopyObjects(t *testing.T) {
 	})
 
 	t.Run("copy objects", func(t *testing.T) {
-		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
-		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, dataDir)
+		require.Nil(t, os.Setenv(envS3Endpoint, endpoint))
+		s3 := mod.New()
+		err := s3.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
@@ -195,9 +198,9 @@ func moduleLevelCopyFiles(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, expectedContents)
 
-		s3Config := s3.NewConfig(endpoint, bucketName, "", false)
-		logger, _ := test.NewNullLogger()
-		s3, err := s3.New(s3Config, logger, dataDir)
+		require.Nil(t, os.Setenv(envS3Endpoint, endpoint))
+		s3 := mod.New()
+		err = s3.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
 
 		t.Run("verify source data path", func(t *testing.T) {
@@ -225,4 +228,41 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, expectedContents, contents)
 		})
 	})
+}
+
+type fakeModuleParams struct {
+	logger   logrus.FieldLogger
+	provider fakeStorageProvider
+}
+
+func newFakeModuleParams(dataPath string) *fakeModuleParams {
+	logger, _ := logrustest.NewNullLogger()
+	return &fakeModuleParams{
+		logger:   logger,
+		provider: fakeStorageProvider{dataPath: dataPath},
+	}
+}
+
+func (f *fakeModuleParams) GetStorageProvider() moduletools.StorageProvider {
+	return &f.provider
+}
+
+func (f *fakeModuleParams) GetAppState() interface{} {
+	return nil
+}
+
+func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
+	return f.logger
+}
+
+type fakeStorageProvider struct {
+	dataPath string
+}
+
+func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
+	return nil, nil
+}
+
+func (f *fakeStorageProvider) DataPath() string {
+	return f.dataPath
 }

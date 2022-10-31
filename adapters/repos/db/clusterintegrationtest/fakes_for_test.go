@@ -31,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	ubak "github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -191,7 +192,8 @@ type fakeBackupBackendProvider struct {
 	backupsPath string
 }
 
-func (f *fakeBackupBackendProvider) BackupBackend(_ string) (modulecapabilities.BackupBackend, error) {
+func (f *fakeBackupBackendProvider) BackupBackend(name string) (modulecapabilities.BackupBackend, error) {
+	backend.setLocal(name == modstgfs.Name)
 	return backend, nil
 }
 
@@ -200,6 +202,7 @@ type fakeBackupBackend struct {
 	backupsPath string
 	backupID    string
 	counter     int
+	isLocal     bool
 	startedAt   time.Time
 }
 
@@ -241,6 +244,22 @@ func (f *fakeBackupBackend) SourceDataPath() string {
 	f.Lock()
 	defer f.Unlock()
 	return f.backupsPath
+}
+
+func (f *fakeBackupBackend) setLocal(v bool) {
+	f.Lock()
+	defer f.Unlock()
+	f.isLocal = v
+}
+
+func (f *fakeBackupBackend) IsExternal() bool {
+	f.Lock()
+	defer f.Unlock()
+	return !f.isLocal
+}
+
+func (f *fakeBackupBackend) Name() string {
+	return "fakeBackupBackend"
 }
 
 func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {

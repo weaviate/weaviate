@@ -23,7 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
-func (m *BackupFileSystemModule) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (m *Module) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
 	metaPath := filepath.Join(m.backupsPath, backupID, key)
 
 	if err := ctx.Err(); err != nil {
@@ -49,7 +49,7 @@ func (m *BackupFileSystemModule) GetObject(ctx context.Context, backupID, key st
 	return contents, nil
 }
 
-func (m *BackupFileSystemModule) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (m *Module) PutFile(ctx context.Context, backupID, key, srcPath string) error {
 	contents, err := os.ReadFile(path.Join(m.dataPath, srcPath))
 	if err != nil {
 		return errors.Wrapf(err, "read file '%s'", srcPath)
@@ -58,7 +58,7 @@ func (m *BackupFileSystemModule) PutFile(ctx context.Context, backupID, key, src
 	return m.PutObject(ctx, backupID, key, contents)
 }
 
-func (m *BackupFileSystemModule) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
 	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
 
 	dir := path.Dir(backupPath)
@@ -79,12 +79,12 @@ func (m *BackupFileSystemModule) PutObject(ctx context.Context, backupID, key st
 	return nil
 }
 
-func (m *BackupFileSystemModule) Initialize(ctx context.Context, backupID string) error {
+func (m *Module) Initialize(ctx context.Context, backupID string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }
 
-func (m *BackupFileSystemModule) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
 	obj, err := m.GetObject(ctx, backupID, key)
 	if err != nil {
 		return errors.Wrapf(err, "get object '%s'", key)
@@ -102,11 +102,11 @@ func (m *BackupFileSystemModule) WriteToFile(ctx context.Context, backupID, key,
 	return nil
 }
 
-func (m *BackupFileSystemModule) SourceDataPath() string {
+func (m *Module) SourceDataPath() string {
 	return m.dataPath
 }
 
-func (m *BackupFileSystemModule) initBackupBackend(ctx context.Context, backupsPath string) error {
+func (m *Module) initBackupBackend(ctx context.Context, backupsPath string) error {
 	if backupsPath == "" {
 		return fmt.Errorf("empty backup path provided")
 	}
@@ -122,7 +122,7 @@ func (m *BackupFileSystemModule) initBackupBackend(ctx context.Context, backupsP
 	return nil
 }
 
-func (m *BackupFileSystemModule) createBackupsDir(backupsPath string) error {
+func (m *Module) createBackupsDir(backupsPath string) error {
 	if err := os.MkdirAll(backupsPath, os.ModePerm); err != nil {
 		m.logger.WithField("module", m.Name()).
 			WithField("action", "create_backups_dir").

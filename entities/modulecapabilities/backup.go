@@ -16,6 +16,10 @@ import (
 )
 
 type BackupBackend interface {
+	// IsExternal returns whether the storage is an external storage (e.g. gcs, s3)
+	IsExternal() bool
+	// Name returns backend's name
+	Name() string
 	// HomeDir is the home directory of all backup files
 	HomeDir(backupID string) string
 
