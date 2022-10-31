@@ -406,3 +406,38 @@ func TestDistributedBackupValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestTestDistributedBackupResetStatus(t *testing.T) {
+	begin := time.Now().UTC().Add(-2)
+	desc := DistributedBackupDescriptor{
+		StartedAt:     begin,
+		CompletedAt:   begin.Add(2),
+		ID:            "1",
+		Version:       "1",
+		ServerVersion: "1",
+		Nodes: map[string]*NodeDescriptor{
+			"1": {},
+			"2": {Status: Success},
+			"3": {Error: "error"},
+		},
+		Error: "error",
+	}
+
+	desc.ResetStatus()
+	if !desc.StartedAt.After(begin) {
+		t.Fatalf("!desc.StartedAt.After(begin)")
+	}
+	want := DistributedBackupDescriptor{
+		StartedAt:     desc.StartedAt,
+		ID:            "1",
+		Version:       "1",
+		ServerVersion: "1",
+		Nodes: map[string]*NodeDescriptor{
+			"1": {Status: Started},
+			"2": {Status: Started},
+			"3": {Status: Started, Error: ""},
+		},
+		Status: Started,
+	}
+	assert.Equal(t, want, desc)
+}

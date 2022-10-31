@@ -14,11 +14,11 @@ package modstggcs
 import (
 	"context"
 	"net/http"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/backup-gcs/gcs"
 	"github.com/sirupsen/logrus"
 )
 
@@ -37,51 +37,72 @@ const (
 	gcsPath = "BACKUP_GCS_PATH"
 )
 
-type BackupGCSModule struct {
-	logger          logrus.FieldLogger
-	backendProvider modulecapabilities.BackupBackend
-	config          gcs.Config
-	dataPath        string
+type clientConfig struct {
+	Bucket string
+
+	// this is an optional value, allowing for
+	// the backup to be stored in a specific
+	// directory inside the provided bucket
+	BackupPath string
 }
 
-func New() *BackupGCSModule {
-	return &BackupGCSModule{}
+type Module struct {
+	logger logrus.FieldLogger
+	*gcsClient
+	dataPath string
 }
 
-func (m *BackupGCSModule) Name() string {
+func New() *Module {
+	return &Module{}
+}
+
+func (m *Module) Name() string {
 	return Name
 }
 
-func (m *BackupGCSModule) AltNames() []string {
+func (m *Module) IsExternal() bool {
+	return true
+}
+
+func (m *Module) AltNames() []string {
 	return []string{AltName1}
 }
 
-func (m *BackupGCSModule) Type() modulecapabilities.ModuleType {
+func (m *Module) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Backup
 }
 
-func (m *BackupGCSModule) Init(ctx context.Context,
+func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
 	m.dataPath = params.GetStorageProvider().DataPath()
 
-	if err := m.initBackupBackend(ctx); err != nil {
-		return errors.Wrap(err, "init backup backend")
+	config := &clientConfig{
+		Bucket:     os.Getenv(gcsBucket),
+		BackupPath: os.Getenv(gcsPath),
+	}
+	if config.Bucket == "" {
+		return errors.Errorf("backup init: '%s' must be set", gcsBucket)
 	}
 
+	client, err := newClient(ctx, config, m.dataPath)
+	if err != nil {
+		return errors.Wrap(err, "init gcs client")
+	}
+	m.gcsClient = client
 	return nil
 }
 
-func (m *BackupGCSModule) RootHandler() http.Handler {
+func (m *Module) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *BackupGCSModule) MetaInfo() (map[string]interface{}, error) {
+func (m *Module) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
-	metaInfo["bucketName"] = m.config.BucketName()
-	if root := m.config.BackupPath(); root != "" {
+	metaInfo["bucketName"] = m.config.Bucket
+	if root := m.config.BackupPath; root != "" {
 		metaInfo["rootName"] = root
 	}
 	return metaInfo, nil

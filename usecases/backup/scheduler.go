@@ -19,7 +19,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/entities/models"
-	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
 	"github.com/sirupsen/logrus"
 )
 
@@ -203,7 +202,7 @@ func coordBackend(provider BackupBackendProvider, backend, id string) (coordStor
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
-	if s.backupper.nodeResolver.NodeCount() > 1 && isLocalFilesystemBackend(req.Backend) {
+	if !store.b.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
 	if err := validateID(req.ID); err != nil {
@@ -236,7 +235,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 }
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
-	if s.restorer.nodeResolver.NodeCount() > 1 && isLocalFilesystemBackend(req.Backend) {
+	if !store.b.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
@@ -274,16 +273,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
 	}
 	return meta, nil
-}
-
-func isLocalFilesystemBackend(backend string) bool {
-	fs := modstgfs.WhoAmI()
-	for _, name := range fs {
-		if backend == name {
-			return true
-		}
-	}
-	return false
 }
 
 func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {
