@@ -749,7 +749,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if local {
 
 			// If the request is a BM25F with no properties selected, use all possible properties
-
 			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 				// Loop over classes and find i.Config.ClassName.String()
 				for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {

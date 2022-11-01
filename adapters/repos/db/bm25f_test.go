@@ -250,3 +250,64 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Equal(t, float32(0.014773461), res[2].Score())
 	require.Equal(t, float32(0.006913103), res[3].Score())
 }
+
+//Compare with previous BM25 version to ensure the algorithm functions correctly
+func TestBM25FCompare(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+
+	shardNames := idx.getSchema.ShardingState(idx.Config.ClassName.String()).AllPhysicalShards()
+
+	for _, shardName := range shardNames {
+		shard := idx.Shards[shardName]
+		fmt.Printf("------ BM25F --------\n")
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "journey"}
+		addit := additional.Properties{}
+
+		withBM25Fobjs, withBM25Fscores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+
+		for i, r := range withBM25Fobjs {
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
+		fmt.Printf("------ BM25 --------\n")
+		kwr.Type = ""
+
+		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+
+		for i, r := range objs {
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
+		require.Nil(t, err)
+		require.Equal(t, len(withBM25Fobjs), len(objs))
+		for i := range objs {
+			s1 := fmt.Sprintf("%v", withBM25Fscores[i])
+			s2 := fmt.Sprintf("%v", scores[i])
+			require.Equal(t, s1[:9], s2[:9] )
+		}
+
+		//Not all the scores are unique and the search is not stable, so pick ones that don't move
+		require.Equal(t, withBM25Fobjs[2].DocID(), objs[2].DocID())
+		require.Equal(t, withBM25Fobjs[5].DocID(), objs[5].DocID())
+	}
+}
