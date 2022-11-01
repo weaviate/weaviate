@@ -111,6 +111,19 @@ func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteInde
 	return index
 }
 
+func (d *DB) GetReplicatedIndex(className schema.ClassName) sharding.Replicator {
+	d.indexLock.Lock()
+	defer d.indexLock.Unlock()
+
+	id := indexID(className)
+	index, ok := d.indices[id]
+	if !ok {
+		return nil
+	}
+
+	return (*replicatedIndex)(index)
+}
+
 // DeleteIndex deletes the index
 func (d *DB) DeleteIndex(className schema.ClassName) error {
 	d.indexLock.Lock()

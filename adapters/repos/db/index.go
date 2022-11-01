@@ -283,6 +283,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	if err := localShard.putObject(ctx, object); err != nil {
 		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
+	i.remote.ReplicateInsertion(ctx, i.getSchema.NodeName(), shardName, object)
+	i.getSchema.NodeName()
 
 	return nil
 }
@@ -927,6 +929,9 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	if local {
 		shard := i.Shards[shardName]
 		err = shard.deleteObject(ctx, id)
+		if err != nil {
+			i.remote.ReplicateDeletion(ctx, i.getSchema.NodeName(), shardName, id)
+		}
 	} else {
 		err = i.remote.DeleteObject(ctx, shardName, id)
 	}
@@ -1254,4 +1259,18 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
+}
+
+type replicatedIndex Index
+
+func (ri *replicatedIndex) PutObject(ctx context.Context, shardName string,
+	object *storobj.Object,
+) error {
+	return (*Index)(ri).IncomingPutObject(ctx, shardName, object)
+}
+
+func (ri *replicatedIndex) DeleteObject(ctx context.Context, shardName string,
+	id strfmt.UUID,
+) error {
+	return (*Index)(ri).IncomingDeleteObject(ctx, shardName, id)
 }

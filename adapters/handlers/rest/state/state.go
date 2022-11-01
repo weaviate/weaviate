@@ -44,9 +44,11 @@ type State struct {
 	Cluster             *cluster.State
 	RemoteIndexIncoming *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
-	ClassificationRepo  *classifications.DistributedRepo
-	Metrics             *monitoring.PrometheusMetrics
-	BackupManager       *backup.Manager
+	ReplicatedIndex     *sharding.ReplicatedIndex
+
+	ClassificationRepo *classifications.DistributedRepo
+	Metrics            *monitoring.PrometheusMetrics
+	BackupManager      *backup.Manager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
