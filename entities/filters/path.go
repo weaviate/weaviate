@@ -115,15 +115,27 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 			return nil, fmt.Errorf("Expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
 		}
 
-		propertyName, err := schema.ValidatePropertyName(rawPropertyName)
-		// Invalid property name?
-		// Try to parse it as as a reference.
-		if err != nil {
-			untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:]
-			propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)
+		var propertyName schema.PropertyName
+		lengthPropName, isPropLengthFilter := schema.IsPropertyLength(rawPropertyName, 0)
+		if isPropLengthFilter {
+			// check if property in len(PROPERTY) is valid
+			_, err = schema.ValidatePropertyName(lengthPropName)
 			if err != nil {
-				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", rawPropertyName)
+				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", lengthPropName)
 			}
+			propertyName = schema.PropertyName(rawPropertyName)
+		} else {
+			propertyName, err = schema.ValidatePropertyName(rawPropertyName)
+			// Invalid property name?
+			// Try to parse it as as a reference or a length.
+			if err != nil {
+				untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:]
+				propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)
+				if err != nil {
+					return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", rawPropertyName)
+				}
+			}
+
 		}
 
 		current.Child = &Path{
