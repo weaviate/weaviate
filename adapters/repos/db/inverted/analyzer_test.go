@@ -519,6 +519,49 @@ func TestAnalyzer_ConfigurableStopwords(t *testing.T) {
 	})
 }
 
+func TestAnalyzer_DefaultEngPreset(t *testing.T) {
+	a := newTestAnalyzer(t, schema.StopwordConfig{Preset: "en"})
+	input := "hello you-beautiful_world"
+
+	textCountableWord := a.Text(models.PropertyTokenizationWord, input)
+	assert.ElementsMatch(t, textCountableWord, []Countable{
+		{Data: []byte("hello"), TermFrequency: float32(1)},
+		{Data: []byte("you"), TermFrequency: float32(1)},
+		{Data: []byte("beautiful"), TermFrequency: float32(1)},
+		{Data: []byte("world"), TermFrequency: float32(1)},
+	})
+
+	textArrayCountableWord := a.TextArray(models.PropertyTokenizationWord, []string{input, input})
+	assert.ElementsMatch(t, textArrayCountableWord, []Countable{
+		{Data: []byte("hello"), TermFrequency: float32(2)},
+		{Data: []byte("you"), TermFrequency: float32(2)},
+		{Data: []byte("beautiful"), TermFrequency: float32(2)},
+		{Data: []byte("world"), TermFrequency: float32(2)},
+	})
+
+	stringCountableWord := a.String(models.PropertyTokenizationWord, input)
+	assert.ElementsMatch(t, stringCountableWord, []Countable{
+		{Data: []byte("hello"), TermFrequency: float32(1)},
+		{Data: []byte("you-beautiful_world"), TermFrequency: float32(1)},
+	})
+
+	stringArrayCountableWord := a.StringArray(models.PropertyTokenizationWord, []string{input, input})
+	assert.ElementsMatch(t, stringArrayCountableWord, []Countable{
+		{Data: []byte("hello"), TermFrequency: float32(2)},
+		{Data: []byte("you-beautiful_world"), TermFrequency: float32(2)},
+	})
+
+	stringCountableField := a.String(models.PropertyTokenizationField, input)
+	assert.ElementsMatch(t, stringCountableField, []Countable{
+		{Data: []byte("hello you-beautiful_world"), TermFrequency: float32(1)},
+	})
+
+	stringArrayCountableField := a.StringArray(models.PropertyTokenizationField, []string{input, input})
+	assert.ElementsMatch(t, stringArrayCountableField, []Countable{
+		{Data: []byte("hello you-beautiful_world"), TermFrequency: float32(2)},
+	})
+}
+
 type fakeStopwordDetector struct{}
 
 func (fsd fakeStopwordDetector) IsStopword(word string) bool {
