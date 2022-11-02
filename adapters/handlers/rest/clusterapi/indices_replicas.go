@@ -34,10 +34,10 @@ type replicatedIndices struct {
 }
 
 var (
-	regxObjects = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`)
 	regxObject = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`)
+	regxObjects = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/objects`)
 )
 
 func NewReplicatedIndices(shards replicator) *replicatedIndices {
@@ -79,7 +79,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 
 func (i *replicatedIndices) postObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regxObject.FindStringSubmatch(r.URL.Path)
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -106,7 +106,7 @@ func (i *replicatedIndices) postObject() http.Handler {
 
 func (i *replicatedIndices) deleteObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regxObject.FindStringSubmatch(r.URL.Path)
+		args := regxObject.FindStringSubmatch(r.URL.Path)
 		if len(args) != 4 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
