@@ -33,6 +33,20 @@ func Test_ParsePath(t *testing.T) {
 		assert.Equal(t, expectedPath, path, "should parse the path correctly")
 	})
 
+	t.Run("with len prop", func(t *testing.T) {
+		rootClass := "City"
+		segments := []interface{}{"len(population)"}
+		expectedPath := &Path{
+			Class:    "City",
+			Property: "len(population)",
+		}
+
+		path, err := ParsePath(segments, rootClass)
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedPath, path, "should parse the path correctly")
+	})
+
 	t.Run("with nested refs", func(t *testing.T) {
 		rootClass := "City"
 		segments := []interface{}{"inCountry", "Country", "inContinent", "Continent", "onPlanet", "Planet", "name"}
@@ -63,6 +77,20 @@ func Test_ParsePath(t *testing.T) {
 		assert.Equal(t, innerMost, &Path{Class: "Planet", Property: "name"})
 
 		// Print Slice
+	})
+
+	t.Run("with non-valid prop", func(t *testing.T) {
+		rootClass := "City"
+		segments := []interface{}{"populatS356()ion"}
+		_, err := ParsePath(segments, rootClass)
+		require.NotNil(t, err, "should error")
+	})
+
+	t.Run("with non-valid len prop", func(t *testing.T) {
+		rootClass := "City"
+		segments := []interface{}{"len(populatS356()ion)"}
+		_, err := ParsePath(segments, rootClass)
+		require.NotNil(t, err, "should error")
 	})
 }
 
