@@ -29,8 +29,7 @@ type replicator interface {
 }
 
 type replicatedIndices struct {
-	shards     replicator
-	regxObject *regexp.Regexp
+	shards replicator
 }
 
 var (

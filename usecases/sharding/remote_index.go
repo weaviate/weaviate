@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"golang.org/x/sync/errgroup"
 )
 
 type RemoteIndex struct {
@@ -340,32 +341,36 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 func (ri *RemoteIndex) ReplicateInsertion(ctx context.Context, localhost, shardName string,
 	obj *storobj.Object,
 ) error {
-
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	// simulate getting replica
-	replica := "node1"
-	if localhost == "node1" {
-		replica = "node2"
-	}
+	var replicas []string
 	for _, name := range shard.BelongsToNodes {
 		if name != localhost {
-			replica = name
+			replicas = append(replicas, name)
 		}
 	}
-	if replica == "" {
-		return fmt.Errorf("no replicate found")
+	if len(replicas) == 0 {
+		return fmt.Errorf("no replicas found")
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(replica)
-	if !ok {
-		return errors.Errorf("resolve node name %q to host", replica)
+	var g errgroup.Group
+
+	for _, replica := range replicas {
+		replica := replica
+		g.Go(func() error {
+			host, ok := ri.nodeResolver.NodeHostname(replica)
+			if !ok {
+				return errors.Errorf("resolve node name %q to host", replica)
+			}
+
+			return ri.client.ReplicateInsertion(ctx, host, ri.class, shardName, obj)
+		})
 	}
 
-	return ri.client.ReplicateInsertion(ctx, host, ri.class, shardName, obj)
+	return g.Wait()
 }
 
 func (ri *RemoteIndex) ReplicateDeletion(ctx context.Context, localhost, shardName string,

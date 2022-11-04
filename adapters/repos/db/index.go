@@ -934,7 +934,9 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	if shardingState.IsShardLocal(shardName) {
 		shard := i.Shards[shardName]
-		err = shard.deleteObject(ctx, id)
+		if err := shard.deleteObject(ctx, id); err != nil {
+			return fmt.Errorf("delete object: %w", err)
+		}
 		if shardingState.Config.Replicas > 1 {
 			err = i.remote.ReplicateDeletion(ctx, i.getSchema.NodeName(), shardName, id)
 			if err != nil {
