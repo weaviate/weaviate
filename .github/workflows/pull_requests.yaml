@@ -9,27 +9,27 @@ on:
   pull_request:
 
 jobs:
-  Run-Swagger:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-          cache: true
-      - name: Run Swagger
-        run: ./tools/gen-code-from-swagger.sh
-      - name: Error on change
-        run: |
-          # check if anything is different
-          CHANGED=$(git status -s | wc -l)
-          if [ "$CHANGED" -gt 0 ]; then
-            echo "Please run ./tools/gen-code-from-swagger.sh script and commit changes"
-            exit 1
-          else
-            exit 0
-          fi
+#  Run-Swagger:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#      - name: Set up Go
+#        uses: actions/setup-go@v3
+#        with:
+#          go-version: 1.19
+#          cache: true
+#      - name: Run Swagger
+#        run: ./tools/gen-code-from-swagger.sh
+#      - name: Error on change
+#        run: |
+#          # check if anything is different
+#          CHANGED=$(git status -s | wc -l)
+#          if [ "$CHANGED" -gt 0 ]; then
+#            echo "Please run ./tools/gen-code-from-swagger.sh script and commit changes"
+#            exit 1
+#          else
+#            exit 0
+#          fi
   Unit-Tests:
     needs: [Run-Swagger]
     runs-on: ubuntu-latest
