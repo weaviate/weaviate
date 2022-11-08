@@ -55,7 +55,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		return err
 	}
 
-	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
+	tx, err := m.cluster.BeginWriteTransaction(ctx, AddProperty,
 		AddPropertyPayload{className, prop})
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
@@ -64,7 +64,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
-	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
 		return errors.Wrap(err, "commit cluster-wide transaction")
 	}
 

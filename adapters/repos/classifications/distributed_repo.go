@@ -63,7 +63,7 @@ func (r *DistributedRepo) Put(ctx context.Context,
 	r.Lock()
 	defer r.Unlock()
 
-	tx, err := r.txRemote.BeginTransaction(ctx, classification.TransactionPut,
+	tx, err := r.txRemote.BeginWriteTransaction(ctx, classification.TransactionPut,
 		classification.TransactionPutPayload{
 			Classification: pl,
 		})
@@ -71,7 +71,7 @@ func (r *DistributedRepo) Put(ctx context.Context,
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
-	err = r.txRemote.CommitTransaction(ctx, tx)
+	err = r.txRemote.CommitWriteTransaction(ctx, tx)
 	if err != nil {
 		return errors.Wrap(err, "commit cluster-wide transaction")
 	}

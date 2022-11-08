@@ -28,10 +28,10 @@ func TestSuccesfulOutgoingTransaction(t *testing.T) {
 
 	man := NewTxManager(&fakeBroadcaster{})
 
-	tx, err := man.BeginTransaction(ctx, trType, payload)
+	tx, err := man.BeginWriteTransaction(ctx, trType, payload)
 	require.Nil(t, err)
 
-	err = man.CommitTransaction(ctx, tx)
+	err = man.CommitWriteTransaction(ctx, tx)
 	require.Nil(t, err)
 }
 
@@ -42,15 +42,15 @@ func TestTryingToOpenTwoTransactions(t *testing.T) {
 
 	man := NewTxManager(&fakeBroadcaster{})
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginWriteTransaction(ctx, trType, payload)
 	require.Nil(t, err)
 
-	tx2, err := man.BeginTransaction(ctx, trType, payload)
+	tx2, err := man.BeginWriteTransaction(ctx, trType, payload)
 	assert.Nil(t, tx2)
 	require.NotNil(t, err)
 	assert.Equal(t, "concurrent transaction", err.Error())
 
-	err = man.CommitTransaction(ctx, tx1)
+	err = man.CommitWriteTransaction(ctx, tx1)
 	assert.Nil(t, err, "original transaction can still be committed")
 }
 
@@ -61,16 +61,16 @@ func TestTryingToCommitInvalidTransaction(t *testing.T) {
 
 	man := NewTxManager(&fakeBroadcaster{})
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginWriteTransaction(ctx, trType, payload)
 	require.Nil(t, err)
 
 	invalidTx := &Transaction{ID: "invalid"}
 
-	err = man.CommitTransaction(ctx, invalidTx)
+	err = man.CommitWriteTransaction(ctx, invalidTx)
 	require.NotNil(t, err)
 	assert.Equal(t, "invalid transaction", err.Error())
 
-	err = man.CommitTransaction(ctx, tx1)
+	err = man.CommitWriteTransaction(ctx, tx1)
 	assert.Nil(t, err, "original transaction can still be committed")
 }
 
@@ -84,7 +84,7 @@ func TestRemoteDoesntAllowOpeningTransaction(t *testing.T) {
 
 	man := NewTxManager(broadcaster)
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginWriteTransaction(ctx, trType, payload)
 	require.Nil(t, tx1)
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "open transaction")
@@ -131,10 +131,10 @@ func TestSuccessfulDistributedTransaction(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
 
-	tx, err := local.BeginTransaction(ctx, trType, payload)
+	tx, err := local.BeginWriteTransaction(ctx, trType, payload)
 	require.Nil(t, err)
 
-	err = local.CommitTransaction(ctx, tx)
+	err = local.CommitWriteTransaction(ctx, tx)
 	require.Nil(t, err)
 
 	assert.Equal(t, "my-payload", remoteState)
@@ -165,10 +165,10 @@ func TestConcurrentDistributedTransaction(t *testing.T) {
 	// place. We, however want to simulate a situation where due to network
 	// delays, etc. both sides try to open a transaction more or less in
 	// parallel.
-	_, err := remote.BeginTransaction(ctx, trType, "wrong payload")
+	_, err := remote.BeginWriteTransaction(ctx, trType, "wrong payload")
 	require.Nil(t, err)
 
-	tx, err := local.BeginTransaction(ctx, trType, payload)
+	tx, err := local.BeginWriteTransaction(ctx, trType, payload)
 	require.Nil(t, tx)
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "concurrent transaction")
@@ -197,21 +197,21 @@ func TestConcurrentOpenAttemptsOnSlowNetwork(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := node1.BeginTransaction(ctx, trType, "payload-from-node-1")
+		_, err := node1.BeginWriteTransaction(ctx, trType, "payload-from-node-1")
 		assert.NotNil(t, err, "open tx 1 must fail")
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := node2.BeginTransaction(ctx, trType, "payload-from-node-2")
+		_, err := node2.BeginWriteTransaction(ctx, trType, "payload-from-node-2")
 		assert.NotNil(t, err, "open tx 2 must fail")
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := node3.BeginTransaction(ctx, trType, "payload-from-node-3")
+		_, err := node3.BeginWriteTransaction(ctx, trType, "payload-from-node-3")
 		assert.NotNil(t, err, "open tx 3 must fail")
 	}()
 
