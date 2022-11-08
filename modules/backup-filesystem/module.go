@@ -30,35 +30,33 @@ const (
 	backupsPathName = "BACKUP_FILESYSTEM_PATH"
 )
 
-// WhoAmI returns a list of all names used to refer to BackupFileSystemModule
-func WhoAmI() []string {
-	m := BackupFileSystemModule{}
-	return append(m.AltNames(), m.Name())
-}
-
-type BackupFileSystemModule struct {
+type Module struct {
 	logger      logrus.FieldLogger
 	dataPath    string // path to the current (operational) data
 	backupsPath string // complete(?) path to the directory that holds all the backups
 }
 
-func New() *BackupFileSystemModule {
-	return &BackupFileSystemModule{}
+func New() *Module {
+	return &Module{}
 }
 
-func (m *BackupFileSystemModule) Name() string {
+func (m *Module) Name() string {
 	return Name
 }
 
-func (m *BackupFileSystemModule) AltNames() []string {
+func (m *Module) IsExternal() bool {
+	return false
+}
+
+func (m *Module) AltNames() []string {
 	return []string{AltName1}
 }
 
-func (m *BackupFileSystemModule) Type() modulecapabilities.ModuleType {
+func (m *Module) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Backup
 }
 
-func (m *BackupFileSystemModule) Init(ctx context.Context,
+func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
@@ -71,22 +69,22 @@ func (m *BackupFileSystemModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *BackupFileSystemModule) HomeDir(backupID string) string {
+func (m *Module) HomeDir(backupID string) string {
 	return path.Join(m.makeBackupDirPath(backupID))
 }
 
-func (m *BackupFileSystemModule) RootHandler() http.Handler {
+func (m *Module) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *BackupFileSystemModule) MetaInfo() (map[string]interface{}, error) {
+func (m *Module) MetaInfo() (map[string]interface{}, error) {
 	metaInfo := make(map[string]interface{})
 	metaInfo["backupsPath"] = m.backupsPath
 	return metaInfo, nil
 }
 
-func (m *BackupFileSystemModule) makeBackupDirPath(id string) string {
+func (m *Module) makeBackupDirPath(id string) string {
 	return filepath.Join(m.backupsPath, id)
 }
 

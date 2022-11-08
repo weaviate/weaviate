@@ -66,13 +66,13 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, v.url(config.Model), input, v.getOptions(config))
+	return v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, v.url(config.Model), input, v.getOptions(config))
+	return v.vectorize(ctx, v.getURL(config), input, v.getOptions(config))
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, url string,
@@ -91,11 +91,9 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := v.getApiKey(ctx)
-	if err != nil {
-		return nil, errors.Wrapf(err, "HuggingFace API Key")
+	if apiKey := v.getApiKey(ctx); apiKey != "" {
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -161,18 +159,23 @@ func (v *vectorizer) decodeVector(bodyBytes []byte) ([]float32, error) {
 	return nil, errors.New("unprocessable response body")
 }
 
-func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
+func (v *vectorizer) getApiKey(ctx context.Context) string {
 	if len(v.apiKey) > 0 {
-		return v.apiKey, nil
+		return v.apiKey
 	}
 	apiKey := ctx.Value("X-Huggingface-Api-Key")
 	if apiKeyHeader, ok := apiKey.([]string); ok &&
 		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
+		return apiKeyHeader[0]
 	}
-	return "", errors.New("no api key found " +
-		"neither in request header: X-HuggingFace-Api-Key " +
-		"nor in environment variable under HUGGINGFACE_APIKEY")
+	return ""
+}
+
+func (v *vectorizer) getURL(config ent.VectorizationConfig) string {
+	if config.EndpointURL != "" {
+		return config.EndpointURL
+	}
+	return v.url(config.Model)
 }
 
 func (v *vectorizer) url(model string) string {
