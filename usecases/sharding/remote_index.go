@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/go-openapi/strfmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"golang.org/x/sync/errgroup"
 )
 
 type RemoteIndex struct {
@@ -87,6 +89,13 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadCloser) error
+
+	// replication
+	ReplicateInsertion(ctx context.Context, hostName, indexName, shardName string,
+		obj *storobj.Object) error
+
+	ReplicateDeletion(ctx context.Context, hostname, indexName, shardName string,
+		id strfmt.UUID) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -327,4 +336,64 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 	}
 
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)
+}
+
+func (ri *RemoteIndex) ReplicateInsertion(ctx context.Context, localhost, shardName string,
+	obj *storobj.Object,
+) error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+
+	var replicas []string
+	for _, name := range shard.BelongsToNodes {
+		if name != localhost {
+			replicas = append(replicas, name)
+		}
+	}
+	if len(replicas) == 0 {
+		return fmt.Errorf("no replicas found")
+	}
+
+	var g errgroup.Group
+
+	for _, replica := range replicas {
+		replica := replica
+		g.Go(func() error {
+			host, ok := ri.nodeResolver.NodeHostname(replica)
+			if !ok {
+				return errors.Errorf("resolve node name %q to host", replica)
+			}
+
+			return ri.client.ReplicateInsertion(ctx, host, ri.class, shardName, obj)
+		})
+	}
+
+	return g.Wait()
+}
+
+func (ri *RemoteIndex) ReplicateDeletion(ctx context.Context, localhost, shardName string,
+	id strfmt.UUID,
+) error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
+	}
+	node := ""
+	for _, name := range shard.BelongsToNodes {
+		if name != localhost {
+			node = name
+		}
+	}
+	if node == "" {
+		return fmt.Errorf("no replicate found")
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(node)
+	if !ok {
+		return errors.Errorf("resolve node name %q to host", node)
+	}
+
+	return ri.client.ReplicateDeletion(ctx, host, ri.class, shardName, id)
 }

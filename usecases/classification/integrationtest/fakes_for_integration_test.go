@@ -423,6 +423,18 @@ func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, inde
 	return nil
 }
 
+func (f *fakeRemoteClient) ReplicateInsertion(ctx context.Context, hostName,
+	indexName, shardName string, obj *storobj.Object,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicateDeletion(ctx context.Context, hostname,
+	indexName, shardName string, id strfmt.UUID,
+) error {
+	return nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {

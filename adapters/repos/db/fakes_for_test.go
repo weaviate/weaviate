@@ -211,6 +211,18 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
+func (f *fakeRemoteClient) ReplicateInsertion(ctx context.Context, hostName,
+	indexName, shardName string, obj *storobj.Object,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicateDeletion(ctx context.Context, hostname,
+	indexName, shardName string, id strfmt.UUID,
+) error {
+	return nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
