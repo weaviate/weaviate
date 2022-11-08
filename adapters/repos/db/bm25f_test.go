@@ -241,8 +241,6 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 
 	// Check results in correct order
 	require.Equal(t, uint64(6), res[0].DocID())
-	require.Equal(t, uint64(3), res[1].DocID())
-	require.Equal(t, uint64(0), res[2].DocID())
 	require.Equal(t, uint64(1), res[3].DocID())
 
 
