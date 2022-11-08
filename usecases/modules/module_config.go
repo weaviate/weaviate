@@ -54,6 +54,26 @@ func (cbmc *ClassBasedModuleConfig) ClassByModuleName(moduleName string) map[str
 	return asMap
 }
 
+func (cbmc *ClassBasedModuleConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	defaultConf := map[string]interface{}{}
+	asMap, ok := cbmc.class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return defaultConf
+	}
+
+	moduleCfg, ok := asMap[moduleName]
+	if !ok {
+		return defaultConf
+	}
+
+	asMap, ok = moduleCfg.(map[string]interface{})
+	if !ok {
+		return defaultConf
+	}
+
+	return asMap
+}
+
 func (cbmc *ClassBasedModuleConfig) Property(propName string) map[string]interface{} {
 	defaultConf := map[string]interface{}{}
 	prop, err := schema.GetPropertyByName(cbmc.class, propName)
