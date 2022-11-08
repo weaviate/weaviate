@@ -33,7 +33,11 @@ func (m *Manager) startupClusterSync(ctx context.Context,
 		return m.startupHandleSingleNode(ctx, nodes)
 	}
 
-	return nil
+	if isEmpty(localSchema) {
+		return m.startupJoinCluster(ctx, localSchema)
+	}
+
+	return m.validateSchemaCorruption(ctx, localSchema)
 }
 
 // startupHandleSingleNode deals with the case where there is only a single
@@ -62,6 +66,42 @@ func (m *Manager) startupHandleSingleNode(ctx context.Context,
 	return nil
 }
 
+// startupJoinCluster migrates the schema for a new node. The assumption is
+// that other nodes have schema state and we need to migrate this schema to the
+// local node transactionally. In other words, this startup process can not
+// occur concurrently with a user-initiated schema update. One of those must
+// fail.
+//
+// There is one edge case: The cluster could consist of multiple nodes which
+// are empty. In this case, no migration is required.
+func (m *Manager) startupJoinCluster(ctx context.Context,
+	localSchema *State,
+) error {
+	return nil
+}
+
+// validateSchemaCorruption makes sure that - given that all nodes in the
+// cluster have a schema - they are in sync. If not the cluster is considered
+// broken and needs to be repaired manually
+func (m *Manager) validateSchemaCorruption(ctx context.Context,
+	localSchema *State,
+) error {
+	// TODO
+	return nil
+}
+
 func logrusStartupSyncFields() logrus.Fields {
 	return logrus.Fields{"action": "startup_cluster_schema_sync"}
+}
+
+func isEmpty(schema *State) bool {
+	if schema.ObjectSchema == nil {
+		return true
+	}
+
+	if len(schema.ObjectSchema.Classes) == 0 {
+		return true
+	}
+
+	return false
 }
