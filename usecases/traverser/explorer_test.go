@@ -2499,7 +2499,7 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 					searchVectorValue.SetSearchVector(searchVector)
 					searchValue = searchVectorValue
 				}
-				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil)
+				resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil, nil)
 				if err != nil {
 					return nil, err
 				}

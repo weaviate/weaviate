@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -121,17 +122,25 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 		return nil
 	}
 
-	mod := p.GetByName(class.Vectorizer)
-	cc, ok := mod.(modulecapabilities.ClassConfigurator)
+	moduleConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {
-		// the module exists, but is not a class configurator, nothing to do for us
 		return nil
 	}
+	for key, value := range moduleConfig {
+		fmt.Printf("%v, %v", key, value)
 
-	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
-	err := cc.ValidateClass(ctx, class, cfg)
-	if err != nil {
-		return errors.Wrapf(err, "module '%s'", class.Vectorizer)
+		mod := p.GetByName(key)
+		cc, ok := mod.(modulecapabilities.ClassConfigurator)
+		if !ok {
+			// the module exists, but is not a class configurator, nothing to do for us
+			return nil
+		}
+
+		cfg := NewClassBasedModuleConfig(class, key)
+		err := cc.ValidateClass(ctx, class, cfg)
+		if err != nil {
+			return errors.Wrapf(err, "module '%s'", key)
+		}
 	}
 
 	return nil

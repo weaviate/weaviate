@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/graphql-go/graphql/language/ast"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -30,7 +31,7 @@ func (e *Interpretation) AdditonalPropertyDefaultValue() interface{} {
 
 func (e *Interpretation) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	// this is a special case additional value
 	// this value is being added to storage object in vectorization process
