@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSuccesfulOutgoingTransaction(t *testing.T) {
+func TestSuccesfulOutgoingWriteTransaction(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
 	ctx := context.Background()
@@ -117,7 +117,7 @@ func (f *fakeBroadcaster) BroadcastCommitTransaction(ctx context.Context,
 	return f.commitErr
 }
 
-func TestSuccessfulDistributedTransaction(t *testing.T) {
+func TestSuccessfulDistributedWriteTransaction(t *testing.T) {
 	ctx := context.Background()
 
 	var remoteState interface{}
@@ -280,4 +280,33 @@ func (b *slowMultiBroadcaster) BroadcastCommitTransaction(ctx context.Context,
 	}
 
 	return nil
+}
+
+func TestSuccessfulDistributedReadTransaction(t *testing.T) {
+	ctx := context.Background()
+
+	var remoteState interface{}
+	remote := NewTxManager(&fakeBroadcaster{})
+	// remote.SetCommitFn(func(ctx context.Context, tx *Transaction) error {
+	// 	remoteState = tx.Payload
+	// 	return nil
+	// })
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote})
+	local.SetCommitFn(func(ctx context.Context, tx *Transaction) error {
+		remoteState = tx.Payload
+		return nil
+	})
+
+	payload := "my-payload"
+	trType := TransactionType("my-read-tx")
+
+	tx, err := local.BeginReadTransaction(ctx, trType)
+	require.Nil(t, err)
+
+	err = remote.RespondReadTransaction(ctx, tx, payload)
+	require.Nil(t, err)
+
+	local.CloseReadTransaction(ctx, tx)
+
+	assert.Equal(t, "my-payload", remoteState)
 }
