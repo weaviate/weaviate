@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -270,18 +271,26 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	localShard, ok := i.Shards[shardName]
-	if !ok {
+	shardingState := i.getSchema.
+		ShardingState(i.Config.ClassName.String())
+
+	if shardingState.IsShardLocal(shardName) {
+		shard := i.Shards[shardName]
+		if err := shard.putObject(ctx, object); err != nil {
+			return errors.Wrapf(err, "shard %s", shard.ID())
+		}
+		if shardingState.Config.Replicas > 1 {
+			err = i.remote.ReplicateInsertion(ctx, i.getSchema.NodeName(), shardName, object)
+			if err != nil {
+				return fmt.Errorf("failed to relay object put across replicas: %w", err)
+			}
+		}
+		i.getSchema.NodeName()
+	} else {
 		// this must be a remote shard, try sending it remotely
 		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
 			return errors.Wrap(err, "send to remote shard")
 		}
-
-		return nil
-	}
-
-	if err := localShard.putObject(ctx, object); err != nil {
-		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
 
 	return nil
@@ -920,18 +929,25 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	local := i.getSchema.
-		ShardingState(i.Config.ClassName.String()).
-		IsShardLocal(shardName)
+	shardingState := i.getSchema.
+		ShardingState(i.Config.ClassName.String())
 
-	if local {
+	if shardingState.IsShardLocal(shardName) {
 		shard := i.Shards[shardName]
-		err = shard.deleteObject(ctx, id)
+		if err := shard.deleteObject(ctx, id); err != nil {
+			return fmt.Errorf("delete object: %w", err)
+		}
+		if shardingState.Config.Replicas > 1 {
+			err = i.remote.ReplicateDeletion(ctx, i.getSchema.NodeName(), shardName, id)
+			if err != nil {
+				return fmt.Errorf("failed to relay object delete across replicas: %w", err)
+			}
+		}
 	} else {
 		err = i.remote.DeleteObject(ctx, shardName, id)
-	}
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shardName)
+		if err != nil {
+			return errors.Wrapf(err, "send to remote shard %s", shardName)
+		}
 	}
 
 	return nil
@@ -1254,4 +1270,18 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
+}
+
+type replicatedIndex Index
+
+func (ri *replicatedIndex) PutObject(ctx context.Context, shardName string,
+	object *storobj.Object,
+) error {
+	return (*Index)(ri).IncomingPutObject(ctx, shardName, object)
+}
+
+func (ri *replicatedIndex) DeleteObject(ctx context.Context, shardName string,
+	id strfmt.UUID,
+) error {
+	return (*Index)(ri).IncomingDeleteObject(ctx, shardName, id)
 }

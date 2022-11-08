@@ -28,6 +28,7 @@ func Serve(appState *state.State) {
 
 	schema := NewSchema(appState.SchemaManager.TxManager())
 	indices := NewIndices(appState.RemoteIndexIncoming)
+	replicatedIndices := NewReplicatedIndices(appState.ReplicatedIndex)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
 	nodes := NewNodes(appState.RemoteNodeIncoming)
 	backups := NewBackups(appState.BackupManager)
@@ -41,6 +42,7 @@ func Serve(appState *state.State) {
 
 	mux.Handle("/nodes/", nodes.Nodes())
 	mux.Handle("/indices/", indices.Indices())
+	mux.Handle("/replica/indices/", replicatedIndices.Indices())
 
 	mux.Handle("/backups/can-commit", backups.CanCommit())
 	mux.Handle("/backups/commit", backups.Commit())

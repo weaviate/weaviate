@@ -121,6 +121,7 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	// changes to anyone else. We can return the changes in the end where the
 	// caller can then make sure to broadcast the new state to the cluster.
 	ssAfter := ssBefore.DeepCopy()
+	ssAfter.Config = updated
 
 	// Identify all shards of the class and adjust the replicas. After this is
 	// done, the affected shards now belong to more nodes than they did before.
