@@ -13,12 +13,12 @@ package rest
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/utils"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
@@ -51,7 +51,7 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 			traverser,
 			appState.Modules,
 		)
-		if err != nil {
+		if err != nil && err != utils.ErrEmptySchema {
 			logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
 		}
@@ -64,7 +64,7 @@ func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
 ) (graphql.GraphQL, error) {
 	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider)
 	if err != nil {
-		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
+		return nil, err
 	}
 
 	logger.WithField("action", "graphql_rebuild").Debug("successfully rebuild graphql schema")
