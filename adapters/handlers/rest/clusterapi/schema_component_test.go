@@ -114,7 +114,7 @@ func TestComponentCluster(t *testing.T) {
 
 func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
 	remoteManager := newSchemaManagerWithClusterStateAndClient(
-		&fakeClusterState{hosts: []string{}}, nil)
+		&fakeClusterState{hosts: []string{"node1"}}, nil)
 
 	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager())
 	mux := http.NewServeMux()
