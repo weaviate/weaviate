@@ -188,6 +188,10 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return errors.Wrap(err, "load schema")
 	}
 
+	if err := m.startupClusterSync(ctx, schema); err != nil {
+		return errors.Wrap(err, "sync schema with other nodes in the cluster")
+	}
+
 	// store in local cache
 	m.state = *schema
 
@@ -195,7 +199,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	// store in remote repo
+	// store in persistent storage
 	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
 	}
