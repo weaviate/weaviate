@@ -50,7 +50,7 @@ func (c *TxManager) SetCommitFn(fn CommitFn) {
 	c.commitFn = fn
 }
 
-func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
+func (c *TxManager) BeginWriteTransaction(ctx context.Context, trType TransactionType,
 	payload interface{},
 ) (*Transaction, error) {
 	c.Lock()
@@ -86,7 +86,7 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 	return c.currentTransaction, nil
 }
 
-func (c *TxManager) CommitTransaction(ctx context.Context, tx *Transaction) error {
+func (c *TxManager) CommitWriteTransaction(ctx context.Context, tx *Transaction) error {
 	c.Lock()
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
 		c.Unlock()

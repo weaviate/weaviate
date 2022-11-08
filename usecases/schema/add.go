@@ -136,7 +136,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		return errors.Wrap(err, "init sharding state")
 	}
 
-	tx, err := m.cluster.BeginTransaction(ctx, AddClass,
+	tx, err := m.cluster.BeginWriteTransaction(ctx, AddClass,
 		AddClassPayload{class, shardState})
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
@@ -145,7 +145,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
-	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
 		return errors.Wrap(err, "commit cluster-wide transaction")
 	}
 
