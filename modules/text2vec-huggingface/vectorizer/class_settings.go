@@ -76,6 +76,10 @@ func (ic *classSettings) VectorizePropertyName(propName string) bool {
 	return asBool
 }
 
+func (ic *classSettings) EndpointURL() string {
+	return ic.getEndpointURL()
+}
+
 func (ic *classSettings) PassageModel() string {
 	model := ic.getPassageModel()
 	if model == "" {
@@ -143,6 +147,13 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) validateClassSettings() error {
+	endpointURL := ic.getEndpointURL()
+	if endpointURL != "" {
+		// endpoint is set, should be used for feature extraction
+		// all other settings are not relevant
+		return nil
+	}
+
 	model := ic.getProperty("model")
 	passageModel := ic.getProperty("passageModel")
 	queryModel := ic.getProperty("queryModel")
@@ -176,6 +187,14 @@ func (ic *classSettings) getQueryModel() string {
 		model = ic.getProperty("queryModel")
 	}
 	return model
+}
+
+func (ic *classSettings) getEndpointURL() string {
+	endpointURL := ic.getProperty("endpointUrl")
+	if endpointURL == "" {
+		endpointURL = ic.getProperty("endpointURL")
+	}
+	return endpointURL
 }
 
 func (ic *classSettings) getOption(option string) *bool {

@@ -12,6 +12,7 @@
 package ent
 
 type VectorizationConfig struct {
+	EndpointURL                    string
 	Model                          string
 	WaitForModel, UseGPU, UseCache bool
 }

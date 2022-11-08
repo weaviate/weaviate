@@ -29,6 +29,8 @@ const (
 	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
 	envS3SecretKey   = "AWS_SECRET_KEY"
 	envS3Bucket      = "BACKUP_S3_BUCKET"
+	envS3Endpoint    = "BACKUP_S3_ENDPOINT"
+	envS3UseSSL      = "BACKUP_S3_USE_SSL"
 
 	s3BackupJourneyClassName          = "S3Backup"
 	s3BackupJourneyBackupIDSingleNode = "s3-backup-single-node"
