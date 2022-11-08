@@ -46,7 +46,7 @@ type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return in, nil
 }
@@ -65,7 +65,7 @@ type fakeExtender struct {
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
@@ -84,7 +84,7 @@ type fakeProjector struct {
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
@@ -113,7 +113,7 @@ type fakePathBuilder struct {
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
@@ -213,14 +213,14 @@ func (p *fakeModulesProvider) ExtractAdditionalField(className, name string, par
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams, nil)
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string, argumentModuleParams map[string]interface{},
+	searchVector []float32, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) (search.Results, error) {
 	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := txt2vec.AdditionalProperties()
@@ -232,7 +232,7 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 				searchVectorValue.SetSearchVector(searchVector)
 				searchValue = searchVectorValue
 			}
-			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil)
+			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil, nil)
 			if err != nil {
 				return nil, err
 			}
