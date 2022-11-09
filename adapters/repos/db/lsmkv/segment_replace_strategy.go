@@ -43,7 +43,22 @@ func (i *segment) get(key []byte) ([]byte, error) {
 	}
 
 	defer i.bloomFilterMetrics.truePositive(before)
-	return i.replaceStratParseData(i.contents[node.Start:node.End])
+
+	// We need to copy the data we read from the segment exactly once in this
+	// place. This means that future processing can share this memory as much as
+	// it wants to, as it can now be considered immutable. If we didn't copy in
+	// this place it would only be safe to hold this data while still under the
+	// protection of the segmentGroup.maintenanceLock. This lock makes sure that
+	// no compaction is started during an ongoing read. However, once read,
+	// further processing is no longer protected by lock.
+	// If a compaction completes and the old segment is removed, we would be accessing
+	// invalid memory without the copy, thus leading to a SEGFAULT.
+	// Similar approach was used to fix SEGFAULT in collection strategy
+	// https://github.com/semi-technologies/weaviate/issues/1837
+	contentsCopy := make([]byte, node.End-node.Start)
+	copy(contentsCopy, i.contents[node.Start:node.End])
+
+	return i.replaceStratParseData(contentsCopy)
 }
 
 func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
@@ -67,6 +82,20 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+
+	// We need to copy the data we read from the segment exactly once in this
+	// place. This means that future processing can share this memory as much as
+	// it wants to, as it can now be considered immutable. If we didn't copy in
+	// this place it would only be safe to hold this data while still under the
+	// protection of the segmentGroup.maintenanceLock. This lock makes sure that
+	// no compaction is started during an ongoing read. However, once read,
+	// further processing is no longer protected by lock.
+	// If a compaction completes and the old segment is removed, we would be accessing
+	// invalid memory without the copy, thus leading to a SEGFAULT.
+	// Similar approach was used to fix SEGFAULT in collection strategy
+	// https://github.com/semi-technologies/weaviate/issues/1837
+	contentsCopy := make([]byte, node.End-node.Start)
+	copy(contentsCopy, i.contents[node.Start:node.End])
 
 	return i.replaceStratParseData(i.contents[node.Start:node.End])
 }
