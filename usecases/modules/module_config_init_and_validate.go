@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
