@@ -164,7 +164,6 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 
 	c.currentTransaction = tx
 	c.responseFn(ctx, tx)
-	fmt.Printf("incoming transaction: %v\n", tx)
 
 	return nil
 }

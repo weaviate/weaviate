@@ -225,33 +225,20 @@ type wrapTxManagerAsBroadcaster struct {
 func (w *wrapTxManagerAsBroadcaster) BroadcastTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	txCopy := copyTx(tx)
-	return w.txManager.IncomingBeginTransaction(ctx, txCopy)
+	return w.txManager.IncomingBeginTransaction(ctx, tx)
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastAbortTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	txCopy := copyTx(tx)
-	w.txManager.IncomingAbortTransaction(ctx, txCopy)
+	w.txManager.IncomingAbortTransaction(ctx, tx)
 	return nil
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastCommitTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	txCopy := copyTx(tx)
-	return w.txManager.IncomingCommitTransaction(ctx, txCopy)
-}
-
-func copyTx(in *Transaction) *Transaction {
-	out := &Transaction{
-		ID:      in.ID,
-		Type:    in.Type,
-		Payload: in.Payload,
-	}
-
-	return out
+	return w.txManager.IncomingCommitTransaction(ctx, tx)
 }
 
 type slowMultiBroadcaster struct {
