@@ -31,23 +31,7 @@ func NewClassBasedModuleConfig(class *models.Class,
 }
 
 func (cbmc *ClassBasedModuleConfig) Class() map[string]interface{} {
-	defaultConf := map[string]interface{}{}
-	asMap, ok := cbmc.class.ModuleConfig.(map[string]interface{})
-	if !ok {
-		return defaultConf
-	}
-
-	moduleCfg, ok := asMap[cbmc.moduleName]
-	if !ok {
-		return defaultConf
-	}
-
-	asMap, ok = moduleCfg.(map[string]interface{})
-	if !ok {
-		return defaultConf
-	}
-
-	return asMap
+	return cbmc.ClassByModuleName(cbmc.moduleName)
 }
 
 func (cbmc *ClassBasedModuleConfig) ClassByModuleName(moduleName string) map[string]interface{} {

@@ -13,8 +13,6 @@ package modules
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -126,9 +124,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 	if !ok {
 		return nil
 	}
-	for key, value := range moduleConfig {
-		fmt.Printf("%v, %v", key, value)
-
+	for key := range moduleConfig {
 		mod := p.GetByName(key)
 		cc, ok := mod.(modulecapabilities.ClassConfigurator)
 		if !ok {
