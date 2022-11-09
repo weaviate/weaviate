@@ -1,6 +1,9 @@
 {
   "basePath": "/v1",
-  "consumes": ["application/yaml", "application/json"],
+  "consumes": [
+    "application/yaml",
+    "application/json"
+  ],
   "definitions": {
     "Link": {
       "type": "object",
@@ -340,18 +343,21 @@
         "bm25": {
           "$ref": "#/definitions/BM25Config"
         },
+        "hybridSearch": {
+          "$ref": "#/definitions/HybridConfig"
+        },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
-        "indexTimestamps":{
+        "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
           "type": "boolean"
         },
-        "indexNullState":{
+        "indexNullState": {
           "description": "Index each object with the null state",
           "type": "boolean"
         },
-        "indexPropertyLength":{
+        "indexPropertyLength": {
           "description": "Index length of properties",
           "type": "boolean"
         }
@@ -368,6 +374,17 @@
         },
         "b": {
           "description": "calibrates term-weight scaling based on the document length",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "HybridConfig": {
+      "description": "tuning parameters for the hybrid algorithm",
+      "properties": {
+        "alpha": {
+          "description": "Weights the results being combined",
           "format": "float",
           "type": "number"
         }
@@ -437,7 +454,14 @@
         },
         "op": {
           "description": "The operation to be performed.",
-          "enum": ["add", "remove", "replace", "move", "copy", "test"],
+          "enum": [
+            "add",
+            "remove",
+            "replace",
+            "move",
+            "copy",
+            "test"
+          ],
           "type": "string"
         },
         "path": {
@@ -452,7 +476,10 @@
           "$ref": "#/definitions/Object"
         }
       },
-      "required": ["op", "path"]
+      "required": [
+        "op",
+        "path"
+      ]
     },
     "PatchDocumentAction": {
       "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
@@ -463,7 +490,14 @@
         },
         "op": {
           "description": "The operation to be performed.",
-          "enum": ["add", "remove", "replace", "move", "copy", "test"],
+          "enum": [
+            "add",
+            "remove",
+            "replace",
+            "move",
+            "copy",
+            "test"
+          ],
           "type": "string"
         },
         "path": {
@@ -478,7 +512,10 @@
           "$ref": "#/definitions/Object"
         }
       },
-      "required": ["op", "path"]
+      "required": [
+        "op",
+        "path"
+      ]
     },
     "PeerUpdate": {
       "description": "A single peer in the network.",
@@ -616,7 +653,10 @@
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are `word` (default) and `field` for string and string[], `word` (default) for text and text[]. Not supported for remaining data types",
           "type": "string",
-          "enum": ["word", "field"]
+          "enum": [
+            "word",
+            "field"
+          ]
         }
       },
       "type": "object"
@@ -673,7 +713,13 @@
           "description": "phase of backup creation process",
           "type": "string",
           "default": "STARTED",
-          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -700,7 +746,13 @@
           "description": "phase of backup restoration process",
           "type": "string",
           "default": "STARTED",
-          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -761,7 +813,13 @@
           "description": "phase of backup creation process",
           "type": "string",
           "default": "STARTED",
-          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -818,7 +876,13 @@
           "description": "phase of backup restoration process",
           "type": "string",
           "default": "STARTED",
-          "enum": ["STARTED", "TRANSFERRING", "TRANSFERRED", "SUCCESS", "FAILED"]
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "TRANSFERRED",
+            "SUCCESS",
+            "FAILED"
+          ]
         }
       }
     },
@@ -871,7 +935,11 @@
           "description": "Node's status.",
           "type": "string",
           "default": "HEALTHY",
-          "enum": ["HEALTHY", "UNHEALTHY", "UNAVAILABLE"]
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE"
+          ]
         },
         "version": {
           "description": "The version of Weaviate.",
@@ -1011,7 +1079,6 @@
         "to": {
           "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object",
           "example": "weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f",
-
           "format": "uri",
           "type": "string"
         }
@@ -1031,7 +1098,11 @@
                 "status": {
                   "type": "string",
                   "default": "SUCCESS",
-                  "enum": ["SUCCESS", "PENDING", "FAILED"]
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
                 },
                 "errors": {
                   "$ref": "#/definitions/ErrorResponse"
@@ -1154,7 +1225,11 @@
                 "status": {
                   "type": "string",
                   "default": "SUCCESS",
-                  "enum": ["SUCCESS", "PENDING", "FAILED"]
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
                 },
                 "errors": {
                   "$ref": "#/definitions/ErrorResponse"
@@ -1269,7 +1344,11 @@
                   "status": {
                     "type": "string",
                     "default": "SUCCESS",
-                    "enum": ["SUCCESS", "DRYRUN", "FAILED"]
+                    "enum": [
+                      "SUCCESS",
+                      "DRYRUN",
+                      "FAILED"
+                    ]
                   },
                   "errors": {
                     "$ref": "#/definitions/ErrorResponse"
@@ -1325,7 +1404,9 @@
           "items": {
             "type": "string"
           },
-          "example": ["inCountry"]
+          "example": [
+            "inCountry"
+          ]
         },
         "basedOnProperties": {
           "description": "base the text-based classification on these fields (of type text)",
@@ -1333,12 +1414,18 @@
           "items": {
             "type": "string"
           },
-          "example": ["description"]
+          "example": [
+            "description"
+          ]
         },
         "status": {
           "description": "status of this classification",
           "type": "string",
-          "enum": ["running", "completed", "failed"],
+          "enum": [
+            "running",
+            "completed",
+            "failed"
+          ],
           "example": "running"
         },
         "meta": {
@@ -1451,7 +1538,11 @@
           "items": {
             "type": "string"
           },
-          "example": ["inCity", "City", "name"]
+          "example": [
+            "inCity",
+            "City",
+            "name"
+          ]
         },
         "valueInt": {
           "description": "value as integer",
@@ -1632,7 +1723,9 @@
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
         "operationId": "objects.list",
-        "x-serviceIds": ["weaviate.local.query"],
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ],
         "parameters": [
           {
             "$ref": "#/parameters/CommonOffsetParameterQuery"
@@ -1692,14 +1785,18 @@
           }
         },
         "summary": "Get a list of Objects.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "post": {
         "description": "Registers a new Object. Provided meta-data and schema values are validated.",
         "operationId": "objects.create",
-        "x-serviceIds": ["weaviate.local.add"],
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ],
         "parameters": [
           {
             "in": "body",
@@ -1740,7 +1837,9 @@
           }
         },
         "summary": "Create Objects between two Objects (object and subject).",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1749,7 +1848,9 @@
       "post": {
         "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
         "operationId": "objects.validate",
-        "x-serviceIds": ["weaviate.local.query.meta"],
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
         "parameters": [
           {
             "in": "body",
@@ -1787,7 +1888,9 @@
           }
         },
         "summary": "Validate an Object based on a schema.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1796,7 +1899,9 @@
       "delete": {
         "description": "Deletes an Object from the system.",
         "operationId": "objects.delete",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -1831,15 +1936,19 @@
           }
         },
         "summary": "Delete an Object based on its UUID.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true,
-        "deprecated" : true
+        "deprecated": true
       },
       "get": {
         "description": "Lists Objects.",
         "operationId": "objects.get",
-        "x-serviceIds": ["weaviate.local.query"],
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -1886,15 +1995,19 @@
           }
         },
         "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
-        "deprecated" : true
+        "deprecated": true
       },
       "patch": {
         "description": "Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "objects.patch",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -1947,15 +2060,19 @@
           }
         },
         "summary": "Update an Object based on its UUID (using patch semantics).",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
-        "deprecated" : true
+        "deprecated": true
       },
       "put": {
         "description": "Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "objects.update",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -2007,15 +2124,19 @@
           }
         },
         "summary": "Update an Object based on its UUID.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
-        "deprecated" : true
+        "deprecated": true
       },
       "head": {
         "description": "Checks if an Object exists in the system.",
         "operationId": "objects.head",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -2050,17 +2171,21 @@
           }
         },
         "summary": "Checks Object's existence based on its UUID.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true,
-        "deprecated" : true
+        "deprecated": true
       }
     },
     "/objects/{className}/{id}": {
       "get": {
         "description": "Get a single data object",
         "operationId": "objects.class.get",
-        "x-serviceIds": ["weaviate.local.query"],
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -2113,14 +2238,18 @@
           }
         },
         "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
         "description": "Delete a single data object.",
         "operationId": "objects.class.delete",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -2161,14 +2290,18 @@
           }
         },
         "summary": "Delete object based on its class and UUID.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true
       },
       "put": {
         "description": "Update an individual data object based on its class and uuid.",
         "operationId": "objects.class.put",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -2226,14 +2359,18 @@
           }
         },
         "summary": "Update a class object based on its uuid",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "patch": {
         "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "objects.class.patch",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "The class name as defined in the schema",
@@ -2293,14 +2430,18 @@
           }
         },
         "summary": "Update an Object based on its UUID (using patch semantics).",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "head": {
         "description": "Checks if a data object exists without retrieving it.",
         "operationId": "objects.class.head",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "The class name as defined in the schema",
@@ -2342,7 +2483,9 @@
           }
         },
         "summary": "Checks object's existence based on its class and uuid.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true
       }
@@ -2351,7 +2494,9 @@
       "post": {
         "description": "Add a single reference to a class-property.",
         "operationId": "objects.references.create",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -2404,15 +2549,19 @@
           }
         },
         "summary": "Add a single reference to a class-property.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
-        "deprecated" : true
+        "deprecated": true
       },
       "put": {
         "description": "Replace all references to a class-property.",
         "operationId": "objects.references.update",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -2465,15 +2614,19 @@
           }
         },
         "summary": "Replace all references to a class-property.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
-        "deprecated" : true
+        "deprecated": true
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "objects.references.delete",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "Unique ID of the Object.",
@@ -2526,7 +2679,9 @@
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "deprecated": true
@@ -2536,7 +2691,9 @@
       "post": {
         "description": "Add a single reference to a class-property.",
         "operationId": "objects.class.references.create",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "The class name as defined in the schema",
@@ -2599,14 +2756,18 @@
           }
         },
         "summary": "Add a single reference to a class-property.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
         "description": "Update all references of a property of a data object.",
         "operationId": "objects.class.references.put",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "The class name as defined in the schema",
@@ -2669,14 +2830,18 @@
           }
         },
         "summary": "Replace all references to a class-property.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property of a data object has",
         "operationId": "objects.class.references.delete",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "description": "The class name as defined in the schema",
@@ -2742,7 +2907,9 @@
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "tags": ["objects"],
+        "tags": [
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -2751,7 +2918,9 @@
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "operationId": "batch.objects.create",
-        "x-serviceIds": ["weaviate.local.add"],
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ],
         "parameters": [
           {
             "in": "body",
@@ -2766,7 +2935,13 @@
                   "items": {
                     "type": "string",
                     "default": "ALL",
-                    "enum": ["ALL", "class", "schema", "id", "creationTimeUnix"]
+                    "enum": [
+                      "ALL",
+                      "class",
+                      "schema",
+                      "id",
+                      "creationTimeUnix"
+                    ]
                   }
                 },
                 "objects": {
@@ -2812,14 +2987,19 @@
           }
         },
         "summary": "Creates new Objects based on a Object template as a batch.",
-        "tags": ["batch", "objects"],
+        "tags": [
+          "batch",
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
         "description": "Delete Objects in bulk that match a certain filter.",
         "operationId": "batch.objects.delete",
-        "x-serviceIds": ["weaviate.local.manipulate"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
         "parameters": [
           {
             "in": "body",
@@ -2860,7 +3040,10 @@
           }
         },
         "summary": "Deletes Objects based on a match filter as a batch.",
-        "tags": ["batch", "objects"],
+        "tags": [
+          "batch",
+          "objects"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -2869,7 +3052,9 @@
       "post": {
         "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "operationId": "batch.references.create",
-        "x-serviceIds": ["weaviate.local.add"],
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ],
         "parameters": [
           {
             "in": "body",
@@ -2917,7 +3102,10 @@
           }
         },
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
-        "tags": ["batch", "references"],
+        "tags": [
+          "batch",
+          "references"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -2973,7 +3161,9 @@
           }
         },
         "summary": "Get a response based on GraphQL",
-        "tags": ["graphql"],
+        "tags": [
+          "graphql"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -3029,7 +3219,9 @@
           }
         },
         "summary": "Get a response based on GraphQL.",
-        "tags": ["graphql"],
+        "tags": [
+          "graphql"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -3038,7 +3230,9 @@
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "operationId": "meta.get",
-        "x-serviceIds": ["weaviate.local.query.meta"],
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -3063,7 +3257,9 @@
           }
         },
         "summary": "Returns meta information of the current Weaviate instance.",
-        "tags": ["meta"],
+        "tags": [
+          "meta"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -3072,8 +3268,12 @@
       "get": {
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
-        "x-serviceIds": ["weaviate.local.query.meta"],
-        "tags": ["schema"],
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -3101,8 +3301,12 @@
       "post": {
         "summary": "Create a new Object class in the schema.",
         "operationId": "schema.objects.create",
-        "x-serviceIds": ["weaviate.local.add.meta"],
-        "tags": ["schema"],
+        "x-serviceIds": [
+          "weaviate.local.add.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "objectClass",
@@ -3148,8 +3352,12 @@
       "get": {
         "summary": "Get a single class from the schema",
         "operationId": "schema.objects.get",
-        "x-serviceIds": ["weaviate.local.get.meta"],
-        "tags": ["schema"],
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -3188,8 +3396,12 @@
       "delete": {
         "summary": "Remove an Object class (and all data in the instances) from the schema.",
         "operationId": "schema.objects.delete",
-        "x-serviceIds": ["weaviate.local.manipulate.meta"],
-        "tags": ["schema"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -3229,8 +3441,12 @@
         "summary": "Update settings of an existing schema class",
         "description": "Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.",
         "operationId": "schema.objects.update",
-        "x-serviceIds": ["weaviate.local.manipulate.meta"],
-        "tags": ["schema"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -3288,8 +3504,12 @@
       "post": {
         "summary": "Add a property to an Object class.",
         "operationId": "schema.objects.properties.add",
-        "x-serviceIds": ["weaviate.local.manipulate.meta"],
-        "tags": ["schema"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -3390,8 +3610,12 @@
       "put": {
         "description": "Update shard status of an Object Class",
         "operationId": "schema.objects.shards.update",
-        "x-serviceIds": ["weaviate.local.manipulate.meta"],
-        "tags": ["schema"],
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -3458,7 +3682,9 @@
         "x-serviceIds": [
           "weaviate.local.backup"
         ],
-        "tags": ["backups"],
+        "tags": [
+          "backups"
+        ],
         "parameters": [
           {
             "name": "backend",
@@ -3511,8 +3737,12 @@
       "get": {
         "description": "Returns status of backup creation attempt for a set of classes",
         "operationId": "backups.create.status",
-        "x-serviceIds": ["weaviate.local.backup"],
-        "tags": ["backups"],
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ],
+        "tags": [
+          "backups"
+        ],
         "parameters": [
           {
             "name": "backend",
@@ -3570,8 +3800,12 @@
       "post": {
         "description": "Starts a process of restoring a backup for a set of classes",
         "operationId": "backups.restore",
-        "x-serviceIds": ["weaviate.local.backup"],
-        "tags": ["backups"],
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ],
+        "tags": [
+          "backups"
+        ],
         "parameters": [
           {
             "name": "backend",
@@ -3635,8 +3869,12 @@
       "get": {
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "operationId": "backups.restore.status",
-        "x-serviceIds": ["weaviate.local.backup"],
-        "tags": ["backups"],
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ],
+        "tags": [
+          "backups"
+        ],
         "parameters": [
           {
             "name": "backend",
@@ -3688,8 +3926,12 @@
       "get": {
         "description": "Returns status of Weaviate DB.",
         "operationId": "nodes.get",
-        "x-serviceIds": ["weaviate.nodes.status.get"],
-        "tags": ["nodes"],
+        "x-serviceIds": [
+          "weaviate.nodes.status.get"
+        ],
+        "tags": [
+          "nodes"
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -3731,7 +3973,9 @@
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.",
         "operationId": "classifications.post",
-        "x-serviceIds": ["weaviate.classifications.post"],
+        "x-serviceIds": [
+          "weaviate.classifications.post"
+        ],
         "parameters": [
           {
             "description": "parameters to start a classification",
@@ -3773,14 +4017,18 @@
           }
         },
         "summary": "Starts a classification.",
-        "tags": ["classifications"]
+        "tags": [
+          "classifications"
+        ]
       }
     },
     "/classifications/{id}": {
       "get": {
         "description": "Get status, results and metadata of a previously created classification",
         "operationId": "classifications.get",
-        "x-serviceIds": ["weaviate.classifications.get"],
+        "x-serviceIds": [
+          "weaviate.classifications.get"
+        ],
         "parameters": [
           {
             "description": "classification id",
@@ -3817,7 +4065,9 @@
           }
         },
         "summary": "View previously created classification",
-        "tags": ["classifications"]
+        "tags": [
+          "classifications"
+        ]
       }
     },
     "/.well-known/openid-configuration": {
@@ -3859,14 +4109,22 @@
           }
         },
         "summary": "OIDC discovery information if OIDC auth is enabled",
-        "tags": ["well-known", "oidc", "discovery"],
+        "tags": [
+          "well-known",
+          "oidc",
+          "discovery"
+        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     }
   },
-  "produces": ["application/json"],
-  "schemes": ["https"],
+  "produces": [
+    "application/json"
+  ],
+  "schemes": [
+    "https"
+  ],
   "security": [
     {},
     {

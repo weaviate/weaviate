@@ -24,6 +24,12 @@ type KeywordRanking struct {
 	Query      string   `json:"query"`
 }
 
+type HybridSearch struct {
+	Type  string  `json:"type"`
+	Alpha float64 `json:"alpha"`
+	Query string  `json:"query"`
+}
+
 type NearObject struct {
 	ID           string  `json:"id"`
 	Beacon       string  `json:"beacon"`

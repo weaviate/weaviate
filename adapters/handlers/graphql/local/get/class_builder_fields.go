@@ -226,6 +226,7 @@ func buildGetClassField(classObject *graphql.Object,
 	// hacky way to temporarily check feature flag
 	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
 		field.Args["bm25"] = bm25Argument(class.Class)
+		field.Args["hybridSearch"] = hybridArgument(class.Class)
 	}
 
 	if modulesProvider != nil {
@@ -368,6 +369,12 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			keywordRankingParams = &p
 		}
 
+		var hybridParams *searchparams.HybridSearch
+		if hybrid, ok := p.Args["hybridSearch"]; ok {
+			p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}))
+			hybridParams = &p
+		}
+
 		group := extractGroup(p.Args)
 
 		params := traverser.GetParams{
@@ -382,6 +389,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			ModuleParams:         moduleParams,
 			AdditionalProperties: additional,
 			KeywordRanking:       keywordRankingParams,
+			HybridSearch: hybridParams,
 		}
 
 		// need to perform vector search by distance

@@ -50,3 +50,30 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 		},
 	}
 }
+
+
+
+func hybridArgument(className string) *graphql.ArgumentConfig {
+	prefix := fmt.Sprintf("GetObjects%s", className)
+	return &graphql.ArgumentConfig{
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:   fmt.Sprintf("%shybridInpObj", prefix),
+				Fields: hybridFields(prefix),
+			},
+		),
+	}
+}
+
+func hybridFields(prefix string) graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"query": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.ID,
+			Type: graphql.String,
+		},
+		"alpha": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.Beacon,
+			Type: graphql.Float,
+		},
+	}
+}
