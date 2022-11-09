@@ -16,15 +16,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/qna-openai/config"
 	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/sirupsen/logrus"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 )
 
 type qna struct {
@@ -46,11 +46,9 @@ func New(apiKey string, logger logrus.FieldLogger) *qna {
 }
 
 func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
-	prompt := generatePrompt(text, question)
+	prompt := v.generatePrompt(text, question)
 
 	settings := config.NewClassSettings(cfg)
-
-	fmt.Printf("%+v\n", settings.MaxTokens())
 
 	body, err := json.Marshal(answersInput{
 		Prompt:           prompt,
@@ -62,9 +60,6 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		PresencePenalty:  settings.PresencePenalty(),
 		TopP:             settings.TopP(),
 	})
-
-	fmt.Printf("%+v\n", settings.MaxTokens())
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
@@ -122,22 +117,14 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	}, nil
 }
 
-func generatePrompt(text string, question string) string {
-	//'Please answer the question according to the above context.
-	//
-	//===
-	//Context: stefan marcin byron
-	//===
-	//Q: What did Stanley Kubrick do prior to shooting Fear and Desire?
-	//A:'
-
+func (v *qna) generatePrompt(text string, question string) string {
 	return fmt.Sprintf(`'Please answer the question according to the above context.
 
 ===
 Context: %v
 ===
 Q: %v
-A:`, text, question)
+A:`, strings.ReplaceAll(text, "\n", " "), question)
 }
 
 func (v *qna) getApiKey(ctx context.Context) (string, error) {

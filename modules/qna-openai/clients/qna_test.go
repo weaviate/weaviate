@@ -32,9 +32,20 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func TestGetAnswer(t *testing.T) {
-	t.Skip()
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
-		server := httptest.NewServer(&testAnswerHandler{t: t})
+		handler := &testAnswerHandler{
+			t: t,
+			answer: answersResponse{
+				Choices: []choice{{
+					FinishReason: "test",
+					Index:        0,
+					Logprobs:     "",
+					Text:         "John",
+				}},
+				Error: nil,
+			},
+		}
+		server := httptest.NewServer(handler)
 		defer server.Close()
 
 		c := New("apiKey", nullLogger())
@@ -49,7 +60,7 @@ func TestGetAnswer(t *testing.T) {
 		res, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
 
 		assert.Nil(t, err)
-		assert.Equal(t, expected, res)
+		assert.Equal(t, expected, *res)
 	})
 
 	t.Run("when the server has a an error", func(t *testing.T) {
@@ -62,7 +73,10 @@ func TestGetAnswer(t *testing.T) {
 			},
 		})
 		defer server.Close()
-		c := New(server.URL, nullLogger())
+
+		c := New("apiKey", nullLogger())
+		c.host = server.URL
+
 		_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
 
 		require.NotNil(t, err)
@@ -80,15 +94,8 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, "/v1/completions", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
-	if f.answer.Error.Message != "" {
-		embeddingError := map[string]interface{}{
-			"message": f.answer.Error.Message,
-			"type":    "invalid_request_error",
-		}
-		qa := map[string]interface{}{
-			"error": embeddingError,
-		}
-		outBytes, err := json.Marshal(qa)
+	if f.answer.Error != nil && f.answer.Error.Message != "" {
+		outBytes, err := json.Marshal(f.answer)
 		require.Nil(f.t, err)
 
 		w.WriteHeader(http.StatusInternalServerError)
@@ -103,9 +110,7 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var b map[string]interface{}
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
 
-	qa := answersResponse{}
-
-	outBytes, err := json.Marshal(qa)
+	outBytes, err := json.Marshal(f.answer)
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
