@@ -247,33 +247,6 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	return sum / totalCount, nil
 }
 
-// BM25F
-func (t *PropertyLengthTracker) PropertyCount(propName string) (float32, float32, error) {
-	t.Lock()
-	defer t.Unlock()
-
-	page, offset, ok := t.propExists(propName)
-	if !ok {
-		return 0, 0, nil
-	}
-
-	sum := float32(0)
-	totalCount := float32(0)
-	bucket := uint16(0)
-
-	offset = offset + page*4096
-	for o := offset; o < offset+256; o += 4 {
-		v := binary.LittleEndian.Uint32(t.pages[o : o+4])
-		count := math.Float32frombits(v)
-		sum += float32(t.valueFromBucket(bucket)) * count
-		totalCount += count
-
-		bucket++
-	}
-
-	return sum, totalCount, nil
-}
-
 func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
 	if uint16(len(t.pages))/4096-1 < page {
 		// we need to grow the page buffer
