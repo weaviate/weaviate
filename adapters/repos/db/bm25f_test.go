@@ -168,14 +168,14 @@ func TestBM25FJourney(t *testing.T) {
 	require.Equal(t, uint64(4), res[0].DocID())
 	require.Equal(t, uint64(5), res[1].DocID())
 	require.Equal(t, uint64(6), res[2].DocID())
-	require.Equal(t, uint64(2), res[3].DocID())
+	require.Equal(t, uint64(0), res[3].DocID())
 
 
 	// Check scores
-	require.Equal(t, float32(0.055711426), res[0].Score())
-	require.Equal(t, float32(0.05400177), res[1].Score())
+	require.Equal(t, float32(0.059571605), res[0].Score())
+	require.Equal(t, float32(0.056116596), res[1].Score())
 	require.Equal(t, float32(0.04963747), res[2].Score())
-	require.Equal(t, float32(0.0408034), res[3].Score())
+	require.Equal(t, float32(0.046090268), res[3].Score())
 
 	// Check search with two terms
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
