@@ -50,7 +50,6 @@ type BM25Searcher struct {
 
 type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
-	PropertyCount(prop string) (float32, float32, error)
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema.Schema,
