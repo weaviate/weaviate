@@ -15,11 +15,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 )
 
@@ -46,32 +46,53 @@ func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
 
 	jsonBytes, err := json.Marshal(pl)
 	if err != nil {
-		return errors.Wrap(err, "marshal transaction payload")
+		return fmt.Errorf("marshal transaction payload: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(),
 		bytes.NewReader(jsonBytes))
 	if err != nil {
-		return errors.Wrap(err, "open http request")
+		return fmt.Errorf("open http request: %w", err)
 	}
 
 	req.Header.Set("content-type", "application/json")
 
 	res, err := c.client.Do(req)
 	if err != nil {
-		return errors.Wrap(err, "send http request")
+		return fmt.Errorf("send http request: %w", err)
 	}
 
 	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusCreated {
 		if res.StatusCode == http.StatusConflict {
 			return cluster.ErrConcurrentTransaction
 		}
 
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+		return fmt.Errorf("unexpected status code %d (%s)", res.StatusCode,
 			body)
 	}
+
+	// optional for backward-compatibility before v1.17 where only
+	// write-transcactions where supported. They had no return value other than
+	// the status code. With the introduction of read-transactions it is now
+	// possible to return the requsted value
+	if len(body) == 0 {
+		return nil
+	}
+
+	var txRes txPayload
+	err = json.Unmarshal(body, &txRes)
+	if err != nil {
+		return fmt.Errorf("unexpected error unmarshalling tx response: %w", err)
+	}
+
+	if tx.ID != txRes.ID {
+		return fmt.Errorf("unexpected mismatch between outgoing and incoming tx ids:"+
+			"%s vs %s", tx.ID, txRes.ID)
+	}
+
+	tx.Payload = txRes.Payload
 
 	return nil
 }
@@ -85,17 +106,17 @@ func (c *ClusterSchema) AbortTransaction(ctx context.Context, host string,
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
-		return errors.Wrap(err, "open http request")
+		return fmt.Errorf("open http request: %w", err)
 	}
 
 	res, err := c.client.Do(req)
 	if err != nil {
-		return errors.Wrap(err, "send http request")
+		return fmt.Errorf("send http request: %w", err)
 	}
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
-		return errors.Errorf("unexpected status code %d", res.StatusCode)
+		return fmt.Errorf("unexpected status code %d", res.StatusCode)
 	}
 
 	return nil
@@ -110,17 +131,17 @@ func (c *ClusterSchema) CommitTransaction(ctx context.Context, host string,
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
-		return errors.Wrap(err, "open http request")
+		return fmt.Errorf("open http request: %w", err)
 	}
 
 	res, err := c.client.Do(req)
 	if err != nil {
-		return errors.Wrap(err, "send http request")
+		return fmt.Errorf("send http request: %w", err)
 	}
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
-		return errors.Errorf("unexpected status code %d", res.StatusCode)
+		return fmt.Errorf("unexpected status code %d", res.StatusCode)
 	}
 
 	return nil
