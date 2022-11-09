@@ -36,8 +36,6 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 	cfg := memberlist.DefaultLocalConfig()
 	cfg.LogOutput = newLogParser(logger)
 
-	cfg.AdvertiseAddr = "127.0.0.1"
-
 	if userConfig.Hostname != "" {
 		cfg.Name = userConfig.Hostname
 	}
