@@ -225,20 +225,33 @@ type wrapTxManagerAsBroadcaster struct {
 func (w *wrapTxManagerAsBroadcaster) BroadcastTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	return w.txManager.IncomingBeginTransaction(ctx, tx)
+	txCopy := copyTx(tx)
+	return w.txManager.IncomingBeginTransaction(ctx, txCopy)
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastAbortTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	w.txManager.IncomingAbortTransaction(ctx, tx)
+	txCopy := copyTx(tx)
+	w.txManager.IncomingAbortTransaction(ctx, txCopy)
 	return nil
 }
 
 func (w *wrapTxManagerAsBroadcaster) BroadcastCommitTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	return w.txManager.IncomingCommitTransaction(ctx, tx)
+	txCopy := copyTx(tx)
+	return w.txManager.IncomingCommitTransaction(ctx, txCopy)
+}
+
+func copyTx(in *Transaction) *Transaction {
+	out := &Transaction{
+		ID:      in.ID,
+		Type:    in.Type,
+		Payload: in.Payload,
+	}
+
+	return out
 }
 
 type slowMultiBroadcaster struct {
@@ -284,29 +297,22 @@ func (b *slowMultiBroadcaster) BroadcastCommitTransaction(ctx context.Context,
 
 func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 	ctx := context.Background()
+	payload := "my-payload"
 
-	var remoteState interface{}
 	remote := NewTxManager(&fakeBroadcaster{})
-	// remote.SetCommitFn(func(ctx context.Context, tx *Transaction) error {
-	// 	remoteState = tx.Payload
-	// 	return nil
-	// })
-	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote})
-	local.SetCommitFn(func(ctx context.Context, tx *Transaction) error {
-		remoteState = tx.Payload
+	remote.SetResponseFn(func(ctx context.Context, tx *Transaction) error {
+		tx.Payload = payload
 		return nil
 	})
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote})
+	// TODO local.SetConsenusFn
 
-	payload := "my-payload"
 	trType := TransactionType("my-read-tx")
 
 	tx, err := local.BeginReadTransaction(ctx, trType)
 	require.Nil(t, err)
 
-	err = remote.RespondReadTransaction(ctx, tx, payload)
-	require.Nil(t, err)
-
 	local.CloseReadTransaction(ctx, tx)
 
-	assert.Equal(t, "my-payload", remoteState)
+	assert.Equal(t, "my-payload", tx.Payload)
 }
