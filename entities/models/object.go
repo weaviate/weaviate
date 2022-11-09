@@ -76,9 +76,6 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Object) GetProperty(name string) interface{} {
-	return m.Properties.(map[string]interface{})[name]
-}
 
 func (m *Object) validateAdditional(formats strfmt.Registry) error {
 
