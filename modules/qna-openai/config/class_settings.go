@@ -13,12 +13,10 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 const (
@@ -28,6 +26,15 @@ const (
 	DefaultOpenAIFrequencyPenalty = 0.0
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
+)
+
+const (
+	modelProperty            = "model"
+	temperatureProperty      = "temperature"
+	maxTokensProperty        = "maxTokens"
+	frequencyPenaltyProperty = "frequencyPenalty"
+	presencePenaltyProperty  = "presencePenalty"
+	topPProperty             = "topP"
 )
 
 var maxTokensForModel = map[string]int64{
@@ -52,39 +59,34 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	model := ic.getStringProperty("model", DefaultOpenAIModel)
+	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
 	if model == nil || !ic.validateOpenAISetting(*model, availableOpenAIModels) {
 		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
 	}
 
-	temperature := ic.getFloatProperty("temperature", DefaultOpenAITemperature)
+	temperature := ic.getFloatProperty(temperatureProperty, DefaultOpenAITemperature)
 	if temperature == nil || (*temperature < 0 || *temperature > 1) {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
-	maxTokens := ic.getIntProperty("maxTokens", DefaultOpenAIMaxTokens)
+	maxTokens := ic.getIntProperty(maxTokensProperty, DefaultOpenAIMaxTokens)
 	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > getMaxTokensForModel(*model)) {
 		return errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used")
 	}
 
-	frequencyPenalty := ic.getFloatProperty("frequencyPenalty", DefaultOpenAIFrequencyPenalty)
+	frequencyPenalty := ic.getFloatProperty(frequencyPenaltyProperty, DefaultOpenAIFrequencyPenalty)
 	if frequencyPenalty == nil || (*frequencyPenalty < 0 || *frequencyPenalty > 1) {
 		return errors.Errorf("Wrong frequencyPenalty configuration, values are between 0.0 and 1.0")
 	}
 
-	presencePenalty := ic.getFloatProperty("presencePenalty", DefaultOpenAIPresencePenalty)
+	presencePenalty := ic.getFloatProperty(presencePenaltyProperty, DefaultOpenAIPresencePenalty)
 	if presencePenalty == nil || (*presencePenalty < 0 || *presencePenalty > 1) {
 		return errors.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0")
 	}
 
-	topP := ic.getIntProperty("topP", DefaultOpenAITopP)
+	topP := ic.getIntProperty(topPProperty, DefaultOpenAITopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
-	}
-
-	err := ic.validateIndexState(class)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -169,65 +171,26 @@ func (ic *classSettings) validateOpenAISetting(value string, availableValues []s
 	return false
 }
 
-func (ic *classSettings) validateIndexState(class *models.Class) error {
-	//if settings.VectorizeClassName() {
-	//	// if the user chooses to vectorize the classname, vector-building will
-	//	// always be possible, no need to investigate further
-	//
-	//	return nil
-	//}
-
-	// search if there is at least one indexed, string/text prop. If found pass
-	// validation
-	for _, prop := range class.Properties {
-		if len(prop.DataType) < 1 {
-			return errors.Errorf("property %s must have at least one datatype: "+
-				"got %v", prop.Name, prop.DataType)
-		}
-
-		if prop.DataType[0] != string(schema.DataTypeString) &&
-			prop.DataType[0] != string(schema.DataTypeText) {
-			// we can only vectorize text-like props
-			continue
-		}
-
-		//if settings.PropertyIndexed(prop.Name) {
-		//	// found at least one, this is a valid schema
-		//	return nil
-		//}
-	}
-
-	return fmt.Errorf("invalid properties: didn't find a single property which is " +
-		"of type string or text and is not excluded from indexing. In addition the " +
-		"class name is excluded from vectorization as well, meaning that it cannot be " +
-		"used to determine the vector position. To fix this, set 'vectorizeClassName' " +
-		"to true if the class name is contextionary-valid. Alternatively add at least " +
-		"contextionary-valid text/string property which is not excluded from " +
-		"indexing.")
-
-	// IndexCheck returns whether a property of a class should be indexed
-}
-
 func (ic *classSettings) Model() string {
-	return *ic.getStringProperty("model", DefaultOpenAIModel)
+	return *ic.getStringProperty(modelProperty, DefaultOpenAIModel)
 }
 
 func (ic *classSettings) MaxTokens() int64 {
-	return *ic.getIntProperty("maxTokens", DefaultOpenAIMaxTokens)
+	return *ic.getIntProperty(maxTokensProperty, DefaultOpenAIMaxTokens)
 }
 
 func (ic *classSettings) Temperature() float64 {
-	return *ic.getFloatProperty("temperature", DefaultOpenAITemperature)
+	return *ic.getFloatProperty(temperatureProperty, DefaultOpenAITemperature)
 }
 
 func (ic *classSettings) FrequencyPenalty() float64 {
-	return *ic.getFloatProperty("frequencyPenalty", DefaultOpenAIFrequencyPenalty)
+	return *ic.getFloatProperty(frequencyPenaltyProperty, DefaultOpenAIFrequencyPenalty)
 }
 
 func (ic *classSettings) PresencePenalty() float64 {
-	return *ic.getFloatProperty("presencePenalty", DefaultOpenAIPresencePenalty)
+	return *ic.getFloatProperty(presencePenaltyProperty, DefaultOpenAIPresencePenalty)
 }
 
 func (ic *classSettings) TopP() int64 {
-	return *ic.getIntProperty("topP", DefaultOpenAITopP)
+	return *ic.getIntProperty(topPProperty, DefaultOpenAITopP)
 }
