@@ -101,6 +101,44 @@ func TestStartupSync(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "corrupt")
 	})
+
+	t.Run("new node joining, agreement between all", func(t *testing.T) {
+		clusterState := &fakeClusterState{
+			hosts: []string{"node1", "node2"},
+		}
+
+		txJSON, _ := json.Marshal(ReadSchemaPayload{
+			Schema: &State{
+				ObjectSchema: &models.Schema{
+					Classes: []*models.Class{
+						{
+							Class:           "GutenTag",
+							VectorIndexType: "hnsw",
+						},
+					},
+				},
+			},
+		})
+
+		txClient := &fakeTxClient{
+			openInjectPayload: json.RawMessage(txJSON),
+		}
+
+		sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
+			ObjectSchema: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class:           "GutenTag",
+						VectorIndexType: "hnsw",
+					},
+				},
+			},
+		})
+		require.Nil(t, err)
+
+		localSchema := sm.GetSchemaSkipAuth()
+		assert.Equal(t, "GutenTag", localSchema.FindClassByName("GutenTag").Class)
+	})
 }
 
 func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
