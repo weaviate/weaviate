@@ -54,7 +54,7 @@ func (d *DB) scanResourceUsage() {
 			case <-d.shutdown:
 				return
 			case <-t.C:
-				d.indexLock.Lock()
+				d.indexLock.RLock()
 				for _, i := range d.indices {
 					for _, s := range i.Shards {
 						if !s.isReadOnly() {
@@ -66,7 +66,7 @@ func (d *DB) scanResourceUsage() {
 						}
 					}
 				}
-				d.indexLock.Unlock()
+				d.indexLock.RUnlock()
 			}
 		}
 	}()
