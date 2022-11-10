@@ -93,6 +93,25 @@ case $CONFIG in
           --write-timeout=600s
       ;;
 
+    fourth-node)
+        CONTEXTIONARY_URL=localhost:9999 \
+        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+        PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node4" \
+        CLUSTER_HOSTNAME="node4" \
+        CLUSTER_GOSSIP_BIND_PORT="7106" \
+        CLUSTER_DATA_BIND_PORT="7107" \
+        CLUSTER_JOIN="localhost:7100" \
+        CONTEXTIONARY_URL=localhost:9999 \
+        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+        ENABLE_MODULES="text2vec-contextionary" \
+        go_run ./cmd/weaviate-server \
+          --scheme http \
+          --host "127.0.0.1" \
+          --port 8083 \
+          --read-timeout=600s \
+          --write-timeout=600s
+      ;;
+
   local-transformers)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
