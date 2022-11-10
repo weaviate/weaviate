@@ -29,7 +29,8 @@ type TxBroadcaster struct {
 // during a tx operation. This makes it a natural place to inject a consensus
 // function for read transactions. How consensus is reached is completely opaque
 // to the broadcaster and can be controlled through custom business logic.
-type ConsensusFn func(in []*Transaction) (*Transaction, error)
+type ConsensusFn func(ctx context.Context,
+	in []*Transaction) (*Transaction, error)
 
 type Client interface {
 	OpenTransaction(ctx context.Context, host string, tx *Transaction) error
@@ -83,12 +84,14 @@ func (t *TxBroadcaster) BroadcastTransaction(ctx context.Context, tx *Transactio
 	}
 
 	if t.consensusFn != nil {
-		merged, err := t.consensusFn(resTx)
+		merged, err := t.consensusFn(ctx, resTx)
 		if err != nil {
 			return fmt.Errorf("try to reach consenus: %w", err)
 		}
 
-		tx.Payload = merged.Payload
+		if merged != nil {
+			tx.Payload = merged.Payload
+		}
 	}
 
 	return nil

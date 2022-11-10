@@ -77,6 +77,32 @@ func (m *Manager) startupHandleSingleNode(ctx context.Context,
 func (m *Manager) startupJoinCluster(ctx context.Context,
 	localSchema *State,
 ) error {
+	tx, err := m.cluster.BeginReadTransaction(ctx, ReadSchema)
+	if err != nil {
+		return fmt.Errorf("read schema: open transaction: %w", err)
+	}
+
+	// this tx is read-only, so we don't have to worry about aborting it, the
+	// close should be the same on both happy and unhappy path
+	defer m.cluster.CloseReadTransaction(ctx, tx)
+
+	pl, ok := tx.Payload.(ReadSchemaPayload)
+	if !ok {
+		return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
+	}
+
+	// by the time we're here the consensus function has run, so we can be sure
+	// that all other nodes agree on this schema.
+
+	if isEmpty(pl.Schema) {
+		// already in sync, nothing to do
+		return nil
+	}
+
+	m.state = *pl.Schema
+
+	m.saveSchema(ctx)
+
 	return nil
 }
 

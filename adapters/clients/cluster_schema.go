@@ -81,7 +81,7 @@ func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
 		return nil
 	}
 
-	var txRes txPayload
+	var txRes txResponsePayload
 	err = json.Unmarshal(body, &txRes)
 	if err != nil {
 		return fmt.Errorf("unexpected error unmarshalling tx response: %w", err)
@@ -151,4 +151,10 @@ type txPayload struct {
 	Type    cluster.TransactionType `json:"type"`
 	ID      string                  `json:"id"`
 	Payload interface{}             `json:"payload"`
+}
+
+type txResponsePayload struct {
+	Type    cluster.TransactionType `json:"type"`
+	ID      string                  `json:"id"`
+	Payload json.RawMessage         `json:"payload"`
 }

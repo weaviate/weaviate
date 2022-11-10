@@ -40,7 +40,9 @@ func TestBroadcastOpenTransactionWithReturnPayload(t *testing.T) {
 	state := &fakeState{[]string{"host1", "host2", "host3"}}
 
 	bc := NewTxBroadcaster(state, client)
-	bc.SetConsensusFunction(func(in []*Transaction) (*Transaction, error) {
+	bc.SetConsensusFunction(func(ctx context.Context,
+		in []*Transaction,
+	) (*Transaction, error) {
 		// instead of actually reaching a consensus this test mock simply merged
 		// all the individual results. For testing purposes this is even better
 		// because now we can be sure that every element was considered.
