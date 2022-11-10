@@ -28,6 +28,8 @@ type replicator interface {
 		obj *storobj.Object) error
 	DeleteObject(ctx context.Context, index, shardName string,
 		id strfmt.UUID) error
+	BatchPutObjects(ctx context.Context, indexName, shardName string,
+		objs []*storobj.Object) []error
 }
 
 type scaler interface {
@@ -146,7 +148,9 @@ func (i *replicatedIndices) postObject() http.Handler {
 		case IndicesPayloads.SingleObject.MIME():
 			i.postObjectSingle(w, r, index, shard)
 			return
-
+		case IndicesPayloads.ObjectList.MIME():
+			i.postObjectBatch(w, r, index, shard)
+			return
 		default:
 			http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
 			return
@@ -196,4 +200,30 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Request,
+	index, shard string,
+) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	objs, err := IndicesPayloads.ObjectList.Unmarshal(bodyBytes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
+	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	IndicesPayloads.ErrorList.SetContentTypeHeader(w)
+	w.Write(errsJSON)
 }

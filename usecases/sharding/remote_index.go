@@ -91,10 +91,11 @@ type RemoteIndexClient interface {
 		payload io.ReadCloser) error
 
 	// replication
-	ReplicateInsertion(ctx context.Context, hostName, indexName, shardName string,
+	ReplicatePutObject(ctx context.Context, hostName, indexName, shardName string,
 		obj *storobj.Object) error
-
-	ReplicateDeletion(ctx context.Context, hostname, indexName, shardName string,
+	ReplicateBatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
+		objs []*storobj.Object) []error
+	ReplicateDeleteObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID) error
 }
 
@@ -338,7 +339,48 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)
 }
 
-func (ri *RemoteIndex) ReplicateInsertion(ctx context.Context, localhost, shardName string,
+func (ri *RemoteIndex) ReplicateBatchPutObjects(ctx context.Context, localhost,
+	shardName string, objs []*storobj.Object,
+) []error {
+	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
+	if !ok {
+		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
+			ri.class, shardName), len(objs))
+	}
+
+	var replicas []string
+	for _, name := range shard.BelongsToNodes {
+		if name != localhost {
+			replicas = append(replicas, name)
+		}
+	}
+	if len(replicas) == 0 {
+		return []error{fmt.Errorf("no replicas found")}
+	}
+
+	var errs []error
+
+	var g errgroup.Group
+
+	for _, replica := range replicas {
+		replica := replica
+		g.Go(func() error {
+			host, ok := ri.nodeResolver.NodeHostname(replica)
+			if !ok {
+				return errors.Errorf("resolve node name %q to host", replica)
+			}
+
+			// TODO: properly handle errors for more than one replica
+			errs = ri.client.ReplicateBatchPutObjects(ctx, host, ri.class, shardName, objs)
+			return nil
+		})
+	}
+
+	g.Wait()
+	return errs
+}
+
+func (ri *RemoteIndex) ReplicatePutObject(ctx context.Context, localhost, shardName string,
 	obj *storobj.Object,
 ) error {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
@@ -366,7 +408,7 @@ func (ri *RemoteIndex) ReplicateInsertion(ctx context.Context, localhost, shardN
 				return errors.Errorf("resolve node name %q to host", replica)
 			}
 
-			return ri.client.ReplicateInsertion(ctx, host, ri.class, shardName, obj)
+			return ri.client.ReplicatePutObject(ctx, host, ri.class, shardName, obj)
 		})
 	}
 
@@ -399,7 +441,7 @@ func (ri *RemoteIndex) ReplicateDeletion(ctx context.Context, localhost, shardNa
 			if !ok {
 				return fmt.Errorf("resolve node name %q to host", node)
 			}
-			err := ri.client.ReplicateDeletion(ctx, host, ri.class, shardName, id)
+			err := ri.client.ReplicateDeleteObject(ctx, host, ri.class, shardName, id)
 			if err != nil {
 				return fmt.Errorf("replicate delete to node %q: %w", node, err)
 			}

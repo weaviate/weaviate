@@ -29,6 +29,8 @@ type Replicator interface {
 		obj *storobj.Object) error
 	DeleteObject(ctx context.Context, shardName string,
 		id strfmt.UUID) error
+	BatchPutObjects(ctx context.Context, shardName string,
+		objs []*storobj.Object) []error
 }
 
 type ReplicatedIndex struct {
@@ -50,6 +52,17 @@ func (rii *ReplicatedIndex) PutObject(ctx context.Context, indexName,
 	}
 
 	return index.PutObject(ctx, shardName, obj)
+}
+
+func (rii *ReplicatedIndex) BatchPutObjects(ctx context.Context, indexName,
+	shardName string, objs []*storobj.Object,
+) []error {
+	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
+	if index == nil {
+		return []error{errors.Errorf("local index %q not found", indexName)}
+	}
+
+	return index.BatchPutObjects(ctx, shardName, objs)
 }
 
 func (rii *ReplicatedIndex) DeleteObject(ctx context.Context, indexName,
