@@ -35,7 +35,8 @@ func TestStartupSync(t *testing.T) {
 			openInjectPayload: json.RawMessage(txJSON),
 		}
 
-		sm := newManagerWithClusterAndTx(t, clusterState, txClient)
+		sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, nil)
+		require.Nil(t, err)
 
 		localSchema := sm.GetSchemaSkipAuth()
 		assert.Equal(t, "Bongourno", localSchema.FindClassByName("Bongourno").Class)
@@ -58,18 +59,56 @@ func TestStartupSync(t *testing.T) {
 			openInjectPayload: json.RawMessage(txJSON),
 		}
 
-		sm := newManagerWithClusterAndTx(t, clusterState, txClient)
+		sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, nil)
+		require.Nil(t, err)
 
 		localSchema := sm.GetSchemaSkipAuth()
 		assert.Len(t, localSchema.Objects.Classes, 0)
 	})
+
+	t.Run("new node joining, conflict in schema between nodes", func(t *testing.T) {
+		clusterState := &fakeClusterState{
+			hosts: []string{"node1", "node2"},
+		}
+
+		txJSON, _ := json.Marshal(ReadSchemaPayload{
+			Schema: &State{
+				ObjectSchema: &models.Schema{
+					Classes: []*models.Class{
+						{
+							Class:           "Bongourno",
+							VectorIndexType: "hnsw",
+						},
+					},
+				},
+			},
+		})
+
+		txClient := &fakeTxClient{
+			openInjectPayload: json.RawMessage(txJSON),
+		}
+
+		_, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
+			ObjectSchema: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class:           "Hola",
+						VectorIndexType: "hnsw",
+					},
+				},
+			},
+		})
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "corrupt")
+	})
 }
 
 func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
-	txClient cluster.Client,
-) *Manager {
+	txClient cluster.Client, initialSchema *State,
+) (*Manager, error) {
 	logger, _ := test.NewNullLogger()
 	repo := newFakeRepo()
+	repo.schema = initialSchema
 	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
@@ -77,7 +116,5 @@ func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 		&fakeModuleConfig{}, clusterState, txClient,
 	)
 
-	require.Nil(t, err)
-
-	return sm
+	return sm, err
 }
