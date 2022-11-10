@@ -380,20 +380,32 @@ func (ri *RemoteIndex) ReplicateDeletion(ctx context.Context, localhost, shardNa
 	if !ok {
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
-	node := ""
+
+	var nodeNames []string
 	for _, name := range shard.BelongsToNodes {
 		if name != localhost {
-			node = name
+			nodeNames = append(nodeNames, name)
 		}
 	}
-	if node == "" {
-		return fmt.Errorf("no replicate found")
+	if len(nodeNames) == 0 {
+		return fmt.Errorf("no replicates found")
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(node)
-	if !ok {
-		return errors.Errorf("resolve node name %q to host", node)
+	var g errgroup.Group
+	for _, node := range nodeNames {
+		node := node
+		g.Go(func() error {
+			host, ok := ri.nodeResolver.NodeHostname(node)
+			if !ok {
+				return fmt.Errorf("resolve node name %q to host", node)
+			}
+			err := ri.client.ReplicateDeletion(ctx, host, ri.class, shardName, id)
+			if err != nil {
+				return fmt.Errorf("replicate delete to node %q: %w", node, err)
+			}
+			return nil
+		})
 	}
 
-	return ri.client.ReplicateDeletion(ctx, host, ri.class, shardName, id)
+	return g.Wait()
 }
