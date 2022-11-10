@@ -63,7 +63,7 @@ func (db *DB) localNodeStatus() *models.NodeStatus {
 	var totalObjectCount int64
 	var shardCount int64
 	shards := []*models.NodeShardStatus{}
-	db.indexLock.Lock()
+	db.indexLock.RLock()
 	for _, index := range db.indices {
 		for shardName, shard := range index.Shards {
 			objectCount := int64(shard.counter.Get())
@@ -77,7 +77,7 @@ func (db *DB) localNodeStatus() *models.NodeStatus {
 			shards = append(shards, shardStatus)
 		}
 	}
-	db.indexLock.Unlock()
+	db.indexLock.RUnlock()
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
 	if db.schemaGetter.ClusterHealthScore() > 0 {

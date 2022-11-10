@@ -65,8 +65,8 @@ func (d *DB) MultiGet(ctx context.Context,
 	additional additional.Properties,
 ) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
-	d.indexLock.Lock()
-	defer d.indexLock.Unlock()
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
 
 	for i, q := range query {
 		// store original position to make assembly easier later
@@ -129,12 +129,12 @@ func (d *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
-	d.indexLock.Lock()
+	d.indexLock.RLock()
 
 	for _, index := range d.indices {
 		res, err := index.objectByID(ctx, id, props, additional)
 		if err != nil {
-			d.indexLock.Unlock()
+			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
@@ -142,7 +142,7 @@ func (d *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 			result = append(result, res)
 		}
 	}
-	d.indexLock.Unlock()
+	d.indexLock.RUnlock()
 
 	if result == nil {
 		return nil, nil
@@ -202,8 +202,8 @@ func (d *DB) Exists(ctx context.Context, class string, id strfmt.UUID) (bool, er
 func (d *DB) anyExists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
-	d.indexLock.Lock()
-	defer d.indexLock.Unlock()
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
 
 	for _, index := range d.indices {
 		ok, err := index.exists(ctx, id)
