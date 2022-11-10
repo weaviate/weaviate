@@ -254,21 +254,7 @@ func FusionConcatenate(results [][]*storobj.Object) []*storobj.Object {
 	return concatenatedResults
 }
 
-func FusionReciprocal(results [][]*storobj.Object) []*storobj.Object {
-	//Concatenate the results
-	concatenatedResults := []*storobj.Object{}
-	for _, result := range results {
-		for i, res := range result {
-			score := 1 / float64(i+60)
-			res.Object.Additional["rank_score"] = score
-			concatenatedResults = append(concatenatedResults, res)
-		}
-	}
-	sort.Slice(concatenatedResults, func(i, j int) bool {
-		return concatenatedResults[i].Object.Additional["rank_score"].(float64) > concatenatedResults[j].Object.Additional["rank_score"].(float64)
-	})
-	return concatenatedResults
-}
+
 
 func FusionScoreMerge(results [][]*storobj.Object) []*storobj.Object {
 	//Concatenate the results

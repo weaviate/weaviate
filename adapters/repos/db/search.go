@@ -45,6 +45,10 @@ func (db *DB) GetQueryMaximumResults() int {
 	return int(db.config.QueryMaximumResults)
 }
 
+
+
+
+
 func (db *DB) ClassSearch(ctx context.Context,
 	params traverser.GetParams,
 ) ([]search.Result, error) {
@@ -115,6 +119,62 @@ func extractDistanceFromParams(params traverser.GetParams) float32 {
 	dist, _ := traverser.ExtractDistanceFromParams(params)
 	return float32(dist)
 }
+
+
+func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
+	filters *filters.LocalFilter,
+) ([]search.Result, error) {
+	var found search.Results
+
+	wg := &sync.WaitGroup{}
+	mutex := &sync.Mutex{}
+	var searchErrors []error
+	totalLimit := offset + limit
+
+	for _, index := range db.indices {
+		if index.Config.ClassName != schema.ClassName(class) {
+			continue
+		}
+		wg.Add(1)
+		go func(index *Index, wg *sync.WaitGroup) {
+			defer wg.Done()
+
+			objs, dist, err := index.objectVectorSearch(
+				ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
+			if err != nil {
+				mutex.Lock()
+				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
+				mutex.Unlock()
+			}
+
+			mutex.Lock()
+			found = append(found, hydrateObjectsIntoSearchResults(objs, dist)...)
+			mutex.Unlock()
+		}(index, wg)
+	}
+
+	wg.Wait()
+
+	if len(searchErrors) > 0 {
+		var msg strings.Builder
+		for i, err := range searchErrors {
+			if i != 0 {
+				msg.WriteString(", ")
+			}
+			msg.WriteString(err.Error())
+		}
+		return nil, errors.New(msg.String())
+	}
+
+	sort.Slice(found, func(i, j int) bool {
+		return found[i].Dist < found[j].Dist
+	})
+
+	// not enriching by refs, as a vector search result cannot provide
+	// SelectProperties
+	return db.getSearchResults(found, offset, limit), nil
+}
+
 
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,

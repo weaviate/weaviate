@@ -13,6 +13,8 @@ package traverser
 
 import (
 	"context"
+	"log"
+	"sort"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -22,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/floatcomp"
 	uc "github.com/semi-technologies/weaviate/usecases/schema"
@@ -64,6 +67,8 @@ type vectorClassSearch interface {
 	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
+		filters *filters.LocalFilter) ([]search.Result, error)
+	ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
@@ -210,6 +215,30 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
+func FusionReciprocal(results [][]search.Result) []search.Result {
+	//Concatenate the results
+	concatenatedResults := []search.Result{}
+	for _, result := range results {
+		for i, res := range result {
+			score := 1 / float64(i+60)
+			res.AdditionalProperties["rank_score"] = score
+			res.AdditionalProperties["score"] = score
+			res.Score = float32(score)
+			concatenatedResults = append(concatenatedResults, res)
+		}
+	}
+
+	sort.Slice(concatenatedResults, func(i, j int) bool {
+		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)
+	})
+	return concatenatedResults
+}
+
+func FusionReciprocalArgs(results ...[]search.Result) []search.Result {
+	return FusionReciprocal(results)
+}
+
+
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
@@ -229,6 +258,47 @@ func (e *Explorer) getClassList(ctx context.Context,
 	// (https://github.com/semi-technologies/weaviate/issues/1958)
 	if params.Group != nil && (params.Filters != nil || params.Sort != nil) {
 		params.AdditionalProperties.Vector = true
+	}
+
+	if params.HybridSearch != nil {
+		params.KeywordRanking = &searchparams.KeywordRanking{
+			Query:      params.HybridSearch.Query,
+			Properties: []string{},
+			Type: "bm25",
+		}
+
+		res1, err := e.search.ClassSearch(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+
+		//Set the scoreexplain property to bm25 for every result
+		for i := range res1 {
+			res1[i].ScoreExplain = "(bm25)" + res1[i].ScoreExplain
+		}
+
+		//Make a []float32 300 long
+		vector := make([]float32, 300)
+		//Fill the vector with 1
+		for i := range vector {
+			vector[i] = 1
+		}
+
+		res2, err := e.search.ClassVectorSearch(ctx,params.ClassName, vector, 0,1000,nil)
+		if err != nil {
+			return nil, err
+		}
+
+		//Set the scoreexplain property to vector for every result
+		for i := range res2 {
+			res2[i].ScoreExplain = "(vector)" + res2[i].ScoreExplain
+		}
+
+		fused :=  FusionReciprocalArgs(res1, res2)
+
+		return e.searchResultsToGetResponse(ctx, fused, nil, params)
+
+
 	}
 
 	res, err := e.search.ClassSearch(ctx, params)
