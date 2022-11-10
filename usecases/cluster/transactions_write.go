@@ -120,7 +120,9 @@ func (c *TxManager) BeginWriteTransaction(ctx context.Context, trType Transactio
 	return c.currentTransaction, nil
 }
 
-func (c *TxManager) CommitWriteTransaction(ctx context.Context, tx *Transaction) error {
+func (c *TxManager) CommitWriteTransaction(ctx context.Context,
+	tx *Transaction,
+) error {
 	c.Lock()
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
 		c.Unlock()

@@ -21,10 +21,14 @@ import (
 )
 
 const (
+	// write-only
 	AddClass    cluster.TransactionType = "add_class"
 	AddProperty cluster.TransactionType = "add_property"
 	DeleteClass cluster.TransactionType = "delete_class"
 	UpdateClass cluster.TransactionType = "update_class"
+
+	// read-only
+	ReadSchema cluster.TransactionType = "read_schema"
 )
 
 type AddClassPayload struct {
@@ -51,10 +55,15 @@ type UpdateClassPayload struct {
 	State *sharding.State `json:"state"`
 }
 
+type ReadSchemaPayload struct {
+	Schema *State `json:"schema"`
+}
+
 func UnmarshalTransaction(txType cluster.TransactionType,
 	payload json.RawMessage,
 ) (interface{}, error) {
 	switch txType {
+
 	case AddClass:
 		return unmarshalAddClass(payload)
 
@@ -66,6 +75,9 @@ func UnmarshalTransaction(txType cluster.TransactionType,
 
 	case UpdateClass:
 		return unmarshalUpdateClass(payload)
+
+	case ReadSchema:
+		return unmarshalReadSchema(payload)
 
 	default:
 		return nil, errors.Errorf("unrecognized schema transaction type %q", txType)
@@ -102,6 +114,15 @@ func unmarshalDeleteClass(payload json.RawMessage) (interface{}, error) {
 
 func unmarshalUpdateClass(payload json.RawMessage) (interface{}, error) {
 	var pl UpdateClassPayload
+	if err := json.Unmarshal(payload, &pl); err != nil {
+		return nil, err
+	}
+
+	return pl, nil
+}
+
+func unmarshalReadSchema(payload json.RawMessage) (interface{}, error) {
+	var pl ReadSchemaPayload
 	if err := json.Unmarshal(payload, &pl); err != nil {
 		return nil, err
 	}

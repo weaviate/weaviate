@@ -100,6 +100,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client,
 ) (*Manager, error) {
+	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
 		config:                  config,
 		migrator:                migrator,
@@ -111,11 +112,13 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
-		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
+		cluster:                 cluster.NewTxManager(txBroadcaster),
 		clusterState:            clusterState,
 	}
 
 	m.cluster.SetCommitFn(m.handleCommit)
+	m.cluster.SetResponseFn(m.handleTxResponse)
+	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs))
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
@@ -188,12 +191,12 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return errors.Wrap(err, "load schema")
 	}
 
+	// store in local cache
+	m.state = *schema
+
 	if err := m.startupClusterSync(ctx, schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}
-
-	// store in local cache
-	m.state = *schema
 
 	if err := m.checkSingleShardMigration(ctx); err != nil {
 		return errors.Wrap(err, "migrating sharding state from previous version")
