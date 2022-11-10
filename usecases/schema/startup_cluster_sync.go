@@ -112,7 +112,25 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 func (m *Manager) validateSchemaCorruption(ctx context.Context,
 	localSchema *State,
 ) error {
-	// TODO
+	tx, err := m.cluster.BeginReadTransaction(ctx, ReadSchema)
+	if err != nil {
+		return fmt.Errorf("read schema: open transaction: %w", err)
+	}
+
+	// this tx is read-only, so we don't have to worry about aborting it, the
+	// close should be the same on both happy and unhappy path
+	defer m.cluster.CloseReadTransaction(ctx, tx)
+
+	pl, ok := tx.Payload.(ReadSchemaPayload)
+	if !ok {
+		return fmt.Errorf("unrecognized tx response payload: %T", tx.Payload)
+	}
+
+	if !Equal(localSchema, pl.Schema) {
+		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +
+			"but local node has a different (non-null) schema")
+	}
+
 	return nil
 }
 

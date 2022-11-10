@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,4 +37,17 @@ func newReadConsensus(parser parserFn) cluster.ConsensusFn {
 		fmt.Printf("warning: faking consensus: %v\n", tx.Payload)
 		return tx, nil
 	}
+}
+
+// Equal checks if both schemas are the same by first marshalling, then
+// comparing their byte-representation
+func Equal(s1, s2 *State) bool {
+	if len(s1.ObjectSchema.Classes) != len(s2.ObjectSchema.Classes) {
+		return false
+	}
+
+	s1JSON, _ := json.Marshal(s1)
+	s2JSON, _ := json.Marshal(s2)
+
+	return bytes.Equal(s1JSON, s2JSON)
 }
