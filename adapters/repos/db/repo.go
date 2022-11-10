@@ -35,7 +35,26 @@ type DB struct {
 	promMetrics  *monitoring.PrometheusMetrics
 	shutdown     chan struct{}
 
-	indexLock sync.Mutex
+	// indexLock is an RWMutex which allows concurrent access to various indexes,
+	// but only one modifaction at a time. R/W can be a bit confusing here,
+	// because it does not refer to write or read requests from a user's
+	// perspetive, but rather:
+	//
+	// - Read -> The array containing all indexes is read-only. In other words
+	// there will never be a race condition from doing something like index :=
+	// indexes[0]. What you do with the Index after retrieving it from the array
+	// does not matter. Assuming that it is thread-safe (it is) you can
+	// read/write from the index itself. Therefore from a user's perspective
+	// something like a parallel import batch and a read-query can happen without
+	// any problems.
+	//
+	// - Write -> The index array is being modified, for example, because a new
+	// index is added. This is mutually exclusive with the other case (but
+	// hopefully very short).
+	//
+	//
+	// See also: https://github.com/semi-technologies/weaviate/issues/2351
+	indexLock sync.RWMutex
 }
 
 func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -85,8 +104,8 @@ type Config struct {
 
 // GetIndex returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndex(className schema.ClassName) *Index {
-	d.indexLock.Lock()
-	defer d.indexLock.Unlock()
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
 
 	id := indexID(className)
 	index, ok := d.indices[id]
@@ -99,8 +118,8 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	d.indexLock.Lock()
-	defer d.indexLock.Unlock()
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
 
 	id := indexID(className)
 	index, ok := d.indices[id]
