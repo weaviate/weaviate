@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/backup"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"golang.org/x/sync/errgroup"
 )
 
 type ScaleOutManager struct {
@@ -89,6 +90,75 @@ func (som *ScaleOutManager) Scale(ctx context.Context, className string,
 
 	return nil, nil
 }
+func (som *ScaleOutManager) LocalScaleOut(ctx context.Context,
+	className string, ssBefore, ssAfter *sharding.State,
+) error {
+	// Next, we will iterate over every shard that this class has. This is the
+	// meat&bones of this implemenation. For each shard, we're roughly doing the
+	// following:
+	// - Create a single shard backup, so the shard is safe to copy
+	// - Figure out the copy targets (i.e. each node that is part of the after
+	//   state, but wasn't part of the before state yet)
+	// - Create an empty shard on the target node
+	// - Copy over all files from the backup
+	// - Reinit the shard to recognize the copied files
+	// - Release the single-shard backup
+	for shardName := range ssBefore.Physical {
+		// Create backup of the single shard
+		bakID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
+		bak, err := som.backerUpper.SingleShardBackup(ctx, bakID, className, shardName)
+		if err != nil {
+			return errors.Wrap(err, "create snapshot")
+		}
+
+		// Figure out which nodes are new by diffing the before and after state
+		// TODO: This manual diffing is ugly, refactor!
+		newNodes := ssAfter.Physical[shardName].BelongsToNodes
+		previousNodes := ssBefore.Physical[shardName].BelongsToNodes
+		// This relies on the convention that new nodes are always appended at the end
+		additions := newNodes[len(previousNodes):]
+
+		// Iterate over the new target nodes and copy files
+		for _, targetNode := range additions {
+			bakShard := bak.Shards[0]
+			if bakShard.Name != shardName {
+				// this sanity check is only needed because of the Shards[0] above. If this
+				// supports multi-shard, we need a better logic anyway
+				return fmt.Errorf("shard name mismatch in backup: %q vs %q", bakShard.Name,
+					shardName)
+			}
+
+			// Create an empty shard on the remote node. This is a requirement to
+			// copy files in the next step. If the empty shard didn't exist, we'd
+			// have no copy target which could receive the files.
+			if err := som.CreateShard(ctx, targetNode, className, shardName); err != nil {
+				return fmt.Errorf("create new shard on remote node: %w", err)
+			}
+
+			// Transfer each file that's part of the backup.
+			for _, file := range bakShard.Files {
+				err := som.PutFile(ctx, file, targetNode, className, shardName)
+				if err != nil {
+					return fmt.Errorf("copy files to remote node: %w", err)
+				}
+			}
+
+			// Now that all files are on the remote node's new shard, the shard needs
+			// to be reinitialized. Otherwise, it would not recognize the files when
+			// serving traffic later.
+			if err := som.ReinitShard(ctx, targetNode, className, shardName); err != nil {
+				return fmt.Errorf("create new shard on remote node: %w", err)
+			}
+		}
+
+		// Clean up after ourselves and prevent blocking future backups.
+		if err := som.backerUpper.ReleaseBackup(ctx, bakID, className); err != nil {
+			return fmt.Errorf("release shard backup: %w", err)
+		}
+	}
+
+	return nil
+}
 
 // scaleOut is a relatively primitive implelemation that takes a shard and
 // copies it onto another node. Then it returns the new and updated sharding
@@ -135,74 +205,30 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	// This is a temporary limitation that kills UX, this should be fixed soon.
 	// Right now the user would have to know which node to send the request to
 	// because there is no forwarding yet.
+	var g errgroup.Group
 	for name := range ssBefore.Physical {
 		if !ssBefore.IsShardLocal(name) {
-			return nil, errors.Errorf("scaling remote shards not supported yet, send request to node that has the shard to be scaled out")
+			belongsTo := ssBefore.Physical[name].BelongsToNode()
+			host, ok := som.clusterState.NodeHostname(belongsTo)
+			if !ok {
+				return nil, fmt.Errorf("find hostname for node %q", belongsTo)
+			}
+			g.Go(func() error {
+				err := som.nodes.IncreaseReplicationFactor(ctx, host, className, ssBefore, &ssAfter)
+				if err != nil {
+					return fmt.Errorf("increase replication factor for class %q on node %q: %w",
+						className, belongsTo, err)
+				}
+				return nil
+			})
+		} else {
+			if err := som.LocalScaleOut(ctx, className, ssBefore, &ssAfter); err != nil {
+				return nil, fmt.Errorf("increase local replication factor: %w", err)
+			}
 		}
 	}
-
-	// Next, we will iterate over every shard that this class has. This is the
-	// meat&bones of this implemenation. For each shard, we're roughly doing the
-	// following:
-	// - Create a single shard backup, so the shard is safe to copy
-	// - Figure out the copy targets (i.e. each node that is part of the after
-	//   state, but wasn't part of the before state yet)
-	// - Create an empty shard on the target node
-	// - Copy over all files from the backup
-	// - Reinit the shard to recognize the copied files
-	// - Release the single-shard backup
-	for shardName := range ssBefore.Physical {
-		// Create backup of the single shard
-		bakID := fmt.Sprintf("_internal_scaleout_%s", uuid.New().String())
-		bak, err := som.backerUpper.SingleShardBackup(ctx, bakID, className, shardName)
-		if err != nil {
-			return nil, errors.Wrap(err, "create snapshot")
-		}
-
-		// Figure out which nodes are new by diffing the before and after state
-		// TODO: This manual diffing is ugly, refactor!
-		newNodes := ssAfter.Physical[shardName].BelongsToNodes
-		previousNodes := ssBefore.Physical[shardName].BelongsToNodes
-		// This relies on the convention that new nodes are always appended at the end
-		additions := newNodes[len(previousNodes):]
-
-		// Iterate over the new target nodes and copy files
-		for _, targetNode := range additions {
-			bakShard := bak.Shards[0]
-			if bakShard.Name != shardName {
-				// this sanity check is only needed because of the Shards[0] above. If this
-				// supports multi-shard, we need a better logic anyway
-				return nil, fmt.Errorf("shard name mismatch in backup: %q vs %q", bakShard.Name,
-					shardName)
-			}
-
-			// Create an empty shard on the remote node. This is a requirement to
-			// copy files in the next step. If the empty shard didn't exist, we'd
-			// have no copy target which could receive the files.
-			if err := som.CreateShard(ctx, targetNode, className, shardName); err != nil {
-				return nil, fmt.Errorf("create new shard on remote node: %w", err)
-			}
-
-			// Transfer each file that's part of the backup.
-			for _, file := range bakShard.Files {
-				err := som.PutFile(ctx, file, targetNode, className, shardName)
-				if err != nil {
-					return nil, fmt.Errorf("copy files to remote node: %w", err)
-				}
-			}
-
-			// Now that all files are on the remote node's new shard, the shard needs
-			// to be reinitialized. Otherwise, it would not recognize the files when
-			// serving traffic later.
-			if err := som.ReinitShard(ctx, targetNode, className, shardName); err != nil {
-				return nil, fmt.Errorf("create new shard on remote node: %w", err)
-			}
-		}
-
-		// Clean up after ourselves and prevent blocking future backups.
-		if err := som.backerUpper.ReleaseBackup(ctx, bakID, className); err != nil {
-			return nil, fmt.Errorf("release shard backup: %w", err)
-		}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("forward scaleout to remote node: %w", err)
 	}
 
 	// Finally, return sharding state back to schema manager. The schema manager
@@ -267,4 +293,6 @@ type nodeClient interface {
 		hostName, indexName, shardName string) error
 	ReinitShard(ctx context.Context,
 		hostName, indexName, shardName string) error
+	IncreaseReplicationFactor(ctx context.Context, hostName, indexName string,
+		ssBefore, ssAfter *sharding.State) error
 }

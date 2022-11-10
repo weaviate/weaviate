@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -26,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 var IndicesPayloads = indicesPayloads{}
@@ -49,6 +51,33 @@ type indicesPayloads struct {
 	UpdateShardStatusParams   updateShardStatusParamsPayload
 	UpdateShardsStatusResults updateShardsStatusResultsPayload
 	ShardFiles                shardFilesPayload
+	IncreaseReplicationFactor increaseReplicationFactorPayload
+}
+
+type increaseReplicationFactorPayload struct{}
+
+func (p increaseReplicationFactorPayload) Marshall(ssBefore, ssAfter *sharding.State) ([]byte, error) {
+	type payload struct {
+		OldShardingState *sharding.State `json:"oldShardingState"`
+		NewShardingState *sharding.State ` json:"newShardingState"`
+	}
+
+	pay := payload{ssBefore, ssAfter}
+	return json.Marshal(pay)
+}
+
+func (p increaseReplicationFactorPayload) Unmarshal(in []byte) (*sharding.State, *sharding.State, error) {
+	type payload struct {
+		OldShardingState *sharding.State `json:"oldShardingState"`
+		NewShardingState *sharding.State ` json:"newShardingState"`
+	}
+
+	pay := payload{}
+	if err := json.Unmarshal(in, &pay); err != nil {
+		return nil, nil, fmt.Errorf("unmarshal replication factor resp: %w", err)
+	}
+
+	return pay.OldShardingState, pay.NewShardingState, nil
 }
 
 type errorListPayload struct{}

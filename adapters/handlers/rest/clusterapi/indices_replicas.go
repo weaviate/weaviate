@@ -13,12 +13,14 @@ package clusterapi
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 type replicator interface {
@@ -28,8 +30,14 @@ type replicator interface {
 		id strfmt.UUID) error
 }
 
+type scaler interface {
+	LocalScaleOut(ctx context.Context, className string,
+		ssBefore, ssAfter *sharding.State) error
+}
+
 type replicatedIndices struct {
 	shards replicator
+	scaler scaler
 }
 
 var (
@@ -37,11 +45,14 @@ var (
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`)
 	regxObjects = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects`)
+	regxIncreaseRepFactor = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/replication-factor\/_increase`)
 )
 
-func NewReplicatedIndices(shards replicator) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler scaler) *replicatedIndices {
 	return &replicatedIndices{
 		shards: shards,
+		scaler: scaler,
 	}
 }
 
@@ -60,9 +71,17 @@ func (i *replicatedIndices) Indices() http.Handler {
 			return
 
 		case regxObjects.MatchString(path):
-
 			if r.Method == http.MethodPost {
 				i.postObject().ServeHTTP(w, r)
+				return
+			}
+
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+
+		case regxIncreaseRepFactor.MatchString(path):
+			if r.Method == http.MethodPut {
+				i.increaseReplicationFactor().ServeHTTP(w, r)
 				return
 			}
 
@@ -73,6 +92,38 @@ func (i *replicatedIndices) Indices() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+	})
+}
+
+func (i *replicatedIndices) increaseReplicationFactor() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxIncreaseRepFactor.FindStringSubmatch(r.URL.Path)
+		fmt.Printf("path: %v, args: %+v", r.URL.Path, args)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index := args[1]
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		ssBefore, ssAfter, err := IndicesPayloads.IncreaseReplicationFactor.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if err := i.scaler.LocalScaleOut(r.Context(), index, ssBefore, ssAfter); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
 

@@ -275,6 +275,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		ShardingState(i.Config.ClassName.String())
 
 	if shardingState.IsShardLocal(shardName) {
+		fmt.Printf("    ===> put local index\n")
 		shard := i.Shards[shardName]
 		if err := shard.putObject(ctx, object); err != nil {
 			return errors.Wrapf(err, "shard %s", shard.ID())
@@ -287,6 +288,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		}
 		i.getSchema.NodeName()
 	} else {
+		fmt.Printf("    ===> put remote index\n")
 		// this must be a remote shard, try sending it remotely
 		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
 			return errors.Wrap(err, "send to remote shard")
