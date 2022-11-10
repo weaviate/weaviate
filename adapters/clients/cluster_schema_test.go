@@ -14,7 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -33,7 +33,7 @@ func TestOpenTransactionNoReturnPayload(t *testing.T) {
 
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		require.Nil(t, err)
 
 		var pl txPayload

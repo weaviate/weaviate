@@ -26,37 +26,47 @@ func newReadConsensus(parser parserFn) cluster.ConsensusFn {
 	return func(ctx context.Context,
 		in []*cluster.Transaction,
 	) (*cluster.Transaction, error) {
-		// TODO: actually reach consensus
 		if len(in) == 0 || in[0].Type != ReadSchema {
 			return nil, nil
 		}
 
-		tx := in[0]
+		var consensus *cluster.Transaction
+		for i, tx := range in {
 
-		typed, err := UnmarshalTransaction(tx.Type, tx.Payload.(json.RawMessage))
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal tx: %w", err)
+			typed, err := UnmarshalTransaction(tx.Type, tx.Payload.(json.RawMessage))
+			if err != nil {
+				return nil, fmt.Errorf("unmarshal tx: %w", err)
+			}
+
+			err = parser(ctx, typed.(ReadSchemaPayload).Schema)
+			if err != nil {
+				return nil, fmt.Errorf("parse schema %w", err)
+			}
+
+			if i == 0 {
+				consensus = tx
+				consensus.Payload = typed
+				continue
+			}
+
+			if consensus.ID != tx.ID {
+				return nil, fmt.Errorf("comparing txs with different IDs: %s vs %s",
+					consensus.ID, tx.ID)
+			}
+
+			if !Equal(consensus.Payload.(ReadSchemaPayload).Schema,
+				typed.(ReadSchemaPayload).Schema) {
+				return nil, fmt.Errorf("did not reach consensus on schema in cluster")
+			}
 		}
 
-		err = parser(ctx, typed.(ReadSchemaPayload).Schema)
-		if err != nil {
-			return nil, fmt.Errorf("parse schema %w", err)
-		}
-
-		tx.Payload = typed
-
-		fmt.Printf("warning: faking consensus: %v\n", tx.Payload)
-		return tx, nil
+		return consensus, nil
 	}
 }
 
 // Equal checks if both schemas are the same by first marshalling, then
 // comparing their byte-representation
 func Equal(s1, s2 *State) bool {
-	if len(s1.ObjectSchema.Classes) != len(s2.ObjectSchema.Classes) {
-		return false
-	}
-
 	s1JSON, _ := json.Marshal(s1)
 	s2JSON, _ := json.Marshal(s2)
 
