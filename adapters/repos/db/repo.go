@@ -39,9 +39,19 @@ type DB struct {
 	// but only one modifaction at a time. R/W can be a bit confusing here,
 	// because it does not refer to write or read requests from a user's
 	// perspetive, but rather:
-	// - Read -> Indexes themselves are not altered, Data is safe to read or write
-	// - Write -> Indexes themselves are changing, for example because the user
-	// added a new class
+	//
+	// - Read -> The array containing all indexes is read-only. In other words
+	// there will never be a race condition from doing something like index :=
+	// indexes[0]. What you do with the Index after retrieving it from the array
+	// does not matter. Assuming that it is thread-safe (it is) you can
+	// read/write from the index itself. Therefore from a user's perspective
+	// something like a parallel import batch and a read-query can happen without
+	// any problems.
+	//
+	// - Write -> The index array is being modified, for example, because a new
+	// index is added. This is mutually exclusive with the other case (but
+	// hopefully very short).
+	//
 	//
 	// See also: https://github.com/semi-technologies/weaviate/issues/2351
 	indexLock sync.RWMutex
