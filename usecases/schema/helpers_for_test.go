@@ -124,7 +124,7 @@ func (f *fakeClusterState) Hostnames() []string {
 }
 
 func (f *fakeClusterState) AllNames() []string {
-	return []string{"node1"}
+	return f.hosts
 }
 
 func (f *fakeClusterState) LocalName() string {
@@ -139,9 +139,15 @@ func (f *fakeClusterState) ClusterHealthScore() int {
 	return 0
 }
 
-type fakeTxClient struct{}
+type fakeTxClient struct {
+	openInjectPayload interface{}
+}
 
 func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
+	if f.openInjectPayload != nil {
+		tx.Payload = f.openInjectPayload
+	}
+
 	return nil
 }
 
