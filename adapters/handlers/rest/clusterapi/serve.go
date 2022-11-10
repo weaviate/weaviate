@@ -28,7 +28,7 @@ func Serve(appState *state.State) {
 
 	schema := NewSchema(appState.SchemaManager.TxManager())
 	indices := NewIndices(appState.RemoteIndexIncoming)
-	replicatedIndices := NewReplicatedIndices(appState.ReplicatedIndex)
+	replicatedIndices := NewReplicatedIndices(appState.ReplicatedIndex, appState.ScaleOutManager)
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
 	nodes := NewNodes(appState.RemoteNodeIncoming)
 	backups := NewBackups(appState.BackupManager)

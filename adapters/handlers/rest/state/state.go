@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -41,6 +42,7 @@ type State struct {
 	GraphQL             graphql.GraphQL
 	Modules             *modules.Provider
 	SchemaManager       *schema.Manager
+	ScaleOutManager     *scaling.ScaleOutManager
 	Cluster             *cluster.State
 	RemoteIndexIncoming *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
