@@ -24,6 +24,7 @@ import (
 const (
 	DistanceCosine    = "cosine"
 	DistanceDot       = "dot"
+	DistanceGeo       = "geo"
 	DistanceL2Squared = "l2-squared"
 	DistanceManhattan = "manhattan"
 	DistanceHamming   = "hamming"
