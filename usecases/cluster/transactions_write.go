@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -41,11 +42,15 @@ type (
 
 type TxManager struct {
 	sync.Mutex
-	currentTransaction *Transaction
-	remote             Remote
-	commitFn           CommitFn
-	responseFn         ResponseFn
-	logger             logrus.FieldLogger
+	logger logrus.FieldLogger
+
+	currentTransaction              *Transaction
+	currentTransactionContext       context.Context
+	currentTransactionContextCancel context.CancelFunc
+
+	remote     Remote
+	commitFn   CommitFn
+	responseFn ResponseFn
 }
 
 func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error {
@@ -108,6 +113,7 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 	if dl, ok := ctx.Deadline(); ok {
 		c.currentTransaction.Deadline = dl
 	}
+	c.currentTransactionContext, c.currentTransactionContextCancel = context.WithCancel(ctx)
 	c.Unlock()
 
 	if err := c.remote.BroadcastTransaction(ctx, c.currentTransaction); err != nil {
@@ -123,6 +129,7 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 
 		c.Lock()
 		c.currentTransaction = nil
+		c.currentTransactionContext = nil
 		c.Unlock()
 
 		return nil, errors.Wrap(err, "broadcast open transaction")
@@ -134,6 +141,9 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
+	ctx, cancel := inheritCtxDeadline(ctx, c.currentTransactionContext)
+	defer cancel()
+
 	c.Lock()
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
 		c.Unlock()
@@ -147,8 +157,14 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 	defer func() {
 		c.Lock()
 		c.currentTransaction = nil
+		c.currentTransactionContext = nil
+		c.currentTransactionContextCancel = nil
 		c.Unlock()
 	}()
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("transaction TTL expired: %w", err)
+	}
 
 	if err := c.remote.BroadcastCommitTransaction(ctx, tx); err != nil {
 		// we could not open the transaction on every node, therefore we need to
@@ -236,4 +252,14 @@ func ContextFromTx(tx *Transaction) (context.Context, context.CancelFunc) {
 	}
 
 	return context.WithDeadline(ctx, tx.Deadline)
+}
+
+func inheritCtxDeadline(parent,
+	otherParentWithDeadline context.Context,
+) (context.Context, context.CancelFunc) {
+	if dl, ok := otherParentWithDeadline.Deadline(); ok {
+		return context.WithDeadline(parent, dl)
+	}
+
+	return parent, func() {}
 }
