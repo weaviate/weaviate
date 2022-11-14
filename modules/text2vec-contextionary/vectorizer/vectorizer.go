@@ -98,6 +98,16 @@ func sortStringKeys(schema_map map[string]interface{}) []string {
 	return keys
 }
 
+func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
+	icheck ClassIndexCheck,
+) ([]float32, error) {
+	vector, _, err := v.client.VectorForCorpi(ctx, []string{input}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return vector, nil
+}
+
 func appendPropIfText(icheck ClassIndexCheck, list *[]string, propName string,
 	value interface{},
 ) bool {

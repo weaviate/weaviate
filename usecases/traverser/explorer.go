@@ -20,6 +20,7 @@ import (
 	"sort"
 
 	"fmt"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -65,6 +66,7 @@ type ModulesProvider interface {
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
+	VectorFromInput(ctx context.Context, className string, input string) ([]float32, error)
 }
 
 type vectorClassSearch interface {
@@ -320,6 +322,14 @@ func (e *Explorer) getClassList(ctx context.Context,
 			vector[i] = 1
 		}
 
+		if e.modulesProvider != nil {
+			vector, err := e.modulesProvider.VectorFromInput(ctx,
+				params.ClassName, params.HybridSearch.Query)
+			if err != nil {
+				return nil, err
+			}
+			fmt.Printf("found vector: %v\n", vector)
+		}
 		// Call http://localhost:8080/v1/modules/text2vec-contextionary/concepts/<var> to get the vector of the word
 		// Do http get call here
 		e.vectorFromParams(ctx, params)

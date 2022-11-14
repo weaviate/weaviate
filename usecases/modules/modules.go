@@ -643,6 +643,26 @@ func (m *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	panic("VectorFromParams was called without any known params present")
 }
 
+func (m *Provider) VectorFromInput(ctx context.Context,
+	className string, input string,
+) ([]float32, error) {
+	class, err := m.getClass(className)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, mod := range m.GetAll() {
+		if m.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+			if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
+				cfg := NewClassBasedModuleConfig(class, mod.Name())
+				return vectorizer.VectorizeInput(ctx, input, cfg)
+			}
+		}
+	}
+
+	panic("VectorFromInput was called without vectorizer")
+}
+
 // ParseClassifierSettings parses and adds classifier specific settings
 func (m *Provider) ParseClassifierSettings(name string,
 	params *models.Classification,
