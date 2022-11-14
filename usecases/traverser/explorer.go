@@ -13,10 +13,7 @@ package traverser
 
 import (
 	"context"
-	"encoding/json"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"sort"
 
 	"fmt"
