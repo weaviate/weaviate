@@ -332,8 +332,8 @@ func (e *Explorer) getClassList(ctx context.Context,
 		}
 		// Call http://localhost:8080/v1/modules/text2vec-contextionary/concepts/<var> to get the vector of the word
 		// Do http get call here
-		e.vectorFromParams(ctx, params)
-		res, err := http.Get("http://localhost:8080/v1/modules/text2vec-contextionary/concepts/journey")
+		
+		res, err := http.Get("http://localhost:8080/v1/modules/text2vec-contextionary/concepts/"+params.HybridSearch.Query)
 		if err != nil {
 			return nil, err
 		}
@@ -351,6 +351,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 		//Get the vector from the struct
 		vector = words.IndividualWords[0].Info.Vector
 
+		vector, err = e.vectorFromParams(ctx, params)
+		if err != nil {
+			return nil, err
+		}
 		res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
 		if err != nil {
 			return nil, err
