@@ -21,6 +21,7 @@ import (
 
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -249,34 +250,6 @@ func FusionReciprocalArgs(alpha float64, results ...[]search.Result) []search.Re
 	return FusionReciprocal(alpha, results)
 }
 
-/*
-{"individualWords":
-[{"info":{"nearestNeighbors":
-[{"word":"journey"},{"distance":5.6596403,"word":"bringing"}],
-"vector":[0.093573,-0.208796]},"present":true,"word":"journey"}]
-}
-*/
-
-type Words struct {
-	IndividualWords []IndividualWord `json:"individualWords"`
-}
-
-type IndividualWord struct {
-	Info    Info   `json:"info"`
-	Present bool   `json:"present"`
-	Word    string `json:"word"`
-}
-
-type Info struct {
-	NearestNeighbors []NearestNeighbor1 `json:"nearestNeighbors"`
-	Vector           []float32          `json:"vector"`
-}
-
-type NearestNeighbor1 struct {
-	Distance float32 `json:"distance"`
-	Word     string  `json:"word"`
-}
-
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
@@ -330,28 +303,14 @@ func (e *Explorer) getClassList(ctx context.Context,
 			}
 			fmt.Printf("found vector: %v\n", vector)
 		}
-		// Call http://localhost:8080/v1/modules/text2vec-contextionary/concepts/<var> to get the vector of the word
-		// Do http get call here
-		
-		res, err := http.Get("http://localhost:8080/v1/modules/text2vec-contextionary/concepts/"+params.HybridSearch.Query)
-		if err != nil {
-			return nil, err
-		}
-		defer res.Body.Close()
-		body, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			return nil, err
-		}
-		//Unmarshal the body to a Words struct
-		var words Words
-		err = json.Unmarshal(body, &words)
-		if err != nil {
-			return nil, err
-		}
-		//Get the vector from the struct
-		vector = words.IndividualWords[0].Info.Vector
 
-		vector, err = e.vectorFromParams(ctx, params)
+		nt :=  &neartext.NearTextParams  {
+			Values       : []string{params.HybridSearch.Query},
+			Limit        :1000,
+		}
+		// vector, err = e.vectorFromParams(ctx, params)
+		vector,err = e.nearParamsVector.vectorFromParams(ctx, nil,
+			nil, map[string]interface{}{"nearText": nt}, params.ClassName)
 		if err != nil {
 			return nil, err
 		}
