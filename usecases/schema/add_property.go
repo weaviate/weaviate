@@ -55,7 +55,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		return err
 	}
 
-	tx, err := m.cluster.BeginWriteTransaction(ctx, AddProperty,
+	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
 		AddPropertyPayload{className, prop})
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
