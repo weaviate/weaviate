@@ -27,6 +27,7 @@ import (
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/registry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/semi-technologies/weaviate/adapters/clients"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
@@ -74,6 +75,7 @@ import (
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
+
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -422,6 +424,7 @@ func registerModules(appState *state.State) error {
 		Debug("start registering modules")
 
 	appState.Modules = modules.NewProvider()
+	registry.Modules = appState.Modules
 
 	enabledModules := map[string]bool{}
 	if len(appState.ServerConfig.Config.EnableModules) > 0 {

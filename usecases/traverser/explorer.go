@@ -13,9 +13,13 @@ package traverser
 
 import (
 	"context"
+	"encoding/json"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"sort"
 
+	"fmt"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -215,12 +219,17 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
-func FusionReciprocal(results [][]search.Result) []search.Result {
+func FusionReciprocal(alpha float64, results [][]search.Result) []search.Result {
 	//Concatenate the results
 	concatenatedResults := []search.Result{}
-	for _, result := range results {
+	for resuktsetidx, result := range results {
 		for i, res := range result {
 			score := 1 / float64(i+60)
+			if resuktsetidx%2 == 0 {
+				score = alpha * score
+			} else {
+				score = (1 - alpha) * score
+			}
 			res.AdditionalProperties["rank_score"] = score
 			res.AdditionalProperties["score"] = score
 			res.Score = float32(score)
@@ -234,10 +243,37 @@ func FusionReciprocal(results [][]search.Result) []search.Result {
 	return concatenatedResults
 }
 
-func FusionReciprocalArgs(results ...[]search.Result) []search.Result {
-	return FusionReciprocal(results)
+func FusionReciprocalArgs(alpha float64, results ...[]search.Result) []search.Result {
+	return FusionReciprocal(alpha, results)
 }
 
+/*
+{"individualWords":
+[{"info":{"nearestNeighbors":
+[{"word":"journey"},{"distance":5.6596403,"word":"bringing"}],
+"vector":[0.093573,-0.208796]},"present":true,"word":"journey"}]
+}
+*/
+
+type Words struct {
+	IndividualWords []IndividualWord `json:"individualWords"`
+}
+
+type IndividualWord struct {
+	Info    Info   `json:"info"`
+	Present bool   `json:"present"`
+	Word    string `json:"word"`
+}
+
+type Info struct {
+	NearestNeighbors []NearestNeighbor1 `json:"nearestNeighbors"`
+	Vector           []float32          `json:"vector"`
+}
+
+type NearestNeighbor1 struct {
+	Distance float32 `json:"distance"`
+	Word     string  `json:"word"`
+}
 
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
@@ -264,7 +300,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		params.KeywordRanking = &searchparams.KeywordRanking{
 			Query:      params.HybridSearch.Query,
 			Properties: []string{},
-			Type: "bm25",
+			Type:       "bm25",
 		}
 
 		res1, err := e.search.ClassSearch(ctx, params)
@@ -284,20 +320,41 @@ func (e *Explorer) getClassList(ctx context.Context,
 			vector[i] = 1
 		}
 
-		res2, err := e.search.ClassVectorSearch(ctx,params.ClassName, vector, 0,1000,nil)
+		// Call http://localhost:8080/v1/modules/text2vec-contextionary/concepts/<var> to get the vector of the word
+		// Do http get call here
+		e.vectorFromParams(ctx, params)
+		res, err := http.Get("http://localhost:8080/v1/modules/text2vec-contextionary/concepts/journey")
+		if err != nil {
+			return nil, err
+		}
+		defer res.Body.Close()
+		body, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			return nil, err
+		}
+		//Unmarshal the body to a Words struct
+		var words Words
+		err = json.Unmarshal(body, &words)
+		if err != nil {
+			return nil, err
+		}
+		//Get the vector from the struct
+		vector = words.IndividualWords[0].Info.Vector
+
+		res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
 		if err != nil {
 			return nil, err
 		}
 
 		//Set the scoreexplain property to vector for every result
 		for i := range res2 {
-			res2[i].ScoreExplain = "(vector)" + res2[i].ScoreExplain
+			res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector[:10], res2[i].ScoreExplain)
 		}
 
-		fused :=  FusionReciprocalArgs(res1, res2)
+		alpha := params.HybridSearch.Alpha
+		fused := FusionReciprocalArgs(alpha, res1, res2)
 
 		return e.searchResultsToGetResponse(ctx, fused, nil, params)
-
 
 	}
 
