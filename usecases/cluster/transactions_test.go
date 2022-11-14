@@ -305,6 +305,44 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 	assert.Equal(t, "my-payload", tx.Payload)
 }
 
+func TestTxWithDeadline(t *testing.T) {
+	t.Run("expired", func(t *testing.T) {
+		payload := "my-payload"
+		trType := TransactionType("my-type")
+
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Second))
+		defer cancel()
+
+		man := newTestTxManager()
+
+		tx, err := man.BeginTransaction(ctx, trType, payload)
+		require.Nil(t, err)
+
+		ctx, cancel = ContextFromTx(tx)
+		defer cancel()
+
+		assert.NotNil(t, ctx.Err())
+	})
+
+	t.Run("still valid", func(t *testing.T) {
+		payload := "my-payload"
+		trType := TransactionType("my-type")
+
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Second))
+		defer cancel()
+
+		man := newTestTxManager()
+
+		tx, err := man.BeginTransaction(ctx, trType, payload)
+		require.Nil(t, err)
+
+		ctx, cancel = ContextFromTx(tx)
+		defer cancel()
+
+		assert.Nil(t, ctx.Err())
+	})
+}
+
 func newTestTxManager() *TxManager {
 	logger, _ := test.NewNullLogger()
 	return NewTxManager(&fakeBroadcaster{}, logger)
