@@ -116,7 +116,8 @@ func (c *ClusterSchema) AbortTransaction(ctx context.Context, host string,
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("unexpected status code %d", res.StatusCode)
+		errBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("unexpected status code %d: %s", res.StatusCode, errBody)
 	}
 
 	return nil
@@ -141,7 +142,8 @@ func (c *ClusterSchema) CommitTransaction(ctx context.Context, host string,
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("unexpected status code %d", res.StatusCode)
+		errBody, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("unexpected status code %d: %s", res.StatusCode, errBody)
 	}
 
 	return nil
