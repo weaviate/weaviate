@@ -75,6 +75,28 @@ func TestTryingToCommitInvalidTransaction(t *testing.T) {
 	assert.Nil(t, err, "original transaction can still be committed")
 }
 
+func TestTryingToCommitTransactionPastTTL(t *testing.T) {
+	payload := "my-payload"
+	trType := TransactionType("my-type")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+
+	man := NewTxManager(&fakeBroadcaster{})
+
+	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	require.Nil(t, err)
+
+	expiredTx := &Transaction{ID: tx1.ID}
+
+	err = man.CommitWriteTransaction(ctx, expiredTx)
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "transaction TTL")
+
+	// make sure it is possible to open future transactions
+	_, err = man.BeginTransaction(context.Background(), trType, payload)
+	require.Nil(t, err)
+}
+
 func TestRemoteDoesntAllowOpeningTransaction(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
