@@ -323,7 +323,7 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	parsed, err := sharding.ParseConfig(class.ShardingConfig,
 		m.clusterState.NodeCount())
 	if err != nil {
-		return errors.Wrap(err, "parse vector index config")
+		return errors.Wrap(err, "parse sharding config")
 	}
 
 	class.ShardingConfig = parsed
