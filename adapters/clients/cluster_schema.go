@@ -39,9 +39,10 @@ func (c *ClusterSchema) OpenTransaction(ctx context.Context, host string,
 	url := url.URL{Scheme: "http", Host: host, Path: path}
 
 	pl := txPayload{
-		Type:    tx.Type,
-		ID:      tx.ID,
-		Payload: tx.Payload,
+		Type:          tx.Type,
+		ID:            tx.ID,
+		Payload:       tx.Payload,
+		DeadlineMilli: tx.Deadline.UnixMilli(),
 	}
 
 	jsonBytes, err := json.Marshal(pl)
@@ -150,9 +151,10 @@ func (c *ClusterSchema) CommitTransaction(ctx context.Context, host string,
 }
 
 type txPayload struct {
-	Type    cluster.TransactionType `json:"type"`
-	ID      string                  `json:"id"`
-	Payload interface{}             `json:"payload"`
+	Type          cluster.TransactionType `json:"type"`
+	ID            string                  `json:"id"`
+	Payload       interface{}             `json:"payload"`
+	DeadlineMilli int64                   `json:"deadlineMilli"`
 }
 
 type txResponsePayload struct {

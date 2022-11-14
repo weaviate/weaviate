@@ -14,6 +14,7 @@ package cluster
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -85,6 +86,10 @@ func (c *TxManager) SetResponseFn(fn ResponseFn) {
 	c.responseFn = fn
 }
 
+// Begin a Transaction with the specified type and payload. By default
+// transactions do not ever expire. However, they inherit the deadline from the
+// passed in context, so to make a Transaction expire, pass in a context that
+// itself expires.
 func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
 	payload interface{},
 ) (*Transaction, error) {
@@ -99,6 +104,9 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		Type:    trType,
 		ID:      uuid.New().String(),
 		Payload: payload,
+	}
+	if dl, ok := ctx.Deadline(); ok {
+		c.currentTransaction.Deadline = dl
 	}
 	c.Unlock()
 
@@ -215,7 +223,17 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 }
 
 type Transaction struct {
-	ID      string
-	Type    TransactionType
-	Payload interface{}
+	ID       string
+	Type     TransactionType
+	Payload  interface{}
+	Deadline time.Time
+}
+
+func ContextFromTx(tx *Transaction) (context.Context, context.CancelFunc) {
+	ctx := context.Background()
+	if tx.Deadline.UnixMilli() == 0 {
+		return ctx, func() {}
+	}
+
+	return context.WithDeadline(ctx, tx.Deadline)
 }
