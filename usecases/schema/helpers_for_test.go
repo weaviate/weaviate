@@ -141,6 +141,9 @@ func (f *fakeClusterState) ClusterHealthScore() int {
 
 type fakeTxClient struct {
 	openInjectPayload interface{}
+	openErr           error
+	abortErr          error
+	commitErr         error
 }
 
 func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
@@ -148,13 +151,13 @@ func (f *fakeTxClient) OpenTransaction(ctx context.Context, host string, tx *clu
 		tx.Payload = f.openInjectPayload
 	}
 
-	return nil
+	return f.openErr
 }
 
 func (f *fakeTxClient) AbortTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
-	return nil
+	return f.abortErr
 }
 
 func (f *fakeTxClient) CommitTransaction(ctx context.Context, host string, tx *cluster.Transaction) error {
-	return nil
+	return f.commitErr
 }

@@ -152,6 +152,85 @@ func TestStartupSync(t *testing.T) {
 	})
 }
 
+func TestStartupSyncUnhappyPaths(t *testing.T) {
+	type test struct {
+		name          string
+		nodes         []string
+		errContains   string
+		txPayload     interface{}
+		txOpenErr     error
+		initialSchema *State
+	}
+
+	tests := []test{
+		{
+			name:        "corrupt cluster state: no nodes",
+			nodes:       []string{},
+			errContains: "cluster has size=0",
+		},
+		{
+			name:        "corrupt cluster state: name mismatch",
+			nodes:       []string{"the-wrong-one"},
+			errContains: "only node in the cluster does not match local",
+		},
+		{
+			name:        "open tx fails on empty node",
+			nodes:       []string{"node1", "node2"},
+			txOpenErr:   cluster.ErrConcurrentTransaction,
+			errContains: "concurrent transaction",
+		},
+		{
+			name: "open tx fails on populated node",
+			initialSchema: &State{ObjectSchema: &models.Schema{
+				Classes: []*models.Class{{Class: "Foo", VectorIndexType: "hnsw"}},
+			}},
+			nodes:       []string{"node1", "node2"},
+			txOpenErr:   cluster.ErrConcurrentTransaction,
+			errContains: "concurrent transaction",
+		},
+		{
+			name:        "wrong tx payload",
+			nodes:       []string{"node1", "node2"},
+			txPayload:   "foo",
+			errContains: "unmarshal tx",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clusterState := &fakeClusterState{
+				hosts: test.nodes,
+			}
+
+			if test.txPayload == nil {
+				test.txPayload = ReadSchemaPayload{
+					Schema: &State{
+						ObjectSchema: &models.Schema{
+							Classes: []*models.Class{
+								{
+									Class:           "Bongourno",
+									VectorIndexType: "hnsw",
+								},
+							},
+						},
+					},
+				}
+			}
+
+			txJSON, _ := json.Marshal(test.txPayload)
+
+			txClient := &fakeTxClient{
+				openInjectPayload: json.RawMessage(txJSON),
+				openErr:           test.txOpenErr,
+			}
+
+			_, err := newManagerWithClusterAndTx(t, clusterState, txClient, test.initialSchema)
+			require.NotNil(t, err)
+			assert.Contains(t, err.Error(), test.errContains)
+		})
+	}
+}
+
 func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 	txClient cluster.Client, initialSchema *State,
 ) (*Manager, error) {
