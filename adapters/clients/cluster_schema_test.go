@@ -41,7 +41,7 @@ func TestOpenTransactionNoReturnPayload(t *testing.T) {
 		require.Nil(t, err)
 
 		assert.Equal(t, "mamma-mia-paylodia-belissima", pl.Payload.(string))
-		w.WriteHeader(201)
+		w.WriteHeader(http.StatusCreated)
 	}
 	server := httptest.NewServer(http.HandlerFunc(handler))
 	defer server.Close()
@@ -72,7 +72,7 @@ func TestOpenTransactionWithReturnPayload(t *testing.T) {
 		resBody, err := json.Marshal(resTx)
 		require.Nil(t, err)
 
-		w.WriteHeader(201)
+		w.WriteHeader(http.StatusCreated)
 		w.Write(resBody)
 	}
 	server := httptest.NewServer(http.HandlerFunc(handler))
@@ -97,4 +97,309 @@ func TestOpenTransactionWithReturnPayload(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedTxOut, txIn)
+}
+
+func TestOpenTransactionUnhappyPaths(t *testing.T) {
+	type test struct {
+		name                string
+		handler             http.HandlerFunc
+		expectedErr         error
+		expectedErrContains string
+		ctx                 context.Context
+		shutdownPrematurely bool
+	}
+
+	expiredCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []test{
+		{
+			name: "concurrent transaction",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				defer r.Body.Close()
+				w.WriteHeader(http.StatusConflict)
+			},
+			expectedErr: cluster.ErrConcurrentTransaction,
+		},
+		{
+			name: "arbitrary 500",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				defer r.Body.Close()
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("nope!"))
+			},
+			expectedErrContains: "nope!",
+		},
+		{
+			name: "invalid json",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				defer r.Body.Close()
+				w.WriteHeader(http.StatusCreated)
+				w.Write([]byte("<<<!@#*)!@#****@!''"))
+			},
+			expectedErrContains: "error unmarshalling",
+		},
+		{
+			name: "expired ctx",
+			ctx:  expiredCtx,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+			},
+			expectedErrContains: "context",
+		},
+		{
+			name:                "remote server shut down",
+			shutdownPrematurely: true,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+			},
+			expectedErrContains: "connection refused",
+		},
+		{
+			name: "tx id mismatch",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				resTx := txPayload{
+					Type:    "wrong-tx-id",
+					ID:      "987",
+					Payload: "gracie-mille-per-payload",
+				}
+				resBody, err := json.Marshal(resTx)
+				require.Nil(t, err)
+
+				w.WriteHeader(http.StatusCreated)
+				w.Write(resBody)
+			},
+			expectedErrContains: "mismatch between outgoing and incoming tx ids",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(test.handler))
+			if test.shutdownPrematurely {
+				server.Close()
+			} else {
+				defer server.Close()
+			}
+
+			u, _ := url.Parse(server.URL)
+
+			c := NewClusterSchema(&http.Client{})
+
+			tx := &cluster.Transaction{
+				ID:      "12345",
+				Type:    "the best",
+				Payload: "mamma-mia-paylodia-belissima",
+			}
+
+			if test.ctx == nil {
+				test.ctx = context.Background()
+			}
+
+			err := c.OpenTransaction(test.ctx, u.Host, tx)
+			assert.NotNil(t, err)
+
+			if test.expectedErr != nil {
+				assert.Equal(t, test.expectedErr, err)
+			}
+
+			if test.expectedErrContains != "" {
+				assert.Contains(t, err.Error(), test.expectedErrContains)
+			}
+		})
+	}
+}
+
+func TestAbortTransaction(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		w.WriteHeader(http.StatusNoContent)
+	}
+	server := httptest.NewServer(http.HandlerFunc(handler))
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+
+	c := NewClusterSchema(&http.Client{})
+
+	tx := &cluster.Transaction{
+		ID:      "am-i-going-to-be-cancelled",
+		Type:    "the worst",
+		Payload: "",
+	}
+
+	err := c.AbortTransaction(context.Background(), u.Host, tx)
+	assert.Nil(t, err)
+}
+
+func TestAbortTransactionUnhappyPaths(t *testing.T) {
+	type test struct {
+		name                string
+		handler             http.HandlerFunc
+		expectedErr         error
+		expectedErrContains string
+		ctx                 context.Context
+		shutdownPrematurely bool
+	}
+
+	expiredCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []test{
+		{
+			name: "arbitrary 500",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				defer r.Body.Close()
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("nope!"))
+			},
+			expectedErrContains: "nope!",
+		},
+		{
+			name: "expired ctx",
+			ctx:  expiredCtx,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+			},
+			expectedErrContains: "context",
+		},
+		{
+			name:                "remote server shut down",
+			shutdownPrematurely: true,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+			},
+			expectedErrContains: "connection refused",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(test.handler))
+			if test.shutdownPrematurely {
+				server.Close()
+			} else {
+				defer server.Close()
+			}
+
+			u, _ := url.Parse(server.URL)
+
+			c := NewClusterSchema(&http.Client{})
+
+			tx := &cluster.Transaction{
+				ID:      "12345",
+				Type:    "the best",
+				Payload: "mamma-mia-paylodia-belissima",
+			}
+
+			if test.ctx == nil {
+				test.ctx = context.Background()
+			}
+
+			err := c.AbortTransaction(test.ctx, u.Host, tx)
+			assert.NotNil(t, err)
+
+			if test.expectedErr != nil {
+				assert.Equal(t, test.expectedErr, err)
+			}
+
+			if test.expectedErrContains != "" {
+				assert.Contains(t, err.Error(), test.expectedErrContains)
+			}
+		})
+	}
+}
+
+func TestCommitTransaction(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		w.WriteHeader(http.StatusNoContent)
+	}
+	server := httptest.NewServer(http.HandlerFunc(handler))
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+
+	c := NewClusterSchema(&http.Client{})
+
+	tx := &cluster.Transaction{
+		ID:      "am-i-going-to-be-cancelled",
+		Type:    "the worst",
+		Payload: "",
+	}
+
+	err := c.CommitTransaction(context.Background(), u.Host, tx)
+	assert.Nil(t, err)
+}
+
+func TestCommitTransactionUnhappyPaths(t *testing.T) {
+	type test struct {
+		name                string
+		handler             http.HandlerFunc
+		expectedErr         error
+		expectedErrContains string
+		ctx                 context.Context
+		shutdownPrematurely bool
+	}
+
+	expiredCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []test{
+		{
+			name: "arbitrary 500",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				defer r.Body.Close()
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("nope!"))
+			},
+			expectedErrContains: "nope!",
+		},
+		{
+			name: "expired ctx",
+			ctx:  expiredCtx,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+			},
+			expectedErrContains: "context",
+		},
+		{
+			name:                "remote server shut down",
+			shutdownPrematurely: true,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+			},
+			expectedErrContains: "connection refused",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(test.handler))
+			if test.shutdownPrematurely {
+				server.Close()
+			} else {
+				defer server.Close()
+			}
+
+			u, _ := url.Parse(server.URL)
+
+			c := NewClusterSchema(&http.Client{})
+
+			tx := &cluster.Transaction{
+				ID:      "12345",
+				Type:    "the best",
+				Payload: "mamma-mia-paylodia-belissima",
+			}
+
+			if test.ctx == nil {
+				test.ctx = context.Background()
+			}
+
+			err := c.CommitTransaction(test.ctx, u.Host, tx)
+			assert.NotNil(t, err)
+
+			if test.expectedErr != nil {
+				assert.Equal(t, test.expectedErr, err)
+			}
+
+			if test.expectedErrContains != "" {
+				assert.Contains(t, err.Error(), test.expectedErrContains)
+			}
+		})
+	}
 }
