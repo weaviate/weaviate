@@ -70,7 +70,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "sharding config")
 	}
 
-	tx, err := m.cluster.BeginWriteTransaction(ctx, UpdateClass,
+	tx, err := m.cluster.BeginTransaction(ctx, UpdateClass,
 		UpdateClassPayload{className, updated, nil})
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to

@@ -84,7 +84,7 @@ func (c *TxManager) SetResponseFn(fn ResponseFn) {
 	c.responseFn = fn
 }
 
-func (c *TxManager) BeginWriteTransaction(ctx context.Context, trType TransactionType,
+func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
 	payload interface{},
 ) (*Transaction, error) {
 	c.Lock()
