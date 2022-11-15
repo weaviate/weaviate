@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -94,6 +95,71 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.Client.On("Commit", ctx, nodes[1], anyVal, anyVal).Return(errAny)
 
 		err := rep.PutObject(ctx, "", shard, obj)
+		assert.ErrorIs(t, err, errAny)
+	})
+}
+
+func TestReplicatorMergeObject(t *testing.T) {
+	var (
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B"}
+		ctx   = context.Background()
+		merge = &objects.MergeDocument{}
+	)
+
+	t.Run("Success", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		for _, n := range nodes {
+			f.Client.On("MergeObject", ctx, n, cls, shard, anyVal, merge).Return(resp, nil)
+			f.Client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+		}
+		err := rep.MergeObject(ctx, "", shard, merge)
+		assert.Nil(t, err)
+	})
+
+	t.Run("PhaseOneConnectionError", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		f.Client.On("MergeObject", ctx, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
+		f.Client.On("MergeObject", ctx, nodes[1], cls, shard, anyVal, merge).Return(resp, errAny)
+		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+
+		err := rep.MergeObject(ctx, "", shard, merge)
+		assert.ErrorIs(t, err, errAny)
+	})
+
+	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		f.Client.On("MergeObject", ctx, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
+		resp2 := SimpleResponse{[]string{errAny.Error()}}
+		f.Client.On("MergeObject", ctx, nodes[1], cls, shard, anyVal, merge).Return(resp2, nil)
+		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+
+		err := rep.MergeObject(ctx, "", shard, merge)
+		want := &Error{}
+		assert.ErrorAs(t, err, &want)
+		assert.ErrorContains(t, err, errAny.Error())
+	})
+
+	t.Run("Commit", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		for _, n := range nodes {
+			f.Client.On("MergeObject", ctx, n, cls, shard, anyVal, merge).Return(resp, nil)
+		}
+		f.Client.On("Commit", ctx, nodes[0], anyVal, anyVal).Return(nil)
+		f.Client.On("Commit", ctx, nodes[1], anyVal, anyVal).Return(errAny)
+
+		err := rep.MergeObject(ctx, "", shard, merge)
 		assert.ErrorIs(t, err, errAny)
 	})
 }
