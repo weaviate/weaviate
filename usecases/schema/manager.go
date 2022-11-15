@@ -108,6 +108,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, scaleoutManager scaleOut,
 ) (*Manager, error) {
+	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
 		config:                  config,
 		migrator:                migrator,
@@ -119,7 +120,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
-		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
+		cluster:                 cluster.NewTxManager(txBroadcaster, logger),
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 	}
@@ -127,6 +128,8 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	m.scaleOut.SetSchemaManager(m)
 
 	m.cluster.SetCommitFn(m.handleCommit)
+	m.cluster.SetResponseFn(m.handleTxResponse)
+	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs))
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
@@ -202,6 +205,10 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// store in local cache
 	m.state = *schema
 
+	if err := m.startupClusterSync(ctx, schema); err != nil {
+		return errors.Wrap(err, "sync schema with other nodes in the cluster")
+	}
+
 	if err := m.checkSingleShardMigration(ctx); err != nil {
 		return errors.Wrap(err, "migrating sharding state from previous version")
 	}
@@ -210,7 +217,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
 	}
 
-	// store in remote repo
+	// store in persistent storage
 	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
 	}

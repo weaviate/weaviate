@@ -120,7 +120,14 @@ func (h *txHandler) incomingTransaction() http.Handler {
 			return
 		}
 
+		resBody, err := json.Marshal(tx)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+		}
+
 		w.WriteHeader(http.StatusCreated)
+		w.Write(resBody)
 	})
 }
 

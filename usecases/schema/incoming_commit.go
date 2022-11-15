@@ -33,6 +33,22 @@ func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) err
 	}
 }
 
+func (m *Manager) handleTxResponse(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	switch tx.Type {
+	case ReadSchema:
+		tx.Payload = ReadSchemaPayload{
+			Schema: &m.state,
+		}
+		return nil
+	// TODO
+	default:
+		// silently ignore. Not all types support responses
+		return nil
+	}
+}
+
 func (m *Manager) handleAddClassCommit(ctx context.Context,
 	tx *cluster.Transaction,
 ) error {
