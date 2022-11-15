@@ -81,7 +81,7 @@ func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
 	defer cancel()
 
-	man := NewTxManager(&fakeBroadcaster{})
+	man := newTestTxManager()
 
 	tx1, err := man.BeginTransaction(ctx, trType, payload)
 	require.Nil(t, err)
@@ -106,7 +106,7 @@ func TestLettingATransactionExpire(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
 	defer cancel()
 
-	man := NewTxManager(&fakeBroadcaster{})
+	man := newTestTxManager()
 
 	tx1, err := man.BeginTransaction(ctx, trType, payload)
 	require.Nil(t, err)
