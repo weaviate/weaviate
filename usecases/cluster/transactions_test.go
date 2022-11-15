@@ -100,6 +100,37 @@ func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestTryingToCommitIncommingTransactionPastTTL(t *testing.T) {
+	payload := "my-payload"
+	trType := TransactionType("my-type")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
+	defer cancel()
+
+	man := newTestTxManager()
+
+	dl := time.Now().Add(10 * time.Microsecond)
+
+	tx := &Transaction{
+		ID:       "123456",
+		Type:     trType,
+		Payload:  payload,
+		Deadline: dl,
+	}
+
+	man.IncomingBeginTransaction(context.Background(), tx)
+
+	// give the cancel handler some time to run
+	time.Sleep(50 * time.Microsecond)
+
+	err := man.IncomingCommitTransaction(ctx, tx)
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "transaction TTL")
+
+	// make sure it is possible to open future transactions
+	_, err = man.BeginTransaction(context.Background(), trType, payload)
+	require.Nil(t, err)
+}
+
 func TestLettingATransactionExpire(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
