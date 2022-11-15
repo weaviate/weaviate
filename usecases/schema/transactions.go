@@ -13,6 +13,7 @@ package schema
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -29,6 +30,8 @@ const (
 
 	// read-only
 	ReadSchema cluster.TransactionType = "read_schema"
+
+	DefaultTxTTL = 60 * time.Second
 )
 
 type AddClassPayload struct {

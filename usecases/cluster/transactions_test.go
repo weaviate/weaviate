@@ -106,7 +106,7 @@ func TestTryingToCommitIncommingTransactionPastTTL(t *testing.T) {
 
 	man := newTestTxManager()
 
-	dl := time.Now().Add(10 * time.Microsecond)
+	dl := time.Now().Add(1 * time.Microsecond)
 
 	tx := &Transaction{
 		ID:       "123456",
@@ -118,7 +118,7 @@ func TestTryingToCommitIncommingTransactionPastTTL(t *testing.T) {
 	man.IncomingBeginTransaction(context.Background(), tx)
 
 	// give the cancel handler some time to run
-	time.Sleep(50 * time.Microsecond)
+	time.Sleep(100 * time.Microsecond)
 
 	err := man.IncomingCommitTransaction(ctx, tx)
 	require.NotNil(t, err)

@@ -105,10 +105,10 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 	}
 
 	go func(id string) {
-		defer cancel()
 		ctxDone := ctx.Done()
 		select {
 		case <-clearCancelListener:
+			cancel()
 			return
 		case <-ctxDone:
 			c.Lock()
@@ -122,7 +122,7 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 
 			if c.currentTransaction.ID != id {
 				// tx was already cleaned up, then a new tx was started. Any action from
-				// us would be destructive, as we'd accidently destroy a perfectly valid
+				// us would be destructive, as we'd accidentally destroy a perfectly valid
 				// tx
 				return
 			}
@@ -180,26 +180,27 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		return nil, ErrConcurrentTransaction
 	}
 
-	c.currentTransaction = &Transaction{
+	tx := &Transaction{
 		Type:    trType,
 		ID:      uuid.New().String(),
 		Payload: payload,
 	}
 	if ttl > 0 {
-		c.currentTransaction.Deadline = time.Now().Add(ttl)
+		tx.Deadline = time.Now().Add(ttl)
 	} else {
 		// UnixTime == 0 represents unlimited
-		c.currentTransaction.Deadline = time.UnixMilli(0)
+		tx.Deadline = time.UnixMilli(0)
 	}
+	c.currentTransaction = tx
 	c.Unlock()
 
 	c.resetTxExpiry(ttl, c.currentTransaction.ID)
 
-	if err := c.remote.BroadcastTransaction(ctx, c.currentTransaction); err != nil {
+	if err := c.remote.BroadcastTransaction(ctx, tx); err != nil {
 		// we could not open the transaction on every node, therefore we need to
 		// abort it everywhere.
 
-		if err := c.remote.BroadcastAbortTransaction(ctx, c.currentTransaction); err != nil {
+		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
 			c.logger.WithFields(logrus.Fields{
 				"action": "broadcast_abort_transaction",
 				"id":     c.currentTransaction.ID,
@@ -266,7 +267,10 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 
 	c.currentTransaction = tx
 	c.responseFn(ctx, tx)
-	ttl := tx.Deadline.Sub(time.Now())
+	var ttl time.Duration
+	if tx.Deadline.UnixMilli() != 0 {
+		ttl = time.Until(tx.Deadline)
+	}
 	c.resetTxExpiry(ttl, tx.ID)
 
 	return nil
@@ -329,14 +333,4 @@ func ContextFromTx(tx *Transaction) (context.Context, context.CancelFunc) {
 	}
 
 	return context.WithDeadline(ctx, tx.Deadline)
-}
-
-func inheritCtxDeadline(parent,
-	otherParentWithDeadline context.Context,
-) (context.Context, context.CancelFunc) {
-	if dl, ok := otherParentWithDeadline.Deadline(); ok {
-		return context.WithDeadline(parent, dl)
-	}
-
-	return parent, func() {}
 }
