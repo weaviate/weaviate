@@ -13,11 +13,11 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type TransactionType string
@@ -33,21 +33,56 @@ type Remote interface {
 	BroadcastCommitTransaction(ctx context.Context, tx *Transaction) error
 }
 
-type CommitFn func(ctx context.Context, tx *Transaction) error
+type (
+	CommitFn   func(ctx context.Context, tx *Transaction) error
+	ResponseFn func(ctx context.Context, tx *Transaction) error
+)
 
 type TxManager struct {
 	sync.Mutex
 	currentTransaction *Transaction
 	remote             Remote
 	commitFn           CommitFn
+	responseFn         ResponseFn
+	logger             logrus.FieldLogger
 }
 
-func NewTxManager(remote Remote) *TxManager {
-	return &TxManager{remote: remote}
+func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error {
+	return func(ctx context.Context, tx *Transaction) error {
+		return nil
+	}
 }
 
+func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
+	return &TxManager{
+		remote: remote,
+
+		// by setting dummy fns that do nothing on default it is possible to run
+		// the tx manager with only one set of functions. For example, if the
+		// specific Tx is only ever used for broadcasting writes, there is no need
+		// to set a responseFn. However, if the fn was nil, we'd panic. Thus a
+		// dummy function is a resonable default - and much cleaner than a
+		// nil-check on every call.
+		commitFn:   newDummyCommitResponseFn(),
+		responseFn: newDummyCommitResponseFn(),
+	}
+}
+
+// SetCommitFn sets a function that is used in Write Transactions, you can
+// read from the transaction payload and use that state to alter your local
+// state
 func (c *TxManager) SetCommitFn(fn CommitFn) {
 	c.commitFn = fn
+}
+
+// SetResponseFn sets a function that is used in Read Transactions. The
+// function sets the local state (by writing it into the Tx Payload). It can
+// then be sent to other nodes. Consensus is not part of the ResponseFn. The
+// coordinator - who initiated the Tx - is responsible for coming up with
+// consensus. Deciding on Consensus requires insights into business logic, as
+// from the TX's perspective payloads are opaque.
+func (c *TxManager) SetResponseFn(fn ResponseFn) {
+	c.responseFn = fn
 }
 
 func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
@@ -72,8 +107,10 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		// abort it everywhere.
 
 		if err := c.remote.BroadcastAbortTransaction(ctx, c.currentTransaction); err != nil {
-			// TODO WARN with structured logging
-			fmt.Println(err)
+			c.logger.WithFields(logrus.Fields{
+				"action": "broadcast_abort_transaction",
+				"id":     c.currentTransaction.ID,
+			}).WithError(err).Errorf("broadcast tx abort failed")
 		}
 
 		c.Lock()
@@ -86,7 +123,9 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 	return c.currentTransaction, nil
 }
 
-func (c *TxManager) CommitTransaction(ctx context.Context, tx *Transaction) error {
+func (c *TxManager) CommitWriteTransaction(ctx context.Context,
+	tx *Transaction,
+) error {
 	c.Lock()
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
 		c.Unlock()
@@ -108,8 +147,10 @@ func (c *TxManager) CommitTransaction(ctx context.Context, tx *Transaction) erro
 		// abort it everywhere.
 
 		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
-			// TODO WARN with structured logging
-			fmt.Println(err)
+			c.logger.WithFields(logrus.Fields{
+				"action": "broadcast_abort_transaction",
+				"id":     tx.ID,
+			}).WithError(err).Errorf("broadcast tx abort failed")
 		}
 
 		return errors.Wrap(err, "broadcast commit transaction")
@@ -129,6 +170,8 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 	}
 
 	c.currentTransaction = tx
+	c.responseFn(ctx, tx)
+
 	return nil
 }
 
