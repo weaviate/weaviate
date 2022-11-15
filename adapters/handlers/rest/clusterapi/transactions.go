@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
@@ -29,9 +30,10 @@ type txManager interface {
 }
 
 type txPayload struct {
-	ID      string
-	Type    cluster.TransactionType
-	Payload json.RawMessage
+	ID            string                  `json:"id"`
+	Type          cluster.TransactionType `json:"type"`
+	Payload       json.RawMessage         `json:"payload"`
+	DeadlineMilli int64                   `json:"deadlineMilli"`
 }
 
 type txHandler struct {
@@ -105,9 +107,10 @@ func (h *txHandler) incomingTransaction() http.Handler {
 		}
 
 		tx := &cluster.Transaction{
-			ID:      payload.ID,
-			Type:    payload.Type,
-			Payload: txPayload,
+			ID:       payload.ID,
+			Type:     payload.Type,
+			Payload:  txPayload,
+			Deadline: time.UnixMilli(payload.DeadlineMilli),
 		}
 
 		if err := h.manager.IncomingBeginTransaction(r.Context(), tx); err != nil {

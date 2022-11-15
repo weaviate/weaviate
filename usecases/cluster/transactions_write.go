@@ -178,6 +178,9 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		c.currentTransaction.Deadline = dl
+	} else {
+		// UnixTime == 0 represents unlimited
+		c.currentTransaction.Deadline = time.UnixMilli(0)
 	}
 	c.Unlock()
 
@@ -254,6 +257,8 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 
 	c.currentTransaction = tx
 	c.responseFn(ctx, tx)
+	txCtx, _ := ContextFromTx(tx)
+	c.resetTxExpiry(txCtx, tx.ID)
 
 	return nil
 }
@@ -279,6 +284,10 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 	defer c.Unlock()
 
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
+		expired := c.expired(tx.ID)
+		if expired {
+			return ErrExpiredTransaction
+		}
 		return ErrInvalidTransaction
 	}
 
