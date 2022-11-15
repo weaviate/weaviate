@@ -60,6 +60,7 @@ func arrayClassSchema() *models.Class {
 				"vectorizeClassName": true,
 			},
 		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: true, IndexNullState: true},
 		Properties: []*models.Property{
 			{
 				Name:         "strings",
