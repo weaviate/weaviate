@@ -83,31 +83,44 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 func (c *TxManager) resetTxExpiry(ctx context.Context, id string) {
 	c.currentTransactionContext = ctx
 
+	// to prevent a goroutine leak for the new routine we're spawning here,
+	// register a way to terminate it in case the explicit cancel is called
+	// before the context's done channel fires.
+	clearCancelListener := make(chan struct{}, 1)
+
 	c.clearTransaction = func() {
 		c.currentTransaction = nil
 		c.currentTransactionContext = nil
 		c.clearTransaction = func() {}
+
+		clearCancelListener <- struct{}{}
+		close(clearCancelListener)
 	}
 
 	go func(id string) {
-		<-ctx.Done()
-		c.Lock()
-		defer c.Unlock()
-		c.expiredTxIDs = append(c.expiredTxIDs, id)
-
-		if c.currentTransaction == nil {
-			// tx is already cleaned up, for example from a successful commit. Nothing to do for us
+		ctxDone := ctx.Done()
+		select {
+		case <-clearCancelListener:
 			return
-		}
+		case <-ctxDone:
+			c.Lock()
+			defer c.Unlock()
+			c.expiredTxIDs = append(c.expiredTxIDs, id)
 
-		if c.currentTransaction.ID != id {
-			// tx was already cleaned up, then a new tx was started. Any action from
-			// us would be destructive, as we'd accidently destroy a perfectly valid
-			// tx
-			return
-		}
+			if c.currentTransaction == nil {
+				// tx is already cleaned up, for example from a successful commit. Nothing to do for us
+				return
+			}
 
-		c.clearTransaction()
+			if c.currentTransaction.ID != id {
+				// tx was already cleaned up, then a new tx was started. Any action from
+				// us would be destructive, as we'd accidently destroy a perfectly valid
+				// tx
+				return
+			}
+
+			c.clearTransaction()
+		}
 	}(id)
 }
 
