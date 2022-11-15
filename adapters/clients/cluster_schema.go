@@ -120,7 +120,8 @@ func (c *ClusterSchema) CommitTransaction(ctx context.Context, host string,
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusNoContent {
-		return errors.Errorf("unexpected status code %d", res.StatusCode)
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d: %s", res.StatusCode, body)
 	}
 
 	return nil
