@@ -83,7 +83,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	tx, err := m.cluster.BeginTransaction(ctx, UpdateClass,
-		UpdateClassPayload{className, updated, updatedState})
+		UpdateClassPayload{className, updated, updatedState}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other

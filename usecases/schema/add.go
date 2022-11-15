@@ -138,7 +138,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	}
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddClass,
-		AddClassPayload{class, shardState})
+		AddClassPayload{class, shardState}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other

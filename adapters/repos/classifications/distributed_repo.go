@@ -14,6 +14,7 @@ package classifications
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -22,6 +23,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/sirupsen/logrus"
 )
+
+const DefaultTxTTL = 60 * time.Second
 
 type DistributedRepo struct {
 	sync.RWMutex
@@ -68,7 +71,7 @@ func (r *DistributedRepo) Put(ctx context.Context,
 	tx, err := r.txRemote.BeginTransaction(ctx, classification.TransactionPut,
 		classification.TransactionPutPayload{
 			Classification: pl,
-		})
+		}, DefaultTxTTL)
 	if err != nil {
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
