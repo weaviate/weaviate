@@ -184,6 +184,28 @@ func TestReplicatorDeleteObject(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestReplicatorDeleteObjects(t *testing.T) {
+	var (
+		cls     = "C1"
+		shard   = "SH1"
+		nodes   = []string{"A", "B"}
+		ctx     = context.Background()
+		factory = newFakeFactory("C1", shard, nodes)
+		client  = factory.Client
+	)
+	rep := factory.newReplicator()
+	docIDs := []uint64{1, 2}
+	resp := SimpleResponse{}
+	for _, n := range nodes {
+		client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp, nil)
+		client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+	}
+	errs := rep.DeleteObjects(ctx, "", shard, docIDs, false)
+	assert.Equal(t, len(errs), 2)
+	assert.ErrorIs(t, errs[0], nil)
+	assert.ErrorIs(t, errs[1], nil)
+}
+
 func TestReplicatorPutObjects(t *testing.T) {
 	var (
 		cls   = "C1"

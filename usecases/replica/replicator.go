@@ -116,6 +116,22 @@ func (r *Replicator) DeleteObject(ctx context.Context, localhost, shard string,
 	return coord.Replicate(ctx, op, r.simpleCommit())
 }
 
+func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
+	docIDs []uint64, dryRun bool,
+) []error {
+	coord := newCoordinator[SimpleResponse](r, shard, localhost)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.DeleteObjects(
+			ctx, host, r.class, shard, requestID, docIDs, dryRun)
+		if err != nil {
+			return err
+		}
+		return resp.FirstError()
+	}
+	err := coord.Replicate(ctx, op, r.simpleCommit())
+	return errorsFromSimpleResponses(len(docIDs), coord.responses, err)
+}
+
 // finder is just a place holder to find replicas of specific hard
 // TODO: the mapping between a shard and its replicas need to be implemented
 type finder struct {

@@ -41,10 +41,10 @@ type client interface {
 		objs []*storobj.Object) (SimpleResponse, error)
 	MergeObject(ctx context.Context, host, index, shard, requestID string,
 		mergeDoc *objects.MergeDocument) (SimpleResponse, error)
+	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+		docIDs []uint64, dryRun bool) (SimpleResponse, error)
 
 	// TODO
-	// DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	// 	docIDs []uint64, dryRun bool) (SimpleResponse, error)
 	// AddReferences(ctx context.Context, host, index, shard, requestID string,
 	// 	refs objects.BatchReferences) (SimpleResponse, error)
 
