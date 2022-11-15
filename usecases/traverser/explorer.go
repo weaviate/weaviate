@@ -18,7 +18,6 @@ import (
 
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -285,15 +284,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 			res1[i].ScoreExplain = "(bm25)" + res1[i].ScoreExplain
 		}
 
-		//Make a []float32 300 long
-		vector := make([]float32, 300)
-		//Fill the vector with 1
-		for i := range vector {
-			vector[i] = 1
-		}
-
+	
+		var vector  []float32
 		if e.modulesProvider != nil {
-			vector, err := e.modulesProvider.VectorFromInput(ctx,
+			vector, err = e.modulesProvider.VectorFromInput(ctx,
 				params.ClassName, params.HybridSearch.Query)
 			if err != nil {
 				return nil, err
@@ -301,16 +295,8 @@ func (e *Explorer) getClassList(ctx context.Context,
 			fmt.Printf("found vector: %v\n", vector)
 		}
 
-		nt :=  &neartext.NearTextParams  {
-			Values       : []string{params.HybridSearch.Query},
-			Limit        :1000,
-		}
-		// vector, err = e.vectorFromParams(ctx, params)
-		vector,err = e.nearParamsVector.vectorFromParams(ctx, nil,
-			nil, map[string]interface{}{"nearText": nt}, params.ClassName)
-		if err != nil {
-			return nil, err
-		}
+	
+		
 		res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
 		if err != nil {
 			return nil, err

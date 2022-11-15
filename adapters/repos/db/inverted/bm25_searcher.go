@@ -375,7 +375,7 @@ func (bm *BM25Searcher) score(ids docPointersWithScore, propName string) error {
 }
 
 func (b *BM25Searcher) getIdsWithFrequenciesForTerm(ctx context.Context,
-	prop, term string,
+prop, term string,
 ) (docPointersWithScore, error) {
 	bucketName := helpers.BucketFromPropNameLSM(prop)
 	bucket := b.store.Bucket(bucketName)
