@@ -78,7 +78,7 @@ func TestTryingToCommitInvalidTransaction(t *testing.T) {
 func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
 	defer cancel()
 
 	man := NewTxManager(&fakeBroadcaster{})
@@ -88,6 +88,9 @@ func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 
 	expiredTx := &Transaction{ID: tx1.ID}
 
+	// give the cancel handler some time to run
+	time.Sleep(50 * time.Microsecond)
+
 	err = man.CommitWriteTransaction(ctx, expiredTx)
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "transaction TTL")
@@ -95,6 +98,31 @@ func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	// make sure it is possible to open future transactions
 	_, err = man.BeginTransaction(context.Background(), trType, payload)
 	require.Nil(t, err)
+}
+
+func TestLettingATransactionExpire(t *testing.T) {
+	payload := "my-payload"
+	trType := TransactionType("my-type")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
+	defer cancel()
+
+	man := NewTxManager(&fakeBroadcaster{})
+
+	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	require.Nil(t, err)
+
+	// give the cancel handler some time to run
+	time.Sleep(50 * time.Microsecond)
+
+	// try to open a new one
+	_, err = man.BeginTransaction(context.Background(), trType, payload)
+	require.Nil(t, err)
+
+	// since the old one expired, we now expect a TTL error instead of a
+	// concurrent tx error when trying to refer to the old one
+	err = man.CommitWriteTransaction(context.Background(), tx1)
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "transaction TTL")
 }
 
 func TestRemoteDoesntAllowOpeningTransaction(t *testing.T) {
