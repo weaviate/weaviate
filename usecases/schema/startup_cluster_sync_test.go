@@ -241,7 +241,7 @@ func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterState, txClient,
+		&fakeModuleConfig{}, clusterState, txClient, &fakeScaleOutManager{},
 	)
 
 	return sm, err
