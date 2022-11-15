@@ -80,8 +80,15 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 	}
 }
 
-func (c *TxManager) resetTxExpiry(ctx context.Context, id string) {
-	c.currentTransactionContext = ctx
+func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
+	cancel := func() {}
+	ctx := context.Background()
+	if ttl == 0 {
+		c.currentTransactionContext = context.Background()
+	} else {
+		ctx, cancel = context.WithTimeout(ctx, ttl)
+		c.currentTransactionContext = ctx
+	}
 
 	// to prevent a goroutine leak for the new routine we're spawning here,
 	// register a way to terminate it in case the explicit cancel is called
@@ -98,6 +105,7 @@ func (c *TxManager) resetTxExpiry(ctx context.Context, id string) {
 	}
 
 	go func(id string) {
+		defer cancel()
 		ctxDone := ctx.Done()
 		select {
 		case <-clearCancelListener:
@@ -157,12 +165,13 @@ func (c *TxManager) SetResponseFn(fn ResponseFn) {
 	c.responseFn = fn
 }
 
-// Begin a Transaction with the specified type and payload. By default
-// transactions do not ever expire. However, they inherit the deadline from the
-// passed in context, so to make a Transaction expire, pass in a context that
-// itself expires.
+// Begin a Transaction with the specified type and payload. Transactions expire
+// after the specified TTL. For a transaction that does not ever expire, pass
+// in a ttl of 0. When choosing TTLs keep in mind that clocks might be slightly
+// skewed in the cluster, therefore set your TTL for desiredTTL +
+// toleratedClockSkew
 func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
-	payload interface{},
+	payload interface{}, ttl time.Duration,
 ) (*Transaction, error) {
 	c.Lock()
 
@@ -176,15 +185,15 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		ID:      uuid.New().String(),
 		Payload: payload,
 	}
-	if dl, ok := ctx.Deadline(); ok {
-		c.currentTransaction.Deadline = dl
+	if ttl > 0 {
+		c.currentTransaction.Deadline = time.Now().Add(ttl)
 	} else {
 		// UnixTime == 0 represents unlimited
 		c.currentTransaction.Deadline = time.UnixMilli(0)
 	}
 	c.Unlock()
 
-	c.resetTxExpiry(ctx, c.currentTransaction.ID)
+	c.resetTxExpiry(ttl, c.currentTransaction.ID)
 
 	if err := c.remote.BroadcastTransaction(ctx, c.currentTransaction); err != nil {
 		// we could not open the transaction on every node, therefore we need to
@@ -257,8 +266,8 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 
 	c.currentTransaction = tx
 	c.responseFn(ctx, tx)
-	txCtx, _ := ContextFromTx(tx)
-	c.resetTxExpiry(txCtx, tx.ID)
+	ttl := tx.Deadline.Sub(time.Now())
+	c.resetTxExpiry(ttl, tx.ID)
 
 	return nil
 }
