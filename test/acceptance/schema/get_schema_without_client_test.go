@@ -59,6 +59,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"strategy":            "hash",
 					"key":                 "_id",
 					"virtualPerPhysical":  float64(128),
+					"replicas":            float64(1),
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{

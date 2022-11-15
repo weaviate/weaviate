@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -270,18 +271,28 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	localShard, ok := i.Shards[shardName]
-	if !ok {
+	shardingState := i.getSchema.
+		ShardingState(i.Config.ClassName.String())
+
+	if shardingState.IsShardLocal(shardName) {
+		fmt.Printf("    ===> put local index\n")
+		shard := i.Shards[shardName]
+		if err := shard.putObject(ctx, object); err != nil {
+			return errors.Wrapf(err, "shard %s", shard.ID())
+		}
+		if shardingState.Config.Replicas > 1 {
+			err = i.remote.ReplicatePutObject(ctx, i.getSchema.NodeName(), shardName, object)
+			if err != nil {
+				return fmt.Errorf("failed to relay object put across replicas: %w", err)
+			}
+		}
+		i.getSchema.NodeName()
+	} else {
+		fmt.Printf("    ===> put remote index\n")
 		// this must be a remote shard, try sending it remotely
 		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
 			return errors.Wrap(err, "send to remote shard")
 		}
-
-		return nil
-	}
-
-	if err := localShard.putObject(ctx, object); err != nil {
-		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
 
 	return nil
@@ -432,16 +443,25 @@ func (i *Index) putObjectBatch(ctx context.Context,
 		go func(shardName string, group objsAndPos) {
 			defer wg.Done()
 
-			local := i.getSchema.
-				ShardingState(i.Config.ClassName.String()).
-				IsShardLocal(shardName)
+			shardingState := i.getSchema.
+				ShardingState(i.Config.ClassName.String())
 
 			var errs []error
-			if !local {
+			if !shardingState.IsShardLocal(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
 				shard := i.Shards[shardName]
 				errs = shard.putObjectBatch(ctx, group.objects)
+				if shardingState.Config.Replicas > 1 {
+					remoteErrs := i.remote.ReplicateBatchPutObjects(ctx, i.getSchema.NodeName(), shardName, group.objects)
+					for i := range errs {
+						// only return the first encountered error for each position
+						// TODO: there are probably better ways to do this
+						if errs[i] == nil && remoteErrs[i] != nil {
+							errs[i] = remoteErrs[i]
+						}
+					}
+				}
 			}
 			for i, err := range errs {
 				desiredPos := group.pos[i]
@@ -920,18 +940,25 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	local := i.getSchema.
-		ShardingState(i.Config.ClassName.String()).
-		IsShardLocal(shardName)
+	shardingState := i.getSchema.
+		ShardingState(i.Config.ClassName.String())
 
-	if local {
+	if shardingState.IsShardLocal(shardName) {
 		shard := i.Shards[shardName]
-		err = shard.deleteObject(ctx, id)
+		if err := shard.deleteObject(ctx, id); err != nil {
+			return fmt.Errorf("delete object: %w", err)
+		}
+		if shardingState.Config.Replicas > 1 {
+			err = i.remote.ReplicateDeletion(ctx, i.getSchema.NodeName(), shardName, id)
+			if err != nil {
+				return fmt.Errorf("failed to relay object delete across replicas: %w", err)
+			}
+		}
 	} else {
 		err = i.remote.DeleteObject(ctx, shardName, id)
-	}
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shardName)
+		if err != nil {
+			return errors.Wrapf(err, "send to remote shard %s", shardName)
+		}
 	}
 
 	return nil
@@ -1254,4 +1281,24 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
+}
+
+type replicatedIndex Index
+
+func (ri *replicatedIndex) PutObject(ctx context.Context, shardName string,
+	object *storobj.Object,
+) error {
+	return (*Index)(ri).IncomingPutObject(ctx, shardName, object)
+}
+
+func (ri *replicatedIndex) BatchPutObjects(ctx context.Context, shardName string,
+	objects []*storobj.Object,
+) []error {
+	return (*Index)(ri).IncomingBatchPutObjects(ctx, shardName, objects)
+}
+
+func (ri *replicatedIndex) DeleteObject(ctx context.Context, shardName string,
+	id strfmt.UUID,
+) error {
+	return (*Index)(ri).IncomingDeleteObject(ctx, shardName, id)
 }
