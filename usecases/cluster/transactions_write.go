@@ -13,11 +13,11 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type TransactionType string
@@ -44,6 +44,7 @@ type TxManager struct {
 	remote             Remote
 	commitFn           CommitFn
 	responseFn         ResponseFn
+	logger             logrus.FieldLogger
 }
 
 func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error {
@@ -52,7 +53,7 @@ func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error
 	}
 }
 
-func NewTxManager(remote Remote) *TxManager {
+func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 	return &TxManager{
 		remote: remote,
 
@@ -106,8 +107,10 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		// abort it everywhere.
 
 		if err := c.remote.BroadcastAbortTransaction(ctx, c.currentTransaction); err != nil {
-			// TODO WARN with structured logging
-			fmt.Println(err)
+			c.logger.WithFields(logrus.Fields{
+				"action": "broadcast_abort_transaction",
+				"id":     c.currentTransaction.ID,
+			}).WithError(err).Errorf("broadcast tx abort failed")
 		}
 
 		c.Lock()
@@ -144,8 +147,10 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 		// abort it everywhere.
 
 		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
-			// TODO WARN with structured logging
-			fmt.Println(err)
+			c.logger.WithFields(logrus.Fields{
+				"action": "broadcast_abort_transaction",
+				"id":     tx.ID,
+			}).WithError(err).Errorf("broadcast tx abort failed")
 		}
 
 		return errors.Wrap(err, "broadcast commit transaction")
