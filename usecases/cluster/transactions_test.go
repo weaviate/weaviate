@@ -29,7 +29,7 @@ func TestSuccesfulOutgoingWriteTransaction(t *testing.T) {
 
 	man := newTestTxManager()
 
-	tx, err := man.BeginTransaction(ctx, trType, payload)
+	tx, err := man.BeginTransaction(ctx, trType, payload, 0)
 	require.Nil(t, err)
 
 	err = man.CommitWriteTransaction(ctx, tx)
@@ -43,10 +43,10 @@ func TestTryingToOpenTwoTransactions(t *testing.T) {
 
 	man := newTestTxManager()
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginTransaction(ctx, trType, payload, 0)
 	require.Nil(t, err)
 
-	tx2, err := man.BeginTransaction(ctx, trType, payload)
+	tx2, err := man.BeginTransaction(ctx, trType, payload, 0)
 	assert.Nil(t, tx2)
 	require.NotNil(t, err)
 	assert.Equal(t, "concurrent transaction", err.Error())
@@ -62,7 +62,7 @@ func TestTryingToCommitInvalidTransaction(t *testing.T) {
 
 	man := newTestTxManager()
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginTransaction(ctx, trType, payload, 0)
 	require.Nil(t, err)
 
 	invalidTx := &Transaction{ID: "invalid"}
@@ -78,12 +78,11 @@ func TestTryingToCommitInvalidTransaction(t *testing.T) {
 func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
-	defer cancel()
+	ctx := context.Background()
 
 	man := newTestTxManager()
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginTransaction(ctx, trType, payload, time.Microsecond)
 	require.Nil(t, err)
 
 	expiredTx := &Transaction{ID: tx1.ID}
@@ -96,15 +95,14 @@ func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	assert.Contains(t, err.Error(), "transaction TTL")
 
 	// make sure it is possible to open future transactions
-	_, err = man.BeginTransaction(context.Background(), trType, payload)
+	_, err = man.BeginTransaction(context.Background(), trType, payload, 0)
 	require.Nil(t, err)
 }
 
 func TestTryingToCommitIncommingTransactionPastTTL(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
-	defer cancel()
+	ctx := context.Background()
 
 	man := newTestTxManager()
 
@@ -127,26 +125,25 @@ func TestTryingToCommitIncommingTransactionPastTTL(t *testing.T) {
 	assert.Contains(t, err.Error(), "transaction TTL")
 
 	// make sure it is possible to open future transactions
-	_, err = man.BeginTransaction(context.Background(), trType, payload)
+	_, err = man.BeginTransaction(context.Background(), trType, payload, 0)
 	require.Nil(t, err)
 }
 
 func TestLettingATransactionExpire(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
-	ctx, cancel := context.WithTimeout(context.Background(), time.Microsecond)
-	defer cancel()
+	ctx := context.Background()
 
 	man := newTestTxManager()
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginTransaction(ctx, trType, payload, time.Microsecond)
 	require.Nil(t, err)
 
 	// give the cancel handler some time to run
 	time.Sleep(50 * time.Microsecond)
 
 	// try to open a new one
-	_, err = man.BeginTransaction(context.Background(), trType, payload)
+	_, err = man.BeginTransaction(context.Background(), trType, payload, 0)
 	require.Nil(t, err)
 
 	// since the old one expired, we now expect a TTL error instead of a
@@ -166,7 +163,7 @@ func TestRemoteDoesntAllowOpeningTransaction(t *testing.T) {
 
 	man := newTestTxManagerWithRemote(broadcaster)
 
-	tx1, err := man.BeginTransaction(ctx, trType, payload)
+	tx1, err := man.BeginTransaction(ctx, trType, payload, 0)
 	require.Nil(t, tx1)
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "open transaction")
@@ -213,7 +210,7 @@ func TestSuccessfulDistributedWriteTransaction(t *testing.T) {
 	payload := "my-payload"
 	trType := TransactionType("my-type")
 
-	tx, err := local.BeginTransaction(ctx, trType, payload)
+	tx, err := local.BeginTransaction(ctx, trType, payload, 0)
 	require.Nil(t, err)
 
 	err = local.CommitWriteTransaction(ctx, tx)
@@ -247,10 +244,10 @@ func TestConcurrentDistributedTransaction(t *testing.T) {
 	// place. We, however want to simulate a situation where due to network
 	// delays, etc. both sides try to open a transaction more or less in
 	// parallel.
-	_, err := remote.BeginTransaction(ctx, trType, "wrong payload")
+	_, err := remote.BeginTransaction(ctx, trType, "wrong payload", 0)
 	require.Nil(t, err)
 
-	tx, err := local.BeginTransaction(ctx, trType, payload)
+	tx, err := local.BeginTransaction(ctx, trType, payload, 0)
 	require.Nil(t, tx)
 	require.NotNil(t, err)
 	assert.Contains(t, err.Error(), "concurrent transaction")
@@ -279,21 +276,21 @@ func TestConcurrentOpenAttemptsOnSlowNetwork(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := node1.BeginTransaction(ctx, trType, "payload-from-node-1")
+		_, err := node1.BeginTransaction(ctx, trType, "payload-from-node-1", 0)
 		assert.NotNil(t, err, "open tx 1 must fail")
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := node2.BeginTransaction(ctx, trType, "payload-from-node-2")
+		_, err := node2.BeginTransaction(ctx, trType, "payload-from-node-2", 0)
 		assert.NotNil(t, err, "open tx 2 must fail")
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, err := node3.BeginTransaction(ctx, trType, "payload-from-node-3")
+		_, err := node3.BeginTransaction(ctx, trType, "payload-from-node-3", 0)
 		assert.NotNil(t, err, "open tx 3 must fail")
 	}()
 
@@ -378,7 +375,7 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 
 	trType := TransactionType("my-read-tx")
 
-	tx, err := local.BeginTransaction(ctx, trType, nil)
+	tx, err := local.BeginTransaction(ctx, trType, nil, 0)
 	require.Nil(t, err)
 
 	local.CloseReadTransaction(ctx, tx)
@@ -391,15 +388,14 @@ func TestTxWithDeadline(t *testing.T) {
 		payload := "my-payload"
 		trType := TransactionType("my-type")
 
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Second))
-		defer cancel()
+		ctx := context.Background()
 
 		man := newTestTxManager()
 
-		tx, err := man.BeginTransaction(ctx, trType, payload)
+		tx, err := man.BeginTransaction(ctx, trType, payload, 1*time.Nanosecond)
 		require.Nil(t, err)
 
-		ctx, cancel = ContextFromTx(tx)
+		ctx, cancel := ContextFromTx(tx)
 		defer cancel()
 
 		assert.NotNil(t, ctx.Err())
@@ -409,15 +405,14 @@ func TestTxWithDeadline(t *testing.T) {
 		payload := "my-payload"
 		trType := TransactionType("my-type")
 
-		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Second))
-		defer cancel()
+		ctx := context.Background()
 
 		man := newTestTxManager()
 
-		tx, err := man.BeginTransaction(ctx, trType, payload)
+		tx, err := man.BeginTransaction(ctx, trType, payload, 10*time.Second)
 		require.Nil(t, err)
 
-		ctx, cancel = ContextFromTx(tx)
+		ctx, cancel := ContextFromTx(tx)
 		defer cancel()
 
 		assert.Nil(t, ctx.Err())
