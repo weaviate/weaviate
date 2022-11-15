@@ -207,7 +207,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
-	terms := strings.Split(keywordRanking.Query, " ")
+	terms := strings.Split(keywordRanking.Query, " ") //FIXME use better splitter
 	idLists := make([]docPointersWithScore, len(terms))
 
 	for i, term := range terms {

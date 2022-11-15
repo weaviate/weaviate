@@ -2518,6 +2518,10 @@ func ptFloat32(in float32) *float32 {
 type fakeModulesProvider struct {
 	customC11yModule *fakeText2vecContextionaryModule
 }
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error){
+	panic ("not implemented")
+	return nil, nil
+}
 
 func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
 	param string, params interface{},

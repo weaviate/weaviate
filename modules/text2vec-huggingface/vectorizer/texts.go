@@ -17,7 +17,18 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/ent"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 )
+
+func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
+	icheck vectorizer.ClassIndexCheck,
+) ([]float32, error) {
+	vector_s, err :=v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{}) //FIXME config?
+	if err != nil {
+		return nil, err
+	}
+	return vector_s.Vector, nil
+}
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	settings ClassSettings,

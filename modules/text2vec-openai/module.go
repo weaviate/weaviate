@@ -137,6 +137,12 @@ func (m *OpenAIModule) AdditionalProperties() map[string]modulecapabilities.Addi
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *OpenAIModule) VectorizeInput(ctx context.Context,
+	input string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	return m.vectorizer.Texts(ctx, []string{input},vectorizer.NewClassSettings(cfg)) //FIXME config?
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())

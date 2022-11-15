@@ -37,6 +37,11 @@ type mockResolver struct {
 
 type fakeModulesProvider struct{}
 
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error){
+	panic ("not implemented")
+	return nil, nil
+}
+
 func (p *fakeModulesProvider) ExploreArguments(schema *models.Schema) map[string]*graphql.ArgumentConfig {
 	args := map[string]*graphql.ArgumentConfig{}
 	txt2vec := &nearCustomTextModule{}
