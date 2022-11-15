@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"io"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -97,7 +98,7 @@ func fixedMultiShardState() *sharding.State {
 	}
 
 	for name, shard := range s.Physical {
-		shard.BelongsToNode = "node1"
+		shard.BelongsToNodes = []string{"node1"}
 		s.Physical[name] = shard
 	}
 	return s
@@ -200,6 +201,30 @@ func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 
 func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 	targetStatus string,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,
+	fileName string, payload io.ReadCloser,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicatePutObject(ctx context.Context, hostName,
+	indexName, shardName string, obj *storobj.Object,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicateBatchPutObjects(ctx context.Context, hostName,
+	indexName, shardName string, objs []*storobj.Object,
+) []error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicateDeleteObject(ctx context.Context, hostname,
+	indexName, shardName string, id strfmt.UUID,
 ) error {
 	return nil
 }

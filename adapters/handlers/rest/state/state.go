@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -41,12 +42,15 @@ type State struct {
 	GraphQL             graphql.GraphQL
 	Modules             *modules.Provider
 	SchemaManager       *schema.Manager
+	ScaleOutManager     *scaling.ScaleOutManager
 	Cluster             *cluster.State
 	RemoteIndexIncoming *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
-	ClassificationRepo  *classifications.DistributedRepo
-	Metrics             *monitoring.PrometheusMetrics
-	BackupManager       *backup.Manager
+	ReplicatedIndex     *sharding.ReplicatedIndex
+
+	ClassificationRepo *classifications.DistributedRepo
+	Metrics            *monitoring.PrometheusMetrics
+	BackupManager      *backup.Manager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

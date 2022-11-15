@@ -63,6 +63,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -84,6 +85,7 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
+	scaling.BackerUpper
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
@@ -198,12 +200,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Cluster, localClassifierRepo)
 	appState.ClassificationRepo = classifierRepo
 
+	scaleoutManager := scaling.NewScaleOutManager(appState.Cluster, vectorRepo,
+		remoteIndexClient, appState.ServerConfig.Config.Persistence.DataPath)
+	appState.ScaleOutManager = scaleoutManager
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
-		schemaTxClient)
+		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+		appState.Modules, appState.Cluster, schemaTxClient, scaleoutManager,
+	)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -215,6 +222,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
+	appState.ReplicatedIndex = sharding.NewReplicatedIndex(repo)
 
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
