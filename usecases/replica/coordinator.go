@@ -27,7 +27,7 @@ type replicaFinder interface {
 	FindReplicas(shardName string) []string
 }
 
-// readyOp asks a replica to be read for second commit phase
+// readyOp asks a replica to be ready for second commit phase
 type readyOp func(ctx context.Context, host, requestID string) error
 
 // readyOp asks a replica to execute the actual operation
