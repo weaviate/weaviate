@@ -17,6 +17,7 @@ package classification_integration_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"sync"
 
@@ -335,6 +336,12 @@ func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName,
+	shardName, fileName string, payload io.ReadCloser,
+) error {
+	return nil
+}
+
 func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
@@ -412,6 +419,24 @@ func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 
 func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 	targetStatus string,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicatePutObject(ctx context.Context, hostName,
+	indexName, shardName string, obj *storobj.Object,
+) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicateBatchPutObjects(ctx context.Context, hostName,
+	indexName, shardName string, objs []*storobj.Object,
+) []error {
+	return nil
+}
+
+func (f *fakeRemoteClient) ReplicateDeleteObject(ctx context.Context, hostname,
+	indexName, shardName string, id strfmt.UUID,
 ) error {
 	return nil
 }

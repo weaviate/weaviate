@@ -49,7 +49,9 @@ func (m *Manager) handleTxResponse(ctx context.Context,
 	}
 }
 
-func (m *Manager) handleAddClassCommit(ctx context.Context, tx *cluster.Transaction) error {
+func (m *Manager) handleAddClassCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -123,5 +125,5 @@ func (m *Manager) handleUpdateClassCommit(ctx context.Context,
 		return err
 	}
 
-	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class)
+	return m.updateClassApplyChanges(ctx, pl.ClassName, pl.Class, pl.State)
 }
