@@ -97,7 +97,7 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 	contentsCopy := make([]byte, node.End-node.Start)
 	copy(contentsCopy, i.contents[node.Start:node.End])
 
-	return i.replaceStratParseData(i.contents[node.Start:node.End])
+	return i.replaceStratParseData(contentsCopy)
 }
 
 func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
