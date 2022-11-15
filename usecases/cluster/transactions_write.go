@@ -13,7 +13,6 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -27,6 +26,7 @@ type TransactionType string
 var (
 	ErrConcurrentTransaction = errors.New("concurrent transaction")
 	ErrInvalidTransaction    = errors.New("invalid transaction")
+	ErrExpiredTransaction    = errors.New("transaction TTL expired")
 )
 
 type Remote interface {
@@ -44,13 +44,19 @@ type TxManager struct {
 	sync.Mutex
 	logger logrus.FieldLogger
 
-	currentTransaction              *Transaction
-	currentTransactionContext       context.Context
-	currentTransactionContextCancel context.CancelFunc
+	currentTransaction        *Transaction
+	currentTransactionContext context.Context
+	clearTransaction          func()
 
 	remote     Remote
 	commitFn   CommitFn
 	responseFn ResponseFn
+
+	// keep the ids of expired transactions around. This way, we can return a
+	// nicer error message to the user. Instead of just an "invalid transaction"
+	// which no longer exists, they will get an explicit error message mentioning
+	// the timeout.
+	expiredTxIDs []string
 }
 
 func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error {
@@ -72,6 +78,53 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 		commitFn:   newDummyCommitResponseFn(),
 		responseFn: newDummyCommitResponseFn(),
 	}
+}
+
+func (c *TxManager) resetTxExpiry(ctx context.Context, id string) {
+	c.currentTransactionContext = ctx
+
+	c.clearTransaction = func() {
+		c.currentTransaction = nil
+		c.currentTransactionContext = nil
+		c.clearTransaction = func() {}
+	}
+
+	go func(id string) {
+		<-ctx.Done()
+		c.Lock()
+		defer c.Unlock()
+		c.expiredTxIDs = append(c.expiredTxIDs, id)
+
+		if c.currentTransaction == nil {
+			// tx is already cleaned up, for example from a successful commit. Nothing to do for us
+			return
+		}
+
+		if c.currentTransaction.ID != id {
+			// tx was already cleaned up, then a new tx was started. Any action from
+			// us would be destructive, as we'd accidently destroy a perfectly valid
+			// tx
+			return
+		}
+
+		c.clearTransaction()
+	}(id)
+}
+
+// expired is a helper to return a more meaningful error message to the user.
+// Instead of just telling the user that an ID does not exist, this tracks that
+// it once existed, but has been cleared because it expired.
+//
+// This method is not thread-safe as the assumption is that it is called from a
+// thread-safe environment where a lock would already be held
+func (c *TxManager) expired(id string) bool {
+	for _, expired := range c.expiredTxIDs {
+		if expired == id {
+			return true
+		}
+	}
+
+	return false
 }
 
 // SetCommitFn sets a function that is used in Write Transactions, you can
@@ -113,8 +166,9 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 	if dl, ok := ctx.Deadline(); ok {
 		c.currentTransaction.Deadline = dl
 	}
-	c.currentTransactionContext, c.currentTransactionContextCancel = context.WithCancel(ctx)
 	c.Unlock()
+
+	c.resetTxExpiry(ctx, c.currentTransaction.ID)
 
 	if err := c.remote.BroadcastTransaction(ctx, c.currentTransaction); err != nil {
 		// we could not open the transaction on every node, therefore we need to
@@ -128,25 +182,27 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		}
 
 		c.Lock()
-		c.currentTransaction = nil
-		c.currentTransactionContext = nil
+		c.clearTransaction()
 		c.Unlock()
 
 		return nil, errors.Wrap(err, "broadcast open transaction")
 	}
 
+	c.Lock()
+	defer c.Unlock()
 	return c.currentTransaction, nil
 }
 
 func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
-	ctx, cancel := inheritCtxDeadline(ctx, c.currentTransactionContext)
-	defer cancel()
-
 	c.Lock()
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
+		expired := c.expired(tx.ID)
 		c.Unlock()
+		if expired {
+			return ErrExpiredTransaction
+		}
 		return ErrInvalidTransaction
 	}
 
@@ -154,17 +210,7 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 
 	// now that we know we are dealing with a valid transaction: no  matter the
 	// outcome, after this call, we should not have a local transaction anymore
-	defer func() {
-		c.Lock()
-		c.currentTransaction = nil
-		c.currentTransactionContext = nil
-		c.currentTransactionContextCancel = nil
-		c.Unlock()
-	}()
-
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("transaction TTL expired: %w", err)
-	}
+	defer c.clearTransaction()
 
 	if err := c.remote.BroadcastCommitTransaction(ctx, tx); err != nil {
 		// we could not open the transaction on every node, therefore we need to
