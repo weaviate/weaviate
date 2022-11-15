@@ -130,11 +130,6 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(ctx context.Context, tx *Tran
 }
 
 func copyTx(in *Transaction) *Transaction {
-	out := &Transaction{
-		ID:      in.ID,
-		Type:    in.Type,
-		Payload: in.Payload,
-	}
-
-	return out
+	out := *in
+	return &out
 }

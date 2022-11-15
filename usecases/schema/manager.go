@@ -112,7 +112,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
-		cluster:                 cluster.NewTxManager(txBroadcaster),
+		cluster:                 cluster.NewTxManager(txBroadcaster, logger),
 		clusterState:            clusterState,
 	}
 

@@ -13,9 +13,9 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 func (c *TxManager) CloseReadTransaction(ctx context.Context,
@@ -42,8 +42,10 @@ func (c *TxManager) CloseReadTransaction(ctx context.Context,
 		// abort it everywhere.
 
 		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
-			// TODO WARN with structured logging
-			fmt.Println(err)
+			c.logger.WithFields(logrus.Fields{
+				"action": "broadcast_abort_transaction",
+				"id":     tx.ID,
+			}).WithError(err).Errorf("broadcast tx abort failed")
 		}
 
 		return errors.Wrap(err, "broadcast commit transaction")

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ func TestSuccesfulOutgoingWriteTransaction(t *testing.T) {
 	trType := TransactionType("my-type")
 	ctx := context.Background()
 
-	man := NewTxManager(&fakeBroadcaster{})
+	man := newTestTxManager()
 
 	tx, err := man.BeginTransaction(ctx, trType, payload)
 	require.Nil(t, err)
@@ -40,7 +41,7 @@ func TestTryingToOpenTwoTransactions(t *testing.T) {
 	trType := TransactionType("my-type")
 	ctx := context.Background()
 
-	man := NewTxManager(&fakeBroadcaster{})
+	man := newTestTxManager()
 
 	tx1, err := man.BeginTransaction(ctx, trType, payload)
 	require.Nil(t, err)
@@ -59,7 +60,7 @@ func TestTryingToCommitInvalidTransaction(t *testing.T) {
 	trType := TransactionType("my-type")
 	ctx := context.Background()
 
-	man := NewTxManager(&fakeBroadcaster{})
+	man := newTestTxManager()
 
 	tx1, err := man.BeginTransaction(ctx, trType, payload)
 	require.Nil(t, err)
@@ -82,7 +83,7 @@ func TestRemoteDoesntAllowOpeningTransaction(t *testing.T) {
 		openErr: ErrConcurrentTransaction,
 	}
 
-	man := NewTxManager(broadcaster)
+	man := newTestTxManagerWithRemote(broadcaster)
 
 	tx1, err := man.BeginTransaction(ctx, trType, payload)
 	require.Nil(t, tx1)
@@ -121,12 +122,12 @@ func TestSuccessfulDistributedWriteTransaction(t *testing.T) {
 	ctx := context.Background()
 
 	var remoteState interface{}
-	remote := NewTxManager(&fakeBroadcaster{})
+	remote := newTestTxManager()
 	remote.SetCommitFn(func(ctx context.Context, tx *Transaction) error {
 		remoteState = tx.Payload
 		return nil
 	})
-	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote})
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
 
 	payload := "my-payload"
 	trType := TransactionType("my-type")
@@ -144,12 +145,12 @@ func TestConcurrentDistributedTransaction(t *testing.T) {
 	ctx := context.Background()
 
 	var remoteState interface{}
-	remote := NewTxManager(&fakeBroadcaster{})
+	remote := newTestTxManager()
 	remote.SetCommitFn(func(ctx context.Context, tx *Transaction) error {
 		remoteState = tx.Payload
 		return nil
 	})
-	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote})
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
 
 	payload := "my-payload"
 	trType := TransactionType("my-type")
@@ -185,9 +186,9 @@ func TestConcurrentOpenAttemptsOnSlowNetwork(t *testing.T) {
 	ctx := context.Background()
 
 	broadcaster := &slowMultiBroadcaster{delay: 100 * time.Millisecond}
-	node1 := NewTxManager(broadcaster)
-	node2 := NewTxManager(broadcaster)
-	node3 := NewTxManager(broadcaster)
+	node1 := newTestTxManagerWithRemote(broadcaster)
+	node2 := newTestTxManagerWithRemote(broadcaster)
+	node3 := newTestTxManagerWithRemote(broadcaster)
 
 	broadcaster.nodes = []*TxManager{node1, node2, node3}
 
@@ -286,12 +287,12 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 	ctx := context.Background()
 	payload := "my-payload"
 
-	remote := NewTxManager(&fakeBroadcaster{})
+	remote := newTestTxManager()
 	remote.SetResponseFn(func(ctx context.Context, tx *Transaction) error {
 		tx.Payload = payload
 		return nil
 	})
-	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote})
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote}, remote.logger)
 	// TODO local.SetConsenusFn
 
 	trType := TransactionType("my-read-tx")
@@ -302,4 +303,14 @@ func TestSuccessfulDistributedReadTransaction(t *testing.T) {
 	local.CloseReadTransaction(ctx, tx)
 
 	assert.Equal(t, "my-payload", tx.Payload)
+}
+
+func newTestTxManager() *TxManager {
+	logger, _ := test.NewNullLogger()
+	return NewTxManager(&fakeBroadcaster{}, logger)
+}
+
+func newTestTxManagerWithRemote(remote Remote) *TxManager {
+	logger, _ := test.NewNullLogger()
+	return NewTxManager(remote, logger)
 }
