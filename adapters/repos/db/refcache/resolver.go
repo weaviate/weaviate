@@ -189,6 +189,12 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 	if additionalProperties.Vector {
 		nested["vector"] = res.Vector
 	}
+	if additionalProperties.CreationTimeUnix {
+		nested["creationTimeUnix"] = res.Created
+	}
+	if additionalProperties.LastUpdateTimeUnix {
+		nested["lastUpdateTimeUnix"] = res.Updated
+	}
 	out.Fields = nested
 
 	return &out, nil

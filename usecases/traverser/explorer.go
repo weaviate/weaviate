@@ -351,7 +351,7 @@ func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{
 			if ok {
 				refProperty := propertySchemaMap[selectProp.Name]
 				if refProperty != nil {
-					e.exctractAdditionalPropertiesFromRef(refProperty, refClass)
+					e.extractAdditionalPropertiesFromRef(refProperty, refClass)
 				}
 			}
 			if refClass.RefProperties != nil {
@@ -375,7 +375,7 @@ func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{
 	}
 }
 
-func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
+func (e *Explorer) extractAdditionalPropertiesFromRef(ref interface{},
 	refClass search.SelectClass,
 ) {
 	innerRefClass, ok := ref.([]interface{})
@@ -392,6 +392,12 @@ func (e *Explorer) exctractAdditionalPropertiesFromRef(ref interface{},
 				}
 				if refClass.AdditionalProperties.Vector {
 					additionalProperties["vector"] = innerRef.Fields["vector"]
+				}
+				if refClass.AdditionalProperties.CreationTimeUnix {
+					additionalProperties["creationTimeUnix"] = innerRef.Fields["creationTimeUnix"]
+				}
+				if refClass.AdditionalProperties.LastUpdateTimeUnix {
+					additionalProperties["lastUpdateTimeUnix"] = innerRef.Fields["lastUpdateTimeUnix"]
 				}
 				if len(additionalProperties) > 0 {
 					innerRef.Fields["_additional"] = additionalProperties
