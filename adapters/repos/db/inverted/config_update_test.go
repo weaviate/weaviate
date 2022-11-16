@@ -120,4 +120,22 @@ func TestValidateUserConfigUpdate(t *testing.T) {
 		err := ValidateUserConfigUpdate(validInitial, updated)
 		require.EqualError(t, err, "found 'duplicate' in both stopwords.additions and stopwords.removals")
 	})
+
+	t.Run("with invalid updated inverted index null state change", func(t *testing.T) {
+		updated := &models.InvertedIndexConfig{
+			IndexNullState: true,
+		}
+
+		err := ValidateUserConfigUpdate(validInitial, updated)
+		require.EqualError(t, err, "IndexNullState cannot be changed when updating a schema")
+	})
+
+	t.Run("with invalid updated inverted index property length change", func(t *testing.T) {
+		updated := &models.InvertedIndexConfig{
+			IndexPropertyLength: true,
+		}
+
+		err := ValidateUserConfigUpdate(validInitial, updated)
+		require.EqualError(t, err, "IndexPropertyLength cannot be changed when updating a schema")
+	})
 }
