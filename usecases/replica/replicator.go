@@ -21,6 +21,11 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
+const (
+	// RequestKey is used to marshalling request IDs
+	RequestKey = "request_id"
+)
+
 type shardingState interface {
 	ShardingState(class string) *sharding.State
 }
@@ -59,7 +64,7 @@ func (r *Replicator) PutObject(ctx context.Context, localhost, shard string,
 		}
 		return resp.FirstError()
 	}
-	return coord.Replicate(ctx, op, r.simpleCommit())
+	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
 
 func (r *Replicator) PutObjects(ctx context.Context, localhost, shard string,
@@ -73,7 +78,7 @@ func (r *Replicator) PutObjects(ctx context.Context, localhost, shard string,
 		}
 		return resp.FirstError()
 	}
-	err := coord.Replicate(ctx, op, r.simpleCommit())
+	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
 	return errorsFromSimpleResponses(len(objs), coord.responses, err)
 }
 
@@ -88,13 +93,13 @@ func (r *Replicator) MergeObject(ctx context.Context, localhost, shard string,
 		}
 		return resp.FirstError()
 	}
-	return coord.Replicate(ctx, op, r.simpleCommit())
+	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
 
-func (r *Replicator) simpleCommit() commitOp[SimpleResponse] {
+func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 	resp := SimpleResponse{}
 	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
-		err := r.client.Commit(ctx, host, requestID, &resp)
+		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -113,7 +118,7 @@ func (r *Replicator) DeleteObject(ctx context.Context, localhost, shard string,
 		}
 		return err
 	}
-	return coord.Replicate(ctx, op, r.simpleCommit())
+	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
 
 func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
@@ -128,7 +133,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
 		}
 		return resp.FirstError()
 	}
-	err := coord.Replicate(ctx, op, r.simpleCommit())
+	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
 	return errorsFromSimpleResponses(len(docIDs), coord.responses, err)
 }
 

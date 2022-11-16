@@ -27,7 +27,7 @@ type replicaFinder interface {
 	FindReplicas(shardName string) []string
 }
 
-// readyOp asks a replica to be ready for second commit phase
+// readyOp asks a replica to be read to second phase commit
 type readyOp func(ctx context.Context, host, requestID string) error
 
 // readyOp asks a replica to execute the actual operation
@@ -81,7 +81,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context, replicas []string, op re
 
 	if err != nil {
 		for _, node := range replicas {
-			c.Abort(ctx, node, c.requestID)
+			c.Abort(ctx, node, c.class, c.shard, c.requestID)
 		}
 	}
 

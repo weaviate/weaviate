@@ -49,7 +49,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		resp := SimpleResponse{}
 		for _, n := range nodes {
 			f.Client.On("PutObject", ctx, n, cls, shard, anyVal, obj).Return(resp, nil)
-			f.Client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+			f.Client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
 		err := rep.PutObject(ctx, "", shard, obj)
 		assert.Nil(t, err)
@@ -61,8 +61,8 @@ func TestReplicatorPutObject(t *testing.T) {
 		resp := SimpleResponse{}
 		f.Client.On("PutObject", ctx, nodes[0], cls, shard, anyVal, obj).Return(resp, nil)
 		f.Client.On("PutObject", ctx, nodes[1], cls, shard, anyVal, obj).Return(resp, errAny)
-		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
-		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		err := rep.PutObject(ctx, "", shard, obj)
 		assert.ErrorIs(t, err, errAny)
@@ -75,8 +75,8 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.Client.On("PutObject", ctx, nodes[0], cls, shard, anyVal, obj).Return(resp, nil)
 		resp2 := SimpleResponse{[]string{errAny.Error()}}
 		f.Client.On("PutObject", ctx, nodes[1], cls, shard, anyVal, obj).Return(resp2, nil)
-		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
-		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		err := rep.PutObject(ctx, "", shard, obj)
 		want := &Error{}
@@ -91,8 +91,8 @@ func TestReplicatorPutObject(t *testing.T) {
 		for _, n := range nodes {
 			f.Client.On("PutObject", ctx, n, cls, shard, anyVal, obj).Return(resp, nil)
 		}
-		f.Client.On("Commit", ctx, nodes[0], anyVal, anyVal).Return(nil)
-		f.Client.On("Commit", ctx, nodes[1], anyVal, anyVal).Return(errAny)
+		f.Client.On("Commit", ctx, nodes[0], "C1", shard, anyVal, anyVal).Return(nil)
+		f.Client.On("Commit", ctx, nodes[1], "C1", shard, anyVal, anyVal).Return(errAny)
 
 		err := rep.PutObject(ctx, "", shard, obj)
 		assert.ErrorIs(t, err, errAny)
@@ -114,7 +114,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		resp := SimpleResponse{}
 		for _, n := range nodes {
 			f.Client.On("MergeObject", ctx, n, cls, shard, anyVal, merge).Return(resp, nil)
-			f.Client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+			f.Client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 		}
 		err := rep.MergeObject(ctx, "", shard, merge)
 		assert.Nil(t, err)
@@ -126,8 +126,8 @@ func TestReplicatorMergeObject(t *testing.T) {
 		resp := SimpleResponse{}
 		f.Client.On("MergeObject", ctx, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
 		f.Client.On("MergeObject", ctx, nodes[1], cls, shard, anyVal, merge).Return(resp, errAny)
-		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
-		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[0], cls, shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 		err := rep.MergeObject(ctx, "", shard, merge)
 		assert.ErrorIs(t, err, errAny)
@@ -140,8 +140,8 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.Client.On("MergeObject", ctx, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
 		resp2 := SimpleResponse{[]string{errAny.Error()}}
 		f.Client.On("MergeObject", ctx, nodes[1], cls, shard, anyVal, merge).Return(resp2, nil)
-		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
-		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[0], cls, shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 		err := rep.MergeObject(ctx, "", shard, merge)
 		want := &Error{}
@@ -156,8 +156,8 @@ func TestReplicatorMergeObject(t *testing.T) {
 		for _, n := range nodes {
 			f.Client.On("MergeObject", ctx, n, cls, shard, anyVal, merge).Return(resp, nil)
 		}
-		f.Client.On("Commit", ctx, nodes[0], anyVal, anyVal).Return(nil)
-		f.Client.On("Commit", ctx, nodes[1], anyVal, anyVal).Return(errAny)
+		f.Client.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
+		f.Client.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
 		err := rep.MergeObject(ctx, "", shard, merge)
 		assert.ErrorIs(t, err, errAny)
@@ -178,7 +178,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 	resp := SimpleResponse{}
 	for _, n := range nodes {
 		client.On("DeleteObject", ctx, n, cls, shard, anyVal, uuid).Return(resp, nil)
-		client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+		client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 	}
 	err := rep.DeleteObject(ctx, "", shard, uuid)
 	assert.Nil(t, err)
@@ -198,7 +198,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	resp := SimpleResponse{}
 	for _, n := range nodes {
 		client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp, nil)
-		client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+		client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 	}
 	errs := rep.DeleteObjects(ctx, "", shard, docIDs, false)
 	assert.Equal(t, len(errs), 2)
@@ -220,7 +220,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		resp := SimpleResponse{}
 		for _, n := range nodes {
 			f.Client.On("PutObjects", ctx, n, cls, shard, anyVal, objs).Return(resp, nil)
-			f.Client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+			f.Client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 		}
 		errs := rep.PutObjects(ctx, "", shard, objs)
 		assert.Equal(t, []error{nil, nil}, errs)
@@ -232,8 +232,8 @@ func TestReplicatorPutObjects(t *testing.T) {
 		resp := SimpleResponse{}
 		f.Client.On("PutObjects", ctx, nodes[0], cls, shard, anyVal, objs).Return(resp, nil)
 		f.Client.On("PutObjects", ctx, nodes[1], cls, shard, anyVal, objs).Return(resp, errAny)
-		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
-		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		errs := rep.PutObjects(ctx, "", shard, objs)
 		assert.Equal(t, 2, len(errs))
@@ -247,8 +247,8 @@ func TestReplicatorPutObjects(t *testing.T) {
 		f.Client.On("PutObjects", ctx, nodes[0], cls, shard, anyVal, objs).Return(resp, nil)
 		resp2 := SimpleResponse{[]string{"E1", "E2"}}
 		f.Client.On("PutObjects", ctx, nodes[1], cls, shard, anyVal, objs).Return(resp2, nil)
-		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
-		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		errs := rep.PutObjects(ctx, "", shard, objs)
 		want := &Error{}
@@ -257,14 +257,14 @@ func TestReplicatorPutObjects(t *testing.T) {
 	})
 
 	t.Run("Commit", func(t *testing.T) {
-		f := newFakeFactory("C1", shard, nodes)
+		f := newFakeFactory(cls, shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
 			f.Client.On("PutObjects", ctx, n, cls, shard, anyVal, objs).Return(resp, nil)
 		}
-		f.Client.On("Commit", ctx, nodes[0], anyVal, anyVal).Return(nil)
-		f.Client.On("Commit", ctx, nodes[1], anyVal, anyVal).Return(errAny)
+		f.Client.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
+		f.Client.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
 		errs := rep.PutObjects(ctx, "", shard, objs)
 		assert.Equal(t, len(errs), 2)
