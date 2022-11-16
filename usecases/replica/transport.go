@@ -48,7 +48,7 @@ type client interface {
 	// AddReferences(ctx context.Context, host, index, shard, requestID string,
 	// 	refs objects.BatchReferences) (SimpleResponse, error)
 
-	Commit(ctx context.Context, host string, requestID string, resp interface{}) error
+	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error
 
-	Abort(ctx context.Context, host string, requestID string) error
+	Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error)
 }

@@ -67,14 +67,14 @@ func (f *fakeClient) AddReferences(ctx context.Context, host, index, shard, requ
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
-func (f *fakeClient) Commit(ctx context.Context, host string, requestID string, resp interface{}) error {
-	args := f.Called(ctx, host, requestID, resp)
+func (f *fakeClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
+	args := f.Called(ctx, host, index, shard, requestID, resp)
 	return args.Error(0)
 }
 
-func (f *fakeClient) Abort(ctx context.Context, host string, requestID string) error {
-	args := f.Called(ctx, host, requestID)
-	return args.Error(0)
+func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error) {
+	args := f.Called(ctx, host, index, shard, requestID)
+	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
 // Replica finder
