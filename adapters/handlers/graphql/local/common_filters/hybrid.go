@@ -27,6 +27,14 @@ func ExtractHybrid(source map[string]interface{}) searchparams.HybridSearch {
 		args.Query = query.(string)
 	}
 
+	if _, ok := source["vector"]; ok {
+		vector := source["vector"].([]interface{})
+		args.Vector = make([]float32, len(vector))
+		for i, value := range vector {
+			args.Vector[i] = float32(value.(float64))
+		}
+	}
+
 	args.Type = "hybrid"
 
 	return args

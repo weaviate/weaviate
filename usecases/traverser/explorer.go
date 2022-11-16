@@ -287,13 +287,19 @@ func (e *Explorer) getClassList(ctx context.Context,
 	
 		var vector  []float32
 		if e.modulesProvider != nil {
+			if params.HybridSearch.Vector != nil && len(params.HybridSearch.Vector) !=0 {
+				vector = params.HybridSearch.Vector
+				} else {
+			
 			vector, err = e.modulesProvider.VectorFromInput(ctx,
 				params.ClassName, params.HybridSearch.Query)
 			if err != nil {
 				return nil, err
 			}
 			fmt.Printf("found vector: %v\n", vector)
+				}
 		}
+		
 
 	
 		
@@ -304,7 +310,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 
 		//Set the scoreexplain property to vector for every result
 		for i := range res2 {
-			res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector[:10], res2[i].ScoreExplain)
+			res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
 		}
 
 		alpha := params.HybridSearch.Alpha

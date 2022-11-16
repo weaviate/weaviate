@@ -16,6 +16,8 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/tailor-inc/graphql"
+
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
@@ -74,6 +76,10 @@ func hybridFields(prefix string) graphql.InputObjectConfigFieldMap {
 		"alpha": &graphql.InputObjectFieldConfig{
 			// Description: descriptions.Beacon,
 			Type: graphql.Float,
+		},
+		"vector": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Vector,
+			Type:        graphql.NewList(graphql.Float),
 		},
 	}
 }
