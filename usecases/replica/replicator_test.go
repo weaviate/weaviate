@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -98,6 +99,71 @@ func TestReplicatorPutObject(t *testing.T) {
 	})
 }
 
+func TestReplicatorMergeObject(t *testing.T) {
+	var (
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B"}
+		ctx   = context.Background()
+		merge = &objects.MergeDocument{}
+	)
+
+	t.Run("Success", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		for _, n := range nodes {
+			f.Client.On("MergeObject", ctx, n, cls, shard, anyVal, merge).Return(resp, nil)
+			f.Client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+		}
+		err := rep.MergeObject(ctx, "", shard, merge)
+		assert.Nil(t, err)
+	})
+
+	t.Run("PhaseOneConnectionError", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		f.Client.On("MergeObject", ctx, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
+		f.Client.On("MergeObject", ctx, nodes[1], cls, shard, anyVal, merge).Return(resp, errAny)
+		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+
+		err := rep.MergeObject(ctx, "", shard, merge)
+		assert.ErrorIs(t, err, errAny)
+	})
+
+	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		f.Client.On("MergeObject", ctx, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
+		resp2 := SimpleResponse{[]string{errAny.Error()}}
+		f.Client.On("MergeObject", ctx, nodes[1], cls, shard, anyVal, merge).Return(resp2, nil)
+		f.Client.On("Abort", ctx, nodes[0], anyVal).Return(nil)
+		f.Client.On("Abort", ctx, nodes[1], anyVal).Return(nil)
+
+		err := rep.MergeObject(ctx, "", shard, merge)
+		want := &Error{}
+		assert.ErrorAs(t, err, &want)
+		assert.ErrorContains(t, err, errAny.Error())
+	})
+
+	t.Run("Commit", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		for _, n := range nodes {
+			f.Client.On("MergeObject", ctx, n, cls, shard, anyVal, merge).Return(resp, nil)
+		}
+		f.Client.On("Commit", ctx, nodes[0], anyVal, anyVal).Return(nil)
+		f.Client.On("Commit", ctx, nodes[1], anyVal, anyVal).Return(errAny)
+
+		err := rep.MergeObject(ctx, "", shard, merge)
+		assert.ErrorIs(t, err, errAny)
+	})
+}
+
 func TestReplicatorDeleteObject(t *testing.T) {
 	var (
 		cls     = "C1"
@@ -116,6 +182,28 @@ func TestReplicatorDeleteObject(t *testing.T) {
 	}
 	err := rep.DeleteObject(ctx, "", shard, uuid)
 	assert.Nil(t, err)
+}
+
+func TestReplicatorDeleteObjects(t *testing.T) {
+	var (
+		cls     = "C1"
+		shard   = "SH1"
+		nodes   = []string{"A", "B"}
+		ctx     = context.Background()
+		factory = newFakeFactory("C1", shard, nodes)
+		client  = factory.Client
+	)
+	rep := factory.newReplicator()
+	docIDs := []uint64{1, 2}
+	resp := SimpleResponse{}
+	for _, n := range nodes {
+		client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp, nil)
+		client.On("Commit", ctx, n, anyVal, anyVal).Return(nil)
+	}
+	errs := rep.DeleteObjects(ctx, "", shard, docIDs, false)
+	assert.Equal(t, len(errs), 2)
+	assert.ErrorIs(t, errs[0], nil)
+	assert.ErrorIs(t, errs[1], nil)
 }
 
 func TestReplicatorPutObjects(t *testing.T) {
