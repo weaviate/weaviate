@@ -14,7 +14,7 @@ Preview builds make no promises about stability or feature completeness.  Use th
 
 ### Docker-compose
 
-You can obtain a [docker-compose.yaml here](https://weaviate.io/developers/weaviate/current/installation/docker-compose.html#configurator) and configure it to your liking. Then make sure to set `services.weaviate.image` to `$PREVIEW_TAG'`. For example, like so:
+You can obtain a [docker-compose.yaml here](https://weaviate.io/developers/weaviate/current/installation/docker-compose.html#configurator) and configure it to your liking. Then make sure to set `services.weaviate.image` to `$PREVIEW_TAG`. For example, like so:
 
 ```yaml
 services:
