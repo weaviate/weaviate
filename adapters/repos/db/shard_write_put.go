@@ -29,18 +29,23 @@ import (
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
-	}
-
-	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+	uuid, err := s.canPutOne(ctx, object)
 	if err != nil {
 		return err
 	}
+	return s.putOne(ctx, uuid, object)
+}
 
-	var status objectInsertStatus
+func (s *Shard) canPutOne(ctx context.Context, object *storobj.Object) ([]byte, error) {
+	if s.isReadOnly() {
+		return nil, storagestate.ErrStatusReadOnly
+	}
 
-	status, err = s.putObjectLSM(object, idBytes, false)
+	return uuid.MustParse(object.ID().String()).MarshalBinary()
+}
+
+func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
+	status, err := s.putObjectLSM(object, uuid, false)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
 	}

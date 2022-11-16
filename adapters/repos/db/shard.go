@@ -74,6 +74,8 @@ type Shard struct {
 	stopMetrics chan struct{}
 
 	docIdLock []sync.Mutex
+	// replication
+	replicationMap pendingReplicaTasks
 }
 
 type job struct {
@@ -111,6 +113,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		stopMetrics:         make(chan struct{}),
+		replicationMap:      pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -284,6 +287,7 @@ func (s *Shard) drop(force bool) error {
 	if s.isReadOnly() && !force {
 		return storagestate.ErrStatusReadOnly
 	}
+	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
