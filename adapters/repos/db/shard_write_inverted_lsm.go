@@ -60,14 +60,15 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 			continue
 		}
 
-		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length > 0 {
+		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
+		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
 			if err := s.addIndexedPropertyLengthToProps(docID, prop.Name, prop.Length); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
 
 		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addIndexedNullStateToProps(docID, prop.Name, false); err != nil {
+			if err := s.addIndexedNullStateToProps(docID, prop.Name, prop.Length == 0); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
