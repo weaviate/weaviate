@@ -133,7 +133,7 @@ func (s *Shard) addIndexedNullStateToProps(docID uint64, propName string, isNil 
 	}
 
 	hashBucketNullState := s.store.Bucket(helpers.HashBucketFromPropNameLSM(propName + filters.InternalNullIndex))
-	if bNullState == nil {
+	if hashBucketNullState == nil {
 		return errors.Errorf("no nil-hash bucket for prop '%s' found", propName+filters.InternalNullIndex)
 	}
 
