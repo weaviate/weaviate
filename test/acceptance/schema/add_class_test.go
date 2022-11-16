@@ -186,6 +186,40 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
 		assert.Nil(t, err)
 	})
+
+	t.Run("obtaining the class, making a change to IndexNullState (immutable) property and update", func(t *testing.T) {
+		params := schema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+
+		class := res.Payload
+
+		// IndexNullState cannot be updated during runtime
+		class.InvertedIndexConfig.IndexNullState = true
+		updateParams := schema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(class)
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("obtaining the class, making a change to IndexPropertyLength (immutable) property and update", func(t *testing.T) {
+		params := schema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+
+		class := res.Payload
+
+		// IndexPropertyLength cannot be updated during runtime
+		class.InvertedIndexConfig.IndexPropertyLength = true
+		updateParams := schema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(class)
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.NotNil(t, err)
+	})
 }
 
 // TODO: https://github.com/semi-technologies/weaviate/issues/973
