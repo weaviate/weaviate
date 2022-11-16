@@ -23,7 +23,7 @@ function release() {
         fi
         tag_exact="${DOCKER_REPO}:${weaviate_version}"
   else
-    pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-')"
+    pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
     tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_hash}"
   fi
 
