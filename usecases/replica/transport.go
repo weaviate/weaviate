@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type SimpleResponse struct {
@@ -38,12 +39,12 @@ type client interface {
 		id strfmt.UUID) (SimpleResponse, error)
 	PutObjects(ctx context.Context, host, index, shard, requestID string,
 		objs []*storobj.Object) (SimpleResponse, error)
-	// TODO
-	// MergeObject(ctx context.Context, host, index, shard, requestID string,
-	// 	mergeDoc *objects.MergeDocument) (SimpleResponse, error)
+	MergeObject(ctx context.Context, host, index, shard, requestID string,
+		mergeDoc *objects.MergeDocument) (SimpleResponse, error)
+	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+		docIDs []uint64, dryRun bool) (SimpleResponse, error)
 
-	// DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	// 	docIDs []uint64, dryRun bool) (SimpleResponse, error)
+	// TODO
 	// AddReferences(ctx context.Context, host, index, shard, requestID string,
 	// 	refs objects.BatchReferences) (SimpleResponse, error)
 
