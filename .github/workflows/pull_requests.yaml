@@ -106,4 +106,11 @@ jobs:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
+        id: push-container
         run: ./ci/push_docker.sh
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+      - name: Generate Report
+        env:
+          PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+        run: ./ci/generate_docker_report.sh
