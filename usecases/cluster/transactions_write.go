@@ -236,7 +236,11 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 
 	// now that we know we are dealing with a valid transaction: no  matter the
 	// outcome, after this call, we should not have a local transaction anymore
-	defer c.clearTransaction()
+	defer func() {
+		c.Lock()
+		c.clearTransaction()
+		c.Unlock()
+	}()
 
 	if err := c.remote.BroadcastCommitTransaction(ctx, tx); err != nil {
 		// we could not open the transaction on every node, therefore we need to
@@ -324,13 +328,4 @@ type Transaction struct {
 	Type     TransactionType
 	Payload  interface{}
 	Deadline time.Time
-}
-
-func ContextFromTx(tx *Transaction) (context.Context, context.CancelFunc) {
-	ctx := context.Background()
-	if tx.Deadline.UnixMilli() == 0 {
-		return ctx, func() {}
-	}
-
-	return context.WithDeadline(ctx, tx.Deadline)
 }
