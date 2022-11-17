@@ -15,7 +15,7 @@ COPY go.sum .
 RUN go mod download
 
 ###############################################################################
-# This image builds the weavaite server
+# This image builds the weaviate server
 FROM build_base AS server_builder
 ARG TARGETARCH
 ARG GITHASH="unknown"

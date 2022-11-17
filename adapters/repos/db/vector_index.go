@@ -19,7 +19,7 @@ import (
 )
 
 // VectorIndex is anything that indexes vectors efficiently. For an example
-// look at ./vector/hsnw/index.go
+// look at ./vector/hnsw/index.go
 type VectorIndex interface {
 	Dump(labels ...string)
 	Add(id uint64, vector []float32) error
