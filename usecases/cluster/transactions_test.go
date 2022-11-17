@@ -88,7 +88,7 @@ func TestTryingToCommitTransactionPastTTL(t *testing.T) {
 	expiredTx := &Transaction{ID: tx1.ID}
 
 	// give the cancel handler some time to run
-	time.Sleep(50 * time.Microsecond)
+	time.Sleep(50 * time.Millisecond)
 
 	err = man.CommitWriteTransaction(ctx, expiredTx)
 	require.NotNil(t, err)
@@ -118,7 +118,7 @@ func TestTryingToCommitIncommingTransactionPastTTL(t *testing.T) {
 	man.IncomingBeginTransaction(context.Background(), tx)
 
 	// give the cancel handler some time to run
-	time.Sleep(100 * time.Microsecond)
+	time.Sleep(50 * time.Millisecond)
 
 	err := man.IncomingCommitTransaction(ctx, tx)
 	require.NotNil(t, err)
@@ -140,7 +140,7 @@ func TestLettingATransactionExpire(t *testing.T) {
 	require.Nil(t, err)
 
 	// give the cancel handler some time to run
-	time.Sleep(50 * time.Microsecond)
+	time.Sleep(50 * time.Millisecond)
 
 	// try to open a new one
 	_, err = man.BeginTransaction(context.Background(), trType, payload, 0)
