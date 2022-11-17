@@ -78,7 +78,7 @@ func hybridOperands (classObject *graphql.Object,
 		
 		ss :=graphql.NewInputObject(graphql.InputObjectConfig{
 			Name: class.Class+ "SubSearch",
-			Fields: hybridFields("SubSearch"),
+			Fields: hybridSubSearch("SubSearch"),
 		})
 		
 		return graphql.InputObjectConfigFieldMap{
@@ -89,6 +89,24 @@ func hybridOperands (classObject *graphql.Object,
 			
 	},
 }
+}
+
+
+func hybridSubSearch(prefix string) graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"weight": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.ID,
+			Type: graphql.String,
+		},
+		"sparseSearch": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.Beacon,
+			Type: graphql.String,
+		},
+		"nearText": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Vector,
+			Type:        graphql.NewList(graphql.Float),
+		},
+	}
 }
 
 func hybridFields(prefix string) graphql.InputObjectConfigFieldMap {
