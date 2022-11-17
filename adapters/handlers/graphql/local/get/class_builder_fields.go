@@ -198,7 +198,7 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 	})
 }
 
-func buildGetClassField(classObject *graphql.Object,
+func realBuildGetClassField(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) graphql.Field {
 	field := graphql.Field{
@@ -226,7 +226,6 @@ func buildGetClassField(classObject *graphql.Object,
 	// hacky way to temporarily check feature flag
 	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
 		field.Args["bm25"] = bm25Argument(class.Class)
-		field.Args["hybridSearch"] = hybridArgument(class.Class)
 	}
 
 	if modulesProvider != nil {
@@ -236,6 +235,19 @@ func buildGetClassField(classObject *graphql.Object,
 	}
 
 	return field
+}
+
+
+func buildGetClassField(classObject *graphql.Object,
+	class *models.Class, modulesProvider ModulesProvider,
+) graphql.Field {
+
+	field := realBuildGetClassField(classObject, class, modulesProvider)
+	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
+		field.Args["hybridSearch"] = hybridArgument(classObject, class, modulesProvider)
+	}
+	return field
+
 }
 
 func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
