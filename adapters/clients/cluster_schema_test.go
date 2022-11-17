@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/stretchr/testify/assert"
@@ -97,6 +98,41 @@ func TestOpenTransactionWithReturnPayload(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedTxOut, txIn)
+}
+
+func TestOpenTransactionWithTTL(t *testing.T) {
+	deadline, err := time.Parse(time.RFC3339Nano, "2040-01-02T15:04:05.00Z")
+	require.Nil(t, err)
+
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		body, err := io.ReadAll(r.Body)
+		require.Nil(t, err)
+
+		var pl txPayload
+		err = json.Unmarshal(body, &pl)
+		require.Nil(t, err)
+
+		parsedDL := time.UnixMilli(pl.DeadlineMilli)
+		assert.Equal(t, deadline.UnixNano(), parsedDL.UnixNano())
+		w.WriteHeader(http.StatusCreated)
+	}
+	server := httptest.NewServer(http.HandlerFunc(handler))
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+
+	c := NewClusterSchema(&http.Client{})
+
+	tx := &cluster.Transaction{
+		ID:       "12345",
+		Type:     "the best",
+		Payload:  "mamma-mia-paylodia-belissima",
+		Deadline: deadline,
+	}
+
+	err = c.OpenTransaction(context.Background(), u.Host, tx)
+	assert.Nil(t, err)
 }
 
 func TestOpenTransactionUnhappyPaths(t *testing.T) {
