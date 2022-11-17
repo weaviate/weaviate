@@ -62,10 +62,10 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
-	simpleInsertObjects(t, repo, "ThingForBatching", 603)
+	simpleInsertObjects(t, repo, "ThingForBatching", 123)
 
 	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
-	require.Equal(t, 1809, dimAfter, "Dimensions are present after import")
+	require.Equal(t, 369, dimAfter, "Dimensions are present after import")
 }
 
 func TestBatchPutObjects(t *testing.T) {
