@@ -395,7 +395,7 @@ func TestTxWithDeadline(t *testing.T) {
 		tx, err := man.BeginTransaction(ctx, trType, payload, 1*time.Nanosecond)
 		require.Nil(t, err)
 
-		ctx, cancel := ContextFromTx(tx)
+		ctx, cancel := context.WithDeadline(context.Background(), tx.Deadline)
 		defer cancel()
 
 		assert.NotNil(t, ctx.Err())
@@ -412,7 +412,7 @@ func TestTxWithDeadline(t *testing.T) {
 		tx, err := man.BeginTransaction(ctx, trType, payload, 10*time.Second)
 		require.Nil(t, err)
 
-		ctx, cancel := ContextFromTx(tx)
+		ctx, cancel := context.WithDeadline(context.Background(), tx.Deadline)
 		defer cancel()
 
 		assert.Nil(t, ctx.Err())
