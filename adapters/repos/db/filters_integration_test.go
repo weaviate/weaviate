@@ -288,7 +288,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "by id not equal",
 				filter:      buildFilter("id", carE63sID.String(), neq, dtString),
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID, carEmpty},
 			},
 			{
 				name:        "by id less then equal",
@@ -303,12 +303,12 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "by id greater then equal",
 				filter:      buildFilter("id", carPoloID.String(), gte, dtString),
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID, carEmpty},
 			},
 			{
 				name:        "by id greater then",
 				filter:      buildFilter("id", carPoloID.String(), gt, dtString),
-				expectedIDs: []strfmt.UUID{carSprinterID, carNilID},
+				expectedIDs: []strfmt.UUID{carSprinterID, carNilID, carEmpty},
 			},
 			{
 				name: "within 600km of San Francisco",
@@ -389,7 +389,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "by null value",
 				filter:      buildFilter("colorArrayField", true, null, dtBool),
-				expectedIDs: []strfmt.UUID{carNilID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty},
 			},
 			{
 				name:        "by value not null",
@@ -414,7 +414,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "by text length (lte)",
 				filter:      buildFilter("len(description)", 65, lte, dtInt),
-				expectedIDs: []strfmt.UUID{carE63sID, carNilID},
+				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carEmpty},
 			},
 			{
 				name:        "by text length (gte)",
@@ -422,9 +422,9 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carSprinterID},
 			},
 			{
-				name:        "length 0 (not added)",
+				name:        "length 0 (not added and empty)",
 				filter:      buildFilter("len(colorArrayWord)", 0, eq, dtInt),
-				expectedIDs: []strfmt.UUID{carNilID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty},
 			},
 			{
 				name:        "Filter by unsupported geo-coordinates",
@@ -453,6 +453,21 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				name:        "Filter unicode texts",
 				filter:      buildFilter("len(description)", 109, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "Empty string properties",
+				filter:      buildFilter("modelName", true, null, dtBool),
+				expectedIDs: []strfmt.UUID{carEmpty},
+			},
+			{
+				name:        "Empty string by length",
+				filter:      buildFilter("len(description)", 0, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carEmpty, carNilID},
+			},
+			{
+				name:        "Empty array by length",
+				filter:      buildFilter("len(colorArrayWord)", 0, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carEmpty, carNilID},
 			},
 		}
 
@@ -720,6 +735,7 @@ var (
 	carE63sID     strfmt.UUID = "62906c61-f92f-4f2c-874f-842d4fb9d80b"
 	carPoloID     strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f2e"
 	carNilID      strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f3e"
+	carEmpty      strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f4e"
 )
 
 func mustParseTime(in string) time.Time {
@@ -792,6 +808,19 @@ var cars = []models.Object{
 		ID:    carNilID,
 		Properties: map[string]interface{}{
 			"modelName": "NilCar",
+		},
+	},
+	{
+		Class: carClass.Class,
+		ID:    carEmpty,
+		Properties: map[string]interface{}{
+			"modelName":       "",
+			"contact":         "",
+			"description":     "",
+			"colorWord":       "",
+			"colorField":      "",
+			"colorArrayWord":  []interface{}{},
+			"colorArrayField": []interface{}{},
 		},
 	},
 }
@@ -1202,112 +1231,112 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 				sort: []filters.Sort{
 					buildSortFilter([]string{"modelName"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carPoloID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carEmpty, carE63sID, carNilID, carPoloID, carSprinterID},
 			},
 			{
 				name: "modelName desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"modelName"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carNilID, carE63sID},
+				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carNilID, carE63sID, carEmpty},
 			},
 			{
 				name: "horsepower asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"horsepower"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "horsepower desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"horsepower"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID, carEmpty},
 			},
 			{
 				name: "weight asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"weight"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carE63sID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty, carPoloID, carE63sID, carSprinterID},
 			},
 			{
 				name: "weight desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"weight"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID, carNilID},
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID, carNilID, carEmpty},
 			},
 			{
 				name: "released asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"released"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "released desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"released"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID, carEmpty},
 			},
 			{
 				name: "parkedAt asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"parkedAt"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carNilID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carPoloID, carNilID, carEmpty, carSprinterID, carE63sID},
 			},
 			{
 				name: "parkedAt desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"parkedAt"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID, carEmpty},
 			},
 			{
 				name: "contact asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"contact"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carNilID, carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty, carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name: "contact desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"contact"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID, carNilID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID, carEmpty, carNilID},
 			},
 			{
 				name: "description asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"description"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carNilID, carE63sID, carSprinterID, carPoloID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty, carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name: "description desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"description"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID, carNilID},
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID, carEmpty, carNilID},
 			},
 			{
 				name: "colorArrayWord asc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"colorArrayWord"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carNilID, carEmpty, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "colorArrayWord desc",
 				sort: []filters.Sort{
 					buildSortFilter([]string{"colorArrayWord"}, "desc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID},
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID, carEmpty},
 			},
 			{
 				name: "modelName and horsepower asc",
@@ -1315,7 +1344,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					buildSortFilter([]string{"modelName"}, "asc"),
 					buildSortFilter([]string{"horsepower"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carE63sID, carNilID, carPoloID, carSprinterID},
+				expectedIDs: []strfmt.UUID{carEmpty, carE63sID, carNilID, carPoloID, carSprinterID},
 			},
 			{
 				name: "horsepower and modelName asc",
@@ -1323,7 +1352,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					buildSortFilter([]string{"horsepower"}, "asc"),
 					buildSortFilter([]string{"modelName"}, "asc"),
 				},
-				expectedIDs: []strfmt.UUID{carNilID, carPoloID, carSprinterID, carE63sID},
+				expectedIDs: []strfmt.UUID{carEmpty, carNilID, carPoloID, carSprinterID, carE63sID},
 			},
 			{
 				name: "horsepower and modelName asc invalid sort",
