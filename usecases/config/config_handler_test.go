@@ -30,7 +30,7 @@ func TestConfig(t *testing.T) {
 		assert.EqualError(
 			t,
 			err,
-			"default vector distance metric: must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]",
+			"default vector distance metric: must be one of [\"cosine\", \"dot\", \"geo\", \"l2-squared\", \"manhattan\",\"hamming\"]",
 		)
 	})
 

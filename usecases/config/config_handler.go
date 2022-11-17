@@ -100,7 +100,6 @@ func (c Config) Validate(modProv moduleProvider) error {
 	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
 		return errors.Wrap(err, "default vectorizer module")
 	}
-
 	if err := c.validateDefaultVectorDistanceMetric(); err != nil {
 		return errors.Wrap(err, "default vector distance metric")
 	}
@@ -118,10 +117,10 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 
 func (c Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
-	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
+	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceGeo, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
 		return nil
 	default:
-		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
+		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"geo\", \"l2-squared\", \"manhattan\",\"hamming\"]")
 	}
 }
 

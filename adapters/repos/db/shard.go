@@ -166,7 +166,7 @@ func (s *Shard) initVectorIndex(
 		distProv = distancer.NewHammingProvider()
 	default:
 		return nil, errors.Errorf("unrecognized distance metric %q,"+
-			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+			"choose one of [\"cosine\", \"dot\", \"geo\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
 	}
 
 	vi, err := hnsw.New(hnsw.Config{

@@ -27,8 +27,12 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storagestate"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,6 +82,35 @@ func TestShard_UpdateStatus(t *testing.T) {
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_BadDistanceMetric(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	tmpDir := t.TempDir()
+
+	shardState := singleShardState()
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{{Class: className}},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
+
+	idx := &Index{
+		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className), MaxImportGoroutinesFactor: 1.5},
+		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
+		vectorIndexUserConfig: enthnsw.UserConfig{Distance: "invalid"},
+		logger:                logrus.New(),
+		getSchema:             schemaGetter,
+		Shards:                map[string]*Shard{},
+	}
+
+	t.Run("new shard should handle bad distance metric", func(t *testing.T) {
+		shardName := shardState.AllPhysicalShards()[0]
+		_, err := NewShard(ctx, nil, shardName, idx)
+		require.ErrorContains(t, err, "unrecognized distance metric")
+	})
 }
 
 func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
