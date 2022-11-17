@@ -34,6 +34,7 @@ import (
 	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest"
 )
 
 /*
@@ -95,7 +96,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 	// This is a list of 1000 documents from the MEDLINE database
 	// Each document is a medical abstract
 
-	data, _ := ioutil.ReadFile("standard_test_data.json")
+	data, _ := ioutil.ReadFile("NFCorpus-Corpus.json")
 	var docs []TestDoc
 	json.Unmarshal(data, &docs)
 
@@ -106,8 +107,8 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		vector := []float32{1, 3, 5, 0.4} //FIXME, make correct vectors?
-		err := repo.PutObject(context.Background(), obj, vector)
+		//vector := []float32{1, 3, 5, 0.4} //FIXME, make correct vectors?
+		err := repo.PutObject(context.Background(), obj, nil)
 		require.Nil(t, err)
 	}
 
@@ -115,7 +116,46 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 }
 
+
 func TestHybrid(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		FlushIdleAfter:            60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupStandardTestData(t, repo, schemaGetter, logger, 1.2, 0.75)
+
+	idx := repo.GetIndex("StandardTest")
+	require.NotNil(t, idx)
+
+	//Load queries from file standard_test_queries.json
+	// This is a list of 100 queries from the MEDLINE database
+
+	data, _ := ioutil.ReadFile("NFCorpus-Query.json")
+	var queries []TestQuery
+	json.Unmarshal(data, &queries)
+	for _, query := range queries {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
+		addit := additional.Properties{}
+		res, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		idx.HybridSearch
+
+		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
+
+	}
+}
+
+func TestBIER(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
@@ -140,7 +180,7 @@ func TestHybrid(t *testing.T) {
 	//Load queries from file standard_test_queries.json
 	// This is a list of 100 queries from the MEDLINE database
 
-	data, _ := ioutil.ReadFile("standard_test_queries.json")
+	data, _ := ioutil.ReadFile("NFCorpus-Query.json")
 	var queries []TestQuery
 	json.Unmarshal(data, &queries)
 	for _, query := range queries {
@@ -149,15 +189,16 @@ func TestHybrid(t *testing.T) {
 		res, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
-		fmt.Printf("Results: %v\n", res)
+		//fmt.Printf("Results: %v\n", res)
 
-		for j, doc := range res {
-			fmt.Printf("res %v, %v\n", j, doc.Object.GetAdditionalProperty("code"))
-		}
+		//for j, doc := range res {
+		//	fmt.Printf("res %v, %v\n", j, doc.Object.GetAdditionalProperty("code"))
+		//}
 
 		//Check the docIDs are the same
-		for j, doc := range res {
-			fmt.Printf("rank %v, docID %v, score %v (%v)\n", j, doc.Object.GetAdditionalProperty("code"), doc.Score(), doc.Object.GetAdditionalProperty("document"))
+		for j, doc := range res[0:10] {
+			fmt.Printf("Result: rank %v, docID %v, score %v (%v)\n", j, doc.Object.GetAdditionalProperty("code"), doc.Score(), doc.Object.GetAdditionalProperty("document"))
+			fmt.Printf("Expected: rank %v, docID %v\n", j, query.MatchingDocIDs[j].Object.GetAdditionalProperty("code"))
 			require.Equal(t, query.MatchingDocIDs[j], doc.Object.GetAdditionalProperty("code").(string))
 		}
 
