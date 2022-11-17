@@ -54,69 +54,73 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 	}
 }
 
-
-
-
 func hybridArgument(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("GetObjects%s", class.Class)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%shybridInpObj", prefix),
-				Fields: 
-					//hybridFields(prefix),
-					hybridOperands(classObject, class, modulesProvider),
+				Name: fmt.Sprintf("%shybridInpObj", prefix),
+				Fields:
+				//hybridFields(prefix),
+				hybridOperands(classObject, class, modulesProvider),
 				Description: "hello",
 			},
 		),
 	}
 }
 
-func hybridOperands (classObject *graphql.Object,
+func hybridOperands(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider) graphql.InputObjectConfigFieldMap {
-		
-		ss :=graphql.NewInputObject(graphql.InputObjectConfig{
-			Name: class.Class+ "SubSearch",
-			Fields: hybridSubSearch(classObject, class, modulesProvider),
-		})
-		
-		return graphql.InputObjectConfigFieldMap{
-			"operands":&graphql.InputObjectFieldConfig{
-			Description: "Subsearch list",
-			
-					Type: graphql.NewList(ss),
-			
-	},
-}
-}
 
+	ss := graphql.NewInputObject(graphql.InputObjectConfig{
+		Name:   class.Class + "SubSearch",
+		Fields: hybridSubSearch(classObject, class, modulesProvider),
+	})
+
+	return graphql.InputObjectConfigFieldMap{
+		"operands": &graphql.InputObjectFieldConfig{
+			Description: "Subsearch list",
+
+			Type: graphql.NewList(ss),
+		},
+	}
+}
 
 func hybridSubSearch(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider) graphql.InputObjectConfigFieldMap {
-	ss :=graphql.NewInputObject(graphql.InputObjectConfig{
-		Name: class.Class+ "SparseSearch",
-		Fields: hybridFields("SparseSearch"),
-	})
+	prefixName := class.Class + "SubSearch"
 
-	nt :=graphql.NewInputObject(graphql.InputObjectConfig{
-		Name: class.Class+ "NearTextSearch",
-		Fields: hybridFields("NearTextSearch"),
-	})
+
 	return graphql.InputObjectConfigFieldMap{
 		"weight": &graphql.InputObjectFieldConfig{
 			// Description: descriptions.ID,
 			Type: graphql.Float,
 		},
 		"sparseSearch": &graphql.InputObjectFieldConfig{
-			// Description: descriptions.Beacon,
-			Type: ss,
+			Description: "Sparse Search",
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:        fmt.Sprintf("%sBM25InpObj", prefixName),
+					Fields:      bm25Fields(prefixName),
+					Description: "BM25f search",
+				},
+			),
 		},
+
 		"nearText": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Vector,
-			Type:        nt,
+			Description: "nearText element",
+
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
+					Fields:      nearTextFields(prefixName),
+					Description: descriptions.GetWhereInpObj,
+				},
+			),
 		},
 	}
+
 }
 
 func hybridFields(prefix string) graphql.InputObjectConfigFieldMap {
@@ -134,4 +138,74 @@ func hybridFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.Float),
 		},
 	}
+}
+
+func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
+	nearTextFields := graphql.InputObjectConfigFieldMap{
+		"concepts": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.Concepts,
+			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
+		},
+		"moveTo": &graphql.InputObjectFieldConfig{
+			Description: descriptions.VectorMovement,
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   fmt.Sprintf("%sMoveTo", prefix),
+					Fields: movementInp(fmt.Sprintf("%sMoveTo", prefix)),
+				}),
+		},
+		"certainty": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.Float,
+		},
+		"distance": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Distance,
+			Type:        graphql.Float,
+		},
+		"moveAwayFrom": &graphql.InputObjectFieldConfig{
+			Description: descriptions.VectorMovement,
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   fmt.Sprintf("%sMoveAwayFrom", prefix),
+					Fields: movementInp(fmt.Sprintf("%sMoveAwayFrom", prefix)),
+				}),
+		},
+	}
+	return nearTextFields
+}
+
+func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"concepts": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Keywords,
+			Type:        graphql.NewList(graphql.String),
+		},
+		"objects": &graphql.InputObjectFieldConfig{
+			Description: "objects",
+			Type:        graphql.NewList(objectsInpObj(prefix)),
+		},
+		"force": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Force,
+			Type:        graphql.NewNonNull(graphql.Float),
+		},
+	}
+}
+
+func objectsInpObj(prefix string) *graphql.InputObject {
+	return graphql.NewInputObject(
+		graphql.InputObjectConfig{
+			Name: fmt.Sprintf("%sMovementObjectsInpObj", prefix),
+			Fields: graphql.InputObjectConfigFieldMap{
+				"id": &graphql.InputObjectFieldConfig{
+					Type:        graphql.String,
+					Description: "id of an object",
+				},
+				"beacon": &graphql.InputObjectFieldConfig{
+					Type:        graphql.String,
+					Description: descriptions.Beacon,
+				},
+			},
+			Description: "Movement Object",
+		},
+	)
 }
