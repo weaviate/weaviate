@@ -18,6 +18,7 @@ import (
 	"github.com/tailor-inc/graphql"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
@@ -55,16 +56,34 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 
 
 
-func hybridArgument(className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("GetObjects%s", className)
+
+func hybridArgument(classObject *graphql.Object,
+	class *models.Class, modulesProvider ModulesProvider) *graphql.ArgumentConfig {
+	prefix := fmt.Sprintf("GetObjects%s", class.Class)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:   fmt.Sprintf("%shybridInpObj", prefix),
-				Fields: hybridFields(prefix),
+				Fields: 
+					//hybridFields(prefix),
+					hybridOperands(classObject, class, modulesProvider),
+				Description: "hello",
 			},
 		),
 	}
+}
+
+func hybridOperands (classObject *graphql.Object,
+	class *models.Class, modulesProvider ModulesProvider) graphql.InputObjectConfigFieldMap {
+		r := graphql.InputObjectConfigFieldMap{
+			"lalala": &graphql.InputObjectFieldConfig{
+				// Description: descriptions.ID,
+				Type: graphql.NewList(graphql.String),
+				DefaultValue: "hello",
+				Description: "hello",
+			},
+	}
+	return r
 }
 
 func hybridFields(prefix string) graphql.InputObjectConfigFieldMap {
