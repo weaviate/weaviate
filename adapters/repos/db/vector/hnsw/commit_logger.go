@@ -433,7 +433,7 @@ func (l *hnswCommitLogger) RootPath() string {
 func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.StopFunc) {
 	if err := l.SwitchCommitLogs(false); err != nil {
 		l.logger.WithError(err).
-			WithField("action", "hsnw_commit_log_maintenance").
+			WithField("action", "hnsw_commit_log_maintenance").
 			Error("hnsw commit log maintenance failed")
 	}
 }
@@ -441,13 +441,13 @@ func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.StopFunc) {
 func (l *hnswCommitLogger) startCombineAndCondenseLogs(stopFunc cyclemanager.StopFunc) {
 	if err := l.combineLogs(); err != nil {
 		l.logger.WithError(err).
-			WithField("action", "hsnw_commit_log_combining").
+			WithField("action", "hnsw_commit_log_combining").
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
 	if err := l.condenseOldLogs(); err != nil {
 		l.logger.WithError(err).
-			WithField("action", "hsnw_commit_log_condensing").
+			WithField("action", "hnsw_commit_log_condensing").
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
 }
