@@ -88,7 +88,7 @@ func (m *Manager) startupHandleSingleNode(ctx context.Context,
 func (m *Manager) startupJoinCluster(ctx context.Context,
 	localSchema *State,
 ) error {
-	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil)
+	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
 	if err != nil {
 		return fmt.Errorf("read schema: open transaction: %w", err)
 	}
@@ -123,7 +123,7 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 func (m *Manager) validateSchemaCorruption(ctx context.Context,
 	localSchema *State,
 ) error {
-	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil)
+	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
 	if err != nil {
 		return fmt.Errorf("read schema: open transaction: %w", err)
 	}

@@ -34,7 +34,7 @@ func (m *Manager) deleteClass(ctx context.Context, className string) error {
 	defer m.Unlock()
 
 	tx, err := m.cluster.BeginTransaction(ctx, DeleteClass,
-		DeleteClassPayload{className})
+		DeleteClassPayload{className}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other

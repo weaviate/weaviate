@@ -56,7 +56,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	}
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
-		AddPropertyPayload{className, prop})
+		AddPropertyPayload{className, prop}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other
