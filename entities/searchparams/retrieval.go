@@ -25,6 +25,8 @@ type KeywordRanking struct {
 }
 
 type HybridSearch struct {
+	KeywordRanking *KeywordRanking `json:"keywordRanking"`
+	NearVector	 *NearVector     `json:"nearVector"`
 	Type  string  `json:"type"`
 	Alpha float64 `json:"alpha"`
 	Query string  `json:"query"`
