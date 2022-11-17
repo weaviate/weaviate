@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	entrep "github.com/semi-technologies/weaviate/entities/replica"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/replica"
 )
 
 func (ind *Index) IncomingFilePutter(ctx context.Context, shardName,
@@ -110,42 +110,42 @@ func (s *Shard) reinit(ctx context.Context) error {
 	return nil
 }
 
-func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object) replica.SimpleResponse {
+func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object) entrep.SimpleResponse {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shard]
 	if !ok {
-		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+		return entrep.SimpleResponse{Errors: []string{fmt.Sprintf("shard not found")}}
 	}
 	return localShard.preparePutObject(ctx, requestID, object)
 }
 
-func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
+func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID) entrep.SimpleResponse {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shard]
 	if !ok {
-		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+		return entrep.SimpleResponse{Errors: []string{"shard not found"}}
 	}
 	return localShard.prepareDeleteObject(ctx, requestID, uuid)
 }
 
-func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object) entrep.SimpleResponse {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shard]
 	if !ok {
-		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+		return entrep.SimpleResponse{Errors: []string{"shard not found"}}
 	}
 	return localShard.preparePutObjects(ctx, requestID, objects)
 }
 
-func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) interface{} {
+func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) entrep.SimpleResponse {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shard]
 	if !ok {
-		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+		return entrep.SimpleResponse{Errors: []string{"shard not found"}}
 	}
 	return localShard.commit(ctx, requestID)
 }
@@ -155,7 +155,7 @@ func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) i
 	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shard]
 	if !ok {
-		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+		return entrep.SimpleResponse{Errors: []string{"shard not found"}}
 	}
 	return localShard.abort(ctx, requestID)
 }

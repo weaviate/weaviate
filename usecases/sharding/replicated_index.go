@@ -13,9 +13,11 @@ package sharding
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
@@ -25,6 +27,10 @@ type ReplicatedIndexFactory interface {
 }
 
 type Replicator interface {
+	ReplicateObject(ctx context.Context, shardName, requestID string,
+		object *storobj.Object) replica.SimpleResponse
+	CommitReplication(ctx context.Context, shard,
+		requestID string) replica.SimpleResponse
 	PutObject(ctx context.Context, shardName string,
 		obj *storobj.Object) error
 	DeleteObject(ctx context.Context, shardName string,
@@ -52,6 +58,30 @@ func (rii *ReplicatedIndex) PutObject(ctx context.Context, indexName,
 	}
 
 	return index.PutObject(ctx, shardName, obj)
+}
+
+func (rii *ReplicatedIndex) ReplicateObject(ctx context.Context, indexName,
+	shardName, requestID string, object *storobj.Object,
+) replica.SimpleResponse {
+	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)}}
+	}
+
+	return index.ReplicateObject(ctx, shardName, requestID, object)
+}
+
+func (rii *ReplicatedIndex) CommitReplication(ctx context.Context, indexName,
+	shardName, requestID string,
+) replica.SimpleResponse {
+	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)}}
+	}
+
+	return index.CommitReplication(ctx, shardName, requestID)
 }
 
 func (rii *ReplicatedIndex) BatchPutObjects(ctx context.Context, indexName,

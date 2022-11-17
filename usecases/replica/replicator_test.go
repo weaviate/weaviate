@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	f := newFakeFactory("C1", "S", []string{})
 	rep := f.newReplicator()
 	err := rep.PutObject(context.Background(), "C", "S", nil)
-	assert.ErrorIs(t, err, _ErrReplicaNotFound)
+	assert.ErrorIs(t, err, errReplicaNotFound)
 }
 
 func TestReplicatorPutObject(t *testing.T) {
@@ -79,7 +80,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		err := rep.PutObject(ctx, "", shard, obj)
-		want := &Error{}
+		want := &replica.Error{}
 		assert.ErrorAs(t, err, &want)
 		assert.ErrorContains(t, err, errAny.Error())
 	})
@@ -144,7 +145,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.Client.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 		err := rep.MergeObject(ctx, "", shard, merge)
-		want := &Error{}
+		want := &replica.Error{}
 		assert.ErrorAs(t, err, &want)
 		assert.ErrorContains(t, err, errAny.Error())
 	})
@@ -251,7 +252,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		errs := rep.PutObjects(ctx, "", shard, objs)
-		want := &Error{}
+		want := &replica.Error{}
 		assert.Equal(t, 2, len(errs))
 		assert.ErrorAs(t, errs[0], &want)
 	})

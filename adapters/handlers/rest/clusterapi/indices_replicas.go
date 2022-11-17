@@ -19,11 +19,18 @@ import (
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 type replicator interface {
+	ReplicateObject(ctx context.Context, index, shard, requestID string,
+		object *storobj.Object) replica.SimpleResponse
+	CommitReplication(ctx context.Context, indexName,
+		shardName, requestID string) replica.SimpleResponse
+	//Abort(ctx context.Context, host, index, shard,
+	//	requestID string) (replica.SimpleResponse, error)
 	PutObject(ctx context.Context, index, shardName string,
 		obj *storobj.Object) error
 	DeleteObject(ctx context.Context, index, shardName string,
@@ -49,6 +56,8 @@ var (
 		`\/shards\/([A-Za-z0-9]+)\/objects`)
 	regxIncreaseRepFactor = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/replication-factor\/_increase`)
+	regxCommitPhase = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+):(commit|abort)`)
 )
 
 func NewReplicatedIndices(shards replicator, scaler scaler) *replicatedIndices {
@@ -90,10 +99,49 @@ func (i *replicatedIndices) Indices() http.Handler {
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
 
+		case regxCommitPhase.MatchString(path):
+			if r.Method == http.MethodPost {
+				//i.postObject().ServeHTTP(w, r)
+				i.executeCommitPhase().ServeHTTP(w, r)
+				return
+			}
+
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
 		default:
 			http.NotFound(w, r)
 			return
 		}
+	})
+}
+
+func (i *replicatedIndices) executeCommitPhase() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxCommitPhase.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, cmd := args[1], args[2], args[3]
+
+		switch cmd {
+		case "commit":
+			resp := i.shards.CommitReplication(r.Context(), index, shard, "123")
+			if err := resp.FirstError(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		case "abort":
+			http.Error(w, "abort not yet implemented", http.StatusInternalServerError)
+			return
+		default:
+			http.Error(w, fmt.Sprintf("unrecognized commit phase command: %s", cmd),
+				http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
 
@@ -194,10 +242,16 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
+	resp := i.shards.ReplicateObject(r.Context(), index, shard, "123", obj)
+	if err := resp.FirstError(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	//if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
+	//	http.Error(w, err.Error(), http.StatusInternalServerError)
+	//	return
+	//}
 
 	w.WriteHeader(http.StatusNoContent)
 }

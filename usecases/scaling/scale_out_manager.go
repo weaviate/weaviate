@@ -132,10 +132,6 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	}
 	// However, so far we have only updated config, now we also need to actually
 	// copy files.
-
-	// This is a temporary limitation that kills UX, this should be fixed soon.
-	// Right now the user would have to know which node to send the request to
-	// because there is no forwarding yet.
 	var g errgroup.Group
 	for name := range ssBefore.Physical {
 		if !ssBefore.IsShardLocal(name) {

@@ -32,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
+	entrep "github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
@@ -39,6 +40,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -57,6 +59,7 @@ type Index struct {
 	logger                logrus.FieldLogger
 	remote                *sharding.RemoteIndex
 	stopwords             *stopwords.Detector
+	replicator            *replica.Replicator
 
 	backupState     BackupState
 	backupStateLock sync.RWMutex
@@ -82,12 +85,15 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
+	replicaClient replica.ReplicationClient,
 	promMetrics *monitoring.PrometheusMetrics,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
+
+	repl := replica.NewReplicator(config.ClassName.String(), sg, nodeResolver, replicaClient)
 
 	index := &Index{
 		Config:                config,
@@ -98,6 +104,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
 		stopwords:             sd,
+		replicator:            repl,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 		metrics: NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
@@ -271,24 +278,25 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	shardingState := i.getSchema.
-		ShardingState(i.Config.ClassName.String())
+	local := i.getSchema.
+		ShardingState(i.Config.ClassName.String()).
+		IsShardLocal(shardName)
 
-	if shardingState.IsShardLocal(shardName) {
-		fmt.Printf("    ===> put local index\n")
+	if local {
 		shard := i.Shards[shardName]
-		if err := shard.putObject(ctx, object); err != nil {
-			return errors.Wrapf(err, "shard %s", shard.ID())
-		}
-		if shardingState.Config.Replicas > 1 {
-			err = i.remote.ReplicatePutObject(ctx, i.getSchema.NodeName(), shardName, object)
+		if i.replicationEnabled() {
+			i.getSchema.NodeName()
+			err = i.replicator.PutObject(ctx, "", shardName, object)
+			//err = i.remote.ReplicatePutObject(ctx, i.getSchema.NodeName(), shardName, object)
 			if err != nil {
 				return fmt.Errorf("failed to relay object put across replicas: %w", err)
 			}
+		} else {
+			if err := shard.putObject(ctx, object); err != nil {
+				return errors.Wrapf(err, "shard %s", shard.ID())
+			}
 		}
-		i.getSchema.NodeName()
 	} else {
-		fmt.Printf("    ===> put remote index\n")
 		// this must be a remote shard, try sending it remotely
 		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
 			return errors.Wrap(err, "send to remote shard")
@@ -324,6 +332,12 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	}
 
 	return nil
+}
+
+func (i *Index) replicationEnabled() bool {
+	shardingState := i.getSchema.
+		ShardingState(i.Config.ClassName.String())
+	return shardingState.Config.Replicas > 1
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -1284,6 +1298,18 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 }
 
 type replicatedIndex Index
+
+func (ri *replicatedIndex) ReplicateObject(ctx context.Context, shardName,
+	requestID string, object *storobj.Object,
+) entrep.SimpleResponse {
+	return (*Index)(ri).ReplicateObject(ctx, shardName, requestID, object)
+}
+
+func (ri *replicatedIndex) CommitReplication(ctx context.Context, shardName,
+	requestID string,
+) entrep.SimpleResponse {
+	return (*Index)(ri).CommitReplication(ctx, shardName, requestID)
+}
 
 func (ri *replicatedIndex) PutObject(ctx context.Context, shardName string,
 	object *storobj.Object,

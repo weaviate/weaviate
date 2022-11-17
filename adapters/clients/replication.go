@@ -20,9 +20,10 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/replica"
 )
 
 var marshaller = clusterapi.IndicesPayloads
@@ -56,20 +57,20 @@ func (c *ReplicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
+	if res.StatusCode != http.StatusNoContent {
 		return resp, fmt.Errorf("status code: %v", res.StatusCode)
 	}
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
+	//if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+	//	return resp, fmt.Errorf("decode response: %w", err)
+	//}
 	return resp, nil
 }
 
 func (c *ReplicationClient) DeleteObject(ctx context.Context, host, index,
-	shard, requestID string, uuid string,
+	shard, requestID string, uuid strfmt.UUID,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	req, err := newHttpRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid, nil)
+	req, err := newHttpRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid.String(), nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -135,12 +136,12 @@ func (c *ReplicationClient) Commit(ctx context.Context, host, index, shard strin
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
+	if res.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("status code: %v", res.StatusCode)
 	}
-	if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
+	//if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+	//	return fmt.Errorf("decode response: %w", err)
+	//}
 	return nil
 }
 
@@ -183,7 +184,7 @@ func newHttpRequest(ctx context.Context, method, host, index, shard, requestId, 
 }
 
 func newHttpCMD(ctx context.Context, host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
-	path := fmt.Sprintf("/replica/%s/%s:%s", index, shard, cmd)
+	path := fmt.Sprintf("/replica/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
 	return http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
