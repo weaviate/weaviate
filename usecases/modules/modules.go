@@ -131,8 +131,7 @@ func (m *Provider) Init(ctx context.Context,
 		return errors.Wrap(err, "validate modules")
 	}
 	if m.HasMultipleVectorizers() {
-		logger.Warn("Multiple vector spaces are present, " +
-			"GraphQL Explore and REST API list objects endpoint module include params has been disabled as a result.")
+		logger.Warn("Multiple vector spaces are present, GraphQL Explore and REST API list objects endpoint module include params has been disabled as a result.")
 	}
 	return nil
 }
