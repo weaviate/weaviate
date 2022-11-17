@@ -29,8 +29,8 @@ type replicator interface {
 		object *storobj.Object) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
 		shardName, requestID string) replica.SimpleResponse
-	//Abort(ctx context.Context, host, index, shard,
-	//	requestID string) (replica.SimpleResponse, error)
+	AbortReplication(ctx context.Context, indexName,
+		shardName, requestID string) replica.SimpleResponse
 	PutObject(ctx context.Context, index, shardName string,
 		obj *storobj.Object) error
 	DeleteObject(ctx context.Context, index, shardName string,
@@ -133,8 +133,11 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 				return
 			}
 		case "abort":
-			http.Error(w, "abort not yet implemented", http.StatusInternalServerError)
-			return
+			resp := i.shards.AbortReplication(r.Context(), index, shard, "123")
+			if err := resp.FirstError(); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		default:
 			http.Error(w, fmt.Sprintf("unrecognized commit phase command: %s", cmd),
 				http.StatusInternalServerError)

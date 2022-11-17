@@ -20,8 +20,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -141,8 +141,8 @@ func TestReplicationPutObject(t *testing.T) {
 
 func TestReplicationDeleteObject(t *testing.T) {
 	ctx := context.Background()
-	uuid := UUID1.String()
-	path := "/replica/indices/C1/shards/S1/objects/" + uuid
+	uuid := UUID1
+	path := "/replica/indices/C1/shards/S1/objects/" + uuid.String()
 	fs := newFakeServer(t, http.MethodDelete, path)
 	ts := fs.server(t)
 	defer ts.Close()

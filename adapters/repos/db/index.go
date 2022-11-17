@@ -1311,6 +1311,12 @@ func (ri *replicatedIndex) CommitReplication(ctx context.Context, shardName,
 	return (*Index)(ri).CommitReplication(ctx, shardName, requestID)
 }
 
+func (ri *replicatedIndex) AbortReplication(ctx context.Context, shardName,
+	requestID string,
+) entrep.SimpleResponse {
+	return (*Index)(ri).AbortReplication(ctx, shardName, requestID)
+}
+
 func (ri *replicatedIndex) PutObject(ctx context.Context, shardName string,
 	object *storobj.Object,
 ) error {

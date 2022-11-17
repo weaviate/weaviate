@@ -150,7 +150,7 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 	return localShard.commit(ctx, requestID)
 }
 
-func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) interface{} {
+func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) entrep.SimpleResponse {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	localShard, ok := i.Shards[shard]

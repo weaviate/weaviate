@@ -31,6 +31,10 @@ type Replicator interface {
 		object *storobj.Object) replica.SimpleResponse
 	CommitReplication(ctx context.Context, shard,
 		requestID string) replica.SimpleResponse
+	AbortReplication(ctx context.Context, shardName,
+		requestID string) replica.SimpleResponse
+
+	// TODO: remove
 	PutObject(ctx context.Context, shardName string,
 		obj *storobj.Object) error
 	DeleteObject(ctx context.Context, shardName string,
@@ -82,6 +86,18 @@ func (rii *ReplicatedIndex) CommitReplication(ctx context.Context, indexName,
 	}
 
 	return index.CommitReplication(ctx, shardName, requestID)
+}
+
+func (rii *ReplicatedIndex) AbortReplication(ctx context.Context, indexName,
+	shardName, requestID string,
+) replica.SimpleResponse {
+	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)}}
+	}
+
+	return index.AbortReplication(ctx, shardName, requestID)
 }
 
 func (rii *ReplicatedIndex) BatchPutObjects(ctx context.Context, indexName,
