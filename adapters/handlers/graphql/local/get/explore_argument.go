@@ -43,12 +43,16 @@ func bm25Argument(className string) *graphql.ArgumentConfig {
 
 func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
+		"function": &graphql.InputObjectFieldConfig{
+			Description: "The sparse search function to use",
+			Type: graphql.String,
+		},
 		"query": &graphql.InputObjectFieldConfig{
-			// Description: descriptions.ID,
+			Description: "The query to search for",
 			Type: graphql.String,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
-			// Description: descriptions.Beacon,
+			Description: "The properties to search in",
 			Type: graphql.NewList(graphql.String),
 		},
 	}
