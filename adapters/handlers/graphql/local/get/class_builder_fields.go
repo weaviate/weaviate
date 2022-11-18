@@ -18,8 +18,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -30,6 +28,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
@@ -689,7 +689,7 @@ func extractFragmentSpread(class string, spread *ast.FragmentSpread,
 }
 
 // It seems there's no proper way to extract this info unfortunately:
-// https://github.com/graphql-go/graphql/issues/455
+// https://github.com/tailor-inc/graphql/issues/455
 func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string, error) {
 	loc := def.GetLoc()
 	raw := loc.Source.Body[loc.Start:loc.End]

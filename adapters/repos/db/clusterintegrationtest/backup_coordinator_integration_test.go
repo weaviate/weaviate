@@ -98,8 +98,10 @@ func TestDistributedBackups(t *testing.T) {
 	})
 
 	t.Run("should fail backup with local filesystem backend", func(t *testing.T) {
-		req := &backup.BackupRequest{ID: backupID, Backend: modstgfs.Name,
-			Include: []string{distributedClass}}
+		req := &backup.BackupRequest{
+			ID: backupID, Backend: modstgfs.Name,
+			Include: []string{distributedClass},
+		}
 
 		resp, err := nodes[0].scheduler.Backup(context.Background(), &models.Principal{}, req)
 		assert.Nil(t, resp)
@@ -107,8 +109,10 @@ func TestDistributedBackups(t *testing.T) {
 	})
 
 	t.Run("should fail restore with local filesystem backend", func(t *testing.T) {
-		req := &backup.BackupRequest{ID: backupID, Backend: modstgfs.Name,
-			Include: []string{distributedClass}}
+		req := &backup.BackupRequest{
+			ID: backupID, Backend: modstgfs.Name,
+			Include: []string{distributedClass},
+		}
 
 		resp, err := nodes[0].scheduler.Restore(context.Background(), &models.Principal{}, req)
 		assert.Nil(t, resp)
@@ -121,8 +125,10 @@ func TestDistributedBackups(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 
-				req := &backup.BackupRequest{ID: backupID, Backend: "fake-backend",
-					Include: []string{distributedClass}}
+				req := &backup.BackupRequest{
+					ID: backupID, Backend: "fake-backend",
+					Include: []string{distributedClass},
+				}
 
 				resp, err := node.scheduler.Backup(ctx, &models.Principal{}, req)
 				assert.Nil(t, err, "expected nil err, got: %s", err)
@@ -156,8 +162,10 @@ func TestDistributedBackups(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 				defer cancel()
 
-				req := &backup.BackupRequest{ID: backupID, Backend: "fake-backend",
-					Include: []string{distributedClass}}
+				req := &backup.BackupRequest{
+					ID: backupID, Backend: "fake-backend",
+					Include: []string{distributedClass},
+				}
 
 				resp, err := node.scheduler.Restore(ctx, &models.Principal{}, req)
 				assert.Nil(t, err, "expected nil err, got: %s", err)

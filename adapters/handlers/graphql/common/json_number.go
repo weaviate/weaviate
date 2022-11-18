@@ -15,8 +15,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/tailor-inc/graphql"
 )
 
 // JSONNumberResolver turns json.Number types into number types usable by graphQL
