@@ -213,7 +213,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	idx := &Index{
 		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className), MaxImportGoroutinesFactor: 1.5},
-		invertedIndexConfig:   schema.InvertedIndexConfig{CleanupIntervalSeconds: 1},
+		invertedIndexConfig:   schema.InvertedIndexConfig{},
 		vectorIndexUserConfig: enthnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
