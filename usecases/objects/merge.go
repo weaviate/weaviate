@@ -130,7 +130,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		} else {
 			vectorizerName, err := m.modulesProvider.VectorizerName(className)
 			if err != nil {
-				return nil, fmt.Errorf("find vectorzer name: %w", err)
+				return nil, fmt.Errorf("find vectorizer name: %w", err)
 			}
 			if vectorizerName == config.VectorizerModuleNone {
 				vector = oldVec
@@ -138,7 +138,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		}
 	}
 
-	// Note: vector could be a nil vector in case a vectorizer is configered,
+	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
 	obj := &models.Object{Class: className, Properties: merged, Vector: vector}
 
