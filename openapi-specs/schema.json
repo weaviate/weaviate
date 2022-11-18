@@ -1531,7 +1531,7 @@
     },
     "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
-    "version": "1.16.4"
+    "version": "1.16.3"
   },
   "parameters": {
     "CommonOffsetParameterQuery": {
