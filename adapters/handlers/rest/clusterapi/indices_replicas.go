@@ -13,6 +13,7 @@ package clusterapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,7 +102,6 @@ func (i *replicatedIndices) Indices() http.Handler {
 
 		case regxCommitPhase.MatchString(path):
 			if r.Method == http.MethodPost {
-				//i.postObject().ServeHTTP(w, r)
 				i.executeCommitPhase().ServeHTTP(w, r)
 				return
 			}
@@ -125,26 +125,26 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 
 		index, shard, cmd := args[1], args[2], args[3]
 
+		var resp replica.SimpleResponse
+
 		switch cmd {
 		case "commit":
-			resp := i.shards.CommitReplication(r.Context(), index, shard, "123")
-			if err := resp.FirstError(); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+			resp = i.shards.CommitReplication(r.Context(), index, shard, "123")
 		case "abort":
-			resp := i.shards.AbortReplication(r.Context(), index, shard, "123")
-			if err := resp.FirstError(); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+			resp = i.shards.AbortReplication(r.Context(), index, shard, "123")
 		default:
 			http.Error(w, fmt.Sprintf("unrecognized commit phase command: %s", cmd),
 				http.StatusInternalServerError)
 			return
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+		w.Write(b)
 	})
 }
 
@@ -246,17 +246,15 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 	}
 
 	resp := i.shards.ReplicateObject(r.Context(), index, shard, "123", obj)
-	if err := resp.FirstError(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+	b, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+			http.StatusInternalServerError)
 		return
 	}
 
-	//if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
-	//	http.Error(w, err.Error(), http.StatusInternalServerError)
-	//	return
-	//}
-
-	w.WriteHeader(http.StatusNoContent)
+	w.Write(b)
 }
 
 func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Request,

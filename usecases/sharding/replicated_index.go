@@ -70,7 +70,8 @@ func (rii *ReplicatedIndex) ReplicateObject(ctx context.Context, indexName,
 	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
 	if index == nil {
 		return replica.SimpleResponse{
-			Errors: []string{fmt.Sprintf("local index %q not found", indexName)}}
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
 	}
 
 	return index.ReplicateObject(ctx, shardName, requestID, object)
@@ -82,7 +83,8 @@ func (rii *ReplicatedIndex) CommitReplication(ctx context.Context, indexName,
 	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
 	if index == nil {
 		return replica.SimpleResponse{
-			Errors: []string{fmt.Sprintf("local index %q not found", indexName)}}
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
 	}
 
 	return index.CommitReplication(ctx, shardName, requestID)
@@ -94,7 +96,8 @@ func (rii *ReplicatedIndex) AbortReplication(ctx context.Context, indexName,
 	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
 	if index == nil {
 		return replica.SimpleResponse{
-			Errors: []string{fmt.Sprintf("local index %q not found", indexName)}}
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
 	}
 
 	return index.AbortReplication(ctx, shardName, requestID)

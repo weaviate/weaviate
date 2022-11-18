@@ -57,12 +57,14 @@ func (c *ReplicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusNoContent {
+	if res.StatusCode != http.StatusOK {
 		return resp, fmt.Errorf("status code: %v", res.StatusCode)
 	}
-	//if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-	//	return resp, fmt.Errorf("decode response: %w", err)
-	//}
+
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		return resp, fmt.Errorf("decode response: %w", err)
+	}
+
 	return resp, nil
 }
 
@@ -136,12 +138,13 @@ func (c *ReplicationClient) Commit(ctx context.Context, host, index, shard strin
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusNoContent {
+	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("status code: %v", res.StatusCode)
 	}
-	//if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-	//	return fmt.Errorf("decode response: %w", err)
-	//}
+
+	if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
 	return nil
 }
 

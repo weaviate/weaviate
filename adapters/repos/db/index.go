@@ -287,7 +287,6 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		if i.replicationEnabled() {
 			i.getSchema.NodeName()
 			err = i.replicator.PutObject(ctx, "", shardName, object)
-			//err = i.remote.ReplicatePutObject(ctx, i.getSchema.NodeName(), shardName, object)
 			if err != nil {
 				return fmt.Errorf("failed to relay object put across replicas: %w", err)
 			}
