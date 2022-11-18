@@ -273,6 +273,73 @@ func TestReplicatorPutObjects(t *testing.T) {
 	})
 }
 
+func TestReplicatorAddReferences(t *testing.T) {
+	var (
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B"}
+		ctx   = context.Background()
+		refs  = objects.BatchReferences{{}, {}}
+	)
+	t.Run("Success", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		for _, n := range nodes {
+			f.Client.On("AddReferences", ctx, n, cls, shard, anyVal, refs).Return(resp, nil)
+			f.Client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
+		}
+		errs := rep.AddReferences(ctx, "", shard, refs)
+		assert.Equal(t, []error{nil, nil}, errs)
+	})
+
+	t.Run("PhaseOneConnectionError", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		f.Client.On("AddReferences", ctx, nodes[0], cls, shard, anyVal, refs).Return(resp, nil)
+		f.Client.On("AddReferences", ctx, nodes[1], cls, shard, anyVal, refs).Return(resp, errAny)
+		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
+
+		errs := rep.AddReferences(ctx, "", shard, refs)
+		assert.Equal(t, 2, len(errs))
+		assert.ErrorIs(t, errs[0], errAny)
+	})
+
+	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
+		f := newFakeFactory("C1", shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		f.Client.On("AddReferences", ctx, nodes[0], cls, shard, anyVal, refs).Return(resp, nil)
+		resp2 := SimpleResponse{[]string{"E1", "E2"}}
+		f.Client.On("AddReferences", ctx, nodes[1], cls, shard, anyVal, refs).Return(resp2, nil)
+		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
+		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
+
+		errs := rep.AddReferences(ctx, "", shard, refs)
+		want := &Error{}
+		assert.Equal(t, 2, len(errs))
+		assert.ErrorAs(t, errs[0], &want)
+	})
+
+	t.Run("Commit", func(t *testing.T) {
+		f := newFakeFactory(cls, shard, nodes)
+		rep := f.newReplicator()
+		resp := SimpleResponse{}
+		for _, n := range nodes {
+			f.Client.On("AddReferences", ctx, n, cls, shard, anyVal, refs).Return(resp, nil)
+		}
+		f.Client.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
+		f.Client.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
+
+		errs := rep.AddReferences(ctx, "", shard, refs)
+		assert.Equal(t, len(errs), 2)
+		assert.ErrorIs(t, errs[0], errAny)
+		assert.ErrorIs(t, errs[1], errAny)
+	})
+}
+
 type fakeFactory struct {
 	CLS            string
 	Shard          string
