@@ -16,7 +16,6 @@ import (
 	"runtime/debug"
 	"testing"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -24,6 +23,7 @@ import (
 	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tailor-inc/graphql"
 )
 
 // These tests are component tests for the local package including all its

@@ -15,11 +15,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 const (

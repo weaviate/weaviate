@@ -14,7 +14,6 @@ package modcontextionary
 import (
 	"testing"
 
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -23,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 type testCase struct {

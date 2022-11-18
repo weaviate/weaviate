@@ -17,7 +17,6 @@ require (
 	github.com/go-openapi/validate v0.21.0
 	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/google/uuid v1.3.0
-	github.com/graphql-go/graphql v0.7.9
 	github.com/hashicorp/memberlist v0.4.0
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/minio/minio-go/v7 v7.0.31
@@ -45,6 +44,7 @@ require (
 
 require (
 	github.com/coreos/go-oidc/v3 v3.4.0
+	github.com/tailor-inc/graphql v0.1.0
 	golang.org/x/text v0.4.0
 )
 

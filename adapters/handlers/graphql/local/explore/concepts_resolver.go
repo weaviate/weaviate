@@ -15,12 +15,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 // Resolver is a local interface that can be composed with other interfaces to
