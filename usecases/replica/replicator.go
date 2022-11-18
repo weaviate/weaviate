@@ -97,8 +97,8 @@ func (r *Replicator) MergeObject(ctx context.Context, localhost, shard string,
 }
 
 func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
-	resp := SimpleResponse{}
 	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
+		resp := SimpleResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
@@ -135,6 +135,21 @@ func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
 	}
 	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
 	return errorsFromSimpleResponses(len(docIDs), coord.responses, err)
+}
+
+func (r *Replicator) AddReferences(ctx context.Context, localhost, shard string,
+	refs []objects.BatchReference,
+) []error {
+	coord := newCoordinator[SimpleResponse](r, shard, localhost)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs)
+		if err != nil {
+			return err
+		}
+		return resp.FirstError()
+	}
+	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
+	return errorsFromSimpleResponses(len(refs), coord.responses, err)
 }
 
 // finder is just a place holder to find replicas of specific hard
