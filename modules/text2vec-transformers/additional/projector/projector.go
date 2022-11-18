@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/danaugrs/go-tsne/tsne"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/tailor-inc/graphql/language/ast"
 	"gonum.org/v1/gonum/mat"
 )
 

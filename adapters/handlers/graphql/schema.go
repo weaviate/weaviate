@@ -17,13 +17,13 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
+	"github.com/tailor-inc/graphql"
 )
 
 type Traverser interface {

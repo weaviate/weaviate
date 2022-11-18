@@ -18,14 +18,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
