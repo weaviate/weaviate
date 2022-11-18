@@ -42,7 +42,6 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfig {
 	var conf schema.InvertedIndexConfig
 
-	conf.CleanupIntervalSeconds = iicm.CleanupIntervalSeconds
 	conf.IndexTimestamps = iicm.IndexTimestamps
 	conf.IndexNullState = iicm.IndexNullState
 	conf.IndexPropertyLength = iicm.IndexPropertyLength

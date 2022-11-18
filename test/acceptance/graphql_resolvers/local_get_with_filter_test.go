@@ -234,7 +234,7 @@ func gettingObjectsWithFilters(t *testing.T) {
 			}
 		`
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-		require.Len(t, result.Get("Get", "ArrayClass").AsSlice(), 2) // empty and nil object
+		require.Len(t, result.Get("Get", "ArrayClass").AsSlice(), 3) // empty, nil and len==0 objects
 	})
 
 	t.Run("filtering by property with field tokenization", func(t *testing.T) {

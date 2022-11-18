@@ -57,7 +57,6 @@ type Shard struct {
 	promMetrics       *monitoring.PrometheusMetrics
 	propertyIndices   propertyspecific.Indices
 	deletedDocIDs     *docid.InMemDeletedTracker
-	cleanupInterval   time.Duration
 	propLengths       *inverted.PropertyLengthTracker
 	randomSource      *bufferedRandomGen
 	versioner         *shardVersioner
@@ -96,8 +95,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrap(err, "init bufferend random generator")
 	}
 
-	invertedIndexConfig := index.getInvertedIndexConfig()
-
 	s := &Shard{
 		index:            index,
 		name:             shardName,
@@ -105,9 +102,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs: docid.NewInMemDeletedTracker(),
-		cleanupInterval: time.Duration(invertedIndexConfig.
-			CleanupIntervalSeconds) * time.Second,
+		deletedDocIDs:       docid.NewInMemDeletedTracker(),
 		randomSource:        rand,
 		resourceScanState:   newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),

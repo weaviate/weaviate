@@ -12,12 +12,11 @@
 package schema
 
 type InvertedIndexConfig struct {
-	CleanupIntervalSeconds int64
-	BM25                   BM25Config
-	Stopwords              StopwordConfig
-	IndexTimestamps        bool
-	IndexNullState         bool
-	IndexPropertyLength    bool
+	BM25                BM25Config
+	Stopwords           StopwordConfig
+	IndexTimestamps     bool
+	IndexNullState      bool
+	IndexPropertyLength bool
 }
 
 type BM25Config struct {
