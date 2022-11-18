@@ -14,7 +14,7 @@ package projector
 import (
 	"strconv"
 
-	"github.com/graphql-go/graphql/language/ast"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 func parseFeatureProjectionArguments(args []*ast.Argument) *Params {
