@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"io"
 
 	"github.com/go-openapi/strfmt"
@@ -239,4 +240,44 @@ type fakeRemoteNodeClient struct{}
 
 func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
+}
+
+type fakeReplicationClient struct{}
+
+func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
+	obj *storobj.Object,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
+	id strfmt.UUID,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
+	objs []*storobj.Object,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
+	mergeDoc *objects.MergeDocument,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+	docIDs []uint64, dryRun bool,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+
+// TODO
+// AddReferences(ctx context.Context, host, index, shard, requestID string,
+// 	refs objects.BatchReferences) (SimpleResponse, error)
+
+func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
+	return nil
+}
+
+func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
 }

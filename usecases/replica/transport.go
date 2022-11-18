@@ -17,6 +17,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type ReplicationClient interface {
@@ -26,10 +27,10 @@ type ReplicationClient interface {
 		id strfmt.UUID) (replica.SimpleResponse, error)
 	PutObjects(ctx context.Context, host, index, shard, requestID string,
 		objs []*storobj.Object) (replica.SimpleResponse, error)
-	//MergeObject(ctx context.Context, host, index, shard, requestID string,
-	//	mergeDoc *objects.MergeDocument) (SimpleResponse, error)
-	//DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	//	docIDs []uint64, dryRun bool) (SimpleResponse, error)
+	MergeObject(ctx context.Context, host, index, shard, requestID string,
+		mergeDoc *objects.MergeDocument) (replica.SimpleResponse, error)
+	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+		docIDs []uint64, dryRun bool) (replica.SimpleResponse, error)
 
 	// TODO
 	// AddReferences(ctx context.Context, host, index, shard, requestID string,

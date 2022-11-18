@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -77,19 +78,19 @@ func (r *Replicator) PutObjects(ctx context.Context, localhost, shard string,
 	return errorsFromSimpleResponses(len(objs), coord.responses, err)
 }
 
-//func (r *Replicator) MergeObject(ctx context.Context, localhost, shard string,
-//	mergeDoc *objects.MergeDocument,
-//) error {
-//	coord := newCoordinator[SimpleResponse](r, shard, localhost)
-//	op := func(ctx context.Context, host, requestID string) error {
-//		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, mergeDoc)
-//		if err != nil {
-//			return err
-//		}
-//		return resp.FirstError()
-//	}
-//	return coord.Replicate(ctx, op, r.simpleCommit(shard))
-//}
+func (r *Replicator) MergeObject(ctx context.Context, localhost, shard string,
+	mergeDoc *objects.MergeDocument,
+) error {
+	coord := newCoordinator[replica.SimpleResponse](r, shard, localhost)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, mergeDoc)
+		if err != nil {
+			return err
+		}
+		return resp.FirstError()
+	}
+	return coord.Replicate(ctx, op, r.simpleCommit(shard))
+}
 
 func (r *Replicator) simpleCommit(shard string) commitOp[replica.SimpleResponse] {
 	resp := replica.SimpleResponse{}
@@ -116,21 +117,21 @@ func (r *Replicator) DeleteObject(ctx context.Context, localhost, shard string,
 	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
 
-//func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
-//	docIDs []uint64, dryRun bool,
-//) []error {
-//	coord := newCoordinator[SimpleResponse](r, shard, localhost)
-//	op := func(ctx context.Context, host, requestID string) error {
-//		resp, err := r.client.DeleteObjects(
-//			ctx, host, r.class, shard, requestID, docIDs, dryRun)
-//		if err != nil {
-//			return err
-//		}
-//		return resp.FirstError()
-//	}
-//	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
-//	return errorsFromSimpleResponses(len(docIDs), coord.responses, err)
-//}
+func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
+	docIDs []uint64, dryRun bool,
+) []error {
+	coord := newCoordinator[replica.SimpleResponse](r, shard, localhost)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.DeleteObjects(
+			ctx, host, r.class, shard, requestID, docIDs, dryRun)
+		if err != nil {
+			return err
+		}
+		return resp.FirstError()
+	}
+	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
+	return errorsFromSimpleResponses(len(docIDs), coord.responses, err)
+}
 
 // finder is just a place holder to find replicas of specific hard
 // TODO: the mapping between a shard and its replicas need to be implemented

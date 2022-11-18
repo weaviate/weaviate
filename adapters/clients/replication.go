@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 var marshaller = clusterapi.IndicesPayloads
@@ -68,6 +69,12 @@ func (c *ReplicationClient) PutObject(ctx context.Context, host, index,
 	return resp, nil
 }
 
+func (c *ReplicationClient) MergeObject(ctx context.Context, host, index,
+	shard, requestID string, mergeDoc *objects.MergeDocument,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+
 func (c *ReplicationClient) DeleteObject(ctx context.Context, host, index,
 	shard, requestID string, uuid strfmt.UUID,
 ) (replica.SimpleResponse, error) {
@@ -94,6 +101,12 @@ func (c *ReplicationClient) DeleteObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("decode response: %w", err)
 	}
 	return resp, nil
+}
+
+func (c *ReplicationClient) DeleteObjects(ctx context.Context, host, index,
+	shard, requestID string, docsIDs []uint64, dryRun bool,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
 }
 
 func (c *ReplicationClient) PutObjects(ctx context.Context, host, index,
