@@ -482,9 +482,11 @@ func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 	return replica.SimpleResponse{}, nil
 }
 
-// TODO
-// AddReferences(ctx context.Context, host, index, shard, requestID string,
-// 	refs objects.BatchReferences) (SimpleResponse, error)
+func (f *fakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
+	refs objects.BatchReferences,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
 
 func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
 	return nil

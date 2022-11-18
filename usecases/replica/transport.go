@@ -31,12 +31,8 @@ type ReplicationClient interface {
 		mergeDoc *objects.MergeDocument) (replica.SimpleResponse, error)
 	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 		docIDs []uint64, dryRun bool) (replica.SimpleResponse, error)
-
-	// TODO
-	// AddReferences(ctx context.Context, host, index, shard, requestID string,
-	// 	refs objects.BatchReferences) (SimpleResponse, error)
-
+	AddReferences(ctx context.Context, host, index, shard, requestID string,
+		refs objects.BatchReferences) (replica.SimpleResponse, error)
 	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error
-
 	Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error)
 }
