@@ -26,6 +26,11 @@ func ValidateUserConfigUpdate(initial, updated *models.InvertedIndexConfig) erro
 		return err
 	}
 
+	err = validateInvertedIndexConfigUpdate(initial, updated)
+	if err != nil {
+		return err
+	}
+
 	err = validateStopwordsConfigUpdate(initial, updated)
 	if err != nil {
 		return err
@@ -46,6 +51,18 @@ func validateBM25ConfigUpdate(initial, updated *models.InvertedIndexConfig) erro
 	err := validateBM25Config(updated.Bm25)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func validateInvertedIndexConfigUpdate(initial, updated *models.InvertedIndexConfig) error {
+	if updated.IndexPropertyLength != initial.IndexPropertyLength {
+		return errors.New("IndexPropertyLength cannot be changed when updating a schema")
+	}
+
+	if updated.IndexNullState != initial.IndexNullState {
+		return errors.New("IndexNullState cannot be changed when updating a schema")
 	}
 
 	return nil
