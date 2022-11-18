@@ -165,7 +165,7 @@ func (s *Shard) initVectorIndex(
 	case hnswent.DistanceHamming:
 		distProv = distancer.NewHammingProvider()
 	default:
-		return nil, errors.Errorf("unrecognized distance metric %q,"+
+		return errors.Errorf("unrecognized distance metric %q,"+
 			"choose one of [\"cosine\", \"dot\", \"geo\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
 	}
 

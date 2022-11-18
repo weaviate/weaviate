@@ -100,6 +100,7 @@ func (c Config) Validate(modProv moduleProvider) error {
 	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
 		return errors.Wrap(err, "default vectorizer module")
 	}
+
 	if err := c.validateDefaultVectorDistanceMetric(); err != nil {
 		return errors.Wrap(err, "default vector distance metric")
 	}
