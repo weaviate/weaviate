@@ -90,7 +90,6 @@ func (c *coordinator[T]) broadcast(ctx context.Context, replicas []string, op re
 
 // commitAll tells replicas to commit pending updates related to a specific request
 // (second phase of a two-phase commit)
-
 func (c *coordinator[T]) commitAll(ctx context.Context, replicas []string, op commitOp[T]) error {
 	var g errgroup.Group
 	c.responses = make([]T, len(replicas))

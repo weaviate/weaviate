@@ -44,9 +44,8 @@ type client interface {
 	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 		docIDs []uint64, dryRun bool) (SimpleResponse, error)
 
-	// TODO
-	// AddReferences(ctx context.Context, host, index, shard, requestID string,
-	// 	refs objects.BatchReferences) (SimpleResponse, error)
+	AddReferences(ctx context.Context, host, index, shard, requestID string,
+		refs objects.BatchReferences) (SimpleResponse, error)
 
 	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error
 
