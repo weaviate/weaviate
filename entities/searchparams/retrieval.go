@@ -11,6 +11,8 @@
 
 package searchparams
 
+
+
 type NearVector struct {
 	Vector       []float32 `json:"vector"`
 	Certainty    float64   `json:"certainty"`
@@ -24,13 +26,15 @@ type KeywordRanking struct {
 	Query      string   `json:"query"`
 }
 
+type WeightedSearchResult struct {
+	SearchParams interface{} `json:"searchParams"`
+	Weight       float64     `json:"weight"`
+	Type         string      `json:"type"`
+}
+
 type HybridSearch struct {
-	KeywordRanking *KeywordRanking `json:"keywordRanking"`
-	NearVector	 *NearVector     `json:"nearVector"`
-	Type  string  `json:"type"`
-	Alpha float64 `json:"alpha"`
-	Query string  `json:"query"`
-	Vector []float32 `json:"vector"`
+	SubSearches interface{} `json:"subSearches"`
+	Type 	  string      `json:"type"`
 }
 
 type NearObject struct {
@@ -39,4 +43,29 @@ type NearObject struct {
 	Certainty    float64 `json:"certainty"`
 	Distance     float64 `json:"distance"`
 	WithDistance bool    `json:"-"`
+}
+
+type ObjectMove struct {
+	ID     string
+	Beacon string
+}
+
+// ExploreMove moves an existing Search Vector closer (or further away from) a specific other search term
+type ExploreMove struct {
+	Values  []string
+	Force   float32
+	Objects []ObjectMove
+}
+
+
+type NearTextParams struct {
+	Values       []string
+	Limit        int
+	MoveTo       ExploreMove
+	MoveAwayFrom ExploreMove
+	Certainty    float64
+	Distance     float64
+	WithDistance bool
+	Network      bool
+	Autocorrect  bool
 }

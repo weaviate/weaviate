@@ -237,7 +237,6 @@ func realBuildGetClassField(classObject *graphql.Object,
 	return field
 }
 
-
 func buildGetClassField(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) graphql.Field {
@@ -383,7 +382,67 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybridSearch"]; ok {
-			p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}))
+
+			//Everything here can go in another namespace AFTER modulesprovider is
+			//refactored
+			var subsearches []interface{}
+				source := hybrid.(map[string]interface{})
+				operands_i := source["operands"]
+				if operands_i != nil {
+					operands := operands_i.([]interface{})
+					for _, operand := range operands {
+						operandMap := operand.(map[string]interface{})
+						subsearches = append(subsearches, operandMap)
+					}
+				}
+			
+
+			
+
+			var weightedSearchResults []searchparams.WeightedSearchResult
+
+			for _, ss := range subsearches {
+				subsearch := ss.(map[string]interface{})
+				switch {
+				case subsearch["sparseSearch"] != nil:
+					bm25 := subsearch["sparseSearch"].(map[string]interface{})
+					arguments := common_filters.ExtractBM25(bm25)
+					
+					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
+						SearchParams: arguments,
+						Weight:       subsearch["weight"].(float64),
+						Type:         "bm25",
+					})
+				case subsearch["nearText"] != nil:
+					nearText := subsearch["nearText"].(map[string]interface{})
+					arguments,_ := common_filters.ExtractNearText(nearText)
+				
+					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
+						SearchParams: arguments,
+						Weight:       subsearch["weight"].(float64),
+						Type:         "nearText",
+					})
+					
+				case subsearch["nearVector"] != nil:
+					nearVector := subsearch["nearVector"].(map[string]interface{})
+					arguments,_ := common_filters.ExtractNearVector(nearVector)
+				
+					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
+						SearchParams: arguments,
+						Weight:       subsearch["weight"].(float64),
+						Type:         "nearVector",
+					})
+				default:
+					panic("unknown subsearch type:" + fmt.Sprintf("%#v", subsearch))
+				}
+			}
+
+			var args searchparams.HybridSearch
+			args.SubSearches = weightedSearchResults
+
+			args.Type = "hybrid"
+			p := args
+			//p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}, r.modulesProvider))
 			hybridParams = &p
 		}
 
@@ -401,7 +460,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			ModuleParams:         moduleParams,
 			AdditionalProperties: additional,
 			KeywordRanking:       keywordRankingParams,
-			HybridSearch: hybridParams,
+			HybridSearch:         hybridParams,
 		}
 
 		// need to perform vector search by distance

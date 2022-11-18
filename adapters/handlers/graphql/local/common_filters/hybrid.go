@@ -11,31 +11,10 @@
 
 package common_filters
 
-import "github.com/semi-technologies/weaviate/entities/searchparams"
 
 // ExtractHybrid
-func ExtractHybrid(source map[string]interface{}) searchparams.HybridSearch {
-	var args searchparams.HybridSearch
+/*
+func ExtractHybrid(source map[string]interface{}, mp ModulesProvider) searchparams.HybridSearch {
 
-	alpha, ok := source["alpha"]
-	if ok {
-		args.Alpha = alpha.(float64)
-	}
-
-	query, ok := source["query"]
-	if ok {
-		args.Query = query.(string)
-	}
-
-	if _, ok := source["vector"]; ok {
-		vector := source["vector"].([]interface{})
-		args.Vector = make([]float32, len(vector))
-		for i, value := range vector {
-			args.Vector[i] = float32(value.(float64))
-		}
-	}
-
-	args.Type = "hybrid"
-
-	return args
 }
+*/
