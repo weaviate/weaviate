@@ -283,14 +283,13 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		IsShardLocal(shardName)
 
 	if local {
-		shard := i.Shards[shardName]
 		if i.replicationEnabled() {
-			i.getSchema.NodeName()
-			err = i.replicator.PutObject(ctx, "", shardName, object)
+			err = i.replicator.PutObject(ctx, shardName, object)
 			if err != nil {
 				return fmt.Errorf("failed to relay object put across replicas: %w", err)
 			}
 		} else {
+			shard := i.Shards[shardName]
 			if err := shard.putObject(ctx, object); err != nil {
 				return errors.Wrapf(err, "shard %s", shard.ID())
 			}
@@ -953,18 +952,20 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	shardingState := i.getSchema.
-		ShardingState(i.Config.ClassName.String())
+	local := i.getSchema.
+		ShardingState(i.Config.ClassName.String()).
+		IsShardLocal(shardName)
 
-	if shardingState.IsShardLocal(shardName) {
-		shard := i.Shards[shardName]
-		if err := shard.deleteObject(ctx, id); err != nil {
-			return fmt.Errorf("delete object: %w", err)
-		}
-		if shardingState.Config.Replicas > 1 {
-			err = i.remote.ReplicateDeletion(ctx, i.getSchema.NodeName(), shardName, id)
+	if local {
+		if i.replicationEnabled() {
+			err = i.replicator.DeleteObject(ctx, shardName, id)
 			if err != nil {
 				return fmt.Errorf("failed to relay object delete across replicas: %w", err)
+			}
+		} else {
+			shard := i.Shards[shardName]
+			if err := shard.deleteObject(ctx, id); err != nil {
+				return fmt.Errorf("delete object: %w", err)
 			}
 		}
 	} else {
@@ -1302,6 +1303,12 @@ func (ri *replicatedIndex) ReplicateObject(ctx context.Context, shardName,
 	requestID string, object *storobj.Object,
 ) entrep.SimpleResponse {
 	return (*Index)(ri).ReplicateObject(ctx, shardName, requestID, object)
+}
+
+func (ri *replicatedIndex) ReplicateDeletion(ctx context.Context, shardName,
+	requestID string, uuid strfmt.UUID,
+) entrep.SimpleResponse {
+	return (*Index)(ri).ReplicateDeletion(ctx, shardName, requestID, uuid)
 }
 
 func (ri *replicatedIndex) CommitReplication(ctx context.Context, shardName,

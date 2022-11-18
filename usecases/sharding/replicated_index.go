@@ -29,6 +29,8 @@ type ReplicatedIndexFactory interface {
 type Replicator interface {
 	ReplicateObject(ctx context.Context, shardName, requestID string,
 		object *storobj.Object) replica.SimpleResponse
+	ReplicateDeletion(ctx context.Context, shardName, requestID string,
+		uuid strfmt.UUID) replica.SimpleResponse
 	CommitReplication(ctx context.Context, shard,
 		requestID string) replica.SimpleResponse
 	AbortReplication(ctx context.Context, shardName,
@@ -75,6 +77,19 @@ func (rii *ReplicatedIndex) ReplicateObject(ctx context.Context, indexName,
 	}
 
 	return index.ReplicateObject(ctx, shardName, requestID, object)
+}
+
+func (rii *ReplicatedIndex) ReplicateDeletion(ctx context.Context, indexName,
+	shardName, requestID string, uuid strfmt.UUID,
+) replica.SimpleResponse {
+	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.ReplicateDeletion(ctx, shardName, requestID, uuid)
 }
 
 func (rii *ReplicatedIndex) CommitReplication(ctx context.Context, indexName,

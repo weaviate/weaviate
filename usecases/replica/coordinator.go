@@ -45,14 +45,13 @@ type coordinator[T any] struct {
 	nodes     []string
 }
 
-func newCoordinator[T any](r *Replicator, shard, localhost string) *coordinator[T] {
+func newCoordinator[T any](r *Replicator, shard string) *coordinator[T] {
 	return &coordinator[T]{
 		ReplicationClient: r.client,
 		replicaFinder: &finder{
-			schema:    r.stateGetter,
-			resolver:  r.resolver,
-			localhost: localhost,
-			class:     r.class,
+			schema:   r.stateGetter,
+			resolver: r.resolver,
+			class:    r.class,
 		},
 		class:     r.class,
 		shard:     shard,

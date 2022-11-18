@@ -28,10 +28,14 @@ import (
 type replicator interface {
 	ReplicateObject(ctx context.Context, index, shard, requestID string,
 		object *storobj.Object) replica.SimpleResponse
+	ReplicateDeletion(ctx context.Context, index, shard, requestID string,
+		uuid strfmt.UUID) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
 		shardName, requestID string) replica.SimpleResponse
 	AbortReplication(ctx context.Context, indexName,
 		shardName, requestID string) replica.SimpleResponse
+
+	// TODO: remove
 	PutObject(ctx context.Context, index, shardName string,
 		obj *storobj.Object) error
 	DeleteObject(ctx context.Context, index, shardName string,
@@ -221,12 +225,15 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 
 		defer r.Body.Close()
 
-		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, "123", strfmt.UUID(id))
 
-		w.WriteHeader(http.StatusNoContent)
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+		w.Write(b)
 	})
 }
 
