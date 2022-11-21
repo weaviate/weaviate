@@ -12,8 +12,8 @@
 package aggregate
 
 import (
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/tailor-inc/graphql"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {

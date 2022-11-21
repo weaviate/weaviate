@@ -14,8 +14,8 @@ package neartext
 import (
 	"fmt"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/tailor-inc/graphql"
 )
 
 func (g *GraphQLArgumentsProvider) getNearTextArgumentFn(classname string) *graphql.ArgumentConfig {

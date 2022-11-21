@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
@@ -25,6 +24,7 @@ import (
 	ubackup "github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
 )
 
 func TestModulesProvider(t *testing.T) {
