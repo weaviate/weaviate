@@ -451,7 +451,6 @@ func (i *Index) putObjectBatch(ctx context.Context,
 	wg := &sync.WaitGroup{}
 
 	for shardName, group := range byShard {
-		fmt.Printf("    ===> shardName: %s\n", shardName)
 		wg.Add(1)
 		go func(shardName string, group objsAndPos) {
 			defer wg.Done()
@@ -1004,8 +1003,15 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		IsShardLocal(shardName)
 
 	if local {
-		shard := i.Shards[shardName]
-		err = shard.mergeObject(ctx, merge)
+		if i.replicationEnabled() {
+			err = i.replicator.MergeObject(ctx, shardName, &merge)
+			if err != nil {
+				return fmt.Errorf("failed to relay object patch across replicas: %w", err)
+			}
+		} else {
+			shard := i.Shards[shardName]
+			err = shard.mergeObject(ctx, merge)
+		}
 	} else {
 		err = i.remote.MergeObject(ctx, shardName, merge)
 	}
@@ -1304,6 +1310,12 @@ func (ri *replicatedIndex) ReplicateObjects(ctx context.Context, shardName,
 	requestID string, objects []*storobj.Object,
 ) entrep.SimpleResponse {
 	return (*Index)(ri).ReplicateObjects(ctx, shardName, requestID, objects)
+}
+
+func (ri *replicatedIndex) ReplicateUpdate(ctx context.Context, shardName,
+	requestID string, merge *objects.MergeDocument,
+) entrep.SimpleResponse {
+	return (*Index)(ri).ReplicateUpdate(ctx, shardName, requestID, merge)
 }
 
 func (ri *replicatedIndex) ReplicateDeletion(ctx context.Context, shardName,

@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -30,6 +31,8 @@ type replicator interface {
 		object *storobj.Object) replica.SimpleResponse
 	ReplicateObjects(ctx context.Context, index, shard, requestID string,
 		objects []*storobj.Object) replica.SimpleResponse
+	ReplicateUpdate(ctx context.Context, index, shard, requestID string,
+		mergeDoc *objects.MergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, index, shard, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
@@ -74,6 +77,11 @@ func (i *replicatedIndices) Indices() http.Handler {
 		case regxObject.MatchString(path):
 			if r.Method == http.MethodDelete {
 				i.deleteObject().ServeHTTP(w, r)
+				return
+			}
+
+			if r.Method == http.MethodPatch {
+				i.patchObject().ServeHTTP(w, r)
 				return
 			}
 
@@ -204,6 +212,41 @@ func (i *replicatedIndices) postObject() http.Handler {
 			http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
 			return
 		}
+	})
+}
+
+func (i *replicatedIndices) patchObject() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		mergeDoc, err := IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, "123", &mergeDoc)
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(b)
 	})
 }
 

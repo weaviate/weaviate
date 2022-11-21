@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 )
 
 type ReplicatedIndexFactory interface {
@@ -30,6 +31,8 @@ type Replicator interface {
 		object *storobj.Object) replica.SimpleResponse
 	ReplicateObjects(ctx context.Context, shardName, requestID string,
 		objects []*storobj.Object) replica.SimpleResponse
+	ReplicateUpdate(ctx context.Context, shard, requestID string,
+		doc *objects.MergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	CommitReplication(ctx context.Context, shard,
@@ -72,6 +75,19 @@ func (rii *ReplicatedIndex) ReplicateObjects(ctx context.Context, indexName,
 	}
 
 	return index.ReplicateObjects(ctx, shardName, requestID, objects)
+}
+
+func (rii *ReplicatedIndex) ReplicateUpdate(ctx context.Context, indexName,
+	shardName, requestID string, mergeDoc *objects.MergeDocument,
+) replica.SimpleResponse {
+	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.ReplicateUpdate(ctx, shardName, requestID, mergeDoc)
 }
 
 func (rii *ReplicatedIndex) ReplicateDeletion(ctx context.Context, indexName,

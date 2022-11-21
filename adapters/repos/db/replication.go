@@ -107,7 +107,6 @@ func (s *Shard) reinit(ctx context.Context) error {
 		return fmt.Errorf("init non-vector: %w", err)
 	}
 
-	// TODO: reinit vector
 	return nil
 }
 
