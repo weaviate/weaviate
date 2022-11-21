@@ -223,7 +223,7 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	concatenatedResults := []search.Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
-			score := weights[resultSetIndex] / float64(i+60)
+			score := weights[resultSetIndex] / float64(i+60+1)  //FIXME replace 60 with a variable
 			
 			res.AdditionalProperties["rank_score"] = score
 			res.AdditionalProperties["score"] = score
@@ -264,6 +264,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		//Iterate over subsearches, and execute them
 		results := [][]search.Result{}
 		weights := []float64{}
+		
 		ss := params.HybridSearch.SubSearches
 		var vector []float32
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
@@ -334,7 +335,6 @@ func (e *Explorer) getClassList(ctx context.Context,
 
 				results = append(results, res2)
 
-
 			default:
 				panic("unknown subsearch type:"+subsearch.Type)
 			}
@@ -343,6 +343,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 
 		
 		fused := FusionReciprocal(weights, results)
+		if len(fused) > params.HybridSearch.Limit {
+			fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
+			fused = fused[:params.HybridSearch.Limit]
+		}
 
 		return e.searchResultsToGetResponse(ctx, fused, nil, params)
 

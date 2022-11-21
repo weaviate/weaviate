@@ -400,7 +400,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			
 
 			var weightedSearchResults []searchparams.WeightedSearchResult
-
+			var args searchparams.HybridSearch
 			for _, ss := range subsearches {
 				subsearch := ss.(map[string]interface{})
 				switch {
@@ -432,14 +432,19 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 						Weight:       subsearch["weight"].(float64),
 						Type:         "nearVector",
 					})
+					case subsearch["limit"] != nil:
+						args.Limit = int(subsearch["limit"].(int))
 				default:
 					panic("unknown subsearch type:" + fmt.Sprintf("%#v", subsearch))
 				}
 			}
 
-			var args searchparams.HybridSearch
+			
 			args.SubSearches = weightedSearchResults
-
+			limit_i := source["limit"]
+				if limit_i != nil {
+					args.Limit = int(limit_i.(int))
+				}
 			args.Type = "hybrid"
 			p := args
 			//p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}, r.modulesProvider))

@@ -68,8 +68,9 @@ func hybridArgument(classObject *graphql.Object,
 				Fields:
 				//hybridFields(prefix),
 				hybridOperands(classObject, class, modulesProvider),
-				Description: "hello",
+				Description: "Hybrid search",
 			},
+			
 		),
 	}
 }
@@ -85,9 +86,13 @@ func hybridOperands(classObject *graphql.Object,
 	return graphql.InputObjectConfigFieldMap{
 		"operands": &graphql.InputObjectFieldConfig{
 			Description: "Subsearch list",
-
 			Type: graphql.NewList(ss),
 		},
+		"limit": &graphql.InputObjectFieldConfig{
+			Description: "limit",
+			Type:        graphql.Int,
+		},
+
 	}
 }
 
