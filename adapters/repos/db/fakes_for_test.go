@@ -17,7 +17,6 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"github.com/semi-technologies/weaviate/entities/replica"
 	"io"
 
 	"github.com/go-openapi/strfmt"
@@ -25,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"

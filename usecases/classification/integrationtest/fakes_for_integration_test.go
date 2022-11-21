@@ -17,7 +17,6 @@ package classification_integration_test
 import (
 	"context"
 	"fmt"
-	"github.com/semi-technologies/weaviate/entities/replica"
 	"io"
 	"math/rand"
 	"sync"
@@ -28,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
