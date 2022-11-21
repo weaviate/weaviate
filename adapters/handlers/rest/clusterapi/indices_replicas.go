@@ -28,20 +28,14 @@ import (
 type replicator interface {
 	ReplicateObject(ctx context.Context, index, shard, requestID string,
 		object *storobj.Object) replica.SimpleResponse
+	ReplicateObjects(ctx context.Context, index, shard, requestID string,
+		objects []*storobj.Object) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, index, shard, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
 		shardName, requestID string) replica.SimpleResponse
 	AbortReplication(ctx context.Context, indexName,
 		shardName, requestID string) replica.SimpleResponse
-
-	// TODO: remove
-	PutObject(ctx context.Context, index, shardName string,
-		obj *storobj.Object) error
-	DeleteObject(ctx context.Context, index, shardName string,
-		id strfmt.UUID) error
-	BatchPutObjects(ctx context.Context, indexName, shardName string,
-		objs []*storobj.Object) []error
 }
 
 type scaler interface {
@@ -279,13 +273,14 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
-	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
+	resp := i.shards.ReplicateObjects(r.Context(), index, shard, "123", objs)
+
+	b, err := json.Marshal(resp)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
+			http.StatusInternalServerError)
 		return
 	}
 
-	IndicesPayloads.ErrorList.SetContentTypeHeader(w)
-	w.Write(errsJSON)
+	w.Write(b)
 }

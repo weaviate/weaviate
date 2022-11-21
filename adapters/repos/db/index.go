@@ -451,6 +451,7 @@ func (i *Index) putObjectBatch(ctx context.Context,
 	wg := &sync.WaitGroup{}
 
 	for shardName, group := range byShard {
+		fmt.Printf("    ===> shardName: %s\n", shardName)
 		wg.Add(1)
 		go func(shardName string, group objsAndPos) {
 			defer wg.Done()
@@ -462,17 +463,11 @@ func (i *Index) putObjectBatch(ctx context.Context,
 			if !shardingState.IsShardLocal(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
-				shard := i.Shards[shardName]
-				errs = shard.putObjectBatch(ctx, group.objects)
-				if shardingState.Config.Replicas > 1 {
-					remoteErrs := i.remote.ReplicateBatchPutObjects(ctx, i.getSchema.NodeName(), shardName, group.objects)
-					for i := range errs {
-						// only return the first encountered error for each position
-						// TODO: there are probably better ways to do this
-						if errs[i] == nil && remoteErrs[i] != nil {
-							errs[i] = remoteErrs[i]
-						}
-					}
+				if i.replicationEnabled() {
+					errs = i.replicator.PutObjects(ctx, shardName, group.objects)
+				} else {
+					shard := i.Shards[shardName]
+					errs = shard.putObjectBatch(ctx, group.objects)
 				}
 			}
 			for i, err := range errs {
@@ -1303,6 +1298,12 @@ func (ri *replicatedIndex) ReplicateObject(ctx context.Context, shardName,
 	requestID string, object *storobj.Object,
 ) entrep.SimpleResponse {
 	return (*Index)(ri).ReplicateObject(ctx, shardName, requestID, object)
+}
+
+func (ri *replicatedIndex) ReplicateObjects(ctx context.Context, shardName,
+	requestID string, objects []*storobj.Object,
+) entrep.SimpleResponse {
+	return (*Index)(ri).ReplicateObjects(ctx, shardName, requestID, objects)
 }
 
 func (ri *replicatedIndex) ReplicateDeletion(ctx context.Context, shardName,
