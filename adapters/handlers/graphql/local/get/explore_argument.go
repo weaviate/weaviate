@@ -45,15 +45,15 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"function": &graphql.InputObjectFieldConfig{
 			Description: "The sparse search function to use",
-			Type: graphql.String,
+			Type:        graphql.String,
 		},
 		"query": &graphql.InputObjectFieldConfig{
 			Description: "The query to search for",
-			Type: graphql.String,
+			Type:        graphql.String,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
 			Description: "The properties to search in",
-			Type: graphql.NewList(graphql.String),
+			Type:        graphql.NewList(graphql.String),
 		},
 	}
 }
@@ -70,7 +70,6 @@ func hybridArgument(classObject *graphql.Object,
 				hybridOperands(classObject, class, modulesProvider),
 				Description: "Hybrid search",
 			},
-			
 		),
 	}
 }
@@ -86,13 +85,12 @@ func hybridOperands(classObject *graphql.Object,
 	return graphql.InputObjectConfigFieldMap{
 		"operands": &graphql.InputObjectFieldConfig{
 			Description: "Subsearch list",
-			Type: graphql.NewList(ss),
+			Type:        graphql.NewList(ss),
 		},
 		"limit": &graphql.InputObjectFieldConfig{
 			Description: "limit",
 			Type:        graphql.Int,
 		},
-
 	}
 }
 
@@ -100,11 +98,10 @@ func hybridSubSearch(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider) graphql.InputObjectConfigFieldMap {
 	prefixName := class.Class + "SubSearch"
 
-
 	return graphql.InputObjectConfigFieldMap{
 		"weight": &graphql.InputObjectFieldConfig{
 			Description: "weight, 0 to 1",
-			Type: graphql.Float,
+			Type:        graphql.Float,
 		},
 		"sparseSearch": &graphql.InputObjectFieldConfig{
 			Description: "Sparse Search",
@@ -131,7 +128,6 @@ func hybridSubSearch(classObject *graphql.Object,
 	}
 
 }
-
 
 func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 	nearTextFields := graphql.InputObjectConfigFieldMap{

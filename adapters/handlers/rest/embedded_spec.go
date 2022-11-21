@@ -3351,6 +3351,17 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "HybridConfig": {
+      "description": "tuning parameters for the hybrid algorithm",
+      "type": "object",
+      "properties": {
+        "alpha": {
+          "description": "Weights the results being combined",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
@@ -3362,6 +3373,9 @@ func init() {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "hybridSearch": {
+          "$ref": "#/definitions/HybridConfig"
         },
         "indexNullState": {
           "description": "Index each object with the null state",
@@ -7684,6 +7698,17 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "HybridConfig": {
+      "description": "tuning parameters for the hybrid algorithm",
+      "type": "object",
+      "properties": {
+        "alpha": {
+          "description": "Weights the results being combined",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
@@ -7695,6 +7720,9 @@ func init() {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
           "format": "int"
+        },
+        "hybridSearch": {
+          "$ref": "#/definitions/HybridConfig"
         },
         "indexNullState": {
           "description": "Index each object with the null state",

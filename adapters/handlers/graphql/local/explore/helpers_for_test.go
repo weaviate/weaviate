@@ -37,8 +37,8 @@ type mockResolver struct {
 
 type fakeModulesProvider struct{}
 
-func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error){
-	panic ("not implemented")
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+	panic("not implemented")
 	return nil, nil
 }
 
@@ -154,7 +154,7 @@ func (m *nearCustomTextModule) RootHandler() http.Handler {
 }
 
 func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-	
+
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
 	// define nearCustomText argument
 	arguments["nearCustomText"] = modulecapabilities.GraphQLArgument{

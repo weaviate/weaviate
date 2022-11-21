@@ -21,11 +21,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
+	convectoriser "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/additional"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/additional/projector"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/clients"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/vectorizer"
-	convectoriser "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -168,7 +168,7 @@ func (m *TransformersModule) AdditionalProperties() map[string]modulecapabilitie
 func (m *TransformersModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.VectorizeInput(ctx, input, vectorizer.NewClassSettings(cfg)) 
+	return m.vectorizer.VectorizeInput(ctx, input, vectorizer.NewClassSettings(cfg))
 }
 
 // verify we implement the modules.Module interface

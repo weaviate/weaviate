@@ -11,8 +11,6 @@
 
 package searchparams
 
-
-
 type NearVector struct {
 	Vector       []float32 `json:"vector"`
 	Certainty    float64   `json:"certainty"`
@@ -34,8 +32,8 @@ type WeightedSearchResult struct {
 
 type HybridSearch struct {
 	SubSearches interface{} `json:"subSearches"`
-	Type 	  string      `json:"type"`
-	Limit		int         `json:"limit"`
+	Type        string      `json:"type"`
+	Limit       int         `json:"limit"`
 }
 
 type NearObject struct {
@@ -57,7 +55,6 @@ type ExploreMove struct {
 	Force   float32
 	Objects []ObjectMove
 }
-
 
 type NearTextParams struct {
 	Values       []string

@@ -223,8 +223,8 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	concatenatedResults := []search.Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
-			score := weights[resultSetIndex] / float64(i+60+1)  //FIXME replace 60 with a variable
-			
+			score := weights[resultSetIndex] / float64(i+60+1) //FIXME replace 60 with a variable
+
 			res.AdditionalProperties["rank_score"] = score
 			res.AdditionalProperties["score"] = score
 			res.Score = float32(score)
@@ -237,7 +237,6 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	})
 	return concatenatedResults
 }
-
 
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
@@ -264,7 +263,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		//Iterate over subsearches, and execute them
 		results := [][]search.Result{}
 		weights := []float64{}
-		
+
 		ss := params.HybridSearch.SubSearches
 		var vector []float32
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
@@ -296,12 +295,11 @@ func (e *Explorer) getClassList(ctx context.Context,
 
 				var err error
 				vector, err = e.modulesProvider.VectorFromInput(ctx,
-					params.ClassName, sp.Values[0])  //FIXME where is the search query?
+					params.ClassName, sp.Values[0]) //FIXME where is the search query?
 				if err != nil {
 					return nil, err
 				}
 				fmt.Printf("found vector: %v\n", vector)
-
 
 				res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
 				if err != nil {
@@ -313,9 +311,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 					res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
 				}
 				results = append(results, res2)
-		
+
 			case "nearVector":
-				
+
 				sp := subsearch.SearchParams.(searchparams.NearVector)
 				weights = append(weights, subsearch.Weight)
 				if sp.Vector != nil && len(sp.Vector) != 0 {
@@ -336,12 +334,11 @@ func (e *Explorer) getClassList(ctx context.Context,
 				results = append(results, res2)
 
 			default:
-				panic("unknown subsearch type:"+subsearch.Type)
+				panic("unknown subsearch type:" + subsearch.Type)
 			}
 
 		}
 
-		
 		fused := FusionReciprocal(weights, results)
 		if len(fused) > params.HybridSearch.Limit {
 			fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)

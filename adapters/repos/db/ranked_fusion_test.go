@@ -34,7 +34,6 @@ import (
 	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest"
 )
 
 /*
@@ -100,8 +99,6 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 	var docs []TestDoc
 	json.Unmarshal(data, &docs)
 
-	
-
 	for i, doc := range docs {
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 
@@ -112,10 +109,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 		require.Nil(t, err)
 	}
 
-
-
 }
-
 
 func TestHybrid(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
@@ -294,8 +288,6 @@ func FusionConcatenate(results [][]*storobj.Object) []*storobj.Object {
 	}
 	return concatenatedResults
 }
-
-
 
 func FusionScoreMerge(results [][]*storobj.Object) []*storobj.Object {
 	//Concatenate the results

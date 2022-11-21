@@ -386,18 +386,15 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			//Everything here can go in another namespace AFTER modulesprovider is
 			//refactored
 			var subsearches []interface{}
-				source := hybrid.(map[string]interface{})
-				operands_i := source["operands"]
-				if operands_i != nil {
-					operands := operands_i.([]interface{})
-					for _, operand := range operands {
-						operandMap := operand.(map[string]interface{})
-						subsearches = append(subsearches, operandMap)
-					}
+			source := hybrid.(map[string]interface{})
+			operands_i := source["operands"]
+			if operands_i != nil {
+				operands := operands_i.([]interface{})
+				for _, operand := range operands {
+					operandMap := operand.(map[string]interface{})
+					subsearches = append(subsearches, operandMap)
 				}
-			
-
-			
+			}
 
 			var weightedSearchResults []searchparams.WeightedSearchResult
 			var args searchparams.HybridSearch
@@ -407,7 +404,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 				case subsearch["sparseSearch"] != nil:
 					bm25 := subsearch["sparseSearch"].(map[string]interface{})
 					arguments := common_filters.ExtractBM25(bm25)
-					
+
 					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
 						SearchParams: arguments,
 						Weight:       subsearch["weight"].(float64),
@@ -415,36 +412,35 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 					})
 				case subsearch["nearText"] != nil:
 					nearText := subsearch["nearText"].(map[string]interface{})
-					arguments,_ := common_filters.ExtractNearText(nearText)
-				
+					arguments, _ := common_filters.ExtractNearText(nearText)
+
 					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
 						SearchParams: arguments,
 						Weight:       subsearch["weight"].(float64),
 						Type:         "nearText",
 					})
-					
+
 				case subsearch["nearVector"] != nil:
 					nearVector := subsearch["nearVector"].(map[string]interface{})
-					arguments,_ := common_filters.ExtractNearVector(nearVector)
-				
+					arguments, _ := common_filters.ExtractNearVector(nearVector)
+
 					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
 						SearchParams: arguments,
 						Weight:       subsearch["weight"].(float64),
 						Type:         "nearVector",
 					})
-					case subsearch["limit"] != nil:
-						args.Limit = int(subsearch["limit"].(int))
+				case subsearch["limit"] != nil:
+					args.Limit = int(subsearch["limit"].(int))
 				default:
 					panic("unknown subsearch type:" + fmt.Sprintf("%#v", subsearch))
 				}
 			}
 
-			
 			args.SubSearches = weightedSearchResults
 			limit_i := source["limit"]
-				if limit_i != nil {
-					args.Limit = int(limit_i.(int))
-				}
+			if limit_i != nil {
+				args.Limit = int(limit_i.(int))
+			}
 			args.Type = "hybrid"
 			p := args
 			//p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}, r.modulesProvider))

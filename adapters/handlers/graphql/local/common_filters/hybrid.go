@@ -11,7 +11,6 @@
 
 package common_filters
 
-
 // ExtractHybrid
 /*
 func ExtractHybrid(source map[string]interface{}, mp ModulesProvider) searchparams.HybridSearch {

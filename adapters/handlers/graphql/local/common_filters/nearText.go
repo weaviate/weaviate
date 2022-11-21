@@ -1,12 +1,21 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package common_filters
 
-import  "github.com/semi-technologies/weaviate/entities/searchparams"
-
-
+import "github.com/semi-technologies/weaviate/entities/searchparams"
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
-func  ExtractNearText(source map[string]interface{}) (searchparams.NearTextParams, error) {
+func ExtractNearText(source map[string]interface{}) (searchparams.NearTextParams, error) {
 	var args searchparams.NearTextParams
 
 	// keywords is a required argument, so we don't need to check for its existing
@@ -72,7 +81,7 @@ func  ExtractNearText(source map[string]interface{}) (searchparams.NearTextParam
 	return args, nil
 }
 
-func  extractMovement(input interface{}) searchparams.ExploreMove {
+func extractMovement(input interface{}) searchparams.ExploreMove {
 	// the type is fixed through gql config, no need to catch incorrect type
 	// assumption, all fields are required so we don't need to check for their
 	// presence

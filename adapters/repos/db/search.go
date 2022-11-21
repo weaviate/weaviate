@@ -45,10 +45,6 @@ func (db *DB) GetQueryMaximumResults() int {
 	return int(db.config.QueryMaximumResults)
 }
 
-
-
-
-
 func (db *DB) ClassSearch(ctx context.Context,
 	params traverser.GetParams,
 ) ([]search.Result, error) {
@@ -120,7 +116,6 @@ func extractDistanceFromParams(params traverser.GetParams) float32 {
 	return float32(dist)
 }
 
-
 func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
@@ -174,7 +169,6 @@ func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []floa
 	// SelectProperties
 	return db.getSearchResults(found, offset, limit), nil
 }
-
 
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
