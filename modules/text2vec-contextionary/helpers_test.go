@@ -152,6 +152,10 @@ func (m *mockText2vecContextionaryModule) AdditionalProperties() map[string]modu
 
 type fakeModulesProvider struct{}
 
+func (f *fakeModulesProvider) GetAll() []modulecapabilities.Module {
+	panic("implement me")
+}
+
 func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error){
 	panic ("not implemented")
 	return nil, nil
