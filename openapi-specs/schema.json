@@ -343,9 +343,6 @@
         "bm25": {
           "$ref": "#/definitions/BM25Config"
         },
-        "hybridSearch": {
-          "$ref": "#/definitions/HybridConfig"
-        },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
         },
@@ -374,17 +371,6 @@
         },
         "b": {
           "description": "calibrates term-weight scaling based on the document length",
-          "format": "float",
-          "type": "number"
-        }
-      },
-      "type": "object"
-    },
-    "HybridConfig": {
-      "description": "tuning parameters for the hybrid algorithm",
-      "properties": {
-        "alpha": {
-          "description": "Weights the results being combined",
           "format": "float",
           "type": "number"
         }

@@ -375,6 +375,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		}
 
 		var keywordRankingParams *searchparams.KeywordRanking
+
+		//extracts bm25 (sparseSearch) from the query
 		if bm25, ok := p.Args["bm25"]; ok {
 			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
 			keywordRankingParams = &p
@@ -383,7 +385,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybridSearch"]; ok {
 
-			//Everything here can go in another namespace AFTER modulesprovider is
+
+			//Extract hybrid search params from the processed query
+			//Everything hybrid can go in another namespace AFTER modulesprovider is
 			//refactored
 			var subsearches []interface{}
 			source := hybrid.(map[string]interface{})
@@ -429,8 +433,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 						Weight:       subsearch["weight"].(float64),
 						Type:         "nearVector",
 					})
-				case subsearch["limit"] != nil:
-					args.Limit = int(subsearch["limit"].(int))
+			
 				default:
 					panic("unknown subsearch type:" + fmt.Sprintf("%#v", subsearch))
 				}
