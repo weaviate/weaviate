@@ -1323,21 +1323,3 @@ func (ri *replicatedIndex) AbortReplication(ctx context.Context, shardName,
 ) entrep.SimpleResponse {
 	return (*Index)(ri).AbortReplication(ctx, shardName, requestID)
 }
-
-func (ri *replicatedIndex) PutObject(ctx context.Context, shardName string,
-	object *storobj.Object,
-) error {
-	return (*Index)(ri).IncomingPutObject(ctx, shardName, object)
-}
-
-func (ri *replicatedIndex) BatchPutObjects(ctx context.Context, shardName string,
-	objects []*storobj.Object,
-) []error {
-	return (*Index)(ri).IncomingBatchPutObjects(ctx, shardName, objects)
-}
-
-func (ri *replicatedIndex) DeleteObject(ctx context.Context, shardName string,
-	id strfmt.UUID,
-) error {
-	return (*Index)(ri).IncomingDeleteObject(ctx, shardName, id)
-}
