@@ -195,15 +195,20 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	)
 	rep := factory.newReplicator()
 	docIDs := []uint64{1, 2}
-	resp := SimpleResponse{}
+	resp1 := SimpleResponse{}
 	for _, n := range nodes {
-		client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp, nil)
-		client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
+		client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp1, nil)
+		client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
+			resp := a[5].(*DeleteBatchResponse)
+			*resp = DeleteBatchResponse{
+				Batch: []UUID2Error{{"1", ""}, {"2", "e1"}},
+			}
+		}
 	}
-	errs := rep.DeleteObjects(ctx, "", shard, docIDs, false)
-	assert.Equal(t, len(errs), 2)
-	assert.ErrorIs(t, errs[0], nil)
-	assert.ErrorIs(t, errs[1], nil)
+	result := rep.DeleteObjects(ctx, "", shard, docIDs, false)
+	assert.Equal(t, len(result), 2)
+	assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
+	assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: errors.New("e1")}, result[1])
 }
 
 func TestReplicatorPutObjects(t *testing.T) {

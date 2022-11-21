@@ -20,13 +20,33 @@ import (
 )
 
 type SimpleResponse struct {
-	Errors []string `json:"errors"`
+	Errors []string `json:"errors,omitempty"`
 }
 
 func (r *SimpleResponse) FirstError() error {
 	for _, msg := range r.Errors {
 		if msg != "" {
 			return &Error{Msg: msg}
+		}
+	}
+	return nil
+}
+
+type UUID2Error struct {
+	UUID  string `json:"uuid,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// DeleteBatchResponse represents the response returned by DeleteObjects
+type DeleteBatchResponse struct {
+	Batch []UUID2Error `json:"batch,omitempty"`
+}
+
+// FirstError returns the first found error
+func (r *DeleteBatchResponse) FirstError() error {
+	for _, r := range r.Batch {
+		if r.Error != "" {
+			return &Error{Msg: r.Error}
 		}
 	}
 	return nil
