@@ -15,8 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
@@ -24,6 +22,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus"
+	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 var (

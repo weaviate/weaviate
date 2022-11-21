@@ -13,7 +13,7 @@
 package utils
 
 import (
-	"github.com/graphql-go/graphql"
+	"github.com/tailor-inc/graphql"
 )
 
 // GraphQLNetworkFieldContents contains all objects regarding GraphQL fields

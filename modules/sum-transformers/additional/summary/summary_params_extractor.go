@@ -14,7 +14,7 @@ package summary
 import (
 	"log"
 
-	"github.com/graphql-go/graphql/language/ast"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 func (p *SummaryProvider) parseSummaryArguments(args []*ast.Argument) *Params {

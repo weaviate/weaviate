@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/graphql-go/graphql/language/ast"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -30,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {

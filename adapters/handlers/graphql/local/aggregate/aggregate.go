@@ -14,13 +14,13 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/tailor-inc/graphql"
 )
 
 type ModulesProvider interface {
