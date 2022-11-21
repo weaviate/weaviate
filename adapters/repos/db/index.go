@@ -1262,11 +1262,15 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 				IsShardLocal(shardName)
 
 			var objs objects.BatchSimpleObjects
-			if !local {
-				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
+			if local {
+				if i.replicationEnabled() {
+					objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun)
+				} else {
+					shard := i.Shards[shardName]
+					objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
+				}
 			} else {
-				shard := i.Shards[shardName]
-				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
+				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
 			}
 			ch <- result{objs}
 		}(shardName, docIDs)
@@ -1322,6 +1326,12 @@ func (ri *replicatedIndex) ReplicateDeletion(ctx context.Context, shardName,
 	requestID string, uuid strfmt.UUID,
 ) entrep.SimpleResponse {
 	return (*Index)(ri).ReplicateDeletion(ctx, shardName, requestID, uuid)
+}
+
+func (ri *replicatedIndex) ReplicateDeletions(ctx context.Context, shardName,
+	requestID string, docIDs []uint64, dryRun bool,
+) entrep.SimpleResponse {
+	return (*Index)(ri).ReplicateDeletions(ctx, shardName, requestID, docIDs, dryRun)
 }
 
 func (ri *replicatedIndex) CommitReplication(ctx context.Context, shardName,

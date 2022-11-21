@@ -35,6 +35,8 @@ type replicator interface {
 		mergeDoc *objects.MergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, index, shard, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
+	ReplicateDeletions(ctx context.Context, index, shard, requestID string,
+		docIDs []uint64, dryRun bool) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
 		shardName, requestID string) interface{}
 	AbortReplication(ctx context.Context, indexName,
@@ -91,6 +93,11 @@ func (i *replicatedIndices) Indices() http.Handler {
 		case regxObjects.MatchString(path):
 			if r.Method == http.MethodPost {
 				i.postObject().ServeHTTP(w, r)
+				return
+			}
+
+			if r.Method == http.MethodDelete {
+				i.deleteObjects().ServeHTTP(w, r)
 				return
 			}
 
@@ -263,6 +270,41 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 		defer r.Body.Close()
 
 		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, "123", strfmt.UUID(id))
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+		w.Write(b)
+	})
+}
+
+func (i *replicatedIndices) deleteObjects() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer r.Body.Close()
+
+		docIDs, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, "123", docIDs, dryRun)
 
 		b, err := json.Marshal(resp)
 		if err != nil {

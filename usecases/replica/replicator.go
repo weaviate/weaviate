@@ -129,14 +129,14 @@ func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 		}
 		return resp.FirstError()
 	}
-	commit := (func(ctx context.Context, host, requestID string) (replica.DeleteBatchResponse, error) {
+	commit := func(ctx context.Context, host, requestID string) (replica.DeleteBatchResponse, error) {
 		resp := replica.DeleteBatchResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
 		}
 		return resp, err
-	})
+	}
 
 	err := coord.Replicate(ctx, op, commit)
 	return resultsFromDeletionResponses(len(docIDs), coord.responses, err)
