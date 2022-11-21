@@ -37,6 +37,8 @@ type Replicator interface {
 		uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
 		docIDs []uint64, dryRun bool) replica.SimpleResponse
+	ReplicateReferences(ctx context.Context, shard, requestID string,
+		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(ctx context.Context, shard,
 		requestID string) interface{}
 	AbortReplication(ctx context.Context, shardName,
@@ -116,6 +118,19 @@ func (rii *ReplicatedIndex) ReplicateDeletions(ctx context.Context, indexName,
 	}
 
 	return index.ReplicateDeletions(ctx, shardName, requestID, docIDs, dryRun)
+}
+
+func (rii *ReplicatedIndex) ReplicateReferences(ctx context.Context, indexName,
+	shardName, requestID string, refs []objects.BatchReference,
+) replica.SimpleResponse {
+	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.ReplicateReferences(ctx, shardName, requestID, refs)
 }
 
 func (rii *ReplicatedIndex) CommitReplication(ctx context.Context, indexName,

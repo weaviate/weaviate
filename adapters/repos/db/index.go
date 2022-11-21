@@ -551,11 +551,15 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 			IsShardLocal(shardName)
 
 		var errs []error
-		if !local {
-			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
+		if local {
+			if i.replicationEnabled() {
+				errs = i.replicator.AddReferences(ctx, shardName, group.refs)
+			} else {
+				shard := i.Shards[shardName]
+				errs = shard.addReferencesBatch(ctx, group.refs)
+			}
 		} else {
-			shard := i.Shards[shardName]
-			errs = shard.addReferencesBatch(ctx, group.refs)
+			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
 		}
 		for i, err := range errs {
 			desiredPos := group.pos[i]
@@ -1332,6 +1336,12 @@ func (ri *replicatedIndex) ReplicateDeletions(ctx context.Context, shardName,
 	requestID string, docIDs []uint64, dryRun bool,
 ) entrep.SimpleResponse {
 	return (*Index)(ri).ReplicateDeletions(ctx, shardName, requestID, docIDs, dryRun)
+}
+
+func (ri *replicatedIndex) ReplicateReferences(ctx context.Context, shardName,
+	requestID string, refs []objects.BatchReference,
+) entrep.SimpleResponse {
+	return (*Index)(ri).ReplicateReferences(ctx, shardName, requestID, refs)
 }
 
 func (ri *replicatedIndex) CommitReplication(ctx context.Context, shardName,

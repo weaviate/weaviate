@@ -785,7 +785,7 @@ func (c *RemoteIndex) ReinitShard(ctx context.Context,
 func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	hostName, indexName string, ssBefore, ssAfter *sharding.State,
 ) error {
-	path := fmt.Sprintf("/replica/indices/%s/replication-factor/_increase", indexName)
+	path := fmt.Sprintf("/replicas/indices/%s/replication-factor/_increase", indexName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -820,7 +820,7 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 func (c *RemoteIndex) ReplicatePutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object,
 ) error {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s/objects", indexName, shardName)
+	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -854,7 +854,7 @@ func (c *RemoteIndex) ReplicatePutObject(ctx context.Context, hostName, indexNam
 func (c *RemoteIndex) ReplicateBatchPutObjects(ctx context.Context, hostName, indexName,
 	shardName string, objs []*storobj.Object,
 ) []error {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s/objects", indexName, shardName)
+	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -900,7 +900,7 @@ func (c *RemoteIndex) ReplicateBatchPutObjects(ctx context.Context, hostName, in
 func (c *RemoteIndex) ReplicateDeleteObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) error {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s/objects/%s", indexName, shardName, id)
+	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects/%s", indexName, shardName, id)
 	method := http.MethodDelete
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 

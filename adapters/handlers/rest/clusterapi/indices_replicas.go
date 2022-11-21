@@ -37,6 +37,8 @@ type replicator interface {
 		uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, index, shard, requestID string,
 		docIDs []uint64, dryRun bool) replica.SimpleResponse
+	ReplicateReferences(ctx context.Context, index, shard, requestID string,
+		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
 		shardName, requestID string) interface{}
 	AbortReplication(ctx context.Context, indexName,
@@ -54,13 +56,15 @@ type replicatedIndices struct {
 }
 
 var (
-	regxObject = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+	regxObject = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`)
-	regxObjects = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+	regxObjects = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects`)
-	regxIncreaseRepFactor = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+	regxReferences = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/objects/references`)
+	regxIncreaseRepFactor = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/replication-factor\/_increase`)
-	regxCommitPhase = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+	regxCommitPhase = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+):(commit|abort)`)
 )
 
@@ -75,7 +79,6 @@ func (i *replicatedIndices) Indices() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
-
 		case regxObject.MatchString(path):
 			if r.Method == http.MethodDelete {
 				i.deleteObject().ServeHTTP(w, r)
@@ -85,6 +88,13 @@ func (i *replicatedIndices) Indices() http.Handler {
 			if r.Method == http.MethodPatch {
 				i.patchObject().ServeHTTP(w, r)
 				return
+			}
+
+			if regxReferences.MatchString(path) {
+				if r.Method == http.MethodPost {
+					i.postRefs().ServeHTTP(w, r)
+					return
+				}
 			}
 
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -121,6 +131,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
+
 		default:
 			http.NotFound(w, r)
 			return
@@ -368,4 +379,38 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Write(b)
+}
+
+func (i *replicatedIndices) postRefs() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		refs, err := IndicesPayloads.ReferenceList.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := i.shards.ReplicateReferences(r.Context(), index, shard, "123", refs)
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(b)
+	})
 }

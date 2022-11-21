@@ -263,7 +263,7 @@ func (c *ReplicationClient) Abort(ctx context.Context, host, index, shard, reque
 }
 
 func newHttpRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader) (*http.Request, error) {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s/objects", index, shard)
+	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", index, shard)
 	if suffix != "" {
 		path = fmt.Sprintf("%s/%s", path, suffix)
 	}
@@ -278,7 +278,7 @@ func newHttpRequest(ctx context.Context, method, host, index, shard, requestId, 
 }
 
 func newHttpCMD(ctx context.Context, host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s:%s", index, shard, cmd)
+	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
 	return http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
