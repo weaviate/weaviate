@@ -119,8 +119,8 @@ func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 
 func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 	docIDs []uint64, dryRun bool,
-) []error {
-	coord := newCoordinator[replica.SimpleResponse](r, shard)
+) []objects.BatchSimpleObject {
+	coord := newCoordinator[replica.DeleteBatchResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(
 			ctx, host, r.class, shard, requestID, docIDs, dryRun)
@@ -129,8 +129,17 @@ func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 		}
 		return resp.FirstError()
 	}
-	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
-	return errorsFromSimpleResponses(len(docIDs), coord.responses, err)
+	commit := (func(ctx context.Context, host, requestID string) (replica.DeleteBatchResponse, error) {
+		resp := replica.DeleteBatchResponse{}
+		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
+		if err == nil {
+			err = resp.FirstError()
+		}
+		return resp, err
+	})
+
+	err := coord.Replicate(ctx, op, commit)
+	return resultsFromDeletionResponses(len(docIDs), coord.responses, err)
 }
 
 func (r *Replicator) AddReferences(ctx context.Context, shard string,
@@ -195,4 +204,31 @@ func errorsFromSimpleResponses(batchSize int, rs []replica.SimpleResponse, defau
 		}
 	}
 	return errs
+}
+
+func resultsFromDeletionResponses(size int, rs []replica.DeleteBatchResponse, defaultErr error) []objects.BatchSimpleObject {
+	ret := make([]objects.BatchSimpleObject, size)
+	n := 0
+	for _, resp := range rs {
+		if len(resp.Batch) != size {
+			continue
+		}
+		n++
+		for i, x := range resp.Batch {
+			if x.Error != "" && ret[i].Err == nil {
+				ret[i].Err = errors.New(x.Error)
+			}
+			if ret[i].UUID == "" && x.UUID != "" {
+				ret[i].UUID = strfmt.UUID(x.UUID)
+			}
+		}
+	}
+	if n != size {
+		for i := range ret {
+			if ret[i].Err == nil {
+				ret[i].Err = defaultErr
+			}
+		}
+	}
+	return ret
 }

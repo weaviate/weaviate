@@ -15,8 +15,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 func Test_parseSummaryArguments(t *testing.T) {

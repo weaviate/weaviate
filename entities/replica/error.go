@@ -26,3 +26,8 @@ func (e *Error) Unwrap() error {
 func (e *Error) Error() string {
 	return fmt.Sprintf("%v :%v", e.Msg, e.Err)
 }
+
+type UUID2Error struct {
+	UUID  string `json:"uuid,omitempty"`
+	Error string `json:"error,omitempty"`
+}

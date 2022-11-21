@@ -14,8 +14,8 @@ package tokens
 import (
 	"testing"
 
-	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
 )
 
 func Test_additionalTokensField(t *testing.T) {

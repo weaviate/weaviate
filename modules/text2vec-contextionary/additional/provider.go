@@ -14,9 +14,9 @@ package additional
 import (
 	"context"
 
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 type AdditionalProperty interface {

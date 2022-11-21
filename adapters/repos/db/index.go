@@ -1314,12 +1314,12 @@ func (ri *replicatedIndex) ReplicateDeletion(ctx context.Context, shardName,
 
 func (ri *replicatedIndex) CommitReplication(ctx context.Context, shardName,
 	requestID string,
-) entrep.SimpleResponse {
+) interface{} {
 	return (*Index)(ri).CommitReplication(ctx, shardName, requestID)
 }
 
 func (ri *replicatedIndex) AbortReplication(ctx context.Context, shardName,
 	requestID string,
-) entrep.SimpleResponse {
+) interface{} {
 	return (*Index)(ri).AbortReplication(ctx, shardName, requestID)
 }

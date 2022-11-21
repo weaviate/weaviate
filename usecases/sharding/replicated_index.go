@@ -33,9 +33,9 @@ type Replicator interface {
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	CommitReplication(ctx context.Context, shard,
-		requestID string) replica.SimpleResponse
+		requestID string) interface{}
 	AbortReplication(ctx context.Context, shardName,
-		requestID string) replica.SimpleResponse
+		requestID string) interface{}
 }
 
 type ReplicatedIndex struct {
@@ -89,7 +89,7 @@ func (rii *ReplicatedIndex) ReplicateDeletion(ctx context.Context, indexName,
 
 func (rii *ReplicatedIndex) CommitReplication(ctx context.Context, indexName,
 	shardName, requestID string,
-) replica.SimpleResponse {
+) interface{} {
 	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
 	if index == nil {
 		return replica.SimpleResponse{
@@ -102,7 +102,7 @@ func (rii *ReplicatedIndex) CommitReplication(ctx context.Context, indexName,
 
 func (rii *ReplicatedIndex) AbortReplication(ctx context.Context, indexName,
 	shardName, requestID string,
-) replica.SimpleResponse {
+) interface{} {
 	index := rii.repo.GetReplicatedIndex(schema.ClassName(indexName))
 	if index == nil {
 		return replica.SimpleResponse{

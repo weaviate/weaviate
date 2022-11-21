@@ -14,8 +14,8 @@ package additional
 import (
 	"testing"
 
-	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
 )
 
 func TestFeatureProjectionField(t *testing.T) {

@@ -33,9 +33,9 @@ type replicator interface {
 	ReplicateDeletion(ctx context.Context, index, shard, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
-		shardName, requestID string) replica.SimpleResponse
+		shardName, requestID string) interface{}
 	AbortReplication(ctx context.Context, indexName,
-		shardName, requestID string) replica.SimpleResponse
+		shardName, requestID string) interface{}
 }
 
 type scaler interface {
@@ -123,7 +123,7 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 
 		index, shard, cmd := args[1], args[2], args[3]
 
-		var resp replica.SimpleResponse
+		var resp interface{}
 
 		switch cmd {
 		case "commit":
