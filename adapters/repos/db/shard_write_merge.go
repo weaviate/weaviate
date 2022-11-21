@@ -33,7 +33,11 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	next, status, err := s.mergeObjectInStorage(merge, idBytes)
+	return s.merge(ctx, idBytes, merge)
+}
+
+func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
+	next, status, err := s.mergeObjectInStorage(doc, idBytes)
 	if err != nil {
 		return err
 	}

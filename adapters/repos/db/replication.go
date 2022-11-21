@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/replica"
 )
 
@@ -120,6 +121,16 @@ func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, ob
 	return localShard.preparePutObject(ctx, requestID, object)
 }
 
+func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
+	localShard, ok := i.Shards[shard]
+	if !ok {
+		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+	}
+	return localShard.prepareMergeObject(ctx, requestID, doc)
+}
+
 func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -138,6 +149,26 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 		return replica.SimpleResponse{Errors: []string{"shard not found"}}
 	}
 	return localShard.preparePutObjects(ctx, requestID, objects)
+}
+
+func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
+	localShard, ok := i.Shards[shard]
+	if !ok {
+		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+	}
+	return localShard.prepareDeleteObjects(ctx, requestID, docIDs, dryRun)
+}
+
+func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
+	i.backupStateLock.RLock()
+	defer i.backupStateLock.RUnlock()
+	localShard, ok := i.Shards[shard]
+	if !ok {
+		return replica.SimpleResponse{Errors: []string{"shard not found"}}
+	}
+	return localShard.prepareAddReferences(ctx, requestID, refs)
 }
 
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) interface{} {
