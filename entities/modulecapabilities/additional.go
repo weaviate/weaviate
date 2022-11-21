@@ -14,9 +14,9 @@ package modulecapabilities
 import (
 	"context"
 
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 // GraphQLFieldFn generates graphql field based on classname
