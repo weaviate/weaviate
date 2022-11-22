@@ -46,7 +46,7 @@ type metaClient interface {
 }
 
 type imageVectorizer interface {
-	Object(ctx context.Context, object *models.Object,
+	Object(ctx context.Context, object *models.Object, objDiff *moduletools.ObjectDiff,
 		settings vectorizer.ClassSettings) error
 	VectorizeImage(ctx context.Context, image string) ([]float32, error)
 }
@@ -127,10 +127,10 @@ func (m *ClipModule) RootHandler() http.Handler {
 }
 
 func (m *ClipModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig,
+	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
 	icheck := vectorizer.NewClassSettings(cfg)
-	return m.imageVectorizer.Object(ctx, obj, icheck)
+	return m.imageVectorizer.Object(ctx, obj, objDiff, icheck)
 }
 
 func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
