@@ -32,7 +32,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
-	entrep "github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
@@ -1304,54 +1303,4 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
-}
-
-type replicatedIndex Index
-
-func (ri *replicatedIndex) ReplicateObject(ctx context.Context, shardName,
-	requestID string, object *storobj.Object,
-) entrep.SimpleResponse {
-	return (*Index)(ri).ReplicateObject(ctx, shardName, requestID, object)
-}
-
-func (ri *replicatedIndex) ReplicateObjects(ctx context.Context, shardName,
-	requestID string, objects []*storobj.Object,
-) entrep.SimpleResponse {
-	return (*Index)(ri).ReplicateObjects(ctx, shardName, requestID, objects)
-}
-
-func (ri *replicatedIndex) ReplicateUpdate(ctx context.Context, shardName,
-	requestID string, merge *objects.MergeDocument,
-) entrep.SimpleResponse {
-	return (*Index)(ri).ReplicateUpdate(ctx, shardName, requestID, merge)
-}
-
-func (ri *replicatedIndex) ReplicateDeletion(ctx context.Context, shardName,
-	requestID string, uuid strfmt.UUID,
-) entrep.SimpleResponse {
-	return (*Index)(ri).ReplicateDeletion(ctx, shardName, requestID, uuid)
-}
-
-func (ri *replicatedIndex) ReplicateDeletions(ctx context.Context, shardName,
-	requestID string, docIDs []uint64, dryRun bool,
-) entrep.SimpleResponse {
-	return (*Index)(ri).ReplicateDeletions(ctx, shardName, requestID, docIDs, dryRun)
-}
-
-func (ri *replicatedIndex) ReplicateReferences(ctx context.Context, shardName,
-	requestID string, refs []objects.BatchReference,
-) entrep.SimpleResponse {
-	return (*Index)(ri).ReplicateReferences(ctx, shardName, requestID, refs)
-}
-
-func (ri *replicatedIndex) CommitReplication(ctx context.Context, shardName,
-	requestID string,
-) interface{} {
-	return (*Index)(ri).CommitReplication(ctx, shardName, requestID)
-}
-
-func (ri *replicatedIndex) AbortReplication(ctx context.Context, shardName,
-	requestID string,
-) interface{} {
-	return (*Index)(ri).AbortReplication(ctx, shardName, requestID)
 }

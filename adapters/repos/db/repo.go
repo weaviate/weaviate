@@ -143,7 +143,7 @@ func (d *DB) GetReplicatedIndex(className schema.ClassName) sharding.Replicator 
 		return nil
 	}
 
-	return (*replicatedIndex)(index)
+	return index
 }
 
 // DeleteIndex deletes the index
