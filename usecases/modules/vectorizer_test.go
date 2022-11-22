@@ -171,7 +171,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
@@ -197,7 +197,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
@@ -213,7 +213,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
 		expectedErr := fmt.Sprintf("class %q not found in schema", className)
 		assert.EqualError(t, err, expectedErr)
 	})
@@ -240,7 +240,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
 		expectedErr := "vector index config (struct {}) is not of type HNSW, " +
 			"but objects manager is restricted to HNSW"
 		assert.EqualError(t, err, expectedErr)
