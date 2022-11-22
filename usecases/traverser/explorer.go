@@ -238,6 +238,98 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	return concatenatedResults
 }
 
+func (e *Explorer) hybrid(ctx context.Context, params GetParams)  ([]interface{}, error){
+    if params.HybridSearch != nil {
+        //Iterate over subsearches, and execute them
+        results := [][]search.Result{}
+        weights := []float64{}
+
+        ss := params.HybridSearch.SubSearches
+        var vector []float32
+        for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
+            switch subsearch.Type {
+            case "bm25":
+                fallthrough
+                case "sparseSearch":
+                    sp := subsearch.SearchParams.(searchparams.KeywordRanking)
+                    weights = append(weights, subsearch.Weight)
+                    params.KeywordRanking = &sp
+
+                    res1, err := e.search.ClassSearch(ctx, params)
+                    if err != nil {
+                        return nil, err
+                    }
+
+                    //Set the scoreexplain property to bm25 for every result
+                    for i := range res1 {
+                        res1[i].ScoreExplain = "(bm25)" + res1[i].ScoreExplain
+                    }
+
+                    results = append(results, res1)
+                    case "nearText":
+                        sp := subsearch.SearchParams.(searchparams.NearTextParams)
+                        weights = append(weights, subsearch.Weight)
+                        if e.modulesProvider == nil {
+                            continue
+                        }
+
+                        var err error
+                        vector, err = e.modulesProvider.VectorFromInput(ctx,
+                            params.ClassName, sp.Values[0]) //FIXME where is the search query?
+                            if err != nil {
+                                return nil, err
+                            }
+                            fmt.Printf("found vector: %v\n", vector)
+
+                        res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
+                        if err != nil {
+                            return nil, err
+                        }
+
+                        //Set the scoreexplain property to vector for every result
+                        for i := range res2 {
+                            res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
+                        }
+                        results = append(results, res2)
+
+                        case "nearVector":
+
+                            sp := subsearch.SearchParams.(searchparams.NearVector)
+                            weights = append(weights, subsearch.Weight)
+                            if sp.Vector != nil && len(sp.Vector) != 0 {
+                                vector = sp.Vector
+
+                            }
+
+                            res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
+                            if err != nil {
+                                return nil, err
+                            }
+
+                            //Set the scoreexplain property to vector for every result
+                            for i := range res2 {
+                                res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
+                            }
+
+                            results = append(results, res2)
+
+                            default:
+                                panic("unknown subsearch type:" + subsearch.Type)
+            }
+
+        }
+
+        fused := FusionReciprocal(weights, results)
+        if len(fused) > params.HybridSearch.Limit {
+            fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
+            fused = fused[:params.HybridSearch.Limit]
+        }
+
+        return e.searchResultsToGetResponse(ctx, fused, nil, params)
+
+    }
+}
+
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
@@ -259,95 +351,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 		params.AdditionalProperties.Vector = true
 	}
 
-	if params.HybridSearch != nil {
-		//Iterate over subsearches, and execute them
-		results := [][]search.Result{}
-		weights := []float64{}
-
-		ss := params.HybridSearch.SubSearches
-		var vector []float32
-		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			switch subsearch.Type {
-			case "bm25":
-				fallthrough
-			case "sparseSearch":
-				sp := subsearch.SearchParams.(searchparams.KeywordRanking)
-				weights = append(weights, subsearch.Weight)
-				params.KeywordRanking = &sp
-
-				res1, err := e.search.ClassSearch(ctx, params)
-				if err != nil {
-					return nil, err
-				}
-
-				//Set the scoreexplain property to bm25 for every result
-				for i := range res1 {
-					res1[i].ScoreExplain = "(bm25)" + res1[i].ScoreExplain
-				}
-
-				results = append(results, res1)
-			case "nearText":
-				sp := subsearch.SearchParams.(searchparams.NearTextParams)
-				weights = append(weights, subsearch.Weight)
-				if e.modulesProvider == nil {
-					continue
-				}
-
-				var err error
-				vector, err = e.modulesProvider.VectorFromInput(ctx,
-					params.ClassName, sp.Values[0]) //FIXME where is the search query?
-				if err != nil {
-					return nil, err
-				}
-				fmt.Printf("found vector: %v\n", vector)
-
-				res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
-				if err != nil {
-					return nil, err
-				}
-
-				//Set the scoreexplain property to vector for every result
-				for i := range res2 {
-					res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
-				}
-				results = append(results, res2)
-
-			case "nearVector":
-
-				sp := subsearch.SearchParams.(searchparams.NearVector)
-				weights = append(weights, subsearch.Weight)
-				if sp.Vector != nil && len(sp.Vector) != 0 {
-					vector = sp.Vector
-
-				}
-
-				res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
-				if err != nil {
-					return nil, err
-				}
-
-				//Set the scoreexplain property to vector for every result
-				for i := range res2 {
-					res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
-				}
-
-				results = append(results, res2)
-
-			default:
-				panic("unknown subsearch type:" + subsearch.Type)
-			}
-
-		}
-
-		fused := FusionReciprocal(weights, results)
-		if len(fused) > params.HybridSearch.Limit {
-			fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
-			fused = fused[:params.HybridSearch.Limit]
-		}
-
-		return e.searchResultsToGetResponse(ctx, fused, nil, params)
-
-	}
+	e.hybrid(params)
 
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
