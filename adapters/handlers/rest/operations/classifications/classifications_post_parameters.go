@@ -30,7 +30,6 @@ import (
 // NewClassificationsPostParams creates a new ClassificationsPostParams object
 // no default values defined in spec.
 func NewClassificationsPostParams() ClassificationsPostParams {
-
 	return ClassificationsPostParams{}
 }
 
@@ -39,7 +38,6 @@ func NewClassificationsPostParams() ClassificationsPostParams {
 //
 // swagger:parameters classifications.post
 type ClassificationsPostParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

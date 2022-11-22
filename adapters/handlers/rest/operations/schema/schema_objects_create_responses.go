@@ -33,7 +33,6 @@ SchemaObjectsCreateOK Added the new Object class to the schema.
 swagger:response schemaObjectsCreateOK
 */
 type SchemaObjectsCreateOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type SchemaObjectsCreateOK struct {
 
 // NewSchemaObjectsCreateOK creates SchemaObjectsCreateOK with default headers values
 func NewSchemaObjectsCreateOK() *SchemaObjectsCreateOK {
-
 	return &SchemaObjectsCreateOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *SchemaObjectsCreateOK) SetPayload(payload *models.Class) {
 
 // WriteResponse to the client
 func (o *SchemaObjectsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -77,19 +74,16 @@ SchemaObjectsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsCreateUnauthorized
 */
-type SchemaObjectsCreateUnauthorized struct {
-}
+type SchemaObjectsCreateUnauthorized struct{}
 
 // NewSchemaObjectsCreateUnauthorized creates SchemaObjectsCreateUnauthorized with default headers values
 func NewSchemaObjectsCreateUnauthorized() *SchemaObjectsCreateUnauthorized {
-
 	return &SchemaObjectsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -103,7 +97,6 @@ SchemaObjectsCreateForbidden Forbidden
 swagger:response schemaObjectsCreateForbidden
 */
 type SchemaObjectsCreateForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -112,7 +105,6 @@ type SchemaObjectsCreateForbidden struct {
 
 // NewSchemaObjectsCreateForbidden creates SchemaObjectsCreateForbidden with default headers values
 func NewSchemaObjectsCreateForbidden() *SchemaObjectsCreateForbidden {
-
 	return &SchemaObjectsCreateForbidden{}
 }
 
@@ -129,7 +121,6 @@ func (o *SchemaObjectsCreateForbidden) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *SchemaObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -148,7 +139,6 @@ SchemaObjectsCreateUnprocessableEntity Invalid Object class
 swagger:response schemaObjectsCreateUnprocessableEntity
 */
 type SchemaObjectsCreateUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -157,7 +147,6 @@ type SchemaObjectsCreateUnprocessableEntity struct {
 
 // NewSchemaObjectsCreateUnprocessableEntity creates SchemaObjectsCreateUnprocessableEntity with default headers values
 func NewSchemaObjectsCreateUnprocessableEntity() *SchemaObjectsCreateUnprocessableEntity {
-
 	return &SchemaObjectsCreateUnprocessableEntity{}
 }
 
@@ -174,7 +163,6 @@ func (o *SchemaObjectsCreateUnprocessableEntity) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *SchemaObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -193,7 +181,6 @@ SchemaObjectsCreateInternalServerError An error has occurred while trying to ful
 swagger:response schemaObjectsCreateInternalServerError
 */
 type SchemaObjectsCreateInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -202,7 +189,6 @@ type SchemaObjectsCreateInternalServerError struct {
 
 // NewSchemaObjectsCreateInternalServerError creates SchemaObjectsCreateInternalServerError with default headers values
 func NewSchemaObjectsCreateInternalServerError() *SchemaObjectsCreateInternalServerError {
-
 	return &SchemaObjectsCreateInternalServerError{}
 }
 
@@ -219,7 +205,6 @@ func (o *SchemaObjectsCreateInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *SchemaObjectsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

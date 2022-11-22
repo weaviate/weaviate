@@ -52,7 +52,7 @@ func (o *BackupsRestoreStatusURL) SetBasePath(bp string) {
 func (o *BackupsRestoreStatusURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/backups/{backend}/{id}/restore"
+	_path := "/backups/{backend}/{id}/restore"
 
 	backend := o.Backend
 	if backend != "" {

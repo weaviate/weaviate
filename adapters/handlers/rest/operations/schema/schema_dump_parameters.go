@@ -26,7 +26,6 @@ import (
 // NewSchemaDumpParams creates a new SchemaDumpParams object
 // no default values defined in spec.
 func NewSchemaDumpParams() SchemaDumpParams {
-
 	return SchemaDumpParams{}
 }
 
@@ -35,7 +34,6 @@ func NewSchemaDumpParams() SchemaDumpParams {
 //
 // swagger:parameters schema.dump
 type SchemaDumpParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

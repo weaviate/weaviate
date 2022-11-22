@@ -294,7 +294,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, o
 
 	for _, propertyWithBoost := range properties {
 		boost := 1
-		var property = propertyWithBoost
+		property := propertyWithBoost
 		if strings.Contains(propertyWithBoost, "^") {
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
@@ -315,7 +315,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, o
 		propNames = append(propNames, property)
 	}
 
-	//Merge the results from different properties
+	// Merge the results from different properties
 	ids := b.mergeIdss(idss, objectByIndexID, propNames)
 
 	b.scoreBM25F(ids, properties)
@@ -324,7 +324,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, o
 
 // BM25F combine and score the results from multiple properties
 func (bm *BM25Searcher) scoreBM25F(ids docPointersWithScore, propNames []string) error {
-	for i, _ := range ids.docIDs {
+	for i := range ids.docIDs {
 		ids.docIDs[i].score = float64(0)
 	}
 
