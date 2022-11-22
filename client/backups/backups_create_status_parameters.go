@@ -32,7 +32,6 @@ import (
 func NewBackupsCreateStatusParams() *BackupsCreateStatusParams {
 	var ()
 	return &BackupsCreateStatusParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -42,7 +41,6 @@ func NewBackupsCreateStatusParams() *BackupsCreateStatusParams {
 func NewBackupsCreateStatusParamsWithTimeout(timeout time.Duration) *BackupsCreateStatusParams {
 	var ()
 	return &BackupsCreateStatusParams{
-
 		timeout: timeout,
 	}
 }
@@ -52,7 +50,6 @@ func NewBackupsCreateStatusParamsWithTimeout(timeout time.Duration) *BackupsCrea
 func NewBackupsCreateStatusParamsWithContext(ctx context.Context) *BackupsCreateStatusParams {
 	var ()
 	return &BackupsCreateStatusParams{
-
 		Context: ctx,
 	}
 }
@@ -71,7 +68,6 @@ BackupsCreateStatusParams contains all the parameters to send to the API endpoin
 for the backups create status operation typically these are written to a http.Request
 */
 type BackupsCreateStatusParams struct {
-
 	/*Backend
 	  Backup backend name e.g. filesystem, gcs, s3.
 
@@ -145,7 +141,6 @@ func (o *BackupsCreateStatusParams) SetID(id string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsCreateStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

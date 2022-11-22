@@ -26,7 +26,6 @@ import (
 //
 // swagger:model WhereFilterGeoRange
 type WhereFilterGeoRange struct {
-
 	// distance
 	Distance *WhereFilterGeoRangeDistance `json:"distance,omitempty"`
 
@@ -53,7 +52,6 @@ func (m *WhereFilterGeoRange) Validate(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilterGeoRange) validateDistance(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Distance) { // not required
 		return nil
 	}
@@ -71,7 +69,6 @@ func (m *WhereFilterGeoRange) validateDistance(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilterGeoRange) validateGeoCoordinates(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.GeoCoordinates) { // not required
 		return nil
 	}
@@ -110,7 +107,6 @@ func (m *WhereFilterGeoRange) UnmarshalBinary(b []byte) error {
 //
 // swagger:model WhereFilterGeoRangeDistance
 type WhereFilterGeoRangeDistance struct {
-
 	// max
 	Max float64 `json:"max,omitempty"`
 }

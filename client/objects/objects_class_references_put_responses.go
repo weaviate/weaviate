@@ -86,15 +86,13 @@ ObjectsClassReferencesPutOK handles this case with default header values.
 
 Successfully replaced all the references.
 */
-type ObjectsClassReferencesPutOK struct {
-}
+type ObjectsClassReferencesPutOK struct{}
 
 func (o *ObjectsClassReferencesPutOK) Error() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
 }
 
 func (o *ObjectsClassReferencesPutOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -108,15 +106,13 @@ ObjectsClassReferencesPutUnauthorized handles this case with default header valu
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesPutUnauthorized struct {
-}
+type ObjectsClassReferencesPutUnauthorized struct{}
 
 func (o *ObjectsClassReferencesPutUnauthorized) Error() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -143,7 +139,6 @@ func (o *ObjectsClassReferencesPutForbidden) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassReferencesPutForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -164,15 +159,13 @@ ObjectsClassReferencesPutNotFound handles this case with default header values.
 
 Source object doesn't exist.
 */
-type ObjectsClassReferencesPutNotFound struct {
-}
+type ObjectsClassReferencesPutNotFound struct{}
 
 func (o *ObjectsClassReferencesPutNotFound) Error() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
 }
 
 func (o *ObjectsClassReferencesPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -199,7 +192,6 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) GetPayload() *models.Erro
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -233,7 +225,6 @@ func (o *ObjectsClassReferencesPutInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

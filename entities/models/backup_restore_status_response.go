@@ -29,7 +29,6 @@ import (
 //
 // swagger:model BackupRestoreStatusResponse
 type BackupRestoreStatusResponse struct {
-
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
@@ -100,7 +99,6 @@ func (m *BackupRestoreStatusResponse) validateStatusEnum(path, location string, 
 }
 
 func (m *BackupRestoreStatusResponse) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}

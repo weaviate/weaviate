@@ -93,7 +93,6 @@ func (o *BackupsRestoreStatusOK) GetPayload() *models.BackupRestoreStatusRespons
 }
 
 func (o *BackupsRestoreStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.BackupRestoreStatusResponse)
 
 	// response payload
@@ -114,15 +113,13 @@ BackupsRestoreStatusUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type BackupsRestoreStatusUnauthorized struct {
-}
+type BackupsRestoreStatusUnauthorized struct{}
 
 func (o *BackupsRestoreStatusUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /backups/{backend}/{id}/restore][%d] backupsRestoreStatusUnauthorized ", 401)
 }
 
 func (o *BackupsRestoreStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -149,7 +146,6 @@ func (o *BackupsRestoreStatusForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -183,7 +179,6 @@ func (o *BackupsRestoreStatusNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -217,7 +212,6 @@ func (o *BackupsRestoreStatusInternalServerError) GetPayload() *models.ErrorResp
 }
 
 func (o *BackupsRestoreStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

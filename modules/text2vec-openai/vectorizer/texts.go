@@ -21,12 +21,11 @@ import (
 
 func (v *Vectorizer) VectorizeInput(ctx context.Context, input, tiipe, model string,
 ) ([]float32, error) {
-
 	conf := ent.VectorizationConfig{
 		Type:  tiipe,
 		Model: model,
 	}
-	vector_s, err := v.client.VectorizeQuery(ctx, input, conf) //FIXME config?
+	vector_s, err := v.client.VectorizeQuery(ctx, input, conf) // FIXME config?
 	if err != nil {
 		return nil, err
 	}

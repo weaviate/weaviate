@@ -86,15 +86,13 @@ ObjectsClassReferencesDeleteNoContent handles this case with default header valu
 
 Successfully deleted.
 */
-type ObjectsClassReferencesDeleteNoContent struct {
-}
+type ObjectsClassReferencesDeleteNoContent struct{}
 
 func (o *ObjectsClassReferencesDeleteNoContent) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteNoContent ", 204)
 }
 
 func (o *ObjectsClassReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -108,15 +106,13 @@ ObjectsClassReferencesDeleteUnauthorized handles this case with default header v
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesDeleteUnauthorized struct {
-}
+type ObjectsClassReferencesDeleteUnauthorized struct{}
 
 func (o *ObjectsClassReferencesDeleteUnauthorized) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteUnauthorized ", 401)
 }
 
 func (o *ObjectsClassReferencesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -143,7 +139,6 @@ func (o *ObjectsClassReferencesDeleteForbidden) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassReferencesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -177,7 +172,6 @@ func (o *ObjectsClassReferencesDeleteNotFound) GetPayload() *models.ErrorRespons
 }
 
 func (o *ObjectsClassReferencesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -211,7 +205,6 @@ func (o *ObjectsClassReferencesDeleteUnprocessableEntity) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -245,7 +238,6 @@ func (o *ObjectsClassReferencesDeleteInternalServerError) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

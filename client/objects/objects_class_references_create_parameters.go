@@ -34,7 +34,6 @@ import (
 func NewObjectsClassReferencesCreateParams() *ObjectsClassReferencesCreateParams {
 	var ()
 	return &ObjectsClassReferencesCreateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -44,7 +43,6 @@ func NewObjectsClassReferencesCreateParams() *ObjectsClassReferencesCreateParams
 func NewObjectsClassReferencesCreateParamsWithTimeout(timeout time.Duration) *ObjectsClassReferencesCreateParams {
 	var ()
 	return &ObjectsClassReferencesCreateParams{
-
 		timeout: timeout,
 	}
 }
@@ -54,7 +52,6 @@ func NewObjectsClassReferencesCreateParamsWithTimeout(timeout time.Duration) *Ob
 func NewObjectsClassReferencesCreateParamsWithContext(ctx context.Context) *ObjectsClassReferencesCreateParams {
 	var ()
 	return &ObjectsClassReferencesCreateParams{
-
 		Context: ctx,
 	}
 }
@@ -73,7 +70,6 @@ ObjectsClassReferencesCreateParams contains all the parameters to send to the AP
 for the objects class references create operation typically these are written to a http.Request
 */
 type ObjectsClassReferencesCreateParams struct {
-
 	/*Body*/
 	Body *models.SingleRef
 	/*ClassName
@@ -176,7 +172,6 @@ func (o *ObjectsClassReferencesCreateParams) SetPropertyName(propertyName string
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassReferencesCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

@@ -80,15 +80,13 @@ ObjectsValidateOK handles this case with default header values.
 
 Successfully validated.
 */
-type ObjectsValidateOK struct {
-}
+type ObjectsValidateOK struct{}
 
 func (o *ObjectsValidateOK) Error() string {
 	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK ", 200)
 }
 
 func (o *ObjectsValidateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -102,15 +100,13 @@ ObjectsValidateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsValidateUnauthorized struct {
-}
+type ObjectsValidateUnauthorized struct{}
 
 func (o *ObjectsValidateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized ", 401)
 }
 
 func (o *ObjectsValidateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -137,7 +133,6 @@ func (o *ObjectsValidateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsValidateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -171,7 +166,6 @@ func (o *ObjectsValidateUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsValidateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -205,7 +199,6 @@ func (o *ObjectsValidateInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsValidateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

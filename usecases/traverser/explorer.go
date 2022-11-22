@@ -13,9 +13,8 @@ package traverser
 
 import (
 	"context"
-	"sort"
-
 	"fmt"
+	"sort"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -218,11 +217,11 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 }
 
 func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
-	//Concatenate the results
+	// Concatenate the results
 	concatenatedResults := []search.Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
-			score := weights[resultSetIndex] / float64(i+60+1) //FIXME replace 60 with a variable
+			score := weights[resultSetIndex] / float64(i+60+1) // FIXME replace 60 with a variable
 
 			res.AdditionalProperties["rank_score"] = score
 			res.AdditionalProperties["score"] = score
@@ -245,35 +244,35 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		// There are two modes to hybrid search.  One is a simple unified interface, which only takes
 		// a few parameters, like "query", "vector", and "alpha".  It only does two searches and combines them.
 
-		//The other is a more complex, complete interface that allows any number of searches to be combined.
-		//The searches can use all of the options normally available, allowing complete control over the subsearches.
+		// The other is a more complex, complete interface that allows any number of searches to be combined.
+		// The searches can use all of the options normally available, allowing complete control over the subsearches.
 
 		if params.HybridSearch.Query != "" {
-			//Simple unified interface
+			// Simple unified interface
 
-			//Result 1 is the bm25 "sparse" search
+			// Result 1 is the bm25 "sparse" search
 			res1, err := e.search.ClassSearch(ctx, params)
 			if err != nil {
 				return nil, err
 			}
 
-			//Set the scoreexplain property to bm25 for every result
+			// Set the scoreexplain property to bm25 for every result
 			for i := range res1 {
 				res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 			}
 
-			//Result 2 is the vector search, either with the provided vector or with a vector derived from the query
+			// Result 2 is the vector search, either with the provided vector or with a vector derived from the query
 			// i.e. nearVec or NearText
 			var vector []float32
 			if e.modulesProvider != nil {
 				if params.HybridSearch.Vector != nil && len(params.HybridSearch.Vector) != 0 {
-					//NearVec search
+					// NearVec search
 
 					vector = params.HybridSearch.Vector
 				} else {
-					//NearText search
+					// NearText search
 
-					//Get the vector for the query
+					// Get the vector for the query
 					vector, err = e.modulesProvider.VectorFromInput(ctx,
 						params.ClassName, params.HybridSearch.Query)
 					if err != nil {
@@ -286,7 +285,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					return nil, err
 				}
 
-				//Set the scoreexplain property to vector for every result
+				// Set the scoreexplain property to vector for every result
 				for i := range res2 {
 					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
 				}
@@ -297,9 +296,9 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 			}
 		} else {
-			//Complete interface
+			// Complete interface
 
-			//Iterate over subsearches, and execute them
+			// Iterate over subsearches, and execute them
 
 			ss := params.HybridSearch.SubSearches
 			var vector []float32
@@ -317,7 +316,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 						return nil, err
 					}
 
-					//Set the scoreexplain property to bm25 for every result
+					// Set the scoreexplain property to bm25 for every result
 					for i := range res1 {
 						res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 					}
@@ -332,7 +331,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					var err error
 					vector, err = e.modulesProvider.VectorFromInput(ctx,
-						params.ClassName, sp.Values[0]) //FIXME where is the search query?
+						params.ClassName, sp.Values[0]) // FIXME where is the search query?
 					if err != nil {
 						return nil, err
 					}
@@ -343,7 +342,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 						return nil, err
 					}
 
-					//Set the scoreexplain property to vector for every result
+					// Set the scoreexplain property to vector for every result
 					for i := range res2 {
 						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
 					}
@@ -355,7 +354,6 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					weights = append(weights, subsearch.Weight)
 					if sp.Vector != nil && len(sp.Vector) != 0 {
 						vector = sp.Vector
-
 					}
 
 					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
@@ -363,7 +361,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 						return nil, err
 					}
 
-					//Set the scoreexplain property to vector for every result
+					// Set the scoreexplain property to vector for every result
 					for i := range res2 {
 						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
 					}
@@ -373,7 +371,6 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 				default:
 					panic("unknown subsearch type:" + subsearch.Type)
 				}
-
 			}
 		}
 	}
@@ -384,7 +381,6 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 	}
 
 	return fused, nil
-
 }
 
 func (e *Explorer) getClassList(ctx context.Context,

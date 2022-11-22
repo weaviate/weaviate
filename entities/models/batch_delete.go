@@ -26,7 +26,6 @@ import (
 //
 // swagger:model BatchDelete
 type BatchDelete struct {
-
 	// If true, objects will not be deleted yet, but merely listed. Defaults to false.
 	DryRun *bool `json:"dryRun,omitempty"`
 
@@ -52,7 +51,6 @@ func (m *BatchDelete) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDelete) validateMatch(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Match) { // not required
 		return nil
 	}
@@ -91,7 +89,6 @@ func (m *BatchDelete) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteMatch
 type BatchDeleteMatch struct {
-
 	// Class (name) which objects will be deleted.
 	Class string `json:"class,omitempty"`
 
@@ -114,7 +111,6 @@ func (m *BatchDeleteMatch) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteMatch) validateWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Where) { // not required
 		return nil
 	}

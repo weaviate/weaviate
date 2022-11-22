@@ -23,7 +23,7 @@ import (
 func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
 	icheck vectorizer.ClassIndexCheck,
 ) ([]float32, error) {
-	vector_s, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{}) //FIXME config?
+	vector_s, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{}) // FIXME config?
 	if err != nil {
 		return nil, err
 	}
