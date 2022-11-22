@@ -1,11 +1,12 @@
 linters:
   disable:
     - errcheck
-  enable:
     - misspell
     - bodyclose
     - gofumpt
     - exhaustive
+  enable:
+    - govet
 linters-settings:
   exhaustive:
     # Presence of "default" case in switch statements satisfies exhaustiveness,
