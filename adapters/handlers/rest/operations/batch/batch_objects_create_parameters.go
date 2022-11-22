@@ -28,6 +28,7 @@ import (
 // NewBatchObjectsCreateParams creates a new BatchObjectsCreateParams object
 // no default values defined in spec.
 func NewBatchObjectsCreateParams() BatchObjectsCreateParams {
+
 	return BatchObjectsCreateParams{}
 }
 
@@ -36,6 +37,7 @@ func NewBatchObjectsCreateParams() BatchObjectsCreateParams {
 //
 // swagger:parameters batch.objects.create
 type BatchObjectsCreateParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

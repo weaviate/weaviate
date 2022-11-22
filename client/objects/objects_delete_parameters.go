@@ -32,6 +32,7 @@ import (
 func NewObjectsDeleteParams() *ObjectsDeleteParams {
 	var ()
 	return &ObjectsDeleteParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -41,6 +42,7 @@ func NewObjectsDeleteParams() *ObjectsDeleteParams {
 func NewObjectsDeleteParamsWithTimeout(timeout time.Duration) *ObjectsDeleteParams {
 	var ()
 	return &ObjectsDeleteParams{
+
 		timeout: timeout,
 	}
 }
@@ -50,6 +52,7 @@ func NewObjectsDeleteParamsWithTimeout(timeout time.Duration) *ObjectsDeletePara
 func NewObjectsDeleteParamsWithContext(ctx context.Context) *ObjectsDeleteParams {
 	var ()
 	return &ObjectsDeleteParams{
+
 		Context: ctx,
 	}
 }
@@ -68,6 +71,7 @@ ObjectsDeleteParams contains all the parameters to send to the API endpoint
 for the objects delete operation typically these are written to a http.Request
 */
 type ObjectsDeleteParams struct {
+
 	/*ID
 	  Unique ID of the Object.
 
@@ -125,6 +129,7 @@ func (o *ObjectsDeleteParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

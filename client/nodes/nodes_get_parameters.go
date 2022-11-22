@@ -30,7 +30,9 @@ import (
 // NewNodesGetParams creates a new NodesGetParams object
 // with the default values initialized.
 func NewNodesGetParams() *NodesGetParams {
+
 	return &NodesGetParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -38,7 +40,9 @@ func NewNodesGetParams() *NodesGetParams {
 // NewNodesGetParamsWithTimeout creates a new NodesGetParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewNodesGetParamsWithTimeout(timeout time.Duration) *NodesGetParams {
+
 	return &NodesGetParams{
+
 		timeout: timeout,
 	}
 }
@@ -46,7 +50,9 @@ func NewNodesGetParamsWithTimeout(timeout time.Duration) *NodesGetParams {
 // NewNodesGetParamsWithContext creates a new NodesGetParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewNodesGetParamsWithContext(ctx context.Context) *NodesGetParams {
+
 	return &NodesGetParams{
+
 		Context: ctx,
 	}
 }
@@ -54,6 +60,7 @@ func NewNodesGetParamsWithContext(ctx context.Context) *NodesGetParams {
 // NewNodesGetParamsWithHTTPClient creates a new NodesGetParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewNodesGetParamsWithHTTPClient(client *http.Client) *NodesGetParams {
+
 	return &NodesGetParams{
 		HTTPClient: client,
 	}
@@ -104,6 +111,7 @@ func (o *NodesGetParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *NodesGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

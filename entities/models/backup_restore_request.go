@@ -25,6 +25,7 @@ import (
 //
 // swagger:model BackupRestoreRequest
 type BackupRestoreRequest struct {
+
 	// Custom configuration for the backup restoration process
 	Config interface{} `json:"config,omitempty"`
 

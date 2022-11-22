@@ -25,6 +25,7 @@ import (
 //
 // swagger:model NodeStats
 type NodeStats struct {
+
 	// The total number of objects in DB.
 	ObjectCount int64 `json:"objectCount"`
 

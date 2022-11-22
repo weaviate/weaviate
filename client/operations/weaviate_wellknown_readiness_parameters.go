@@ -30,7 +30,9 @@ import (
 // NewWeaviateWellknownReadinessParams creates a new WeaviateWellknownReadinessParams object
 // with the default values initialized.
 func NewWeaviateWellknownReadinessParams() *WeaviateWellknownReadinessParams {
+
 	return &WeaviateWellknownReadinessParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -38,7 +40,9 @@ func NewWeaviateWellknownReadinessParams() *WeaviateWellknownReadinessParams {
 // NewWeaviateWellknownReadinessParamsWithTimeout creates a new WeaviateWellknownReadinessParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewWeaviateWellknownReadinessParamsWithTimeout(timeout time.Duration) *WeaviateWellknownReadinessParams {
+
 	return &WeaviateWellknownReadinessParams{
+
 		timeout: timeout,
 	}
 }
@@ -46,7 +50,9 @@ func NewWeaviateWellknownReadinessParamsWithTimeout(timeout time.Duration) *Weav
 // NewWeaviateWellknownReadinessParamsWithContext creates a new WeaviateWellknownReadinessParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewWeaviateWellknownReadinessParamsWithContext(ctx context.Context) *WeaviateWellknownReadinessParams {
+
 	return &WeaviateWellknownReadinessParams{
+
 		Context: ctx,
 	}
 }
@@ -54,6 +60,7 @@ func NewWeaviateWellknownReadinessParamsWithContext(ctx context.Context) *Weavia
 // NewWeaviateWellknownReadinessParamsWithHTTPClient creates a new WeaviateWellknownReadinessParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewWeaviateWellknownReadinessParamsWithHTTPClient(client *http.Client) *WeaviateWellknownReadinessParams {
+
 	return &WeaviateWellknownReadinessParams{
 		HTTPClient: client,
 	}
@@ -104,6 +111,7 @@ func (o *WeaviateWellknownReadinessParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *WeaviateWellknownReadinessParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

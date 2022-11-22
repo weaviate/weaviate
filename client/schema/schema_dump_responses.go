@@ -87,6 +87,7 @@ func (o *SchemaDumpOK) GetPayload() *models.Schema {
 }
 
 func (o *SchemaDumpOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Schema)
 
 	// response payload
@@ -107,13 +108,15 @@ SchemaDumpUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type SchemaDumpUnauthorized struct{}
+type SchemaDumpUnauthorized struct {
+}
 
 func (o *SchemaDumpUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /schema][%d] schemaDumpUnauthorized ", 401)
 }
 
 func (o *SchemaDumpUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -140,6 +143,7 @@ func (o *SchemaDumpForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -173,6 +177,7 @@ func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

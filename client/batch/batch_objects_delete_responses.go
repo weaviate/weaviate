@@ -93,6 +93,7 @@ func (o *BatchObjectsDeleteOK) GetPayload() *models.BatchDeleteResponse {
 }
 
 func (o *BatchObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.BatchDeleteResponse)
 
 	// response payload
@@ -113,13 +114,15 @@ BatchObjectsDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
-type BatchObjectsDeleteUnauthorized struct{}
+type BatchObjectsDeleteUnauthorized struct {
+}
 
 func (o *BatchObjectsDeleteUnauthorized) Error() string {
 	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
 }
 
 func (o *BatchObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -146,6 +149,7 @@ func (o *BatchObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -179,6 +183,7 @@ func (o *BatchObjectsDeleteUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,6 +217,7 @@ func (o *BatchObjectsDeleteInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

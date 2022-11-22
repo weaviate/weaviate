@@ -46,7 +46,7 @@ func (o *MetaGetURL) SetBasePath(bp string) {
 func (o *MetaGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/meta"
+	var _path = "/meta"
 
 	_basePath := o._basePath
 	if _basePath == "" {

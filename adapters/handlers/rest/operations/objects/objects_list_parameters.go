@@ -43,6 +43,7 @@ func NewObjectsListParams() ObjectsListParams {
 //
 // swagger:parameters objects.list
 type ObjectsListParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

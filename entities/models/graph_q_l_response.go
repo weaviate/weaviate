@@ -28,6 +28,7 @@ import (
 //
 // swagger:model GraphQLResponse
 type GraphQLResponse struct {
+
 	// GraphQL data object.
 	Data map[string]JSONObject `json:"data,omitempty"`
 
@@ -50,6 +51,7 @@ func (m *GraphQLResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *GraphQLResponse) validateErrors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}

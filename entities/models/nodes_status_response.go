@@ -28,6 +28,7 @@ import (
 //
 // swagger:model NodesStatusResponse
 type NodesStatusResponse struct {
+
 	// nodes
 	Nodes []*NodeStatus `json:"nodes"`
 }
@@ -47,6 +48,7 @@ func (m *NodesStatusResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *NodesStatusResponse) validateNodes(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Nodes) { // not required
 		return nil
 	}

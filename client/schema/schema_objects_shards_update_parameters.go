@@ -34,6 +34,7 @@ import (
 func NewSchemaObjectsShardsUpdateParams() *SchemaObjectsShardsUpdateParams {
 	var ()
 	return &SchemaObjectsShardsUpdateParams{
+
 		timeout: cr.DefaultTimeout,
 	}
 }
@@ -43,6 +44,7 @@ func NewSchemaObjectsShardsUpdateParams() *SchemaObjectsShardsUpdateParams {
 func NewSchemaObjectsShardsUpdateParamsWithTimeout(timeout time.Duration) *SchemaObjectsShardsUpdateParams {
 	var ()
 	return &SchemaObjectsShardsUpdateParams{
+
 		timeout: timeout,
 	}
 }
@@ -52,6 +54,7 @@ func NewSchemaObjectsShardsUpdateParamsWithTimeout(timeout time.Duration) *Schem
 func NewSchemaObjectsShardsUpdateParamsWithContext(ctx context.Context) *SchemaObjectsShardsUpdateParams {
 	var ()
 	return &SchemaObjectsShardsUpdateParams{
+
 		Context: ctx,
 	}
 }
@@ -70,6 +73,7 @@ SchemaObjectsShardsUpdateParams contains all the parameters to send to the API e
 for the schema objects shards update operation typically these are written to a http.Request
 */
 type SchemaObjectsShardsUpdateParams struct {
+
 	/*Body*/
 	Body *models.ShardStatus
 	/*ClassName*/
@@ -150,6 +154,7 @@ func (o *SchemaObjectsShardsUpdateParams) SetShardName(shardName string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsShardsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
