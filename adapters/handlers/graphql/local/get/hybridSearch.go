@@ -41,6 +41,19 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "limit",
 			Type:        graphql.Int,
 		},
+
+		"query": &graphql.InputObjectFieldConfig{
+			Description: "Query string",
+			Type: graphql.String,
+		},
+		"alpha": &graphql.InputObjectFieldConfig{
+			Description: "Search weight",
+			Type: graphql.Float,
+		},
+		"vector": &graphql.InputObjectFieldConfig{
+			Description: "Vector search",
+			Type:        graphql.NewList(graphql.Float),
+		},
 	}
 }
 

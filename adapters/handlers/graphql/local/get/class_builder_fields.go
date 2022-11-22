@@ -385,6 +385,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybridSearch"]; ok {
 
+			
 
 			//Extract hybrid search params from the processed query
 			//Everything hybrid can go in another namespace AFTER modulesprovider is
@@ -444,6 +445,26 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			if limit_i != nil {
 				args.Limit = int(limit_i.(int))
 			}
+
+        alpha, ok := source["alpha"]
+       if ok {
+               args.Alpha = alpha.(float64)
+       }
+
+       query, ok := source["query"]
+       if ok {
+               args.Query = query.(string)
+       }
+
+       if _, ok := source["vector"]; ok {
+               vector := source["vector"].([]interface{})
+               args.Vector = make([]float32, len(vector))
+               for i, value := range vector {
+                       args.Vector[i] = float32(value.(float64))
+               }
+       }
+
+
 			args.Type = "hybrid"
 			p := args
 			//p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}, r.modulesProvider))

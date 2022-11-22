@@ -31,6 +31,8 @@ func nearObjectArgument(className string) *graphql.ArgumentConfig {
 
 
 
+
+
 func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 	nearTextFields := graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
