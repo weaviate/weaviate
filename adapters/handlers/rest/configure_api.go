@@ -63,6 +63,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/semi-technologies/weaviate/usecases/scaling"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
@@ -223,7 +224,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
-	appState.ReplicatedIndex = db.NewReplicatedIndex(repo)
+	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,

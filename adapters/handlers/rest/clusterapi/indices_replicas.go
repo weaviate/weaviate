@@ -27,18 +27,18 @@ import (
 )
 
 type replicator interface {
-	ReplicateObject(ctx context.Context, index, shard, requestID string,
-		object *storobj.Object) replica.SimpleResponse
-	ReplicateObjects(ctx context.Context, index, shard, requestID string,
-		objects []*storobj.Object) replica.SimpleResponse
-	ReplicateUpdate(ctx context.Context, index, shard, requestID string,
-		mergeDoc *objects.MergeDocument) replica.SimpleResponse
-	ReplicateDeletion(ctx context.Context, index, shard, requestID string,
-		uuid strfmt.UUID) replica.SimpleResponse
-	ReplicateDeletions(ctx context.Context, index, shard, requestID string,
-		docIDs []uint64, dryRun bool) replica.SimpleResponse
-	ReplicateReferences(ctx context.Context, index, shard, requestID string,
-		refs []objects.BatchReference) replica.SimpleResponse
+	ReplicateObject(ctx context.Context, indexName, shardName,
+		requestID string, object *storobj.Object) replica.SimpleResponse
+	ReplicateObjects(ctx context.Context, indexName, shardName,
+		requestID string, objects []*storobj.Object) replica.SimpleResponse
+	ReplicateUpdate(ctx context.Context, indexName, shardName,
+		requestID string, mergeDoc *objects.MergeDocument) replica.SimpleResponse
+	ReplicateDeletion(ctx context.Context, indexName, shardName,
+		requestID string, uuid strfmt.UUID) replica.SimpleResponse
+	ReplicateDeletions(ctx context.Context, indexName, shardName,
+		requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse
+	ReplicateReferences(ctx context.Context, indexName, shardName,
+		requestID string, refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(ctx context.Context, indexName,
 		shardName, requestID string) interface{}
 	AbortReplication(ctx context.Context, indexName,
