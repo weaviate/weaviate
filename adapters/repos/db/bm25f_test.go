@@ -125,11 +125,11 @@ func TestBM25FJourney(t *testing.T) {
 	res, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
-		// Print results
-		fmt.Println("--- Start results for basic search ---")
-		for _, r := range res {
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-		}
+	// Print results
+	fmt.Println("--- Start results for basic search ---")
+	for _, r := range res {
+		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+	}
 	// Check results in correct order
 	require.Equal(t, uint64(4), res[0].DocID())
 	require.Equal(t, uint64(5), res[1].DocID())
@@ -169,7 +169,6 @@ func TestBM25FJourney(t *testing.T) {
 	require.Equal(t, uint64(5), res[1].DocID())
 	require.Equal(t, uint64(6), res[2].DocID())
 	require.Equal(t, uint64(0), res[3].DocID())
-
 
 	// Check scores
 	require.Equal(t, float32(0.059571605), res[0].Score())
@@ -225,7 +224,6 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
 	addit := additional.Properties{}
@@ -243,7 +241,6 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Equal(t, uint64(6), res[0].DocID())
 	require.Equal(t, uint64(1), res[3].DocID())
 
-
 	// Print results
 	fmt.Println("--- Start results for boosted search ---")
 	for _, r := range res {
@@ -257,7 +254,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Equal(t, float32(0.006913103), res[3].Score())
 }
 
-//Compare with previous BM25 version to ensure the algorithm functions correctly
+// Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompare(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
@@ -279,7 +276,6 @@ func TestBM25FCompare(t *testing.T) {
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
-
 
 	shardNames := idx.getSchema.ShardingState(idx.Config.ClassName.String()).AllPhysicalShards()
 
@@ -309,7 +305,7 @@ func TestBM25FCompare(t *testing.T) {
 		for i := range objs {
 			s1 := fmt.Sprintf("%v", withBM25Fscores[i])
 			s2 := fmt.Sprintf("%v", scores[i])
-			require.Equal(t, s1[:9], s2[:9] )
+			require.Equal(t, s1[:9], s2[:9])
 		}
 
 		//Not all the scores are unique and the search is not stable, so pick ones that don't move
