@@ -16,7 +16,6 @@ import (
 	"errors"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/replica"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -52,7 +51,7 @@ func NewReplicator(className string,
 func (r *Replicator) PutObject(ctx context.Context, shard string,
 	obj *storobj.Object,
 ) error {
-	coord := newCoordinator[replica.SimpleResponse](r, shard)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj)
 		if err != nil {
@@ -66,7 +65,7 @@ func (r *Replicator) PutObject(ctx context.Context, shard string,
 func (r *Replicator) PutObjects(ctx context.Context, shard string,
 	objs []*storobj.Object,
 ) []error {
-	coord := newCoordinator[replica.SimpleResponse](r, shard)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs)
 		if err != nil {
@@ -81,7 +80,7 @@ func (r *Replicator) PutObjects(ctx context.Context, shard string,
 func (r *Replicator) MergeObject(ctx context.Context, shard string,
 	mergeDoc *objects.MergeDocument,
 ) error {
-	coord := newCoordinator[replica.SimpleResponse](r, shard)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, mergeDoc)
 		if err != nil {
@@ -92,9 +91,9 @@ func (r *Replicator) MergeObject(ctx context.Context, shard string,
 	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
 
-func (r *Replicator) simpleCommit(shard string) commitOp[replica.SimpleResponse] {
-	resp := replica.SimpleResponse{}
-	return func(ctx context.Context, host, requestID string) (replica.SimpleResponse, error) {
+func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
+	resp := SimpleResponse{}
+	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
@@ -106,7 +105,7 @@ func (r *Replicator) simpleCommit(shard string) commitOp[replica.SimpleResponse]
 func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 	id strfmt.UUID,
 ) error {
-	coord := newCoordinator[replica.SimpleResponse](r, shard)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id)
 		if err == nil {
@@ -120,7 +119,7 @@ func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 	docIDs []uint64, dryRun bool,
 ) []objects.BatchSimpleObject {
-	coord := newCoordinator[replica.DeleteBatchResponse](r, shard)
+	coord := newCoordinator[DeleteBatchResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(
 			ctx, host, r.class, shard, requestID, docIDs, dryRun)
@@ -129,8 +128,8 @@ func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 		}
 		return resp.FirstError()
 	}
-	commit := func(ctx context.Context, host, requestID string) (replica.DeleteBatchResponse, error) {
-		resp := replica.DeleteBatchResponse{}
+	commit := func(ctx context.Context, host, requestID string) (DeleteBatchResponse, error) {
+		resp := DeleteBatchResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
@@ -145,7 +144,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 func (r *Replicator) AddReferences(ctx context.Context, shard string,
 	refs []objects.BatchReference,
 ) []error {
-	coord := newCoordinator[replica.SimpleResponse](r, shard)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs)
 		if err != nil {
@@ -182,7 +181,7 @@ func (r *finder) FindReplicas(shardName string) []string {
 	return replicas
 }
 
-func errorsFromSimpleResponses(batchSize int, rs []replica.SimpleResponse, defaultErr error) []error {
+func errorsFromSimpleResponses(batchSize int, rs []SimpleResponse, defaultErr error) []error {
 	errs := make([]error, batchSize)
 	n := 0
 	for _, resp := range rs {
@@ -206,7 +205,7 @@ func errorsFromSimpleResponses(batchSize int, rs []replica.SimpleResponse, defau
 	return errs
 }
 
-func resultsFromDeletionResponses(size int, rs []replica.DeleteBatchResponse, defaultErr error) []objects.BatchSimpleObject {
+func resultsFromDeletionResponses(size int, rs []DeleteBatchResponse, defaultErr error) []objects.BatchSimpleObject {
 	ret := make([]objects.BatchSimpleObject, size)
 	n := 0
 	for _, resp := range rs {
