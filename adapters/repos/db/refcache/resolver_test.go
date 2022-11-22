@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
@@ -153,6 +154,80 @@ func TestResolver(t *testing.T) {
 		res, err = getResolver().Do(context.Background(), getInput(), getSelectProps(false), additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, getExpectedResult(false), res)
+	})
+
+	t.Run("with single ref with creation/update timestamps and matching select prop", func(t *testing.T) {
+		now := time.Now().UnixMilli()
+		getInput := func() []search.Result {
+			return []search.Result{
+				{
+					ID:        "foo",
+					ClassName: "BestClass",
+					Schema: map[string]interface{}{
+						"refProp": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
+							},
+						},
+					},
+				},
+			}
+		}
+		getResolver := func() *Resolver {
+			cacher := newFakeCacher()
+			r := NewResolver(cacher)
+			cacher.lookup[multi.Identifier{ID: id1, ClassName: "SomeClass"}] = search.Result{
+				ClassName: "SomeClass",
+				ID:        strfmt.UUID(id1),
+				Schema: map[string]interface{}{
+					"bar": "some string",
+				},
+				Created: now,
+				Updated: now,
+			}
+			return r
+		}
+		selectProps := search.SelectProperties{
+			search.SelectProperty{
+				Name: "refProp",
+				Refs: []search.SelectClass{
+					{
+						ClassName: "SomeClass",
+						RefProperties: search.SelectProperties{
+							search.SelectProperty{
+								Name:        "bar",
+								IsPrimitive: true,
+							},
+						},
+						AdditionalProperties: additional.Properties{
+							CreationTimeUnix:   true,
+							LastUpdateTimeUnix: true,
+						},
+					},
+				},
+			},
+		}
+		expected := []search.Result{
+			{
+				ID:        "foo",
+				ClassName: "BestClass",
+				Schema: map[string]interface{}{
+					"refProp": []interface{}{
+						search.LocalRef{
+							Class: "SomeClass",
+							Fields: map[string]interface{}{
+								"bar":                "some string",
+								"creationTimeUnix":   now,
+								"lastUpdateTimeUnix": now,
+							},
+						},
+					},
+				},
+			},
+		}
+		res, err := getResolver().Do(context.Background(), getInput(), selectProps, additional.Properties{})
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
 	})
 
 	t.Run("with single ref and matching select prop", func(t *testing.T) {

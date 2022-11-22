@@ -9,30 +9,23 @@
 //  CONTACT: hello@semi.technology
 //
 
-package gcs
+package modstgs3
 
-type Config interface {
-	BucketName() string
-	BackupPath() string
-}
-
-type config struct {
-	bucket string
+type clientConfig struct {
+	Endpoint string
+	Bucket   string
+	UseSSL   bool
 
 	// this is an optional value, allowing for
 	// the backup to be stored in a specific
 	// directory inside the provided bucket
-	backupPath string
+	BackupPath string
 }
 
-func NewConfig(bucket, path string) Config {
-	return &config{bucket, path}
-}
-
-func (c *config) BucketName() string {
-	return c.bucket
-}
-
-func (c *config) BackupPath() string {
-	return c.backupPath
+func newConfig(endpoint, bucket, path string, useSSL bool) *clientConfig {
+	const DEFAULT_ENDPOINT = "s3.amazonaws.com"
+	if endpoint == "" {
+		endpoint = DEFAULT_ENDPOINT
+	}
+	return &clientConfig{endpoint, bucket, useSSL, path}
 }

@@ -294,6 +294,33 @@ func gettingObjectsWithAdditionalProps(t *testing.T) {
 
 		assert.NotNil(t, vector)
 	})
+
+	t.Run("with _additional creationTimeUnix and lastUpdateTimeUnix set in reference", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				City {
+					inCountry {
+						... on Country {
+							_additional {
+								creationTimeUnix
+								lastUpdateTimeUnix
+							}
+						}
+					}
+				}
+			}
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		cities := result.Get("Get", "City").AsSlice()
+
+		created := cities[0].(map[string]interface{})["inCountry"].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["creationTimeUnix"]
+		updated := cities[0].(map[string]interface{})["inCountry"].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["lastUpdateTimeUnix"]
+
+		assert.NotNil(t, created)
+		assert.NotNil(t, updated)
+	})
 }
 
 func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {

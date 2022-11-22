@@ -14,13 +14,14 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/utils"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/tailor-inc/graphql"
 )
 
 type ModulesProvider interface {
@@ -33,7 +34,7 @@ func Build(dbSchema *schema.Schema, config config.Config,
 	modulesProvider ModulesProvider,
 ) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
-		return nil, fmt.Errorf("there are no Objects classes defined yet")
+		return nil, utils.ErrEmptySchema
 	}
 
 	var err error

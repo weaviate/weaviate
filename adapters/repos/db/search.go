@@ -126,6 +126,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	var searchErrors []error
 	totalLimit := offset + limit
 
+	db.indexLock.RLock()
 	for _, index := range db.indices {
 		wg.Add(1)
 		go func(index *Index, wg *sync.WaitGroup) {
@@ -144,6 +145,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			mutex.Unlock()
 		}(index, wg)
 	}
+	db.indexLock.RUnlock()
 
 	wg.Wait()
 
@@ -217,10 +219,12 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	totalLimit := offset + limit
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
+	d.indexLock.RLock()
 	for _, index := range d.indices {
 		// TODO support all additional props
 		res, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
 		if err != nil {
+			d.indexLock.Unlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
@@ -230,6 +234,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 			break
 		}
 	}
+	d.indexLock.RUnlock()
 
 	return d.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
 }
@@ -237,6 +242,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 func (d *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
+		d.indexLock.RLock()
 		for _, index := range d.indices {
 			err := filters.ValidateSort(d.schemaGetter.GetSchemaSkipAuth(),
 				index.Config.ClassName, sort)
@@ -245,6 +251,7 @@ func (d *DB) validateSort(sort []filters.Sort) error {
 				errorMsgs = append(errorMsgs, errorMsg)
 			}
 		}
+		d.indexLock.RUnlock()
 		if len(errorMsgs) > 0 {
 			return errors.Errorf("%s", strings.Join(errorMsgs, ", "))
 		}

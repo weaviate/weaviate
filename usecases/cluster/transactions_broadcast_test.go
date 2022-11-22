@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -32,6 +33,45 @@ func TestBroadcastOpenTransaction(t *testing.T) {
 	require.Nil(t, err)
 
 	assert.ElementsMatch(t, []string{"host1", "host2", "host3"}, client.openCalled)
+}
+
+func TestBroadcastOpenTransactionWithReturnPayload(t *testing.T) {
+	client := &fakeClient{}
+	state := &fakeState{[]string{"host1", "host2", "host3"}}
+
+	bc := NewTxBroadcaster(state, client)
+	bc.SetConsensusFunction(func(ctx context.Context,
+		in []*Transaction,
+	) (*Transaction, error) {
+		// instead of actually reaching a consensus this test mock simply merged
+		// all the individual results. For testing purposes this is even better
+		// because now we can be sure that every element was considered.
+		merged := ""
+		for _, tx := range in {
+			if len(merged) > 0 {
+				merged += ","
+			}
+			merged += tx.Payload.(string)
+		}
+
+		return &Transaction{
+			Payload: merged,
+		}, nil
+	})
+
+	tx := &Transaction{ID: "foo"}
+
+	err := bc.BroadcastTransaction(context.Background(), tx)
+	require.Nil(t, err)
+
+	assert.ElementsMatch(t, []string{"host1", "host2", "host3"}, client.openCalled)
+
+	results := strings.Split(tx.Payload.(string), ",")
+	assert.ElementsMatch(t, []string{
+		"hello_from_host1",
+		"hello_from_host2",
+		"hello_from_host3",
+	}, results)
 }
 
 func TestBroadcastAbortTransaction(t *testing.T) {
@@ -82,6 +122,7 @@ func (f *fakeClient) OpenTransaction(ctx context.Context, host string, tx *Trans
 	defer f.Unlock()
 
 	f.openCalled = append(f.openCalled, host)
+	tx.Payload = "hello_from_" + host
 	return nil
 }
 

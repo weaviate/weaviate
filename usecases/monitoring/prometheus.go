@@ -34,7 +34,6 @@ type PrometheusMetrics struct {
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
 	VectorIndexOperations              *prometheus.GaugeVec
-	VectorIndexDimensionOperations     *prometheus.CounterVec
 	VectorIndexDurations               *prometheus.HistogramVec
 	VectorIndexSize                    *prometheus.GaugeVec
 	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
@@ -155,10 +154,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_index_operations",
 			Help: "Total number of mutating operations on the vector index",
 		}, []string{"operation", "class_name", "shard_name"}),
-		VectorIndexDimensionOperations: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "vector_index_dimensions_total",
-			Help: "Total number of mutating operations multiplied with dimensions on the vector index",
-		}, []string{"operation", "class_name", "shard_name"}),
 		VectorIndexSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_size",
 			Help: "The size of the vector index. Typically larger than number of vectors, as it grows proactively.",
@@ -173,6 +168,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help:    "Duration of typical vector index operations (insert, delete)",
 			Buckets: prometheus.ExponentialBuckets(0.1, 1.5, 30),
 		}, []string{"operation", "step", "class_name", "shard_name"}),
+		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_dimensions_sum",
+			Help: "Total dimensions in a shard",
+		}, []string{"class_name", "shard_name"}),
 
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "startup_progress",
@@ -231,10 +230,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
-		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "vector_dimensions_sum",
-			Help: "Total dimensions in a shard",
-		}, []string{"class_name", "shard_name"}),
 	}
 }
 

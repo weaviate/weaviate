@@ -73,6 +73,7 @@ func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context
 	className schema.ClassName,
 ) {
 	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():

@@ -12,7 +12,6 @@
 package local
 
 import (
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
@@ -20,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
+	"github.com/tailor-inc/graphql"
 )
 
 // Build the local queries from the database schema.

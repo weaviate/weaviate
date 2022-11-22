@@ -56,16 +56,19 @@ func (d *DB) init(ctx context.Context) error {
 				QueryMaximumResults:       d.config.QueryMaximumResults,
 				MaxImportGoroutinesFactor: d.config.MaxImportGoroutinesFactor,
 				FlushIdleAfter:            d.config.FlushIdleAfter,
+				TrackVectorDimensions:     d.config.TrackVectorDimensions,
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
-				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex, d.promMetrics)
+				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex, d.replicaClient, d.promMetrics)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
 
+			d.indexLock.Lock()
 			d.indices[idx.ID()] = idx
 			idx.notifyReady()
+			d.indexLock.Unlock()
 		}
 	}
 

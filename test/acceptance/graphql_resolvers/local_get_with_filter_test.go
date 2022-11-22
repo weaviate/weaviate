@@ -203,6 +203,40 @@ func gettingObjectsWithFilters(t *testing.T) {
 		})
 	})
 
+	t.Run("filtering by property len", func(t *testing.T) {
+		query := `{
+				Get {
+					ArrayClass(where:{
+						valueInt: 4,
+						operator:Equal,
+						path:["len(strings)"]
+					}) {
+						strings
+					}
+				}
+			}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		require.Len(t, result.Get("Get", "ArrayClass").AsSlice(), 1)
+	})
+
+	t.Run("filtering by null property", func(t *testing.T) {
+		query := `{
+				Get {
+					ArrayClass(where:{
+						valueBoolean: true,
+						operator:IsNull,
+						path:["strings"]
+					}) {
+						strings
+					}
+				}
+			}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		require.Len(t, result.Get("Get", "ArrayClass").AsSlice(), 3) // empty, nil and len==0 objects
+	})
+
 	t.Run("filtering by property with field tokenization", func(t *testing.T) {
 		// tests gh-1821 feature
 

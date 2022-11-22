@@ -27,6 +27,9 @@ type batchQueue struct {
 
 func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
 	byIndex := map[string]batchQueue{}
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
+
 	for _, item := range objects {
 		for _, index := range db.indices {
 			if index.Config.ClassName != schema.ClassName(item.Object.Class) {
@@ -60,6 +63,8 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects)
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences) (objects.BatchReferences, error) {
 	byIndex := map[string]objects.BatchReferences{}
+	db.indexLock.RLock()
+	defer db.indexLock.RUnlock()
 	for _, item := range references {
 		for _, index := range db.indices {
 			if item.Err != nil {

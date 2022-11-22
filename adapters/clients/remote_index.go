@@ -31,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 type RemoteIndex struct {
@@ -689,6 +690,126 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 	ct, ok := clusterapi.IndicesPayloads.UpdateShardsStatusResults.CheckContentTypeHeader(res)
 	if !ok {
 		return errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	return nil
+}
+
+func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
+	shardName, fileName string, payload io.ReadCloser,
+) error {
+	defer payload.Close()
+	path := fmt.Sprintf("/indices/%s/shards/%s/files/%s",
+		indexName, shardName, fileName)
+
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), payload)
+	if err != nil {
+		return errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	return nil
+}
+
+func (c *RemoteIndex) CreateShard(ctx context.Context,
+	hostName, indexName, shardName string,
+) error {
+	path := fmt.Sprintf("/indices/%s/shards/%s", indexName, shardName)
+
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return errors.Wrap(err, "open http request")
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	return nil
+}
+
+func (c *RemoteIndex) ReinitShard(ctx context.Context,
+	hostName, indexName, shardName string,
+) error {
+	path := fmt.Sprintf("/indices/%s/shards/%s/_reinit", indexName, shardName)
+
+	method := http.MethodPut
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return errors.Wrap(err, "open http request")
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	return nil
+}
+
+func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
+	hostName, indexName string, ssBefore, ssAfter *sharding.State,
+) error {
+	path := fmt.Sprintf("/replicas/indices/%s/replication-factor/_increase", indexName)
+
+	method := http.MethodPut
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	body, err := clusterapi.IndicesPayloads.IncreaseReplicationFactor.Marshall(ssBefore, ssAfter)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewReader(body))
+	if err != nil {
+		return errors.Wrap(err, "open http request")
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(res.Body)
+		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
 	}
 
 	return nil

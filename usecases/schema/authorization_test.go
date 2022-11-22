@@ -99,7 +99,6 @@ func Test_Schema_Authorization(t *testing.T) {
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
-		// t.Skip()
 		testedMethods := make([]string, len(tests))
 		for i, test := range tests {
 			testedMethods[i] = test.methodName
@@ -131,7 +130,8 @@ func Test_Schema_Authorization(t *testing.T) {
 					logger, authorizer, config.Config{},
 					dummyParseVectorConfig, &fakeVectorizerValidator{},
 					dummyValidateInvertedConfig, &fakeModuleConfig{},
-					&fakeClusterState{}, &fakeTxClient{})
+					&fakeClusterState{hosts: []string{"node1"}}, &fakeTxClient{},
+					&fakeScaleOutManager{})
 				require.Nil(t, err)
 
 				var args []interface{}

@@ -39,6 +39,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -57,6 +58,7 @@ type Index struct {
 	logger                logrus.FieldLogger
 	remote                *sharding.RemoteIndex
 	stopwords             *stopwords.Detector
+	replicator            *replica.Replicator
 
 	backupState     BackupState
 	backupStateLock sync.RWMutex
@@ -82,12 +84,15 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
+	replicaClient replica.ReplicationClient,
 	promMetrics *monitoring.PrometheusMetrics,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
+
+	repl := replica.NewReplicator(config.ClassName.String(), sg, nodeResolver, replicaClient)
 
 	index := &Index{
 		Config:                config,
@@ -98,6 +103,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
 		stopwords:             sd,
+		replicator:            repl,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 		metrics: NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
@@ -271,18 +277,27 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	localShard, ok := i.Shards[shardName]
-	if !ok {
+	local := i.getSchema.
+		ShardingState(i.Config.ClassName.String()).
+		IsShardLocal(shardName)
+
+	if local {
+		if i.replicationEnabled() {
+			err = i.replicator.PutObject(ctx, shardName, object)
+			if err != nil {
+				return fmt.Errorf("failed to relay object put across replicas: %w", err)
+			}
+		} else {
+			shard := i.Shards[shardName]
+			if err := shard.putObject(ctx, object); err != nil {
+				return errors.Wrapf(err, "shard %s", shard.ID())
+			}
+		}
+	} else {
 		// this must be a remote shard, try sending it remotely
 		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
 			return errors.Wrap(err, "send to remote shard")
 		}
-
-		return nil
-	}
-
-	if err := localShard.putObject(ctx, object); err != nil {
-		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
 
 	return nil
@@ -314,6 +329,12 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	}
 
 	return nil
+}
+
+func (i *Index) replicationEnabled() bool {
+	shardingState := i.getSchema.
+		ShardingState(i.Config.ClassName.String())
+	return shardingState.Config.Replicas > 1
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -433,16 +454,19 @@ func (i *Index) putObjectBatch(ctx context.Context,
 		go func(shardName string, group objsAndPos) {
 			defer wg.Done()
 
-			local := i.getSchema.
-				ShardingState(i.Config.ClassName.String()).
-				IsShardLocal(shardName)
+			shardingState := i.getSchema.
+				ShardingState(i.Config.ClassName.String())
 
 			var errs []error
-			if !local {
+			if !shardingState.IsShardLocal(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
-				shard := i.Shards[shardName]
-				errs = shard.putObjectBatch(ctx, group.objects)
+				if i.replicationEnabled() {
+					errs = i.replicator.PutObjects(ctx, shardName, group.objects)
+				} else {
+					shard := i.Shards[shardName]
+					errs = shard.putObjectBatch(ctx, group.objects)
+				}
 			}
 			for i, err := range errs {
 				desiredPos := group.pos[i]
@@ -526,11 +550,15 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 			IsShardLocal(shardName)
 
 		var errs []error
-		if !local {
-			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
+		if local {
+			if i.replicationEnabled() {
+				errs = i.replicator.AddReferences(ctx, shardName, group.refs)
+			} else {
+				shard := i.Shards[shardName]
+				errs = shard.addReferencesBatch(ctx, group.refs)
+			}
 		} else {
-			shard := i.Shards[shardName]
-			errs = shard.addReferencesBatch(ctx, group.refs)
+			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
 		}
 		for i, err := range errs {
 			desiredPos := group.pos[i]
@@ -966,13 +994,22 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		IsShardLocal(shardName)
 
 	if local {
-		shard := i.Shards[shardName]
-		err = shard.deleteObject(ctx, id)
+		if i.replicationEnabled() {
+			err = i.replicator.DeleteObject(ctx, shardName, id)
+			if err != nil {
+				return fmt.Errorf("failed to relay object delete across replicas: %w", err)
+			}
+		} else {
+			shard := i.Shards[shardName]
+			if err := shard.deleteObject(ctx, id); err != nil {
+				return fmt.Errorf("delete object: %w", err)
+			}
+		}
 	} else {
 		err = i.remote.DeleteObject(ctx, shardName, id)
-	}
-	if err != nil {
-		return errors.Wrapf(err, "shard %s", shardName)
+		if err != nil {
+			return errors.Wrapf(err, "send to remote shard %s", shardName)
+		}
 	}
 
 	return nil
@@ -1009,8 +1046,15 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		IsShardLocal(shardName)
 
 	if local {
-		shard := i.Shards[shardName]
-		err = shard.mergeObject(ctx, merge)
+		if i.replicationEnabled() {
+			err = i.replicator.MergeObject(ctx, shardName, &merge)
+			if err != nil {
+				return fmt.Errorf("failed to relay object patch across replicas: %w", err)
+			}
+		} else {
+			shard := i.Shards[shardName]
+			err = shard.mergeObject(ctx, merge)
+		}
 	} else {
 		err = i.remote.MergeObject(ctx, shardName, merge)
 	}
@@ -1261,11 +1305,15 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 				IsShardLocal(shardName)
 
 			var objs objects.BatchSimpleObjects
-			if !local {
-				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
+			if local {
+				if i.replicationEnabled() {
+					objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun)
+				} else {
+					shard := i.Shards[shardName]
+					objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
+				}
 			} else {
-				shard := i.Shards[shardName]
-				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
+				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
 			}
 			ch <- result{objs}
 		}(shardName, docIDs)

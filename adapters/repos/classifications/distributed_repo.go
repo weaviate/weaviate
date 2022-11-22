@@ -14,13 +14,17 @@ package classifications
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
+	"github.com/sirupsen/logrus"
 )
+
+const DefaultTxTTL = 60 * time.Second
 
 type DistributedRepo struct {
 	sync.RWMutex
@@ -35,9 +39,10 @@ type localRepo interface {
 
 func NewDistributeRepo(remoteClient cluster.Client,
 	memberLister cluster.MemberLister, localRepo localRepo,
+	logger logrus.FieldLogger,
 ) *DistributedRepo {
 	broadcaster := cluster.NewTxBroadcaster(memberLister, remoteClient)
-	txRemote := cluster.NewTxManager(broadcaster)
+	txRemote := cluster.NewTxManager(broadcaster, logger)
 	repo := &DistributedRepo{
 		txRemote:  txRemote,
 		localRepo: localRepo,
@@ -66,12 +71,12 @@ func (r *DistributedRepo) Put(ctx context.Context,
 	tx, err := r.txRemote.BeginTransaction(ctx, classification.TransactionPut,
 		classification.TransactionPutPayload{
 			Classification: pl,
-		})
+		}, DefaultTxTTL)
 	if err != nil {
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
-	err = r.txRemote.CommitTransaction(ctx, tx)
+	err = r.txRemote.CommitWriteTransaction(ctx, tx)
 	if err != nil {
 		return errors.Wrap(err, "commit cluster-wide transaction")
 	}

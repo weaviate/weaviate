@@ -34,6 +34,7 @@ type Config struct {
 	Key                 string `json:"key"`
 	Strategy            string `json:"strategy"`
 	Function            string `json:"function"`
+	Replicas            int    `json:"replicas"`
 }
 
 func (c *Config) setDefaults(nodeCount int) {
@@ -43,6 +44,7 @@ func (c *Config) setDefaults(nodeCount int) {
 	c.Function = DefaultFunction
 	c.Key = DefaultKey
 	c.Strategy = DefaultStrategy
+	c.Replicas = 1
 
 	// these will only differ once there is an async component through replication
 	// or dynamic scaling. For now they have to be the same
@@ -65,6 +67,15 @@ func (c *Config) validate() error {
 		return errors.Errorf("sharding only supported with function 'murmur3' for now, "+
 			"got: %s", c.Function)
 	}
+
+	if c.Replicas < 1 {
+		return errors.Errorf("replicas must be a positive number larger than 0")
+	}
+
+	// TODO: distinguish between initial creation and update
+	// if c.Replicas != 1 {
+	// 	return errors.Errorf("creating replicated shards not supported yet, create single shard, then scale out")
+	// }
 
 	return nil
 }
@@ -116,6 +127,12 @@ func ParseConfig(input interface{}, nodeCount int) (Config, error) {
 
 	if err := optionalStringFromMap(asMap, "function", func(v string) {
 		out.Function = v
+	}); err != nil {
+		return out, err
+	}
+
+	if err := optionalIntFromMap(asMap, "replicas", func(v int) {
+		out.Replicas = v
 	}); err != nil {
 		return out, err
 	}

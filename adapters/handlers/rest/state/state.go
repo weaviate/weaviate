@@ -23,6 +23,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
+	"github.com/semi-technologies/weaviate/usecases/replica"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -32,21 +34,24 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC                *oidc.Client
-	AnonymousAccess     *anonymous.Client
-	Authorizer          authorization.Authorizer
-	ServerConfig        *config.WeaviateConfig
-	Locks               locks.ConnectorSchemaLock
-	Logger              *logrus.Logger
-	GraphQL             graphql.GraphQL
-	Modules             *modules.Provider
-	SchemaManager       *schema.Manager
-	Cluster             *cluster.State
-	RemoteIndexIncoming *sharding.RemoteIndexIncoming
-	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
-	ClassificationRepo  *classifications.DistributedRepo
-	Metrics             *monitoring.PrometheusMetrics
-	BackupManager       *backup.Manager
+	OIDC                  *oidc.Client
+	AnonymousAccess       *anonymous.Client
+	Authorizer            authorization.Authorizer
+	ServerConfig          *config.WeaviateConfig
+	Locks                 locks.ConnectorSchemaLock
+	Logger                *logrus.Logger
+	GraphQL               graphql.GraphQL
+	Modules               *modules.Provider
+	SchemaManager         *schema.Manager
+	ScaleOutManager       *scaling.ScaleOutManager
+	Cluster               *cluster.State
+	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
+	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
+	RemoteReplicaIncoming *replica.RemoteReplicaIncoming
+
+	ClassificationRepo *classifications.DistributedRepo
+	Metrics            *monitoring.PrometheusMetrics
+	BackupManager      *backup.Manager
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

@@ -44,6 +44,7 @@ type ClassSettings interface {
 	PropertyIndexed(property string) bool
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
+	EndpointURL() string
 	PassageModel() string
 	QueryModel() string
 	OptionWaitForModel() bool
@@ -120,6 +121,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 	text := strings.Join(corpi, " ")
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
+		EndpointURL:  icheck.EndpointURL(),
 		Model:        icheck.PassageModel(),
 		WaitForModel: icheck.OptionWaitForModel(),
 		UseGPU:       icheck.OptionUseGPU(),

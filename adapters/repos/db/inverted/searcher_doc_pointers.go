@@ -65,9 +65,14 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 		pointers.count += uint64(len(ids))
 		pointers.docIDs = append(pointers.docIDs, currentDocIDs...)
 
-		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
+		propName := pv.prop
+		if pv.operator == filters.OperatorIsNull {
+			propName += filters.InternalNullIndex
+		}
+
+		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(propName))
 		if hashBucket == nil {
-			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
+			return false, errors.Errorf("no hash bucket for prop '%s' found", propName)
 		}
 
 		currHash, err := hashBucket.Get(k)

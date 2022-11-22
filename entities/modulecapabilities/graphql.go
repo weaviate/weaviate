@@ -12,7 +12,7 @@
 package modulecapabilities
 
 import (
-	"github.com/graphql-go/graphql"
+	"github.com/tailor-inc/graphql"
 )
 
 // GetArgumentsFn generates get graphql config for a given classname

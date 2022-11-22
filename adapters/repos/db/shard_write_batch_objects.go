@@ -31,6 +31,15 @@ func (s *Shard) putObjectBatch(ctx context.Context,
 		return []error{storagestate.ErrStatusReadOnly}
 	}
 
+	return s.putBatch(ctx, objects)
+}
+
+// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
+// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
+// When the last batch finishes, all workers receive a shutdown signal and exit
+func (s *Shard) putBatch(ctx context.Context,
+	objects []*storobj.Object,
+) []error {
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 	// When the last batch finishes, all workers receive a shutdown signal and exit

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/modules/text2vec-openai/ent"
@@ -26,6 +27,7 @@ import (
 
 type embeddingsRequest struct {
 	Input string `json:"input"`
+	Model string `json:"model"`
 }
 
 type embedding struct {
@@ -50,7 +52,8 @@ type openAIApiError struct {
 type vectorizer struct {
 	apiKey     string
 	httpClient *http.Client
-	urlBuilder *openAIUrlBuilder
+	host       string
+	path       string
 	logger     logrus.FieldLogger
 }
 
@@ -58,7 +61,8 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
-		urlBuilder: newOpenAIUrlBuilder(),
+		host:       "https://api.openai.com",
+		path:       "/v1/embeddings",
 		logger:     logger,
 	}
 }
@@ -66,26 +70,32 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.docUrl(config.Type, config.Model))
+	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document"))
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.queryUrl(config.Type, config.Model))
+	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query"))
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input string,
-	url string,
+	model string,
 ) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Input: input,
+		Model: model,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url,
+	oaiUrl, err := url.JoinPath(v.host, v.path)
+	if err != nil {
+		return nil, errors.Wrap(err, "join OpenAI API host and path")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
@@ -145,10 +155,18 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under OPENAI_APIKEY")
 }
 
-func (v *vectorizer) docUrl(docType, model string) string {
-	return v.urlBuilder.documentUrl(docType, model)
-}
+func (v *vectorizer) getModelString(docType, model, action string) string {
+	modelBaseString := "%s-search-%s-%s-001"
+	if action == "document" {
+		if docType == "code" {
+			return fmt.Sprintf(modelBaseString, docType, model, "code")
+		}
+		return fmt.Sprintf(modelBaseString, docType, model, "doc")
 
-func (v *vectorizer) queryUrl(docType, model string) string {
-	return v.urlBuilder.queryUrl(docType, model)
+	} else {
+		if docType == "code" {
+			return fmt.Sprintf(modelBaseString, docType, model, "text")
+		}
+		return fmt.Sprintf(modelBaseString, docType, model, "query")
+	}
 }

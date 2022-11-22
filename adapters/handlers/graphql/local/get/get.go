@@ -12,14 +12,13 @@
 package get
 
 import (
-	"fmt"
-
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/utils"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
+	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 type ModulesProvider interface {
@@ -35,7 +34,7 @@ func Build(schema *schema.Schema, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider,
 ) (*graphql.Field, error) {
 	if len(schema.Objects.Classes) == 0 {
-		return nil, fmt.Errorf("there are no Objects classes defined yet")
+		return nil, utils.ErrEmptySchema
 	}
 
 	cb := newClassBuilder(schema, logger, modulesProvider)

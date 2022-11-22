@@ -23,7 +23,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,7 +116,7 @@ func TestComponentCluster(t *testing.T) {
 
 func setupManagers(t *testing.T) (*schemauc.Manager, *schemauc.Manager) {
 	remoteManager := newSchemaManagerWithClusterStateAndClient(
-		&fakeClusterState{hosts: []string{}}, nil)
+		&fakeClusterState{hosts: []string{"node1"}}, nil)
 
 	schemaHandlers := clusterapi.NewSchema(remoteManager.TxManager())
 	mux := http.NewServeMux()
@@ -163,11 +165,22 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterState, client,
+		&fakeModuleConfig{}, clusterState, client, &fakeScaleOutManager{},
 	)
 	if err != nil {
 		panic(err.Error())
 	}
 
 	return sm
+}
+
+type fakeScaleOutManager struct{}
+
+func (f *fakeScaleOutManager) Scale(ctx context.Context,
+	className string, old, updated sharding.Config,
+) (*sharding.State, error) {
+	return nil, nil
+}
+
+func (f *fakeScaleOutManager) SetSchemaManager(sm scaling.SchemaManager) {
 }
