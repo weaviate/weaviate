@@ -33,6 +33,7 @@ SchemaObjectsGetOK Found the Class, returned as body
 swagger:response schemaObjectsGetOK
 */
 type SchemaObjectsGetOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type SchemaObjectsGetOK struct {
 
 // NewSchemaObjectsGetOK creates SchemaObjectsGetOK with default headers values
 func NewSchemaObjectsGetOK() *SchemaObjectsGetOK {
+
 	return &SchemaObjectsGetOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *SchemaObjectsGetOK) SetPayload(payload *models.Class) {
 
 // WriteResponse to the client
 func (o *SchemaObjectsGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -74,16 +77,19 @@ SchemaObjectsGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsGetUnauthorized
 */
-type SchemaObjectsGetUnauthorized struct{}
+type SchemaObjectsGetUnauthorized struct {
+}
 
 // NewSchemaObjectsGetUnauthorized creates SchemaObjectsGetUnauthorized with default headers values
 func NewSchemaObjectsGetUnauthorized() *SchemaObjectsGetUnauthorized {
+
 	return &SchemaObjectsGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -97,6 +103,7 @@ SchemaObjectsGetForbidden Forbidden
 swagger:response schemaObjectsGetForbidden
 */
 type SchemaObjectsGetForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -105,6 +112,7 @@ type SchemaObjectsGetForbidden struct {
 
 // NewSchemaObjectsGetForbidden creates SchemaObjectsGetForbidden with default headers values
 func NewSchemaObjectsGetForbidden() *SchemaObjectsGetForbidden {
+
 	return &SchemaObjectsGetForbidden{}
 }
 
@@ -121,6 +129,7 @@ func (o *SchemaObjectsGetForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SchemaObjectsGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -138,16 +147,19 @@ SchemaObjectsGetNotFound This class does not exist
 
 swagger:response schemaObjectsGetNotFound
 */
-type SchemaObjectsGetNotFound struct{}
+type SchemaObjectsGetNotFound struct {
+}
 
 // NewSchemaObjectsGetNotFound creates SchemaObjectsGetNotFound with default headers values
 func NewSchemaObjectsGetNotFound() *SchemaObjectsGetNotFound {
+
 	return &SchemaObjectsGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *SchemaObjectsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -161,6 +173,7 @@ SchemaObjectsGetInternalServerError An error has occurred while trying to fulfil
 swagger:response schemaObjectsGetInternalServerError
 */
 type SchemaObjectsGetInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type SchemaObjectsGetInternalServerError struct {
 
 // NewSchemaObjectsGetInternalServerError creates SchemaObjectsGetInternalServerError with default headers values
 func NewSchemaObjectsGetInternalServerError() *SchemaObjectsGetInternalServerError {
+
 	return &SchemaObjectsGetInternalServerError{}
 }
 
@@ -185,6 +199,7 @@ func (o *SchemaObjectsGetInternalServerError) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *SchemaObjectsGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -28,6 +28,7 @@ import (
 // NewObjectsDeleteParams creates a new ObjectsDeleteParams object
 // no default values defined in spec.
 func NewObjectsDeleteParams() ObjectsDeleteParams {
+
 	return ObjectsDeleteParams{}
 }
 
@@ -36,6 +37,7 @@ func NewObjectsDeleteParams() ObjectsDeleteParams {
 //
 // swagger:parameters objects.delete
 type ObjectsDeleteParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -92,6 +94,7 @@ func (o *ObjectsDeleteParams) bindID(rawData []string, hasKey bool, formats strf
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsDeleteParams) validateID(formats strfmt.Registry) error {
+
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

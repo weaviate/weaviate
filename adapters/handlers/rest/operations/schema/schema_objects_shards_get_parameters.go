@@ -27,6 +27,7 @@ import (
 // NewSchemaObjectsShardsGetParams creates a new SchemaObjectsShardsGetParams object
 // no default values defined in spec.
 func NewSchemaObjectsShardsGetParams() SchemaObjectsShardsGetParams {
+
 	return SchemaObjectsShardsGetParams{}
 }
 
@@ -35,6 +36,7 @@ func NewSchemaObjectsShardsGetParams() SchemaObjectsShardsGetParams {
 //
 // swagger:parameters schema.objects.shards.get
 type SchemaObjectsShardsGetParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

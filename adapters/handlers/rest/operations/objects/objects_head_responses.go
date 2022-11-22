@@ -32,16 +32,19 @@ ObjectsHeadNoContent Object exists.
 
 swagger:response objectsHeadNoContent
 */
-type ObjectsHeadNoContent struct{}
+type ObjectsHeadNoContent struct {
+}
 
 // NewObjectsHeadNoContent creates ObjectsHeadNoContent with default headers values
 func NewObjectsHeadNoContent() *ObjectsHeadNoContent {
+
 	return &ObjectsHeadNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsHeadNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -54,16 +57,19 @@ ObjectsHeadUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsHeadUnauthorized
 */
-type ObjectsHeadUnauthorized struct{}
+type ObjectsHeadUnauthorized struct {
+}
 
 // NewObjectsHeadUnauthorized creates ObjectsHeadUnauthorized with default headers values
 func NewObjectsHeadUnauthorized() *ObjectsHeadUnauthorized {
+
 	return &ObjectsHeadUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsHeadUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,6 +83,7 @@ ObjectsHeadForbidden Forbidden
 swagger:response objectsHeadForbidden
 */
 type ObjectsHeadForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -85,6 +92,7 @@ type ObjectsHeadForbidden struct {
 
 // NewObjectsHeadForbidden creates ObjectsHeadForbidden with default headers values
 func NewObjectsHeadForbidden() *ObjectsHeadForbidden {
+
 	return &ObjectsHeadForbidden{}
 }
 
@@ -101,6 +109,7 @@ func (o *ObjectsHeadForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsHeadForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -118,16 +127,19 @@ ObjectsHeadNotFound Object doesn't exist.
 
 swagger:response objectsHeadNotFound
 */
-type ObjectsHeadNotFound struct{}
+type ObjectsHeadNotFound struct {
+}
 
 // NewObjectsHeadNotFound creates ObjectsHeadNotFound with default headers values
 func NewObjectsHeadNotFound() *ObjectsHeadNotFound {
+
 	return &ObjectsHeadNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsHeadNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -141,6 +153,7 @@ ObjectsHeadInternalServerError An error has occurred while trying to fulfill the
 swagger:response objectsHeadInternalServerError
 */
 type ObjectsHeadInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -149,6 +162,7 @@ type ObjectsHeadInternalServerError struct {
 
 // NewObjectsHeadInternalServerError creates ObjectsHeadInternalServerError with default headers values
 func NewObjectsHeadInternalServerError() *ObjectsHeadInternalServerError {
+
 	return &ObjectsHeadInternalServerError{}
 }
 
@@ -165,6 +179,7 @@ func (o *ObjectsHeadInternalServerError) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *ObjectsHeadInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

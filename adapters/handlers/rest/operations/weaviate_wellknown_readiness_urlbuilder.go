@@ -46,7 +46,7 @@ func (o *WeaviateWellknownReadinessURL) SetBasePath(bp string) {
 func (o *WeaviateWellknownReadinessURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/.well-known/ready"
+	var _path = "/.well-known/ready"
 
 	_basePath := o._basePath
 	if _basePath == "" {
