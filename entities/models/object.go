@@ -76,7 +76,6 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-
 func (m *Object) validateAdditional(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Additional) { // not required
