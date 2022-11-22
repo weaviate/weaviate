@@ -131,14 +131,6 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 		return nil, errors.Errorf("filtered keyword search (bm25) not supported yet")
 	}
 
-	if len(params.KeywordRanking.Properties) == 0 {
-		log.Print("No properties specified for keyword search (bm25), selecting all properties")
-	}
-
-	if len(params.KeywordRanking.Properties) > 1 {
-		log.Printf("experimental multi-property keyword search (BM25F) active")
-	}
-
 	if len(params.KeywordRanking.Query) == 0 {
 		return nil, errors.Errorf("keyword search (bm25) must have query set")
 	}

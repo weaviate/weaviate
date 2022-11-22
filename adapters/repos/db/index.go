@@ -751,15 +751,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 			// If the request is a BM25F with no properties selected, use all possible properties
 			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 				// Loop over classes and find i.Config.ClassName.String()
-				for _, class := range i.getSchema.GetSchemaSkipAuth().Objects.Classes {
-					if class.Class == i.Config.ClassName.String() {
-						propHash := class.Properties
-						// Get keys of hash
-						for _, v := range propHash {
-							keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
-						}
-					}
+				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
+				if err != nil {
+					return nil, err
 				}
+
+				propHash := cl.Properties
+				// Get keys of hash
+				for _, v := range propHash {
+					keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+				}
+
 			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
@@ -778,11 +780,12 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outScores = append(outScores, scores...)
 	}
 
-	if keywordRanking != nil && keywordRanking.Type == "bm25" {
-		for ii := range outObjects {
+	if len(outObjects) == len(outScores) {
+		if keywordRanking != nil && keywordRanking.Type == "bm25" {
+			for ii := range outObjects {
 
-			oo := outObjects[ii]
-			if len(outObjects) == len(outScores) {
+				oo := outObjects[ii]
+
 				os := outScores[ii]
 				if oo.AdditionalProperties() == nil {
 					oo.Object.Additional = make(map[string]interface{})
