@@ -55,7 +55,7 @@ func (o *ObjectsClassReferencesDeleteURL) SetBasePath(bp string) {
 func (o *ObjectsClassReferencesDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/objects/{className}/{id}/references/{propertyName}"
+	var _path = "/objects/{className}/{id}/references/{propertyName}"
 
 	className := o.ClassName
 	if className != "" {

@@ -59,7 +59,7 @@ func (o *ObjectsReferencesCreate) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewObjectsReferencesCreateParams()
+	var Params = NewObjectsReferencesCreateParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -82,4 +82,5 @@ func (o *ObjectsReferencesCreate) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

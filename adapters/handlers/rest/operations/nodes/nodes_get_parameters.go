@@ -26,6 +26,7 @@ import (
 // NewNodesGetParams creates a new NodesGetParams object
 // no default values defined in spec.
 func NewNodesGetParams() NodesGetParams {
+
 	return NodesGetParams{}
 }
 
@@ -34,6 +35,7 @@ func NewNodesGetParams() NodesGetParams {
 //
 // swagger:parameters nodes.get
 type NodesGetParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

@@ -51,7 +51,7 @@ func (o *SchemaObjectsPropertiesAddURL) SetBasePath(bp string) {
 func (o *SchemaObjectsPropertiesAddURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/schema/{className}/properties"
+	var _path = "/schema/{className}/properties"
 
 	className := o.ClassName
 	if className != "" {

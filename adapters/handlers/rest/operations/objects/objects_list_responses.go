@@ -33,6 +33,7 @@ ObjectsListOK Successful response.
 swagger:response objectsListOK
 */
 type ObjectsListOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type ObjectsListOK struct {
 
 // NewObjectsListOK creates ObjectsListOK with default headers values
 func NewObjectsListOK() *ObjectsListOK {
+
 	return &ObjectsListOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *ObjectsListOK) SetPayload(payload *models.ObjectsListResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsListOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -75,6 +78,7 @@ ObjectsListBadRequest Malformed request.
 swagger:response objectsListBadRequest
 */
 type ObjectsListBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -83,6 +87,7 @@ type ObjectsListBadRequest struct {
 
 // NewObjectsListBadRequest creates ObjectsListBadRequest with default headers values
 func NewObjectsListBadRequest() *ObjectsListBadRequest {
+
 	return &ObjectsListBadRequest{}
 }
 
@@ -99,6 +104,7 @@ func (o *ObjectsListBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsListBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -116,16 +122,19 @@ ObjectsListUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsListUnauthorized
 */
-type ObjectsListUnauthorized struct{}
+type ObjectsListUnauthorized struct {
+}
 
 // NewObjectsListUnauthorized creates ObjectsListUnauthorized with default headers values
 func NewObjectsListUnauthorized() *ObjectsListUnauthorized {
+
 	return &ObjectsListUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsListUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -139,6 +148,7 @@ ObjectsListForbidden Forbidden
 swagger:response objectsListForbidden
 */
 type ObjectsListForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -147,6 +157,7 @@ type ObjectsListForbidden struct {
 
 // NewObjectsListForbidden creates ObjectsListForbidden with default headers values
 func NewObjectsListForbidden() *ObjectsListForbidden {
+
 	return &ObjectsListForbidden{}
 }
 
@@ -163,6 +174,7 @@ func (o *ObjectsListForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ObjectsListForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -180,16 +192,19 @@ ObjectsListNotFound Successful query result but no resource was found.
 
 swagger:response objectsListNotFound
 */
-type ObjectsListNotFound struct{}
+type ObjectsListNotFound struct {
+}
 
 // NewObjectsListNotFound creates ObjectsListNotFound with default headers values
 func NewObjectsListNotFound() *ObjectsListNotFound {
+
 	return &ObjectsListNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsListNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -203,6 +218,7 @@ ObjectsListUnprocessableEntity Request body is well-formed (i.e., syntactically 
 swagger:response objectsListUnprocessableEntity
 */
 type ObjectsListUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -211,6 +227,7 @@ type ObjectsListUnprocessableEntity struct {
 
 // NewObjectsListUnprocessableEntity creates ObjectsListUnprocessableEntity with default headers values
 func NewObjectsListUnprocessableEntity() *ObjectsListUnprocessableEntity {
+
 	return &ObjectsListUnprocessableEntity{}
 }
 
@@ -227,6 +244,7 @@ func (o *ObjectsListUnprocessableEntity) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *ObjectsListUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -245,6 +263,7 @@ ObjectsListInternalServerError An error has occurred while trying to fulfill the
 swagger:response objectsListInternalServerError
 */
 type ObjectsListInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -253,6 +272,7 @@ type ObjectsListInternalServerError struct {
 
 // NewObjectsListInternalServerError creates ObjectsListInternalServerError with default headers values
 func NewObjectsListInternalServerError() *ObjectsListInternalServerError {
+
 	return &ObjectsListInternalServerError{}
 }
 
@@ -269,6 +289,7 @@ func (o *ObjectsListInternalServerError) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *ObjectsListInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

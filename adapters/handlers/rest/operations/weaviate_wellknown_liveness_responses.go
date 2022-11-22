@@ -30,16 +30,19 @@ WeaviateWellknownLivenessOK The application is able to respond to HTTP requests
 
 swagger:response weaviateWellknownLivenessOK
 */
-type WeaviateWellknownLivenessOK struct{}
+type WeaviateWellknownLivenessOK struct {
+}
 
 // NewWeaviateWellknownLivenessOK creates WeaviateWellknownLivenessOK with default headers values
 func NewWeaviateWellknownLivenessOK() *WeaviateWellknownLivenessOK {
+
 	return &WeaviateWellknownLivenessOK{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateWellknownLivenessOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
