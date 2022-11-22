@@ -130,13 +130,14 @@ func TestBM25FJourney(t *testing.T) {
 	for _, r := range res {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
-	// Check results in correct order
-	require.Equal(t, uint64(4), res[0].DocID())
-	require.Equal(t, uint64(5), res[1].DocID())
+	t.Run("bm25f journey", func(t *testing.T) {
+		// Check results in correct order
+		require.Equal(t, uint64(4), res[0].DocID())
+		require.Equal(t, uint64(5), res[1].DocID())
 
-	// Check scoreExplain
-	require.Contains(t, res[0].Object.Additional["scoreExplain"], "BM25F")
-
+		// Check scoreExplain
+		require.Contains(t, res[0].Object.Additional["scoreExplain"], "BM25F")
+	})
 	// Check basic search WITH CAPS
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
 	addit = additional.Properties{}
@@ -148,10 +149,11 @@ func TestBM25FJourney(t *testing.T) {
 	}
 	require.Nil(t, err)
 
-	// Check results in correct order
-	require.Equal(t, uint64(4), res[0].DocID())
-	require.Equal(t, uint64(5), res[1].DocID())
-
+	t.Run("bm25f journey with caps", func(t *testing.T) {
+		// Check results in correct order
+		require.Equal(t, uint64(4), res[0].DocID())
+		require.Equal(t, uint64(5), res[1].DocID())
+	})
 	// Check boosted
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
 	addit = additional.Properties{}
@@ -164,42 +166,46 @@ func TestBM25FJourney(t *testing.T) {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
-	// Check results in correct order
-	require.Equal(t, uint64(4), res[0].DocID())
-	require.Equal(t, uint64(5), res[1].DocID())
-	require.Equal(t, uint64(6), res[2].DocID())
-	require.Equal(t, uint64(0), res[3].DocID())
+	t.Run("bm25f journey boosted", func(t *testing.T) {
+		// Check results in correct order
+		require.Equal(t, uint64(4), res[0].DocID())
+		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[2].DocID())
+		require.Equal(t, uint64(0), res[3].DocID())
 
-	// Check scores
-	require.Equal(t, float32(0.059571605), res[0].Score())
-	require.Equal(t, float32(0.056116596), res[1].Score())
-	require.Equal(t, float32(0.04963747), res[2].Score())
-	require.Equal(t, float32(0.046090268), res[3].Score())
-
+		// Check scores
+		require.Equal(t, float32(0.059571605), res[0].Score())
+		require.Equal(t, float32(0.056116596), res[1].Score())
+		require.Equal(t, float32(0.04963747), res[2].Score())
+		require.Equal(t, float32(0.046090268), res[3].Score())
+	})
 	// Check search with two terms
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
 	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
-	// Check results in correct order
-	require.Equal(t, uint64(1), res[0].DocID())
-	require.Equal(t, uint64(4), res[1].DocID())
-	require.Equal(t, uint64(5), res[2].DocID())
-	require.Equal(t, uint64(6), res[3].DocID())
-	require.Equal(t, uint64(2), res[4].DocID())
-
+	t.Run("bm25f journey somewhere", func(t *testing.T) {
+		// Check results in correct order
+		require.Equal(t, uint64(1), res[0].DocID())
+		require.Equal(t, uint64(4), res[1].DocID())
+		require.Equal(t, uint64(5), res[2].DocID())
+		require.Equal(t, uint64(6), res[3].DocID())
+		require.Equal(t, uint64(2), res[4].DocID())
+	})
 	fmt.Println("Search with no properties")
 	// Check search with no properties (should include all properties)
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
 	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
-	// Check results in correct order
-	require.Equal(t, uint64(1), res[0].DocID())
-	require.Equal(t, uint64(4), res[1].DocID())
-	require.Equal(t, uint64(5), res[2].DocID())
-	require.Equal(t, uint64(6), res[3].DocID())
-	require.Equal(t, uint64(2), res[4].DocID())
+	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
+		// Check results in correct order
+		require.Equal(t, uint64(1), res[0].DocID())
+		require.Equal(t, uint64(4), res[1].DocID())
+		require.Equal(t, uint64(5), res[2].DocID())
+		require.Equal(t, uint64(6), res[3].DocID())
+		require.Equal(t, uint64(2), res[4].DocID())
+	})
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {
