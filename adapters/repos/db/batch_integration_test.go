@@ -188,7 +188,6 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 }
 
 func delete2Objects(t *testing.T, repo *DB, className string) {
-
 	batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
 		objects.BatchDeleteParams{
 			ClassName: "ThingForBatching",
@@ -226,7 +225,6 @@ func delete2Objects(t *testing.T, repo *DB, className string) {
 		})
 	require.Nil(t, err)
 	require.Equal(t, 2, len(batchDeleteRes.Objects), "Objects deleted")
-
 }
 
 func TestBatchDeleteObjects(t *testing.T) {

@@ -248,7 +248,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	require.Equal(t, float32(0.02404321), res[0].Score())
+	require.Equal(t, float32(0.056813046), res[0].Score())
 	require.Equal(t, float32(0.014773461), res[1].Score())
 	require.Equal(t, float32(0.014773461), res[2].Score())
 	require.Equal(t, float32(0.006913103), res[3].Score())
@@ -308,7 +308,7 @@ func TestBM25FCompare(t *testing.T) {
 			require.Equal(t, s1[:9], s2[:9])
 		}
 
-		//Not all the scores are unique and the search is not stable, so pick ones that don't move
+		// Not all the scores are unique and the search is not stable, so pick ones that don't move
 		require.Equal(t, withBM25Fobjs[2].DocID(), objs[2].DocID())
 		require.Equal(t, withBM25Fobjs[5].DocID(), objs[5].DocID())
 	}
