@@ -13,7 +13,6 @@ package traverser
 
 import (
 	"context"
-	"log"
 	"sort"
 
 	"fmt"
@@ -260,7 +259,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 			//Set the scoreexplain property to bm25 for every result
 			for i := range res1 {
-				res1[i].ScoreExplain = "(bm25)" + res1[i].ScoreExplain
+				res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 			}
 
 			//Result 2 is the vector search, either with the provided vector or with a vector derived from the query
@@ -289,7 +288,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 				//Set the scoreexplain property to vector for every result
 				for i := range res2 {
-					res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
+					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
 				}
 
 				alpha := params.HybridSearch.Alpha
@@ -320,7 +319,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					//Set the scoreexplain property to bm25 for every result
 					for i := range res1 {
-						res1[i].ScoreExplain = "(bm25)" + res1[i].ScoreExplain
+						res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 					}
 
 					results = append(results, res1)
@@ -346,7 +345,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					//Set the scoreexplain property to vector for every result
 					for i := range res2 {
-						res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
+						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
 					}
 					results = append(results, res2)
 
@@ -366,7 +365,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					//Set the scoreexplain property to vector for every result
 					for i := range res2 {
-						res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
+						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
 					}
 
 					results = append(results, res2)

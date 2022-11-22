@@ -2,7 +2,7 @@ package get
 
 import (
 	"fmt"
-	"github.com/graphql-go/graphql"
+	"github.com/tailor-inc/graphql"
 
 )
 func bm25Argument(className string) *graphql.ArgumentConfig {
