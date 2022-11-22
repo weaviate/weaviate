@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
@@ -60,17 +61,19 @@ func (c *ReplicationClient) PutObject(ctx context.Context, host, index,
 	if res.StatusCode != http.StatusOK {
 		return resp, fmt.Errorf("status code: %v", res.StatusCode)
 	}
+
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
 		return resp, fmt.Errorf("decode response: %w", err)
 	}
+
 	return resp, nil
 }
 
 func (c *ReplicationClient) DeleteObject(ctx context.Context, host, index,
-	shard, requestID string, uuid string,
+	shard, requestID string, uuid strfmt.UUID,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	req, err := newHttpRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid, nil)
+	req, err := newHttpRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid.String(), nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -229,6 +232,7 @@ func (c *ReplicationClient) Commit(ctx context.Context, host, index, shard strin
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("status code: %v", res.StatusCode)
 	}
+
 	if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
@@ -259,7 +263,7 @@ func (c *ReplicationClient) Abort(ctx context.Context, host, index, shard, reque
 }
 
 func newHttpRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader) (*http.Request, error) {
-	path := fmt.Sprintf("/replicas/%s/shards/%s/objects", index, shard)
+	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", index, shard)
 	if suffix != "" {
 		path = fmt.Sprintf("%s/%s", path, suffix)
 	}
@@ -274,7 +278,7 @@ func newHttpRequest(ctx context.Context, method, host, index, shard, requestId, 
 }
 
 func newHttpCMD(ctx context.Context, host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
-	path := fmt.Sprintf("/replicas/%s/shards/%s:%s", index, shard, cmd)
+	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
 	return http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)

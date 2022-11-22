@@ -20,7 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var _ErrReplicaNotFound = errors.New("no replica found")
+var errReplicaNotFound = errors.New("no replica found")
 
 // replicaFinder find nodes associated with a specific shard
 type replicaFinder interface {
@@ -35,24 +35,23 @@ type commitOp[T any] func(ctx context.Context, host, requestID string) (T, error
 
 // coordinator coordinates replication of write request
 type coordinator[T any] struct {
-	client        // needed to commit and abort operation
-	replicaFinder // host names of replicas
-	class         string
-	shard         string
-	requestID     string
+	ReplicationClient // needed to commit and abort operation
+	replicaFinder     // host names of replicas
+	class             string
+	shard             string
+	requestID         string
 	// responses collect all responses of batch job
 	responses []T
 	nodes     []string
 }
 
-func newCoordinator[T any](r *Replicator, shard, localhost string) *coordinator[T] {
+func newCoordinator[T any](r *Replicator, shard string) *coordinator[T] {
 	return &coordinator[T]{
-		client: r.client,
+		ReplicationClient: r.client,
 		replicaFinder: &finder{
-			schema:    r.stateGetter,
-			resolver:  r.resolver,
-			localhost: localhost,
-			class:     r.class,
+			schema:   r.stateGetter,
+			resolver: r.resolver,
+			class:    r.class,
 		},
 		class:     r.class,
 		shard:     shard,
@@ -117,7 +116,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context, replicas []string, op co
 func (c *coordinator[T]) Replicate(ctx context.Context, ask readyOp, com commitOp[T]) error {
 	c.nodes = c.FindReplicas(c.shard)
 	if len(c.nodes) == 0 {
-		return fmt.Errorf("%w : class %q shard %q", _ErrReplicaNotFound, c.class, c.shard)
+		return fmt.Errorf("%w : class %q shard %q", errReplicaNotFound, c.class, c.shard)
 	}
 	if err := c.broadcast(ctx, c.nodes, ask); err != nil {
 		return fmt.Errorf("broadcast: %w", err)

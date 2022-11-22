@@ -102,7 +102,7 @@ func anyObject(uuid strfmt.UUID) models.Object {
 
 func TestReplicationPutObject(t *testing.T) {
 	ctx := context.Background()
-	f := newFakeServer(t, http.MethodPost, "/replicas/C1/shards/S1/objects")
+	f := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
 	ts := f.server(t)
 	defer ts.Close()
 
@@ -142,8 +142,8 @@ func TestReplicationPutObject(t *testing.T) {
 
 func TestReplicationDeleteObject(t *testing.T) {
 	ctx := context.Background()
-	uuid := UUID1.String()
-	path := "/replicas/C1/shards/S1/objects/" + uuid
+	uuid := UUID1
+	path := "/replicas/indices/C1/shards/S1/objects/" + uuid.String()
 	fs := newFakeServer(t, http.MethodDelete, path)
 	ts := fs.server(t)
 	defer ts.Close()
@@ -176,7 +176,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 
 func TestReplicationPutObjects(t *testing.T) {
 	ctx := context.Background()
-	fs := newFakeServer(t, http.MethodPost, "/replicas/C1/shards/S1/objects")
+	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, "error2")
 	ts := fs.server(t)
 	defer ts.Close()
@@ -222,7 +222,7 @@ func TestReplicationPutObjects(t *testing.T) {
 func TestReplicationMergeObject(t *testing.T) {
 	ctx := context.Background()
 	uuid := UUID1
-	f := newFakeServer(t, http.MethodPatch, "/replicas/C1/shards/S1/objects/"+uuid.String())
+	f := newFakeServer(t, http.MethodPatch, "/replicas/indices/C1/shards/S1/objects/"+uuid.String())
 	ts := f.server(t)
 	defer ts.Close()
 
@@ -255,7 +255,7 @@ func TestReplicationMergeObject(t *testing.T) {
 
 func TestReplicationAddReferences(t *testing.T) {
 	ctx := context.Background()
-	fs := newFakeServer(t, http.MethodPost, "/replicas/C1/shards/S1/objects/references")
+	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, "error2")
 	ts := fs.server(t)
 	defer ts.Close()
@@ -289,7 +289,7 @@ func TestReplicationAddReferences(t *testing.T) {
 
 func TestReplicationDeleteObjects(t *testing.T) {
 	ctx := context.Background()
-	fs := newFakeServer(t, http.MethodDelete, "/replicas/C1/shards/S1/objects")
+	fs := newFakeServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, "error2")
 	ts := fs.server(t)
 	defer ts.Close()
@@ -323,7 +323,7 @@ func TestReplicationDeleteObjects(t *testing.T) {
 
 func TestReplicationAbort(t *testing.T) {
 	ctx := context.Background()
-	path := "/replicas/C1/shards/S1:abort"
+	path := "/replicas/indices/C1/shards/S1:abort"
 	fs := newFakeServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
@@ -356,7 +356,7 @@ func TestReplicationAbort(t *testing.T) {
 
 func TestReplicationCommit(t *testing.T) {
 	ctx := context.Background()
-	path := "/replicas/C1/shards/S1:commit"
+	path := "/replicas/indices/C1/shards/S1:commit"
 	fs := newFakeServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()

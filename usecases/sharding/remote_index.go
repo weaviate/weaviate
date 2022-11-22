@@ -13,7 +13,6 @@ package sharding
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/go-openapi/strfmt"
@@ -25,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
-	"golang.org/x/sync/errgroup"
 )
 
 type RemoteIndex struct {
@@ -89,14 +87,6 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadCloser) error
-
-	// replication
-	ReplicatePutObject(ctx context.Context, hostName, indexName, shardName string,
-		obj *storobj.Object) error
-	ReplicateBatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
-		objs []*storobj.Object) []error
-	ReplicateDeleteObject(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -337,117 +327,4 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 	}
 
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)
-}
-
-func (ri *RemoteIndex) ReplicateBatchPutObjects(ctx context.Context, localhost,
-	shardName string, objs []*storobj.Object,
-) []error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return duplicateErr(errors.Errorf("class %s has no physical shard %q",
-			ri.class, shardName), len(objs))
-	}
-
-	var replicas []string
-	for _, name := range shard.BelongsToNodes {
-		if name != localhost {
-			replicas = append(replicas, name)
-		}
-	}
-	if len(replicas) == 0 {
-		return []error{fmt.Errorf("no replicas found")}
-	}
-
-	var errs []error
-
-	var g errgroup.Group
-
-	for _, replica := range replicas {
-		replica := replica
-		g.Go(func() error {
-			host, ok := ri.nodeResolver.NodeHostname(replica)
-			if !ok {
-				return errors.Errorf("resolve node name %q to host", replica)
-			}
-
-			// TODO: properly handle errors for more than one replica
-			errs = ri.client.ReplicateBatchPutObjects(ctx, host, ri.class, shardName, objs)
-			return nil
-		})
-	}
-
-	g.Wait()
-	return errs
-}
-
-func (ri *RemoteIndex) ReplicatePutObject(ctx context.Context, localhost, shardName string,
-	obj *storobj.Object,
-) error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
-	}
-
-	var replicas []string
-	for _, name := range shard.BelongsToNodes {
-		if name != localhost {
-			replicas = append(replicas, name)
-		}
-	}
-	if len(replicas) == 0 {
-		return fmt.Errorf("no replicas found")
-	}
-
-	var g errgroup.Group
-
-	for _, replica := range replicas {
-		replica := replica
-		g.Go(func() error {
-			host, ok := ri.nodeResolver.NodeHostname(replica)
-			if !ok {
-				return errors.Errorf("resolve node name %q to host", replica)
-			}
-
-			return ri.client.ReplicatePutObject(ctx, host, ri.class, shardName, obj)
-		})
-	}
-
-	return g.Wait()
-}
-
-func (ri *RemoteIndex) ReplicateDeletion(ctx context.Context, localhost, shardName string,
-	id strfmt.UUID,
-) error {
-	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
-	if !ok {
-		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
-	}
-
-	var nodeNames []string
-	for _, name := range shard.BelongsToNodes {
-		if name != localhost {
-			nodeNames = append(nodeNames, name)
-		}
-	}
-	if len(nodeNames) == 0 {
-		return fmt.Errorf("no replicates found")
-	}
-
-	var g errgroup.Group
-	for _, node := range nodeNames {
-		node := node
-		g.Go(func() error {
-			host, ok := ri.nodeResolver.NodeHostname(node)
-			if !ok {
-				return fmt.Errorf("resolve node name %q to host", node)
-			}
-			err := ri.client.ReplicateDeleteObject(ctx, host, ri.class, shardName, id)
-			if err != nil {
-				return fmt.Errorf("replicate delete to node %q: %w", node, err)
-			}
-			return nil
-		})
-	}
-
-	return g.Wait()
 }

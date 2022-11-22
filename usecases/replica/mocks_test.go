@@ -61,7 +61,7 @@ func (f *fakeClient) DeleteObjects(ctx context.Context, host, index, shard, requ
 }
 
 func (f *fakeClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
-	refs objects.BatchReferences,
+	refs []objects.BatchReference,
 ) (SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, refs)
 	return args.Get(0).(SimpleResponse), args.Error(1)

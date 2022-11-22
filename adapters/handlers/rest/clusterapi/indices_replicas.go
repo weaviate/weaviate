@@ -13,6 +13,7 @@ package clusterapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,16 +21,28 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
 type replicator interface {
-	PutObject(ctx context.Context, index, shardName string,
-		obj *storobj.Object) error
-	DeleteObject(ctx context.Context, index, shardName string,
-		id strfmt.UUID) error
-	BatchPutObjects(ctx context.Context, indexName, shardName string,
-		objs []*storobj.Object) []error
+	ReplicateObject(ctx context.Context, indexName, shardName,
+		requestID string, object *storobj.Object) replica.SimpleResponse
+	ReplicateObjects(ctx context.Context, indexName, shardName,
+		requestID string, objects []*storobj.Object) replica.SimpleResponse
+	ReplicateUpdate(ctx context.Context, indexName, shardName,
+		requestID string, mergeDoc *objects.MergeDocument) replica.SimpleResponse
+	ReplicateDeletion(ctx context.Context, indexName, shardName,
+		requestID string, uuid strfmt.UUID) replica.SimpleResponse
+	ReplicateDeletions(ctx context.Context, indexName, shardName,
+		requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse
+	ReplicateReferences(ctx context.Context, indexName, shardName,
+		requestID string, refs []objects.BatchReference) replica.SimpleResponse
+	CommitReplication(ctx context.Context, indexName,
+		shardName, requestID string) interface{}
+	AbortReplication(ctx context.Context, indexName,
+		shardName, requestID string) interface{}
 }
 
 type scaler interface {
@@ -43,12 +56,16 @@ type replicatedIndices struct {
 }
 
 var (
-	regxObject = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+	regxObject = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`)
-	regxObjects = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+	regxObjects = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects`)
-	regxIncreaseRepFactor = regexp.MustCompile(`\/replica\/indices\/([A-Za-z0-9_+-]+)` +
+	regxReferences = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/objects/references`)
+	regxIncreaseRepFactor = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/replication-factor\/_increase`)
+	regxCommitPhase = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+):(commit|abort)`)
 )
 
 func NewReplicatedIndices(shards replicator, scaler scaler) *replicatedIndices {
@@ -62,11 +79,22 @@ func (i *replicatedIndices) Indices() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
-
 		case regxObject.MatchString(path):
 			if r.Method == http.MethodDelete {
 				i.deleteObject().ServeHTTP(w, r)
 				return
+			}
+
+			if r.Method == http.MethodPatch {
+				i.patchObject().ServeHTTP(w, r)
+				return
+			}
+
+			if regxReferences.MatchString(path) {
+				if r.Method == http.MethodPost {
+					i.postRefs().ServeHTTP(w, r)
+					return
+				}
 			}
 
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -75,6 +103,11 @@ func (i *replicatedIndices) Indices() http.Handler {
 		case regxObjects.MatchString(path):
 			if r.Method == http.MethodPost {
 				i.postObject().ServeHTTP(w, r)
+				return
+			}
+
+			if r.Method == http.MethodDelete {
+				i.deleteObjects().ServeHTTP(w, r)
 				return
 			}
 
@@ -90,10 +123,58 @@ func (i *replicatedIndices) Indices() http.Handler {
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
 
+		case regxCommitPhase.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.executeCommitPhase().ServeHTTP(w, r)
+				return
+			}
+
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+
 		default:
 			http.NotFound(w, r)
 			return
 		}
+	})
+}
+
+func (i *replicatedIndices) executeCommitPhase() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxCommitPhase.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		requestID := r.URL.Query().Get(replica.RequestKey)
+		if requestID == "" {
+			http.Error(w, "request_id not provided", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, cmd := args[1], args[2], args[3]
+
+		var resp interface{}
+
+		switch cmd {
+		case "commit":
+			resp = i.shards.CommitReplication(r.Context(), index, shard, requestID)
+		case "abort":
+			resp = i.shards.AbortReplication(r.Context(), index, shard, requestID)
+		default:
+			http.Error(w, fmt.Sprintf("unrecognized commit phase command: %s", cmd),
+				http.StatusInternalServerError)
+			return
+		}
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+		w.Write(b)
 	})
 }
 
@@ -137,6 +218,12 @@ func (i *replicatedIndices) postObject() http.Handler {
 			return
 		}
 
+		requestID := r.URL.Query().Get(replica.RequestKey)
+		if requestID == "" {
+			http.Error(w, "request_id not provided", http.StatusBadRequest)
+			return
+		}
+
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
@@ -146,15 +233,56 @@ func (i *replicatedIndices) postObject() http.Handler {
 		switch ct {
 
 		case IndicesPayloads.SingleObject.MIME():
-			i.postObjectSingle(w, r, index, shard)
+			i.postObjectSingle(w, r, index, shard, requestID)
 			return
 		case IndicesPayloads.ObjectList.MIME():
-			i.postObjectBatch(w, r, index, shard)
+			i.postObjectBatch(w, r, index, shard, requestID)
 			return
 		default:
 			http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
 			return
 		}
+	})
+}
+
+func (i *replicatedIndices) patchObject() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		requestID := r.URL.Query().Get(replica.RequestKey)
+		if requestID == "" {
+			http.Error(w, "request_id not provided", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		mergeDoc, err := IndicesPayloads.MergeDoc.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc)
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(b)
 	})
 }
 
@@ -166,21 +294,71 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 			return
 		}
 
+		requestID := r.URL.Query().Get(replica.RequestKey)
+		if requestID == "" {
+			http.Error(w, "request_id not provided", http.StatusBadRequest)
+			return
+		}
+
 		index, shard, id := args[1], args[2], args[3]
 
 		defer r.Body.Close()
 
-		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id))
+		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id))
+
+		b, err := json.Marshal(resp)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+		w.Write(b)
+	})
+}
+
+func (i *replicatedIndices) deleteObjects() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		requestID := r.URL.Query().Get(replica.RequestKey)
+		if requestID == "" {
+			http.Error(w, "request_id not provided", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer r.Body.Close()
+
+		docIDs, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, docIDs, dryRun)
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+		w.Write(b)
 	})
 }
 
 func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Request,
-	index, shard string,
+	index, shard, requestID string,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -194,16 +372,20 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj)
+
+	b, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+			http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	w.Write(b)
 }
 
 func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Request,
-	index, shard string,
+	index, shard, requestID string,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -217,13 +399,54 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
-	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
+	resp := i.shards.ReplicateObjects(r.Context(), index, shard, requestID, objs)
+
+	b, err := json.Marshal(resp)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
+			http.StatusInternalServerError)
 		return
 	}
 
-	IndicesPayloads.ErrorList.SetContentTypeHeader(w)
-	w.Write(errsJSON)
+	w.Write(b)
+}
+
+func (i *replicatedIndices) postRefs() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		requestID := r.URL.Query().Get(replica.RequestKey)
+		if requestID == "" {
+			http.Error(w, "request_id not provided", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		refs, err := IndicesPayloads.ReferenceList.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs)
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(b)
+	})
 }

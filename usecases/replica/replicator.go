@@ -21,11 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
-const (
-	// RequestKey is used to marshalling request IDs
-	RequestKey = "request_id"
-)
-
 type shardingState interface {
 	ShardingState(class string) *sharding.State
 }
@@ -37,13 +32,13 @@ type nodeResolver interface {
 type Replicator struct {
 	class       string
 	stateGetter shardingState
-	client      client
+	client      ReplicationClient
 	resolver    nodeResolver
 }
 
 func NewReplicator(className string,
 	stateGetter shardingState, nodeResolver nodeResolver,
-	client client,
+	client ReplicationClient,
 ) *Replicator {
 	return &Replicator{
 		class:       className,
@@ -53,10 +48,10 @@ func NewReplicator(className string,
 	}
 }
 
-func (r *Replicator) PutObject(ctx context.Context, localhost, shard string,
+func (r *Replicator) PutObject(ctx context.Context, shard string,
 	obj *storobj.Object,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, localhost)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj)
 		if err != nil {
@@ -67,10 +62,10 @@ func (r *Replicator) PutObject(ctx context.Context, localhost, shard string,
 	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
 
-func (r *Replicator) PutObjects(ctx context.Context, localhost, shard string,
+func (r *Replicator) PutObjects(ctx context.Context, shard string,
 	objs []*storobj.Object,
 ) []error {
-	coord := newCoordinator[SimpleResponse](r, shard, localhost)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs)
 		if err != nil {
@@ -82,10 +77,10 @@ func (r *Replicator) PutObjects(ctx context.Context, localhost, shard string,
 	return errorsFromSimpleResponses(len(objs), coord.responses, err)
 }
 
-func (r *Replicator) MergeObject(ctx context.Context, localhost, shard string,
+func (r *Replicator) MergeObject(ctx context.Context, shard string,
 	mergeDoc *objects.MergeDocument,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, localhost)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, mergeDoc)
 		if err != nil {
@@ -97,8 +92,8 @@ func (r *Replicator) MergeObject(ctx context.Context, localhost, shard string,
 }
 
 func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
+	resp := SimpleResponse{}
 	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
-		resp := SimpleResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
@@ -107,10 +102,10 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 	}
 }
 
-func (r *Replicator) DeleteObject(ctx context.Context, localhost, shard string,
+func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 	id strfmt.UUID,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, localhost)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id)
 		if err == nil {
@@ -121,10 +116,10 @@ func (r *Replicator) DeleteObject(ctx context.Context, localhost, shard string,
 	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
 
-func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
+func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 	docIDs []uint64, dryRun bool,
 ) []objects.BatchSimpleObject {
-	coord := newCoordinator[DeleteBatchResponse](r, shard, localhost)
+	coord := newCoordinator[DeleteBatchResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(
 			ctx, host, r.class, shard, requestID, docIDs, dryRun)
@@ -133,23 +128,23 @@ func (r *Replicator) DeleteObjects(ctx context.Context, localhost, shard string,
 		}
 		return resp.FirstError()
 	}
-	commit := (func(ctx context.Context, host, requestID string) (DeleteBatchResponse, error) {
+	commit := func(ctx context.Context, host, requestID string) (DeleteBatchResponse, error) {
 		resp := DeleteBatchResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
 		}
 		return resp, err
-	})
+	}
 
 	err := coord.Replicate(ctx, op, commit)
 	return resultsFromDeletionResponses(len(docIDs), coord.responses, err)
 }
 
-func (r *Replicator) AddReferences(ctx context.Context, localhost, shard string,
+func (r *Replicator) AddReferences(ctx context.Context, shard string,
 	refs []objects.BatchReference,
 ) []error {
-	coord := newCoordinator[SimpleResponse](r, shard, localhost)
+	coord := newCoordinator[SimpleResponse](r, shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs)
 		if err != nil {
@@ -164,10 +159,9 @@ func (r *Replicator) AddReferences(ctx context.Context, localhost, shard string,
 // finder is just a place holder to find replicas of specific hard
 // TODO: the mapping between a shard and its replicas need to be implemented
 type finder struct {
-	schema    shardingState
-	resolver  nodeResolver
-	localhost string
-	class     string
+	schema   shardingState
+	resolver nodeResolver
+	class    string
 }
 
 func (r *finder) FindReplicas(shardName string) []string {
@@ -187,11 +181,11 @@ func (r *finder) FindReplicas(shardName string) []string {
 	return replicas
 }
 
-func errorsFromSimpleResponses(bashSize int, rs []SimpleResponse, defaultErr error) []error {
-	errs := make([]error, bashSize)
+func errorsFromSimpleResponses(batchSize int, rs []SimpleResponse, defaultErr error) []error {
+	errs := make([]error, batchSize)
 	n := 0
 	for _, resp := range rs {
-		if len(resp.Errors) != bashSize {
+		if len(resp.Errors) != batchSize {
 			continue
 		}
 		n++
@@ -201,7 +195,7 @@ func errorsFromSimpleResponses(bashSize int, rs []SimpleResponse, defaultErr err
 			}
 		}
 	}
-	if n != bashSize {
+	if n != batchSize {
 		for i := range errs {
 			if errs[i] == nil {
 				errs[i] = defaultErr

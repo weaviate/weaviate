@@ -245,7 +245,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	db.SetSchemaGetter(schemaGetter)
 	err := db.WaitForStartup(testCtx())
 	require.Nil(t, err)

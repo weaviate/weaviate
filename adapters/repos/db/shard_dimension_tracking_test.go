@@ -47,7 +47,7 @@ func Benchmark_Migration(b *testing.B) {
 			MaxImportGoroutinesFactor:        1,
 			TrackVectorDimensions:            true,
 			ReindexVectorDimensionsAtStartup: false,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 		defer repo.Shutdown(context.Background())
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
@@ -112,7 +112,7 @@ func Test_Migration(t *testing.T) {
 		MaxImportGoroutinesFactor:        1,
 		TrackVectorDimensions:            true,
 		ReindexVectorDimensionsAtStartup: false,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	defer repo.Shutdown(context.Background())
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -177,7 +177,7 @@ func Test_DimensionTracking(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)

@@ -785,7 +785,7 @@ func (c *RemoteIndex) ReinitShard(ctx context.Context,
 func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	hostName, indexName string, ssBefore, ssAfter *sharding.State,
 ) error {
-	path := fmt.Sprintf("/replica/indices/%s/replication-factor/_increase", indexName)
+	path := fmt.Sprintf("/replicas/indices/%s/replication-factor/_increase", indexName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -806,121 +806,6 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	}
 
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	return nil
-}
-
-// ReplicatePutObject
-// TODO change it to accept a list of nodes to replicate object on
-func (c *RemoteIndex) ReplicatePutObject(ctx context.Context, hostName, indexName,
-	shardName string, obj *storobj.Object,
-) error {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s/objects", indexName, shardName)
-	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-
-	marshalled, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
-	if err != nil {
-		return errors.Wrap(err, "marshal payload")
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(),
-		bytes.NewReader(marshalled))
-	if err != nil {
-		return errors.Wrap(err, "open http request")
-	}
-
-	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	return nil
-}
-
-func (c *RemoteIndex) ReplicateBatchPutObjects(ctx context.Context, hostName, indexName,
-	shardName string, objs []*storobj.Object,
-) []error {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s/objects", indexName, shardName)
-	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-
-	marshalled, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs)
-	if err != nil {
-		return duplicateErr(errors.Wrap(err, "marshal payload"), len(objs))
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(),
-		bytes.NewReader(marshalled))
-	if err != nil {
-		return duplicateErr(errors.Wrap(err, "open http request"), len(objs))
-	}
-
-	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-
-	res, err := c.client.Do(req)
-	if err != nil {
-		return duplicateErr(errors.Wrap(err, "send http request"), len(objs))
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return duplicateErr(errors.Errorf("unexpected status code %d (%s)",
-			res.StatusCode, body), len(objs))
-	}
-
-	if ct, ok := clusterapi.IndicesPayloads.ErrorList.
-		CheckContentTypeHeader(res); !ok {
-		return duplicateErr(errors.Errorf("unexpected content type: %s",
-			ct), len(objs))
-	}
-
-	resBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return duplicateErr(errors.Wrap(err, "ready body"), len(objs))
-	}
-
-	return clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
-}
-
-func (c *RemoteIndex) ReplicateDeleteObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID,
-) error {
-	path := fmt.Sprintf("/replica/indices/%s/shards/%s/objects/%s", indexName, shardName, id)
-	method := http.MethodDelete
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
-	if err != nil {
-		return errors.Wrap(err, "open http request")
-	}
-
-	res, err := c.client.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotFound {
-		// this is a legitimate case - the requested ID doesn't exist, don't try
-		// to unmarshal anything, we can assume it was already deleted
-		return nil
-	}
-
 	if res.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(res.Body)
 		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
