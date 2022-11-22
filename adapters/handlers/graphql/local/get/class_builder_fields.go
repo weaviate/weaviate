@@ -240,13 +240,11 @@ func realBuildGetClassField(classObject *graphql.Object,
 func buildGetClassField(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) graphql.Field {
-
 	field := realBuildGetClassField(classObject, class, modulesProvider)
 	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
 		field.Args["hybridSearch"] = hybridArgument(classObject, class, modulesProvider)
 	}
 	return field
-
 }
 
 func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
@@ -376,7 +374,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		var keywordRankingParams *searchparams.KeywordRanking
 
-		//extracts bm25 (sparseSearch) from the query
+		// extracts bm25 (sparseSearch) from the query
 		if bm25, ok := p.Args["bm25"]; ok {
 			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
 			keywordRankingParams = &p
@@ -385,11 +383,9 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybridSearch"]; ok {
 
-			
-
-			//Extract hybrid search params from the processed query
-			//Everything hybrid can go in another namespace AFTER modulesprovider is
-			//refactored
+			// Extract hybrid search params from the processed query
+			// Everything hybrid can go in another namespace AFTER modulesprovider is
+			// refactored
 			var subsearches []interface{}
 			source := hybrid.(map[string]interface{})
 			operands_i := source["operands"]
@@ -434,7 +430,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 						Weight:       subsearch["weight"].(float64),
 						Type:         "nearVector",
 					})
-			
+
 				default:
 					panic("unknown subsearch type:" + fmt.Sprintf("%#v", subsearch))
 				}
@@ -446,28 +442,27 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 				args.Limit = int(limit_i.(int))
 			}
 
-        alpha, ok := source["alpha"]
-       if ok {
-               args.Alpha = alpha.(float64)
-       }
+			alpha, ok := source["alpha"]
+			if ok {
+				args.Alpha = alpha.(float64)
+			}
 
-       query, ok := source["query"]
-       if ok {
-               args.Query = query.(string)
-       }
+			query, ok := source["query"]
+			if ok {
+				args.Query = query.(string)
+			}
 
-       if _, ok := source["vector"]; ok {
-               vector := source["vector"].([]interface{})
-               args.Vector = make([]float32, len(vector))
-               for i, value := range vector {
-                       args.Vector[i] = float32(value.(float64))
-               }
-       }
-
+			if _, ok := source["vector"]; ok {
+				vector := source["vector"].([]interface{})
+				args.Vector = make([]float32, len(vector))
+				for i, value := range vector {
+					args.Vector[i] = float32(value.(float64))
+				}
+			}
 
 			args.Type = "hybrid"
 			p := args
-			//p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}, r.modulesProvider))
+			// p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}, r.modulesProvider))
 			hybridParams = &p
 		}
 

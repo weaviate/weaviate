@@ -154,7 +154,6 @@ func (m *nearCustomTextModule) RootHandler() http.Handler {
 }
 
 func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
 	// define nearCustomText argument
 	arguments["nearCustomText"] = modulecapabilities.GraphQLArgument{

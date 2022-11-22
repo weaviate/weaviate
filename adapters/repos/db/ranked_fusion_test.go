@@ -104,11 +104,10 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		//vector := []float32{1, 3, 5, 0.4} //FIXME, make correct vectors?
+		// vector := []float32{1, 3, 5, 0.4} //FIXME, make correct vectors?
 		err := repo.PutObject(context.Background(), obj, nil)
 		require.Nil(t, err)
 	}
-
 }
 
 func TestHybrid(t *testing.T) {
@@ -132,7 +131,7 @@ func TestHybrid(t *testing.T) {
 	idx := repo.GetIndex("StandardTest")
 	require.NotNil(t, idx)
 
-	//Load queries from file standard_test_queries.json
+	// Load queries from file standard_test_queries.json
 	// This is a list of 100 queries from the MEDLINE database
 
 	data, _ := ioutil.ReadFile("NFCorpus-Query.json")
@@ -142,7 +141,6 @@ func TestHybrid(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
 		res, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -171,7 +169,7 @@ func TestBIER(t *testing.T) {
 	idx := repo.GetIndex("StandardTest")
 	require.NotNil(t, idx)
 
-	//Load queries from file standard_test_queries.json
+	// Load queries from file standard_test_queries.json
 	// This is a list of 100 queries from the MEDLINE database
 
 	data, _ := ioutil.ReadFile("NFCorpus-Query.json")
@@ -183,7 +181,7 @@ func TestBIER(t *testing.T) {
 		res, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
-		//fmt.Printf("Results: %v\n", res)
+		// fmt.Printf("Results: %v\n", res)
 
 		//for j, doc := range res {
 		//	fmt.Printf("res %v, %v\n", j, doc.Object.GetAdditionalProperty("code"))
@@ -197,7 +195,6 @@ func TestBIER(t *testing.T) {
 		//}
 
 	}
-
 }
 
 func FusionConfig(k1, b float32) *models.InvertedIndexConfig {
@@ -281,7 +278,7 @@ func QuickSearch(idx *Index, searchTerms string) []*storobj.Object {
 
 // Do a reciprocal rank fusion on the results of two queries
 func FusionConcatenate(results [][]*storobj.Object) []*storobj.Object {
-	//Concatenate the results
+	// Concatenate the results
 	concatenatedResults := []*storobj.Object{}
 	for _, result := range results {
 		concatenatedResults = append(concatenatedResults, result...)
@@ -290,7 +287,7 @@ func FusionConcatenate(results [][]*storobj.Object) []*storobj.Object {
 }
 
 func FusionScoreMerge(results [][]*storobj.Object) []*storobj.Object {
-	//Concatenate the results
+	// Concatenate the results
 	concatenatedResults := []*storobj.Object{}
 	for _, result := range results {
 		concatenatedResults = append(concatenatedResults, result...)
@@ -312,9 +309,8 @@ func FusionScoreMerge(results [][]*storobj.Object) []*storobj.Object {
 }
 
 func FusionScoreCombSUM(results [][]*storobj.Object) []*storobj.Object {
-
 	allDocs := map[int64]*storobj.Object{}
-	//Loop over each array of results and add the score of each document to the totals
+	// Loop over each array of results and add the score of each document to the totals
 	totals := map[int64]float32{}
 	for _, resultSet := range results {
 		for _, doc := range resultSet {

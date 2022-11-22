@@ -32,7 +32,6 @@ func NewObjectsListParams() ObjectsListParams {
 
 	var (
 		// initialize parameters with default values
-
 		offsetDefault = int64(0)
 	)
 

@@ -2,6 +2,7 @@ package get
 
 import (
 	"fmt"
+
 	"github.com/tailor-inc/graphql"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
@@ -9,14 +10,15 @@ import (
 )
 
 func hybridArgument(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider) *graphql.ArgumentConfig {
+	class *models.Class, modulesProvider ModulesProvider,
+) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("GetObjects%s", class.Class)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name: fmt.Sprintf("%shybridInpObj", prefix),
 				Fields:
-				//hybridFields(prefix),
+				// hybridFields(prefix),
 				hybridOperands(classObject, class, modulesProvider),
 				Description: "Hybrid search",
 			},
@@ -25,8 +27,8 @@ func hybridArgument(classObject *graphql.Object,
 }
 
 func hybridOperands(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider) graphql.InputObjectConfigFieldMap {
-
+	class *models.Class, modulesProvider ModulesProvider,
+) graphql.InputObjectConfigFieldMap {
 	ss := graphql.NewInputObject(graphql.InputObjectConfig{
 		Name:   class.Class + "SubSearch",
 		Fields: hybridSubSearch(classObject, class, modulesProvider),
@@ -44,11 +46,11 @@ func hybridOperands(classObject *graphql.Object,
 
 		"query": &graphql.InputObjectFieldConfig{
 			Description: "Query string",
-			Type: graphql.String,
+			Type:        graphql.String,
 		},
 		"alpha": &graphql.InputObjectFieldConfig{
 			Description: "Search weight",
-			Type: graphql.Float,
+			Type:        graphql.Float,
 		},
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: "Vector search",
@@ -58,7 +60,8 @@ func hybridOperands(classObject *graphql.Object,
 }
 
 func hybridSubSearch(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider) graphql.InputObjectConfigFieldMap {
+	class *models.Class, modulesProvider ModulesProvider,
+) graphql.InputObjectConfigFieldMap {
 	prefixName := class.Class + "SubSearch"
 
 	return graphql.InputObjectConfigFieldMap{
@@ -89,5 +92,4 @@ func hybridSubSearch(classObject *graphql.Object,
 			),
 		},
 	}
-
 }

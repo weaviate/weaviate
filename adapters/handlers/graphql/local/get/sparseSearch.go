@@ -2,9 +2,10 @@ package get
 
 import (
 	"fmt"
-	"github.com/tailor-inc/graphql"
 
+	"github.com/tailor-inc/graphql"
 )
+
 func bm25Argument(className string) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("GetObjects%s", className)
 	return &graphql.ArgumentConfig{
