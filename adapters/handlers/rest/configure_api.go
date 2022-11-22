@@ -63,6 +63,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/semi-technologies/weaviate/usecases/scaling"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
@@ -160,6 +161,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
+	replicationClient := clients.NewReplicationClient(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
 		ServerVersion:                    config.ServerVersion,
 		GitHash:                          config.GitHash,
@@ -171,7 +173,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		TrackVectorDimensions:            appState.ServerConfig.Config.TrackVectorDimensions,
 		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
 		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, appState.Metrics) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -222,7 +224,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
-	appState.ReplicatedIndex = sharding.NewReplicatedIndex(repo)
+	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,

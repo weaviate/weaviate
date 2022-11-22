@@ -20,95 +20,134 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/replica"
 )
 
-func (ind *Index) IncomingFilePutter(ctx context.Context, shardName,
-	filePath string,
-) (io.WriteCloser, error) {
-	localShard, ok := ind.Shards[shardName]
-	if !ok {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
-	}
-
-	return localShard.filePutter(ctx, filePath)
+type Replicator interface {
+	ReplicateObject(ctx context.Context, shardName, requestID string,
+		object *storobj.Object) replica.SimpleResponse
+	ReplicateObjects(ctx context.Context, shardName, requestID string,
+		objects []*storobj.Object) replica.SimpleResponse
+	ReplicateUpdate(ctx context.Context, shard, requestID string,
+		doc *objects.MergeDocument) replica.SimpleResponse
+	ReplicateDeletion(ctx context.Context, shardName, requestID string,
+		uuid strfmt.UUID) replica.SimpleResponse
+	ReplicateDeletions(ctx context.Context, shardName, requestID string,
+		docIDs []uint64, dryRun bool) replica.SimpleResponse
+	ReplicateReferences(ctx context.Context, shard, requestID string,
+		refs []objects.BatchReference) replica.SimpleResponse
+	CommitReplication(ctx context.Context, shard,
+		requestID string) interface{}
+	AbortReplication(ctx context.Context, shardName,
+		requestID string) interface{}
 }
 
-func (s *Shard) filePutter(ctx context.Context,
-	filePath string,
-) (io.WriteCloser, error) {
-	// TODO: validate file prefix to rule out that we're accidentally writing
-	// into another shard
-	finalPath := filepath.Join(s.index.Config.RootPath, filePath)
-	f, err := os.Create(finalPath)
-	if err != nil {
-		return nil, fmt.Errorf("open file %q for writing: %w", filePath, err)
-	}
-
-	return f, nil
-}
-
-func (ind *Index) IncomingCreateShard(ctx context.Context,
-	shardName string,
-) error {
-	// TODO: locking???
-	if _, ok := ind.Shards[shardName]; ok {
-		return fmt.Errorf("shard %q exists already", shardName)
-	}
-
-	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, ind)
-	if err != nil {
-		return err
-	}
-
-	// TODO: locking???
-	ind.Shards[shardName] = s
-
-	return nil
-}
-
-func (ind *Index) IncomingReinitShard(ctx context.Context,
-	shardName string,
-) error {
-	shard, ok := ind.Shards[shardName]
-	if !ok {
-		return fmt.Errorf("shard %q does not exist locally", shardName)
-	}
-
-	return shard.reinit(ctx)
-}
-
-func (s *Shard) reinit(ctx context.Context) error {
-	if err := s.shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown shard: %w", err)
-	}
-
-	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
-	if !ok {
-		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-			s.index.vectorIndexUserConfig)
-	}
-
-	if hnswUserConfig.Skip {
-		s.vectorIndex = noop.NewIndex()
-	} else {
-		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-			return fmt.Errorf("init vector index: %w", err)
+func (db *DB) ReplicateObject(ctx context.Context, indexName,
+	shardName, requestID string, object *storobj.Object,
+) replica.SimpleResponse {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
 		}
-
-		defer s.vectorIndex.PostStartup()
 	}
 
-	if err := s.initNonVector(ctx); err != nil {
-		return fmt.Errorf("init non-vector: %w", err)
+	return index.ReplicateObject(ctx, shardName, requestID, object)
+}
+
+func (db *DB) ReplicateObjects(ctx context.Context, indexName,
+	shardName, requestID string, objects []*storobj.Object,
+) replica.SimpleResponse {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
 	}
 
-	// TODO: reinit vector
-	return nil
+	return index.ReplicateObjects(ctx, shardName, requestID, objects)
+}
+
+func (db *DB) ReplicateUpdate(ctx context.Context, indexName,
+	shardName, requestID string, mergeDoc *objects.MergeDocument,
+) replica.SimpleResponse {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.ReplicateUpdate(ctx, shardName, requestID, mergeDoc)
+}
+
+func (db *DB) ReplicateDeletion(ctx context.Context, indexName,
+	shardName, requestID string, uuid strfmt.UUID,
+) replica.SimpleResponse {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.ReplicateDeletion(ctx, shardName, requestID, uuid)
+}
+
+func (db *DB) ReplicateDeletions(ctx context.Context, indexName,
+	shardName, requestID string, docIDs []uint64, dryRun bool,
+) replica.SimpleResponse {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.ReplicateDeletions(ctx, shardName, requestID, docIDs, dryRun)
+}
+
+func (db *DB) ReplicateReferences(ctx context.Context, indexName,
+	shardName, requestID string, refs []objects.BatchReference,
+) replica.SimpleResponse {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.ReplicateReferences(ctx, shardName, requestID, refs)
+}
+
+func (db *DB) CommitReplication(ctx context.Context, indexName,
+	shardName, requestID string,
+) interface{} {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.CommitReplication(ctx, shardName, requestID)
+}
+
+func (db *DB) AbortReplication(ctx context.Context, indexName,
+	shardName, requestID string,
+) interface{} {
+	index := db.GetIndex(schema.ClassName(indexName))
+	if index == nil {
+		return replica.SimpleResponse{
+			Errors: []string{fmt.Sprintf("local index %q not found", indexName)},
+		}
+	}
+
+	return index.AbortReplication(ctx, shardName, requestID)
 }
 
 func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object) replica.SimpleResponse {
@@ -189,4 +228,88 @@ func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) i
 		return replica.SimpleResponse{Errors: []string{"shard not found"}}
 	}
 	return localShard.abort(ctx, requestID)
+}
+
+func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
+	filePath string,
+) (io.WriteCloser, error) {
+	localShard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	return localShard.filePutter(ctx, filePath)
+}
+
+func (i *Index) IncomingCreateShard(ctx context.Context,
+	shardName string,
+) error {
+	// TODO: locking???
+	if _, ok := i.Shards[shardName]; ok {
+		return fmt.Errorf("shard %q exists already", shardName)
+	}
+
+	// TODO: metrics
+	s, err := NewShard(ctx, nil, shardName, i)
+	if err != nil {
+		return err
+	}
+
+	// TODO: locking???
+	i.Shards[shardName] = s
+
+	return nil
+}
+
+func (i *Index) IncomingReinitShard(ctx context.Context,
+	shardName string,
+) error {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	return shard.reinit(ctx)
+}
+
+func (s *Shard) filePutter(ctx context.Context,
+	filePath string,
+) (io.WriteCloser, error) {
+	// TODO: validate file prefix to rule out that we're accidentally writing
+	// into another shard
+	finalPath := filepath.Join(s.index.Config.RootPath, filePath)
+	f, err := os.Create(finalPath)
+	if err != nil {
+		return nil, fmt.Errorf("open file %q for writing: %w", filePath, err)
+	}
+
+	return f, nil
+}
+
+func (s *Shard) reinit(ctx context.Context) error {
+	if err := s.shutdown(ctx); err != nil {
+		return fmt.Errorf("shutdown shard: %w", err)
+	}
+
+	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
+	if !ok {
+		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+			s.index.vectorIndexUserConfig)
+	}
+
+	if hnswUserConfig.Skip {
+		s.vectorIndex = noop.NewIndex()
+	} else {
+		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+			return fmt.Errorf("init vector index: %w", err)
+		}
+
+		defer s.vectorIndex.PostStartup()
+	}
+
+	if err := s.initNonVector(ctx); err != nil {
+		return fmt.Errorf("init non-vector: %w", err)
+	}
+
+	return nil
 }

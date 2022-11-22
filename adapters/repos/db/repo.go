@@ -19,21 +19,23 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
 )
 
 type DB struct {
-	logger       logrus.FieldLogger
-	schemaGetter schemaUC.SchemaGetter
-	config       Config
-	indices      map[string]*Index
-	remoteIndex  sharding.RemoteIndexClient
-	nodeResolver nodeResolver
-	remoteNode   *sharding.RemoteNode
-	promMetrics  *monitoring.PrometheusMetrics
-	shutdown     chan struct{}
+	logger        logrus.FieldLogger
+	schemaGetter  schemaUC.SchemaGetter
+	config        Config
+	indices       map[string]*Index
+	remoteIndex   sharding.RemoteIndexClient
+	replicaClient replica.ReplicationClient
+	nodeResolver  nodeResolver
+	remoteNode    *sharding.RemoteNode
+	promMetrics   *monitoring.PrometheusMetrics
+	shutdown      chan struct{}
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modifaction at a time. R/W can be a bit confusing here,
@@ -74,18 +76,19 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
-	remoteNodesClient sharding.RemoteNodeClient,
+	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.ReplicationClient,
 	promMetrics *monitoring.PrometheusMetrics,
 ) *DB {
 	return &DB{
-		logger:       logger,
-		config:       config,
-		indices:      map[string]*Index{},
-		remoteIndex:  remoteIndex,
-		nodeResolver: nodeResolver,
-		remoteNode:   sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		promMetrics:  promMetrics,
-		shutdown:     make(chan struct{}),
+		logger:        logger,
+		config:        config,
+		indices:       map[string]*Index{},
+		remoteIndex:   remoteIndex,
+		nodeResolver:  nodeResolver,
+		remoteNode:    sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient: replicaClient,
+		promMetrics:   promMetrics,
+		shutdown:      make(chan struct{}),
 	}
 }
 
@@ -130,9 +133,9 @@ func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteInde
 	return index
 }
 
-func (d *DB) GetReplicatedIndex(className schema.ClassName) sharding.Replicator {
-	d.indexLock.Lock()
-	defer d.indexLock.Unlock()
+func (d *DB) GetReplicatedIndex(className schema.ClassName) Replicator {
+	d.indexLock.RLock()
+	defer d.indexLock.RUnlock()
 
 	id := indexID(className)
 	index, ok := d.indices[id]
@@ -140,7 +143,7 @@ func (d *DB) GetReplicatedIndex(className schema.ClassName) sharding.Replicator 
 		return nil
 	}
 
-	return (*replicatedIndex)(index)
+	return index
 }
 
 // DeleteIndex deletes the index
