@@ -31,9 +31,14 @@ type WeightedSearchResult struct {
 }
 
 type HybridSearch struct {
-	SubSearches interface{} `json:"subSearches"`
-	Type        string      `json:"type"`
-	Limit       int         `json:"limit"`
+	SubSearches    interface{}     `json:"subSearches"`
+	Type           string          `json:"type"`
+	Limit          int             `json:"limit"`
+	KeywordRanking *KeywordRanking `json:"keywordRanking"`
+	NearVector     *NearVector     `json:"nearVector"`
+	Alpha          float64         `json:"alpha"`
+	Query          string          `json:"query"`
+	Vector         []float32       `json:"vector"`
 }
 
 type NearObject struct {

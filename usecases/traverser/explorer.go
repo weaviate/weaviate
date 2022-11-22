@@ -238,7 +238,10 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	return concatenatedResults
 }
 
-func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]interface{}, error) {
+func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Result, error) {
+	results := [][]search.Result{}
+	weights := []float64{}
+
 	if params.HybridSearch != nil {
 		// There are two modes to hybrid search.  One is a simple unified interface, which only takes
 		// a few parameters, like "query", "vector", and "alpha".  It only does two searches and combines them.
@@ -246,17 +249,58 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]interface{},
 		//The other is a more complex, complete interface that allows any number of searches to be combined.
 		//The searches can use all of the options normally available, allowing complete control over the subsearches.
 
-		results := [][]search.Result{}
-		weights := []float64{}
-
 		if params.HybridSearch.Query != "" {
 			//Simple unified interface
 
+			//Result 1 is the bm25 "sparse" search
+			res1, err := e.search.ClassSearch(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+
+			//Set the scoreexplain property to bm25 for every result
+			for i := range res1 {
+				res1[i].ScoreExplain = "(bm25)" + res1[i].ScoreExplain
+			}
+
+			//Result 2 is the vector search, either with the provided vector or with a vector derived from the query
+			// i.e. nearVec or NearText
+			var vector []float32
+			if e.modulesProvider != nil {
+				if params.HybridSearch.Vector != nil && len(params.HybridSearch.Vector) != 0 {
+					//NearVec search
+
+					vector = params.HybridSearch.Vector
+				} else {
+					//NearText search
+
+					//Get the vector for the query
+					vector, err = e.modulesProvider.VectorFromInput(ctx,
+						params.ClassName, params.HybridSearch.Query)
+					if err != nil {
+						return nil, err
+					}
+					fmt.Printf("found vector: %v\n", vector)
+				}
+				res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
+				if err != nil {
+					return nil, err
+				}
+
+				//Set the scoreexplain property to vector for every result
+				for i := range res2 {
+					res2[i].ScoreExplain = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ScoreExplain)
+				}
+
+				alpha := params.HybridSearch.Alpha
+				results = append(results, res1, res2)
+				weights = append(weights, alpha, 1-alpha)
+
+			}
 		} else {
 			//Complete interface
 
 			//Iterate over subsearches, and execute them
-			
 
 			ss := params.HybridSearch.SubSearches
 			var vector []float32
@@ -333,16 +377,15 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]interface{},
 
 			}
 		}
-
-		fused := FusionReciprocal(weights, results)
-		if len(fused) > params.HybridSearch.Limit {
-			fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
-			fused = fused[:params.HybridSearch.Limit]
-		}
-
-		return e.searchResultsToGetResponse(ctx, fused, nil, params)
-
 	}
+	fused := FusionReciprocal(weights, results)
+	if len(fused) > params.HybridSearch.Limit {
+		fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
+		fused = fused[:params.HybridSearch.Limit]
+	}
+
+	return fused, nil
+
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
@@ -365,12 +408,16 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if params.Group != nil && (params.Filters != nil || params.Sort != nil) {
 		params.AdditionalProperties.Vector = true
 	}
+	var res []search.Result
+	var err error
+	if params.HybridSearch != nil {
+		res, err = e.hybrid(ctx, params)
+	} else {
 
-	e.hybrid(params)
-
-	res, err := e.search.ClassSearch(ctx, params)
-	if err != nil {
-		return nil, errors.Errorf("explorer: list class: search: %v", err)
+		res, err = e.search.ClassSearch(ctx, params)
+		if err != nil {
+			return nil, errors.Errorf("explorer: list class: search: %v", err)
+		}
 	}
 
 	if params.Group != nil {

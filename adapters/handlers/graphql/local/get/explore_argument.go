@@ -18,7 +18,6 @@ import (
 	"github.com/tailor-inc/graphql"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
