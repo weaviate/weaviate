@@ -316,8 +316,8 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			additionalProperties["score"] = res.Score
 		}
 
-		if params.AdditionalProperties.ScoreExplain {
-			additionalProperties["scoreExplain"] = res.ScoreExplain
+		if params.AdditionalProperties.ExplainScore {
+			additionalProperties["explainScore"] = res.ExplainScore
 		}
 
 		if params.AdditionalProperties.Vector {
