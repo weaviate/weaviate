@@ -158,7 +158,7 @@ func (c *ReplicationClient) MergeObject(ctx context.Context, host, index, shard,
 }
 
 func (c *ReplicationClient) AddReferences(ctx context.Context, host, index,
-	shard, requestID string, refs objects.BatchReferences,
+	shard, requestID string, refs []objects.BatchReference,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
 	body, err := clusterapi.IndicesPayloads.ReferenceList.Marshal(refs)

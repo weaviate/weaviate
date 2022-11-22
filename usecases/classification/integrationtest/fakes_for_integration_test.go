@@ -465,7 +465,7 @@ func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 }
 
 func (f *fakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
-	refs objects.BatchReferences,
+	refs []objects.BatchReference,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }

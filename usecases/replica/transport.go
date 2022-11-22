@@ -32,7 +32,7 @@ type ReplicationClient interface {
 	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 		docIDs []uint64, dryRun bool) (replica.SimpleResponse, error)
 	AddReferences(ctx context.Context, host, index, shard, requestID string,
-		refs objects.BatchReferences) (replica.SimpleResponse, error)
+		refs []objects.BatchReference) (replica.SimpleResponse, error)
 	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error
 	Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error)
 }

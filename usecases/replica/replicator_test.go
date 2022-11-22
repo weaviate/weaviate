@@ -285,7 +285,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		shard = "SH1"
 		nodes = []string{"A", "B"}
 		ctx   = context.Background()
-		refs  = objects.BatchReferences{{}, {}}
+		refs  = []objects.BatchReference{{}, {}}
 	)
 	t.Run("Success", func(t *testing.T) {
 		f := newFakeFactory("C1", shard, nodes)
