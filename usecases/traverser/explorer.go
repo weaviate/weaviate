@@ -13,7 +13,6 @@ package traverser
 
 import (
 	"context"
-	"log"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
