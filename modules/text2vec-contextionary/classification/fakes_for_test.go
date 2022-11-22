@@ -317,7 +317,6 @@ type fakeModulesProvider struct {
 
 func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
 	panic("not implemented")
-	return nil, nil
 }
 
 func NewFakeModulesProvider(vectorizer *fakeVectorizer) *fakeModulesProvider {

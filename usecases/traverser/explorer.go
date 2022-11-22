@@ -407,6 +407,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 	var err error
 	if params.HybridSearch != nil {
 		res, err = e.hybrid(ctx, params)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 
 		res, err = e.search.ClassSearch(ctx, params)

@@ -89,7 +89,6 @@ func (f *fakeVectorSearcher) ClassVectorSearch(ctx context.Context, class string
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	panic("not implemented")
-	return nil, nil
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
