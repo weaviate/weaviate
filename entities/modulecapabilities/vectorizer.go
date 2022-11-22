@@ -25,7 +25,7 @@ type Vectorizer interface {
 	// VectorizeObject should mutate the object which is passed in as a pointer-type
 	// by extending it with the desired vector and - if applicable - any meta
 	// information as part of _additional properties
-	VectorizeObject(ctx context.Context, obj *models.Object,
+	VectorizeObject(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
 		cfg moduletools.ClassConfig) error
 }
 

@@ -210,10 +210,10 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig,
+	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
 	icheck := localvectorizer.NewIndexChecker(cfg)
-	return m.vectorizer.Object(ctx, obj, icheck)
+	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
 }
 
 func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {

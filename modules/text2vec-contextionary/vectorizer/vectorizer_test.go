@@ -183,7 +183,7 @@ func TestVectorizingObjects(t *testing.T) {
 				skippedProperty:    test.noindex,
 				vectorizeClassName: test.excludedClass != "Car",
 			}
-			err := v.Object(context.Background(), test.input, ic)
+			err := v.Object(context.Background(), test.input, nil, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
@@ -258,7 +258,7 @@ func TestVectorizingActions(t *testing.T) {
 				skippedProperty:    test.noindex,
 				vectorizeClassName: test.excludedClass != "Flight",
 			}
-			err := v.Object(context.Background(), test.input, ic)
+			err := v.Object(context.Background(), test.input, nil, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
