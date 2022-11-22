@@ -14,6 +14,7 @@ package state
 import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
+	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
@@ -46,7 +47,7 @@ type State struct {
 	Cluster             *cluster.State
 	RemoteIndexIncoming *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
-	ReplicatedIndex     *sharding.ReplicatedIndex
+	ReplicatedIndex     *db.ReplicatedIndex
 
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics

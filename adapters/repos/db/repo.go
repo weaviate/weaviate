@@ -133,7 +133,7 @@ func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteInde
 	return index
 }
 
-func (d *DB) GetReplicatedIndex(className schema.ClassName) sharding.Replicator {
+func (d *DB) GetReplicatedIndex(className schema.ClassName) Replicator {
 	d.indexLock.RLock()
 	defer d.indexLock.RUnlock()
 

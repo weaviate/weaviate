@@ -223,7 +223,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
-	appState.ReplicatedIndex = sharding.NewReplicatedIndex(repo)
+	appState.ReplicatedIndex = db.NewReplicatedIndex(repo)
 
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
