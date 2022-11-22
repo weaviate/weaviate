@@ -57,7 +57,8 @@ func (v *vectorizer) WaitForStartup(initCtx context.Context,
 }
 
 func (v *vectorizer) waitFor(initCtx context.Context, interval time.Duration, endpoint string, serviceName string) error {
-	tick := time.Tick(interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 	expired := initCtx.Done()
 	var lastErr error
 	prefix := ""
@@ -67,7 +68,7 @@ func (v *vectorizer) waitFor(initCtx context.Context, interval time.Duration, en
 
 	for {
 		select {
-		case <-tick:
+		case <-ticker.C:
 			lastErr = v.checkReady(initCtx, endpoint, serviceName)
 			if lastErr == nil {
 				return nil

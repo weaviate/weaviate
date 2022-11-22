@@ -49,7 +49,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.promMetrics)
+		m.db.replicaClient, m.db.promMetrics)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -104,8 +104,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 	}
 
+	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	idx.notifyReady()
+	m.db.indexLock.Unlock()
 
 	return nil
 }

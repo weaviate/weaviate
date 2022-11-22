@@ -33,7 +33,11 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	next, status, err := s.mergeObjectInStorage(merge, idBytes)
+	return s.merge(ctx, idBytes, merge)
+}
+
+func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
+	next, status, err := s.mergeObjectInStorage(doc, idBytes)
 	if err != nil {
 		return err
 	}
@@ -63,32 +67,38 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	// see comment in shard_write_put.go::putObjectLSM
-	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Lock()
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock.Lock()
 	previous, err := bucket.Get(idBytes)
 	if err != nil {
+		lock.Unlock()
 		return nil, objectInsertStatus{}, errors.Wrap(err, "get bucket")
 	}
 
 	nextObj, _, err := s.mergeObjectData(previous, merge)
 	if err != nil {
+		lock.Unlock()
 		return nil, objectInsertStatus{}, errors.Wrap(err, "merge object data")
 	}
 
 	status, err := s.determineInsertStatus(previous, nextObj)
 	if err != nil {
+		lock.Unlock()
 		return nil, status, errors.Wrap(err, "check insert/update status")
 	}
 
 	nextObj.SetDocID(status.docID)
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
+		lock.Unlock()
 		return nil, status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
 	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
+		lock.Unlock()
 		return nil, status, errors.Wrap(err, "upsert object data")
 	}
-	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Unlock()
+	lock.Unlock()
 
 	if err := s.updateInvertedIndexLSM(nextObj, status, previous); err != nil {
 		return nil, status, errors.Wrap(err, "update inverted indices")
@@ -123,7 +133,10 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	out := mutableMergeResult{}
 
 	// see comment in shard_write_put.go::putObjectLSM
-	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Lock()
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock.Lock()
+	defer lock.Unlock()
+
 	previous, err := bucket.Get(idBytes)
 	if err != nil {
 		return out, err
@@ -152,7 +165,6 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
 	}
-	s.docIdLock[s.uuidToIdLockPoolId(idBytes)].Unlock()
 
 	// do not updated inverted index, since this requires delta analysis, which
 	// must be done by the caller!

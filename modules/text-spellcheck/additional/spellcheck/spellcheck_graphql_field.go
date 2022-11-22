@@ -14,7 +14,7 @@ package spellcheck
 import (
 	"fmt"
 
-	"github.com/graphql-go/graphql"
+	"github.com/tailor-inc/graphql"
 )
 
 func (p *SpellCheckProvider) additionalSpellCheckField(classname string) *graphql.Field {

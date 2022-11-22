@@ -47,13 +47,14 @@ func (d *DB) scanResourceUsage() {
 		runtime.MemProfile, debug.SetMemoryLimit, runtime.MemProfileRate)
 
 	go func() {
-		t := time.Tick(time.Second * 30)
+		t := time.NewTicker(time.Second * 30)
+		defer t.Stop()
 		for {
 			select {
 			case <-d.shutdown:
 				return
-			case <-t:
-				d.indexLock.Lock()
+			case <-t.C:
+				d.indexLock.RLock()
 				for _, i := range d.indices {
 					for _, s := range i.Shards {
 						if !s.isReadOnly() {
@@ -65,7 +66,7 @@ func (d *DB) scanResourceUsage() {
 						}
 					}
 				}
-				d.indexLock.Unlock()
+				d.indexLock.RUnlock()
 			}
 		}
 	}()

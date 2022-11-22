@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/deprecations"
+	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
@@ -76,6 +77,7 @@ type Config struct {
 	Origin                           string         `json:"origin" yaml:"origin"`
 	Persistence                      Persistence    `json:"persistence" yaml:"persistence"`
 	DefaultVectorizerModule          string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric      string         `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                    string         `json:"enable_modules" yaml:"enable_modules"`
 	ModulesPath                      string         `json:"modules_path" yaml:"modules_path"`
 	AutoSchema                       AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
@@ -85,7 +87,7 @@ type Config struct {
 	ResourceUsage                    ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	ReindexVectorDimensionsAtStartup bool           `json:"want_dimensions_reindex" yaml:"want_dimensions_reindex"`
+	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 }
 
 type moduleProvider interface {
@@ -99,6 +101,10 @@ func (c Config) Validate(modProv moduleProvider) error {
 		return errors.Wrap(err, "default vectorizer module")
 	}
 
+	if err := c.validateDefaultVectorDistanceMetric(); err != nil {
+		return errors.Wrap(err, "default vector distance metric")
+	}
+
 	return nil
 }
 
@@ -108,6 +114,15 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 	}
 
 	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
+}
+
+func (c Config) validateDefaultVectorDistanceMetric() error {
+	switch c.DefaultVectorDistanceMetric {
+	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
+		return nil
+	default:
+		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
+	}
 }
 
 type AutoSchema struct {

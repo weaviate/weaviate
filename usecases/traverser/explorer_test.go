@@ -1161,6 +1161,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the _additional on ref prop is set", func(t *testing.T) {
+		now := time.Now().UnixMilli()
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
@@ -1172,8 +1173,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 						{
 							ClassName: "BestRefClass",
 							AdditionalProperties: additional.Properties{
-								ID:     true,
-								Vector: true,
+								ID:                 true,
+								Vector:             true,
+								CreationTimeUnix:   true,
+								LastUpdateTimeUnix: true,
 							},
 						},
 					},
@@ -1190,8 +1193,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 						search.LocalRef{
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
-								"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
-								"vector": []float32{1, 0},
+								"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"vector":             []float32{1, 0},
+								"creationTimeUnix":   now,
+								"lastUpdateTimeUnix": now,
 							},
 						},
 					},
@@ -1248,11 +1253,15 @@ func Test_Explorer_GetClass(t *testing.T) {
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
 								"_additional": map[string]interface{}{
-									"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
-									"vector": []float32{1, 0},
+									"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+									"vector":             []float32{1, 0},
+									"creationTimeUnix":   now,
+									"lastUpdateTimeUnix": now,
 								},
-								"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
-								"vector": []float32{1, 0},
+								"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"vector":             []float32{1, 0},
+								"creationTimeUnix":   now,
+								"lastUpdateTimeUnix": now,
 							},
 						},
 					},
@@ -1265,8 +1274,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
 								"_additional": map[string]interface{}{
-									"id":     "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
-									"vector": nil,
+									"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+									"vector":             nil,
+									"creationTimeUnix":   nil,
+									"lastUpdateTimeUnix": nil,
 								},
 								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
 							},
@@ -1449,6 +1460,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the _additional on lots of refs prop is set", func(t *testing.T) {
+		now := time.Now().UnixMilli()
+		vec := []float32{1, 2, 3}
 		params := GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
@@ -1460,7 +1473,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 						{
 							ClassName: "BestRefClass",
 							AdditionalProperties: additional.Properties{
-								ID: true,
+								ID:                 true,
+								Vector:             true,
+								CreationTimeUnix:   true,
+								LastUpdateTimeUnix: true,
 							},
 							RefProperties: search.SelectProperties{
 								search.SelectProperty{
@@ -1469,7 +1485,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 										{
 											ClassName: "BestRefInnerClass",
 											AdditionalProperties: additional.Properties{
-												ID: true,
+												ID:                 true,
+												Vector:             true,
+												CreationTimeUnix:   true,
+												LastUpdateTimeUnix: true,
 											},
 											RefProperties: search.SelectProperties{
 												search.SelectProperty{
@@ -1478,7 +1497,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 														{
 															ClassName: "BestRefInnerInnerClass",
 															AdditionalProperties: additional.Properties{
-																ID: true,
+																ID:                 true,
+																Vector:             true,
+																CreationTimeUnix:   true,
+																LastUpdateTimeUnix: true,
 															},
 														},
 													},
@@ -1503,17 +1525,26 @@ func Test_Explorer_GetClass(t *testing.T) {
 						search.LocalRef{
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
-								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"creationTimeUnix":   now,
+								"lastUpdateTimeUnix": now,
+								"vector":             vec,
 								"ofBestRefInnerClass": []interface{}{
 									search.LocalRef{
 										Class: "BestRefInnerClass",
 										Fields: map[string]interface{}{
-											"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4caa",
+											"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4caa",
+											"creationTimeUnix":   now,
+											"lastUpdateTimeUnix": now,
+											"vector":             vec,
 											"ofBestRefInnerInnerClass": []interface{}{
 												search.LocalRef{
 													Class: "BestRefInnerInnerClass",
 													Fields: map[string]interface{}{
-														"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4aaa",
+														"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4aaa",
+														"creationTimeUnix":   now,
+														"lastUpdateTimeUnix": now,
+														"vector":             vec,
 													},
 												},
 											},
@@ -1536,17 +1567,26 @@ func Test_Explorer_GetClass(t *testing.T) {
 						search.LocalRef{
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
-								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+								"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+								"creationTimeUnix":   now,
+								"lastUpdateTimeUnix": now,
+								"vector":             vec,
 								"ofBestRefInnerClass": []interface{}{
 									search.LocalRef{
 										Class: "BestRefInnerClass",
 										Fields: map[string]interface{}{
-											"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cbb",
+											"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cbb",
+											"creationTimeUnix":   now,
+											"lastUpdateTimeUnix": now,
+											"vector":             vec,
 											"ofBestRefInnerInnerClass": []interface{}{
 												search.LocalRef{
 													Class: "BestRefInnerInnerClass",
 													Fields: map[string]interface{}{
-														"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4bbb",
+														"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4bbb",
+														"creationTimeUnix":   now,
+														"lastUpdateTimeUnix": now,
+														"vector":             vec,
 													},
 												},
 											},
@@ -1592,25 +1632,43 @@ func Test_Explorer_GetClass(t *testing.T) {
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
 								"_additional": map[string]interface{}{
-									"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+									"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+									"creationTimeUnix":   now,
+									"lastUpdateTimeUnix": now,
+									"vector":             vec,
 								},
-								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cea",
+								"creationTimeUnix":   now,
+								"lastUpdateTimeUnix": now,
+								"vector":             vec,
 								"ofBestRefInnerClass": []interface{}{
 									search.LocalRef{
 										Class: "BestRefInnerClass",
 										Fields: map[string]interface{}{
 											"_additional": map[string]interface{}{
-												"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4caa",
+												"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4caa",
+												"creationTimeUnix":   now,
+												"lastUpdateTimeUnix": now,
+												"vector":             vec,
 											},
-											"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4caa",
+											"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4caa",
+											"creationTimeUnix":   now,
+											"lastUpdateTimeUnix": now,
+											"vector":             vec,
 											"ofBestRefInnerInnerClass": []interface{}{
 												search.LocalRef{
 													Class: "BestRefInnerInnerClass",
 													Fields: map[string]interface{}{
 														"_additional": map[string]interface{}{
-															"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4aaa",
+															"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4aaa",
+															"creationTimeUnix":   now,
+															"lastUpdateTimeUnix": now,
+															"vector":             vec,
 														},
-														"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4aaa",
+														"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4aaa",
+														"creationTimeUnix":   now,
+														"lastUpdateTimeUnix": now,
+														"vector":             vec,
 													},
 												},
 											},
@@ -1629,25 +1687,43 @@ func Test_Explorer_GetClass(t *testing.T) {
 							Class: "BestRefClass",
 							Fields: map[string]interface{}{
 								"_additional": map[string]interface{}{
-									"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+									"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+									"creationTimeUnix":   now,
+									"lastUpdateTimeUnix": now,
+									"vector":             vec,
 								},
-								"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+								"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4ceb",
+								"creationTimeUnix":   now,
+								"lastUpdateTimeUnix": now,
+								"vector":             vec,
 								"ofBestRefInnerClass": []interface{}{
 									search.LocalRef{
 										Class: "BestRefInnerClass",
 										Fields: map[string]interface{}{
 											"_additional": map[string]interface{}{
-												"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cbb",
+												"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cbb",
+												"creationTimeUnix":   now,
+												"lastUpdateTimeUnix": now,
+												"vector":             vec,
 											},
-											"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4cbb",
+											"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4cbb",
+											"creationTimeUnix":   now,
+											"lastUpdateTimeUnix": now,
+											"vector":             vec,
 											"ofBestRefInnerInnerClass": []interface{}{
 												search.LocalRef{
 													Class: "BestRefInnerInnerClass",
 													Fields: map[string]interface{}{
 														"_additional": map[string]interface{}{
-															"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4bbb",
+															"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4bbb",
+															"creationTimeUnix":   now,
+															"lastUpdateTimeUnix": now,
+															"vector":             vec,
 														},
-														"id": "2d68456c-73b4-4cfc-a6dc-718efc5b4bbb",
+														"id":                 "2d68456c-73b4-4cfc-a6dc-718efc5b4bbb",
+														"creationTimeUnix":   now,
+														"lastUpdateTimeUnix": now,
+														"vector":             vec,
 													},
 												},
 											},

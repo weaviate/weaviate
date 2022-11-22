@@ -37,6 +37,23 @@ func TestNodeIteration(t *testing.T) {
 	assert.Equal(t, found["node4"], 5)
 }
 
+func TestNodeIterationStartAfter(t *testing.T) {
+	source := fakeNodeSource{[]string{"node1", "node2", "node3", "node4"}}
+	it, err := NewNodeIterator(source, StartAfter)
+	it.SetStartNode("node2")
+	require.Nil(t, err)
+
+	iterations := 3
+	found := make([]string, iterations)
+	for i := 0; i < iterations; i++ {
+		host := it.Next()
+		found[i] = host
+	}
+
+	expected := []string{"node3", "node4", "node1"}
+	assert.Equal(t, expected, found)
+}
+
 type fakeNodeSource struct {
 	hostnames []string
 }

@@ -17,6 +17,7 @@ package classification_integration_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"sync"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -335,6 +337,12 @@ func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName,
+	shardName, fileName string, payload io.ReadCloser,
+) error {
+	return nil
+}
+
 func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
@@ -426,4 +434,46 @@ type fakeRemoteNodeClient struct{}
 
 func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
+}
+
+type fakeReplicationClient struct{}
+
+func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
+	obj *storobj.Object,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
+	id strfmt.UUID,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
+	objs []*storobj.Object,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
+	mergeDoc *objects.MergeDocument,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+	docIDs []uint64, dryRun bool,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+
+func (f *fakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
+	refs []objects.BatchReference,
+) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+
+func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error {
+	return nil
+}
+
+func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
 }

@@ -125,6 +125,14 @@ func (s *fakeBackend) SourceDataPath() string {
 	return args.String(0)
 }
 
+func (s *fakeBackend) IsExternal() bool {
+	return true
+}
+
+func (f *fakeBackend) Name() string {
+	return "fakeBackend"
+}
+
 func (s *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
 	s.Lock()
 	defer s.Unlock()

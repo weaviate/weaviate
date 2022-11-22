@@ -51,6 +51,7 @@ import (
 	modcentroid "github.com/semi-technologies/weaviate/modules/ref2vec-centroid"
 	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
+	modcohere "github.com/semi-technologies/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
@@ -62,6 +63,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -83,6 +86,7 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
+	scaling.BackerUpper
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
@@ -157,6 +161,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
+	replicationClient := clients.NewReplicationClient(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
 		ServerVersion:                    config.ServerVersion,
 		GitHash:                          config.GitHash,
@@ -168,7 +173,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		TrackVectorDimensions:            appState.ServerConfig.Config.TrackVectorDimensions,
 		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
 		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, appState.Metrics) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -194,15 +199,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// TODO: configure http transport for efficient intra-cluster comm
 	classificationsTxClient := clients.NewClusterClassifications(clusterHttpClient)
 	classifierRepo := classifications.NewDistributeRepo(classificationsTxClient,
-		appState.Cluster, localClassifierRepo)
+		appState.Cluster, localClassifierRepo, appState.Logger)
 	appState.ClassificationRepo = classifierRepo
+
+	scaleoutManager := scaling.NewScaleOutManager(appState.Cluster, vectorRepo,
+		remoteIndexClient, appState.ServerConfig.Config.Persistence.DataPath)
+	appState.ScaleOutManager = scaleoutManager
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig, appState.Modules, appState.Cluster,
-		schemaTxClient)
+		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+		appState.Modules, appState.Cluster, schemaTxClient, scaleoutManager,
+	)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -214,6 +224,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
+	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
@@ -528,6 +539,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modcentroid.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modcohere.Name]; ok {
+		appState.Modules.Register(modcohere.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modcohere.Name).
 			Debug("enabled module")
 	}
 

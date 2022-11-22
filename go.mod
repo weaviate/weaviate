@@ -17,7 +17,6 @@ require (
 	github.com/go-openapi/validate v0.21.0
 	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/google/uuid v1.3.0
-	github.com/graphql-go/graphql v0.7.9
 	github.com/hashicorp/memberlist v0.4.0
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/minio/minio-go/v7 v7.0.31
@@ -33,10 +32,10 @@ require (
 	github.com/testcontainers/testcontainers-go v0.13.0
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.5
-	golang.org/x/net v0.0.0-20220826154423-83b083e8dc8b
+	golang.org/x/net v0.2.0
 	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094
 	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
-	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10
+	golang.org/x/sys v0.2.0
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/api v0.85.0
 	google.golang.org/grpc v1.47.0
@@ -45,7 +44,8 @@ require (
 
 require (
 	github.com/coreos/go-oidc/v3 v3.4.0
-	golang.org/x/text v0.3.7
+	github.com/tailor-inc/graphql v0.1.0
+	golang.org/x/text v0.4.0
 )
 
 require (

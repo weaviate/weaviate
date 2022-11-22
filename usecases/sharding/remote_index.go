@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"io"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -83,6 +84,9 @@ type RemoteIndexClient interface {
 	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 		targetStatus string) error
+
+	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
+		payload io.ReadCloser) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -93,9 +97,9 @@ func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.PutObject(ctx, host, ri.class, shardName, obj)
@@ -120,10 +124,10 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 			ri.class, shardName), len(objs))
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
 		return duplicateErr(errors.Errorf("resolve node name %q to host",
-			shard.BelongsToNode), len(objs))
+			shard.BelongsToNode()), len(objs))
 	}
 
 	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs)
@@ -138,10 +142,10 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 			ri.class, shardName), len(refs))
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
 		return duplicateErr(errors.Errorf("resolve node name %q to host",
-			shard.BelongsToNode), len(refs))
+			shard.BelongsToNode()), len(refs))
 	}
 
 	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs)
@@ -155,9 +159,9 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 		return false, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return false, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return false, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.Exists(ctx, host, ri.class, shardName, id)
@@ -171,9 +175,9 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id)
@@ -187,9 +191,9 @@ func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc)
@@ -204,9 +208,9 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional)
@@ -220,9 +224,9 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids)
@@ -238,9 +242,9 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 		return nil, nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return nil, nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return nil, nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.SearchShard(ctx, host, ri.class, shardName, searchVector, limit,
@@ -255,9 +259,9 @@ func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.Aggregate(ctx, host, ri.class, shardName, params)
@@ -271,9 +275,9 @@ func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
 		return nil, errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.FindDocIDs(ctx, host, ri.class, shardName, filters)
@@ -288,9 +292,9 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		err := errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		err := errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
@@ -303,9 +307,9 @@ func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (st
 		return "", errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return "", errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return "", errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
@@ -317,9 +321,9 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 		return errors.Errorf("class %s has no physical shard %q", ri.class, shardName)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode)
+	host, ok := ri.nodeResolver.NodeHostname(shard.BelongsToNode())
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode)
+		return errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)

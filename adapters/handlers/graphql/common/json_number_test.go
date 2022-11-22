@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
 )
 
 type testCase struct {

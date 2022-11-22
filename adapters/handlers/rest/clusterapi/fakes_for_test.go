@@ -127,7 +127,7 @@ func (f *fakeClusterState) AllNames() []string {
 }
 
 func (f *fakeClusterState) LocalName() string {
-	return "node1"
+	return f.hosts[0]
 }
 
 func (f *fakeClusterState) NodeCount() int {

@@ -193,12 +193,13 @@ func (n *shardedLockCache) deleteAllVectors() {
 
 func (c *shardedLockCache) watchForDeletion() {
 	go func() {
-		t := time.Tick(3 * time.Second)
+		t := time.NewTicker(3 * time.Second)
+		defer t.Stop()
 		for {
 			select {
 			case <-c.cancel:
 				return
-			case <-t:
+			case <-t.C:
 				c.replaceIfFull()
 			}
 		}
@@ -232,39 +233,6 @@ func (c *shardedLockCache) obtainAllLocks() {
 	}
 
 	wg.Wait()
-}
-
-// dimensions makes a best-effort guess at the dimensions of a vector. If the
-// vector is in cache it serves it from cache. If the vector is not in the
-// cache it tries to load it. If it can't load it (for example because it had
-// been deleted in the underlying object stores) it picks another vector as it
-// runs under the assumption that all vectors in the cache have the same
-// dimensionality
-func (c *shardedLockCache) dimensions(id uint64) int {
-	c.shardedLocks[id%shardFactor].RLock()
-	if int(id) >= len(c.cache) {
-		// if an object has no vector it could have a higher doc id than the size
-		// of the vector index, in this case we can assume it has no dimensions
-		// (since it had no vector), but cannot actually check, as this would lead
-		// to an OOM error
-		c.shardedLocks[id%shardFactor].RUnlock()
-		return 0
-	}
-	vec := c.cache[id]
-	c.shardedLocks[id%shardFactor].RUnlock()
-
-	if vec != nil {
-		return len(vec)
-	}
-
-	vec, err := c.handleCacheMiss(context.Background(), id)
-	if err != nil && vec != nil {
-		return len(vec)
-	}
-
-	// this vector does not exist anymore, so we need to guess by taking another
-	// vector
-	return int(atomic.LoadInt32(&c.dims))
 }
 
 func (c *shardedLockCache) releaseAllLocks() {

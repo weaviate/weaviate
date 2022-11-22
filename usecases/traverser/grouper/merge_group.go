@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -169,7 +170,9 @@ func valueTypeOf(in interface{}) valueType {
 		return boolean
 	case *models.GeoCoordinates:
 		return geo
-	case []interface{}:
+	// reference properties can be represented as either of these types.
+	// see https://github.com/semi-technologies/weaviate/pull/2320
+	case models.MultipleRef, []interface{}:
 		return reference
 	default:
 		return unknown
@@ -267,39 +270,79 @@ func mergeReferenceProps(in []interface{}) ([]interface{}, error) {
 	seenID := map[string]struct{}{}
 
 	for i, elem := range in {
-		asSlice, ok := elem.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("element %d: expected reference values to be slice, but got %T", i, elem)
-		}
-
-		for _, singleRef := range asSlice {
-			asRef, ok := singleRef.(search.LocalRef)
+		// because reference properties can be represented both as
+		// models.MultipleRef and []interface{}, we have to handle
+		// parsing both cases accordingly.
+		// see https://github.com/semi-technologies/weaviate/pull/2320
+		if asMultiRef, ok := elem.(models.MultipleRef); ok {
+			if err := parseRefTypeMultipleRef(asMultiRef, &out, seenID); err != nil {
+				return nil, fmt.Errorf("element %d: %w", i, err)
+			}
+		} else {
+			asSlice, ok := elem.([]interface{})
 			if !ok {
-				// don't know what to do with this type, ignore
-				continue
+				return nil, fmt.Errorf(
+					"element %d: expected reference values to be slice, but got %T", i, elem)
 			}
 
-			id, ok := asRef.Fields["id"]
-			if !ok {
-				return nil, fmt.Errorf("found a search.LocalRef, but 'id' field is missing: %#v", asRef)
+			if err := parseRefTypeInterfaceSlice(asSlice, &out, seenID); err != nil {
+				return nil, fmt.Errorf("element %d: %w", i, err)
 			}
-
-			idString, err := getIDString(id)
-			if err != nil {
-				return nil, err
-			}
-
-			if _, ok := seenID[idString]; ok {
-				// duplicate
-				continue
-			}
-
-			out = append(out, asRef)
-			seenID[idString] = struct{}{} // make sure we skip this next time
 		}
 	}
 
 	return out, nil
+}
+
+func parseRefTypeMultipleRef(refs models.MultipleRef,
+	returnRefs *[]interface{}, seenIDs map[string]struct{},
+) error {
+	for _, singleRef := range refs {
+		parsed, err := crossref.Parse(singleRef.Beacon.String())
+		if err != nil {
+			return fmt.Errorf("failed to parse beacon %q: %w", singleRef.Beacon.String(), err)
+		}
+		idString := parsed.TargetID.String()
+		if _, ok := seenIDs[idString]; ok {
+			// duplicate
+			continue
+		}
+
+		*returnRefs = append(*returnRefs, singleRef)
+		seenIDs[idString] = struct{}{} // make sure we skip this next time
+	}
+	return nil
+}
+
+func parseRefTypeInterfaceSlice(refs []interface{},
+	returnRefs *[]interface{}, seenIDs map[string]struct{},
+) error {
+	for _, singleRef := range refs {
+		asRef, ok := singleRef.(search.LocalRef)
+		if !ok {
+			// don't know what to do with this type, ignore
+			continue
+		}
+
+		id, ok := asRef.Fields["id"]
+		if !ok {
+			return fmt.Errorf("found a search.LocalRef, but 'id' field is missing: %#v", asRef)
+		}
+
+		idString, err := getIDString(id)
+		if err != nil {
+			return err
+		}
+
+		if _, ok := seenIDs[idString]; ok {
+			// duplicate
+			continue
+		}
+
+		*returnRefs = append(*returnRefs, asRef)
+		seenIDs[idString] = struct{}{} // make sure we skip this next time
+	}
+	return nil
 }
 
 func getIDString(id interface{}) (string, error) {

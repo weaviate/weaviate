@@ -8,7 +8,7 @@ function main() {
   surpress_on_success docker pull golang:1.11-alpine
   echo "Build containers (this will take the longest)..."
   GIT_HASH=$(git rev-parse --short HEAD)
-  docker compose -f docker-compose-test.yml build --build-arg GITHASH=$GIT_HASH weaviate
+  docker compose -f docker-compose-test.yml build --build-arg GITHASH=$GIT_HASH --build-arg EXTRA_BUILD_ARGS="-race" weaviate
   echo "Start up docker compose setup..."
   surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate \
     contextionary 

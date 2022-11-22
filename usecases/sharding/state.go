@@ -12,10 +12,12 @@
 package sharding
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"sort"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/spaolacci/murmur3"
 )
@@ -32,6 +34,21 @@ type State struct {
 	localNodeName string
 }
 
+// MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
+// migrates it into the new format for backward-compatibility with all classes
+// created before v1.17
+func (s *State) MigrateFromOldFormat() {
+	for shardName, shard := range s.Physical {
+		if len(shard.LegacyBelongsToNodeForBackwardCompat) > 0 && len(shard.BelongsToNodes) == 0 {
+			shard.BelongsToNodes = []string{
+				shard.LegacyBelongsToNodeForBackwardCompat,
+			}
+			shard.LegacyBelongsToNodeForBackwardCompat = ""
+		}
+		s.Physical[shardName] = shard
+	}
+}
+
 type Virtual struct {
 	Name               string  `json:"name"`
 	Upper              uint64  `json:"upper"`
@@ -43,7 +60,44 @@ type Physical struct {
 	Name           string   `json:"name"`
 	OwnsVirtual    []string `json:"ownsVirtual"`
 	OwnsPercentage float64  `json:"ownsPercentage"`
-	BelongsToNode  string   `json:"belongsToNode"`
+
+	LegacyBelongsToNodeForBackwardCompat string   `json:"belongsToNode,omitempty"`
+	BelongsToNodes                       []string `json:"belongsToNodes"`
+}
+
+// BelongsToNode for backward-compatibility when there was no replication. It
+// always returns the first node of the list
+func (p Physical) BelongsToNode() string {
+	return p.BelongsToNodes[0]
+}
+
+// Adjust Replicas uses a NodeIterator to add new nodes (scale out) or remove
+// existing nodes (scale in) from the "BelongsToNodes" mappings. This is used
+// as part of dynamically changing the replication factor. This method
+// basically controls where a shard will land in the cluster. If we want to add
+// some kind of node bias while scaling in the future, it would probably go
+// here.
+func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
+	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
+	if err != nil {
+		return err
+	}
+
+	it.SetStartNode(p.BelongsToNodes[len(p.BelongsToNodes)-1])
+
+	if count < len(p.BelongsToNodes) {
+		if count < 0 {
+			return errors.Errorf("cannot scale below 0, got %d", count)
+		}
+		p.BelongsToNodes = p.BelongsToNodes[:count]
+		return nil
+	}
+
+	for len(p.BelongsToNodes) < count {
+		p.BelongsToNodes = append(p.BelongsToNodes, it.Next())
+	}
+
+	return nil
 }
 
 type nodes interface {
@@ -125,9 +179,38 @@ func (s *State) SetLocalName(name string) {
 }
 
 func (s *State) IsShardLocal(name string) bool {
-	return s.Physical[name].BelongsToNode == s.localNodeName
+	for _, node := range s.Physical[name].BelongsToNodes {
+		if node == s.localNodeName {
+			return true
+		}
+	}
+
+	return false
 }
 
+// initPhysical assigns shards to nodes according to the following rules:
+//
+//   - The starting point of the ring is random
+//   - Shard N+1's first node is the right neighbor of shard N's first node
+//   - If a shard has multiple nodes (replication) they are always the right
+//     neighbors of the first node of that shard
+//
+// Example with 3 nodes, 2 shards, replicationFactor=2:
+//
+// Shard 1: Node1, Node2
+// Shard 2: Node2, Node3
+//
+// Example with 3 nodes, 3 shards, replicationFactor=3:
+//
+// Shard 1: Node1, Node2, Node3
+// Shard 2: Node2, Node3, Node1
+// Shard 3: Node3, Node1, Node2
+//
+// Example with 12 nodes, 3 shards, replicationFactor=5:
+//
+// Shard 1: Node7, Node8, Node9, Node10, Node 11
+// Shard 2: Node8, Node9, Node10, Node 11, Node 12
+// Shard 3: Node9, Node10, Node11, Node 12, Node 1
 func (s *State) initPhysical(nodes nodes) error {
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartRandom)
 	if err != nil {
@@ -138,7 +221,27 @@ func (s *State) initPhysical(nodes nodes) error {
 
 	for i := 0; i < s.Config.DesiredCount; i++ {
 		name := generateShardName()
-		s.Physical[name] = Physical{Name: name, BelongsToNode: it.Next()}
+		shard := Physical{Name: name}
+		node := it.Next()
+		shard.BelongsToNodes = []string{node}
+		if s.Config.Replicas > 1 {
+			// create a second node iterator and start after the already assigned
+			// one, this way we can identify our next n right neighbors without
+			// affecting the root iterator which will determine the next shard
+			replicationIter, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
+			if err != nil {
+				return fmt.Errorf("assign replication nodes: %w", err)
+			}
+
+			replicationIter.SetStartNode(node)
+			// the first node is already assigned, we only need to assign the
+			// additional nodes
+			for i := s.Config.Replicas; i > 1; i-- {
+				shard.BelongsToNodes = append(shard.BelongsToNodes, replicationIter.Next())
+			}
+		}
+
+		s.Physical[name] = shard
 	}
 
 	return nil
@@ -238,4 +341,62 @@ func generateShardName() string {
 	}
 
 	return string(b)
+}
+
+func (s State) DeepCopy() State {
+	physicalCopy := map[string]Physical{}
+	for name, shard := range s.Physical {
+		physicalCopy[name] = shard.DeepCopy()
+	}
+
+	virtualCopy := make([]Virtual, len(s.Virtual))
+	for i, virtual := range s.Virtual {
+		virtualCopy[i] = virtual.DeepCopy()
+	}
+
+	return State{
+		localNodeName: s.localNodeName,
+		IndexID:       s.localNodeName,
+		Config:        s.Config.DeepCopy(),
+		Physical:      physicalCopy,
+		Virtual:       virtualCopy,
+	}
+}
+
+func (c Config) DeepCopy() Config {
+	return Config{
+		VirtualPerPhysical:  c.VirtualPerPhysical,
+		DesiredCount:        c.DesiredCount,
+		ActualCount:         c.ActualCount,
+		DesiredVirtualCount: c.DesiredVirtualCount,
+		ActualVirtualCount:  c.ActualVirtualCount,
+		Key:                 c.Key,
+		Strategy:            c.Strategy,
+		Function:            c.Function,
+		Replicas:            c.Replicas,
+	}
+}
+
+func (p Physical) DeepCopy() Physical {
+	ownsVirtualCopy := make([]string, len(p.OwnsVirtual))
+	copy(ownsVirtualCopy, p.OwnsVirtual)
+
+	belongsCopy := make([]string, len(p.BelongsToNodes))
+	copy(belongsCopy, p.BelongsToNodes)
+
+	return Physical{
+		Name:           p.Name,
+		OwnsVirtual:    ownsVirtualCopy,
+		OwnsPercentage: p.OwnsPercentage,
+		BelongsToNodes: belongsCopy,
+	}
+}
+
+func (v Virtual) DeepCopy() Virtual {
+	return Virtual{
+		Name:               v.Name,
+		Upper:              v.Upper,
+		OwnsPercentage:     v.OwnsPercentage,
+		AssignedToPhysical: v.AssignedToPhysical,
+	}
 }

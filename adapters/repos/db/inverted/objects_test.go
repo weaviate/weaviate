@@ -515,6 +515,65 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedNumbers, actualNumbers, res)
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
+
+		// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+		// an object's reference property.
+		//
+		// this test asserts that reference properties do not break when they are unmarshalled
+		// as empty interface{} slices.
+		t.Run("when rep prop is stored as empty interface{} slice", func(t *testing.T) {
+			uuid := "cf768bb0-03d8-4464-8f54-f787cf174c01"
+			name := "Transformers"
+			schema := map[string]interface{}{
+				"name":      name,
+				"reference": []interface{}{},
+			}
+
+			props := []*models.Property{
+				{
+					Name:         "name",
+					DataType:     []string{"string"},
+					Tokenization: "word",
+				},
+				{
+					Name:     "reference",
+					DataType: []string{"SomeClass"},
+				},
+			}
+			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			require.Nil(t, err)
+
+			expectedUUID := []Countable{
+				{
+					Data:          []byte(uuid),
+					TermFrequency: 0,
+				},
+			}
+
+			expectedName := []Countable{
+				{
+					Data:          []byte(name),
+					TermFrequency: 1,
+				},
+			}
+
+			require.Len(t, res, 2)
+			var actualUUID []Countable
+			var actualName []Countable
+
+			for _, elem := range res {
+				switch elem.Name {
+				case "_id":
+					actualUUID = elem.Items
+				case "name":
+					actualName = elem.Items
+				}
+			}
+
+			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
+			assert.ElementsMatch(t, expectedName, actualName, res)
+		})
 	})
 
 	t.Run("when objects are indexed by timestamps", func(t *testing.T) {

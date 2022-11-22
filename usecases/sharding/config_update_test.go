@@ -12,9 +12,9 @@
 package sharding
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +33,7 @@ func TestConfigUpdates(t *testing.T) {
 				name:    "attempting to shard count",
 				initial: Config{DesiredCount: 7},
 				update:  Config{DesiredCount: 8},
-				expectedError: errors.Errorf(
+				expectedError: fmt.Errorf(
 					"re-sharding not supported yet: shard count is immutable: " +
 						"attempted change from \"7\" to \"8\""),
 			},
@@ -41,15 +41,22 @@ func TestConfigUpdates(t *testing.T) {
 				name:    "attempting to shard count",
 				initial: Config{VirtualPerPhysical: 128},
 				update:  Config{VirtualPerPhysical: 256},
-				expectedError: errors.Errorf(
+				expectedError: fmt.Errorf(
 					"virtual shards per physical is immutable: " +
 						"attempted change from \"128\" to \"256\""),
+			},
+			{
+				name:    "attempting to increase replicas beyond cluster size",
+				initial: Config{Replicas: 3},
+				update:  Config{Replicas: 4},
+				expectedError: fmt.Errorf(
+					"cannot scale to 4 replicas, cluster has only 3 nodes"),
 			},
 		}
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				err := ValidateConfigUpdate(test.initial, test.update)
+				err := ValidateConfigUpdate(test.initial, test.update, &fakeNodeCounter{3})
 				if test.expectedError == nil {
 					assert.Nil(t, err)
 				} else {
@@ -59,4 +66,10 @@ func TestConfigUpdates(t *testing.T) {
 			})
 		}
 	})
+}
+
+type fakeNodeCounter struct{ count int }
+
+func (f *fakeNodeCounter) NodeCount() int {
+	return f.count
 }

@@ -51,12 +51,12 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	for _, existingProperty := range class.Properties {
 		existingPropertyNames[existingProperty.Name] = true
 	}
-	if err := m.validateProperty(prop, class, existingPropertyNames, false); err != nil {
+	if err := m.validateProperty(prop, className, existingPropertyNames, false); err != nil {
 		return err
 	}
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddProperty,
-		AddPropertyPayload{className, prop})
+		AddPropertyPayload{className, prop}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other
@@ -64,7 +64,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
-	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
 		return errors.Wrap(err, "commit cluster-wide transaction")
 	}
 

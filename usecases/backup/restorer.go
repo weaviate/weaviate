@@ -145,7 +145,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 		}
 		r.logger.WithField("action", "restore").
 			WithField("backup_id", desc.ID).
-			WithField("class", cdesc.Name)
+			WithField("class", cdesc.Name).Info("successfully restored")
 	}
 	return nil
 }
@@ -178,7 +178,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	}
 	if err := r.schema.RestoreClass(ctx, desc); err != nil {
 		if rerr := rollback(); rerr != nil {
-			r.logger.WithField("className", desc.Name).WithField("action", "rollback").WithError(rerr)
+			r.logger.WithField("className", desc.Name).WithField("action", "rollback").Error(rerr)
 		}
 		return fmt.Errorf("restore schema: %w", err)
 	}

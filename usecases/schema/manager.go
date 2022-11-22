@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -42,6 +43,7 @@ type Manager struct {
 	clusterState            clusterState
 	hnswConfigParser        VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
+	scaleOut                scaleOut
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
 	sync.Mutex
@@ -92,14 +94,21 @@ type clusterState interface {
 	ClusterHealthScore() int
 }
 
+type scaleOut interface {
+	SetSchemaManager(sm scaling.SchemaManager)
+	Scale(ctx context.Context, className string,
+		old, updated sharding.Config) (*sharding.State, error)
+}
+
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	txClient cluster.Client,
+	txClient cluster.Client, scaleoutManager scaleOut,
 ) (*Manager, error) {
+	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
 		config:                  config,
 		migrator:                migrator,
@@ -111,11 +120,16 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
-		cluster:                 cluster.NewTxManager(cluster.NewTxBroadcaster(clusterState, txClient)),
+		cluster:                 cluster.NewTxManager(txBroadcaster, logger),
 		clusterState:            clusterState,
+		scaleOut:                scaleoutManager,
 	}
 
+	m.scaleOut.SetSchemaManager(m)
+
 	m.cluster.SetCommitFn(m.handleCommit)
+	m.cluster.SetResponseFn(m.handleTxResponse)
+	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs))
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
@@ -191,11 +205,19 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// store in local cache
 	m.state = *schema
 
+	if err := m.startupClusterSync(ctx, schema); err != nil {
+		return errors.Wrap(err, "sync schema with other nodes in the cluster")
+	}
+
 	if err := m.checkSingleShardMigration(ctx); err != nil {
 		return errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	// store in remote repo
+	if err := m.checkShardingStateForReplication(ctx); err != nil {
+		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
+	}
+
+	// store in persistent storage
 	if err := m.repo.SaveSchema(ctx, m.state); err != nil {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
 	}
@@ -236,6 +258,14 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			m.state.ShardingState = map[string]*sharding.State{}
 		}
 		m.state.ShardingState[c.Class] = shardState
+	}
+
+	return nil
+}
+
+func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
+	for _, classState := range m.state.ShardingState {
+		classState.MigrateFromOldFormat()
 	}
 
 	return nil

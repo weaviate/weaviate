@@ -90,7 +90,7 @@ func TestCRUD(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -1295,7 +1295,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	defer repo.Shutdown(context.Background())
@@ -1454,7 +1454,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 		// without regard to this value
 		QueryMaximumResults:       1,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -1590,7 +1590,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		// without regard to this value
 		QueryMaximumResults:       1,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	defer repo.Shutdown(context.Background())
@@ -1735,7 +1735,7 @@ func Test_PutPatchRestart(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(ctx)
 	defer repo.Shutdown(context.Background())
@@ -1875,7 +1875,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
@@ -1925,7 +1925,6 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	})
 
 	t.Run("empty references", func(t *testing.T) {
-		t.Skip()
 		objRefID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390000")
 		objRef := &models.Object{
 			ID:    objRefID,
@@ -1942,7 +1941,16 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			Class: classNameWithRefs,
 			Properties: map[string]interface{}{
 				"stringProp": "some prop",
-				"refProp":    models.MultipleRef{},
+				// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+				// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+				// an object's reference property.
+				//
+				// when obj1 is unmarshalled from storage, refProp will be represented as []interface{},
+				// because it is an empty reference property. so when comparing obj1 with the result of
+				// repo.Object, we need this refProp here to be a []interface{}. Note that this is due
+				// to our usage of storobj.Object.MarshallerVersion 1, and future MarshallerVersions may
+				// not have this ambiguous property type limitation.
+				"refProp": []interface{}{},
 			},
 		}
 		obj2ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")

@@ -14,10 +14,10 @@ package get
 import (
 	"fmt"
 
-	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/tailor-inc/graphql"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

@@ -57,7 +57,6 @@ type Shard struct {
 	promMetrics       *monitoring.PrometheusMetrics
 	propertyIndices   propertyspecific.Indices
 	deletedDocIDs     *docid.InMemDeletedTracker
-	cleanupInterval   time.Duration
 	propLengths       *inverted.PropertyLengthTracker
 	randomSource      *bufferedRandomGen
 	versioner         *shardVersioner
@@ -74,6 +73,8 @@ type Shard struct {
 	stopMetrics chan struct{}
 
 	docIdLock []sync.Mutex
+	// replication
+	replicationMap pendingReplicaTasks
 }
 
 type job struct {
@@ -94,8 +95,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrap(err, "init bufferend random generator")
 	}
 
-	invertedIndexConfig := index.getInvertedIndexConfig()
-
 	s := &Shard{
 		index:            index,
 		name:             shardName,
@@ -103,14 +102,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs: docid.NewInMemDeletedTracker(),
-		cleanupInterval: time.Duration(invertedIndexConfig.
-			CleanupIntervalSeconds) * time.Second,
+		deletedDocIDs:       docid.NewInMemDeletedTracker(),
 		randomSource:        rand,
 		resourceScanState:   newResourceScanState(),
 		jobQueueCh:          make(chan job, 100000),
 		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		stopMetrics:         make(chan struct{}),
+		replicationMap:      pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -129,92 +127,110 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
-		var distProv distancer.Provider
-
-		switch hnswUserConfig.Distance {
-		case "", hnswent.DistanceCosine:
-			distProv = distancer.NewCosineDistanceProvider()
-		case hnswent.DistanceDot:
-			distProv = distancer.NewDotProductProvider()
-		case hnswent.DistanceL2Squared:
-			distProv = distancer.NewL2SquaredProvider()
-		case hnswent.DistanceManhattan:
-			distProv = distancer.NewManhattanProvider()
-		case hnswent.DistanceHamming:
-			distProv = distancer.NewHammingProvider()
-		default:
-			return nil, errors.Errorf("unrecognized distance metric %q,"+
-				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+			return nil, fmt.Errorf("init vector index: %w", err)
 		}
 
-		vi, err := hnsw.New(hnsw.Config{
-			Logger:            index.logger,
-			RootPath:          s.index.Config.RootPath,
-			ID:                s.ID(),
-			ShardName:         s.name,
-			ClassName:         s.index.Config.ClassName.String(),
-			PrometheusMetrics: s.promMetrics,
-			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-				// Previously we had an interval of 10s in here, which was changed to
-				// 0.5s as part of gh-1867. There's really no way to wait so long in
-				// between checks: If you are running on a low-powered machine, the
-				// interval will simply find that there is no work and do nothing in
-				// each iteration. However, if you are running on a very powerful
-				// machine within 10s you could have potentially created two units of
-				// work, but we'll only be handling one every 10s. This means
-				// uncombined/uncondensed hnsw commit logs will keep piling up can only
-				// be processes long after the initial insert is complete. This also
-				// means that if there is a crash during importing a lot of work needs
-				// to be done at startup, since the commit logs still contain too many
-				// redundancies. So as of now it seems there are only advantages to
-				// running the cleanup checks and work much more often.
-				return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-					index.logger)
-			},
-			VectorForIDThunk: s.vectorByIndexID,
-			DistanceProvider: distProv,
-		}, hnswUserConfig)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-		}
-		s.vectorIndex = vi
-
-		defer vi.PostStartup()
+		defer s.vectorIndex.PostStartup()
 	}
 
-	err = s.initDBFile(ctx)
-	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
+	if err := s.initNonVector(ctx); err != nil {
+		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	counter, err := indexcounter.New(s.ID(), index.Config.RootPath)
+	return s, nil
+}
+
+func (s *Shard) initVectorIndex(
+	ctx context.Context, hnswUserConfig hnswent.UserConfig,
+) error {
+	var distProv distancer.Provider
+
+	switch hnswUserConfig.Distance {
+	case "", hnswent.DistanceCosine:
+		distProv = distancer.NewCosineDistanceProvider()
+	case hnswent.DistanceDot:
+		distProv = distancer.NewDotProductProvider()
+	case hnswent.DistanceL2Squared:
+		distProv = distancer.NewL2SquaredProvider()
+	case hnswent.DistanceManhattan:
+		distProv = distancer.NewManhattanProvider()
+	case hnswent.DistanceHamming:
+		distProv = distancer.NewHammingProvider()
+	default:
+		return errors.Errorf("unrecognized distance metric %q,"+
+			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+	}
+
+	vi, err := hnsw.New(hnsw.Config{
+		Logger:            s.index.logger,
+		RootPath:          s.index.Config.RootPath,
+		ID:                s.ID(),
+		ShardName:         s.name,
+		ClassName:         s.index.Config.ClassName.String(),
+		PrometheusMetrics: s.promMetrics,
+		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			// Previously we had an interval of 10s in here, which was changed to
+			// 0.5s as part of gh-1867. There's really no way to wait so long in
+			// between checks: If you are running on a low-powered machine, the
+			// interval will simply find that there is no work and do nothing in
+			// each iteration. However, if you are running on a very powerful
+			// machine within 10s you could have potentially created two units of
+			// work, but we'll only be handling one every 10s. This means
+			// uncombined/uncondensed hnsw commit logs will keep piling up can only
+			// be processes long after the initial insert is complete. This also
+			// means that if there is a crash during importing a lot of work needs
+			// to be done at startup, since the commit logs still contain too many
+			// redundancies. So as of now it seems there are only advantages to
+			// running the cleanup checks and work much more often.
+			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+				s.index.logger)
+		},
+		VectorForIDThunk: s.vectorByIndexID,
+		DistanceProvider: distProv,
+	}, hnswUserConfig)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
+		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+	}
+	s.vectorIndex = vi
+
+	return nil
+}
+
+func (s *Shard) initNonVector(ctx context.Context) error {
+	err := s.initDBFile(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
+	}
+
+	counter, err := indexcounter.New(s.ID(), s.index.Config.RootPath)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
 
 	dataPresent := s.counter.PreviewNext() != 0
-	versionPath := path.Join(index.Config.RootPath, s.ID()+".version")
+	versionPath := path.Join(s.index.Config.RootPath, s.ID()+".version")
 	versioner, err := newShardVersioner(versionPath, dataPresent)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: check versions", s.ID())
+		return errors.Wrapf(err, "init shard %q: check versions", s.ID())
 	}
 	s.versioner = versioner
 
-	plPath := path.Join(index.Config.RootPath, s.ID()+".proplengths")
+	plPath := path.Join(s.index.Config.RootPath, s.ID()+".proplengths")
 	propLengths, err := inverted.NewPropertyLengthTracker(plPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 	s.propLengths = propLengths
 
 	if err := s.initProperties(); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
+		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
 	s.initDimensionTracking()
 
-	return s, nil
+	return nil
 }
 
 func (s *Shard) ID() string {
@@ -266,6 +282,7 @@ func (s *Shard) drop(force bool) error {
 	if s.isReadOnly() && !force {
 		return storagestate.ErrStatusReadOnly
 	}
+	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled

@@ -13,7 +13,9 @@
 package utils
 
 import (
-	"github.com/graphql-go/graphql"
+	"errors"
+
+	"github.com/tailor-inc/graphql"
 )
 
 // GraphQLNetworkFieldContents contains all objects regarding GraphQL fields
@@ -36,3 +38,5 @@ type FilterContainer struct {
 	WeaviateNetworkWhereKeywordsInpObj          *graphql.InputObject            // Object containing a global filter element
 	WeaviateNetworkIntrospectPropertiesObjField *graphql.Field                  // Object containing a global filter element
 }
+
+var ErrEmptySchema = errors.New("there are no classes defined yet")

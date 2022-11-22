@@ -66,12 +66,24 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := sharding.ValidateConfigUpdate(initial.ShardingConfig.(sharding.Config),
-		updated.ShardingConfig.(sharding.Config)); err != nil {
+		updated.ShardingConfig.(sharding.Config), m.clusterState); err != nil {
 		return errors.Wrap(err, "sharding config")
 	}
 
+	oldSharding := initial.ShardingConfig.(sharding.Config)
+	updatedSharding := updated.ShardingConfig.(sharding.Config)
+	var updatedState *sharding.State
+	if oldSharding.Replicas != updatedSharding.Replicas {
+		uss, err := m.scaleOut.Scale(ctx, className, oldSharding, updatedSharding)
+		if err != nil {
+			return errors.Wrapf(err, "scale out from %d to %d replicas",
+				oldSharding.Replicas, updatedSharding.Replicas)
+		}
+		updatedState = uss
+	}
+
 	tx, err := m.cluster.BeginTransaction(ctx, UpdateClass,
-		UpdateClassPayload{className, updated, nil})
+		UpdateClassPayload{className, updated, updatedState}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other
@@ -79,15 +91,15 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
-	if err := m.cluster.CommitTransaction(ctx, tx); err != nil {
+	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
 		return errors.Wrap(err, "commit cluster-wide transaction")
 	}
 
-	return m.updateClassApplyChanges(ctx, className, updated)
+	return m.updateClassApplyChanges(ctx, className, updated, updatedState)
 }
 
 func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
-	updated *models.Class,
+	updated *models.Class, updatedShardingState *sharding.State,
 ) error {
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
@@ -105,6 +117,16 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	}
 
 	*initial = *updated
+
+	if updatedShardingState != nil {
+		// do not override if transaction does not contain an updated state
+
+		// the sharding state caches the node name, we must therefore set this
+		// explicitly now.
+		updatedShardingState.SetLocalName(m.clusterState.LocalName())
+		m.state.ShardingState[className] = updatedShardingState
+
+	}
 
 	return m.saveSchema(ctx)
 }

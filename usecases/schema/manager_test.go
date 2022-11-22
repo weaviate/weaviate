@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -135,7 +136,9 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 			DataType: []string{"string"},
 			Name:     "dummy",
 		}},
-		VectorIndexConfig: "this should be parsed",
+		VectorIndexConfig: map[string]interface{}{
+			"dummy": "this should be parsed",
+		},
 	})
 
 	assert.Nil(t, err)
@@ -147,7 +150,10 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	require.Len(t, objectClasses, 1)
 	assert.Equal(t, config.VectorizerModuleNone, objectClasses[0].Vectorizer)
 	assert.Equal(t, fakeVectorConfig{
-		raw: "this should be parsed",
+		raw: map[string]interface{}{
+			"distance": "cosine",
+			"dummy":    "this should be parsed",
+		},
 	}, objectClasses[0].VectorIndexConfig)
 	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
 		"the default was set")
@@ -472,12 +478,15 @@ func newSchemaManager() *Manager {
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
+	dummyConfig := config.Config{
+		DefaultVectorizerModule:     config.VectorizerModuleNone,
+		DefaultVectorDistanceMetric: "cosine",
+	}
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
-		dummyParseVectorConfig, // only option for now
+		dummyConfig, dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{},
+		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
+		&fakeTxClient{}, &fakeScaleOutManager{},
 	)
 	if err != nil {
 		panic(err.Error())
@@ -524,8 +533,8 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, &fakeClusterState{},
-		&fakeTxClient{},
+		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
+		&fakeTxClient{}, &fakeScaleOutManager{},
 	)
 	require.Nil(t, err)
 
@@ -533,4 +542,15 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	assert.Equal(t, fakeVectorConfig{
 		raw: "parse me, i should be in some sort of an object",
 	}, classes[0].VectorIndexConfig)
+}
+
+type fakeScaleOutManager struct{}
+
+func (f *fakeScaleOutManager) Scale(ctx context.Context,
+	className string, old, updated sharding.Config,
+) (*sharding.State, error) {
+	return nil, nil
+}
+
+func (f *fakeScaleOutManager) SetSchemaManager(sm scaling.SchemaManager) {
 }

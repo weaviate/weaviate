@@ -27,6 +27,8 @@ func Test_classSettings_getPassageModel(t *testing.T) {
 		wantWaitForModel bool
 		wantUseGPU       bool
 		wantUseCache     bool
+		wantEndpointURL  string
+		wantError        error
 	}{
 		{
 			name: "CShorten/CORD-19-Title-Abstracts",
@@ -73,6 +75,34 @@ func Test_classSettings_getPassageModel(t *testing.T) {
 			wantUseGPU:       false,
 			wantUseCache:     true,
 		},
+		{
+			name: "Hugging Face Inference API - endpointURL",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"endpointURL": "http://endpoint.cloud",
+				},
+			},
+			wantPassageModel: "",
+			wantQueryModel:   "",
+			wantWaitForModel: false,
+			wantUseGPU:       false,
+			wantUseCache:     true,
+			wantEndpointURL:  "http://endpoint.cloud",
+		},
+		{
+			name: "Hugging Face Inference API - endpointUrl",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"endpointUrl": "http://endpoint.cloud",
+				},
+			},
+			wantPassageModel: "",
+			wantQueryModel:   "",
+			wantWaitForModel: false,
+			wantUseGPU:       false,
+			wantUseCache:     true,
+			wantEndpointURL:  "http://endpoint.cloud",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,6 +112,8 @@ func Test_classSettings_getPassageModel(t *testing.T) {
 			assert.Equal(t, tt.wantWaitForModel, ic.OptionWaitForModel())
 			assert.Equal(t, tt.wantUseGPU, ic.OptionUseGPU())
 			assert.Equal(t, tt.wantUseCache, ic.OptionUseCache())
+			assert.Equal(t, tt.wantEndpointURL, ic.EndpointURL())
+			assert.Equal(t, tt.wantError, ic.validateClassSettings())
 		})
 	}
 }

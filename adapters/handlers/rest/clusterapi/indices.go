@@ -39,7 +39,10 @@ type indices struct {
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
 	regexpReferences          *regexp.Regexp
-	regexpShards              *regexp.Regexp
+	regexpShardsStatus        *regexp.Regexp
+	regexpShardFiles          *regexp.Regexp
+	regexpShard               *regexp.Regexp
+	regexpShardReinit         *regexp.Regexp
 }
 
 const (
@@ -55,8 +58,14 @@ const (
 		`\/shards\/([A-Za-z0-9]+)\/objects\/([A-Za-z0-9_+-]+)`
 	urlPatternReferences = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/references`
-	urlPatternShards = `\/indices\/([A-Za-z0-9_+-]+)` +
+	urlPatternShardsStatus = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/_status`
+	urlPatternShardFiles = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/files/(.*)`
+	urlPatternShard = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)$`
+	urlPatternShardReinit = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)/_reinit`
 )
 
 type shards interface {
@@ -90,6 +99,12 @@ type shards interface {
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string) error
+
+	// Scale-out Replication POC
+	FilePutter(ctx context.Context, indexName, shardName,
+		filePath string) (io.WriteCloser, error)
+	CreateShard(ctx context.Context, indexName, shardName string) error
+	ReinitShard(ctx context.Context, indexName, shardName string) error
 }
 
 func NewIndices(shards shards) *indices {
@@ -100,7 +115,10 @@ func NewIndices(shards shards) *indices {
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
 		regexpObject:              regexp.MustCompile(urlPatternObject),
 		regexpReferences:          regexp.MustCompile(urlPatternReferences),
-		regexpShards:              regexp.MustCompile(urlPatternShards),
+		regexpShardsStatus:        regexp.MustCompile(urlPatternShardsStatus),
+		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
+		regexpShard:               regexp.MustCompile(urlPatternShard),
+		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
 		shards:                    shards,
 	}
 }
@@ -175,13 +193,36 @@ func (i *indices) Indices() http.Handler {
 			i.postReferences().ServeHTTP(w, r)
 			return
 
-		case i.regexpShards.MatchString(path):
+		case i.regexpShardsStatus.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getGetShardStatus().ServeHTTP(w, r)
 				return
 			}
 			if r.Method == http.MethodPost {
 				i.postUpdateShardStatus().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+
+		case i.regexpShardFiles.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.postShardFile().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+
+		case i.regexpShard.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.postShard().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		case i.regexpShardReinit.MatchString(path):
+			if r.Method == http.MethodPut {
+				i.putShardReinit().ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -719,7 +760,7 @@ func (i *indices) deleteObjects() http.Handler {
 
 func (i *indices) getGetShardStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexpShards.FindStringSubmatch(r.URL.Path)
+		args := i.regexpShardsStatus.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -746,7 +787,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 func (i *indices) postUpdateShardStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := i.regexpShards.FindStringSubmatch(r.URL.Path)
+		args := i.regexpShardsStatus.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -783,5 +824,83 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	})
+}
+
+func (i *indices) postShardFile() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShardFiles.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, filename := args[1], args[2], args[3]
+
+		ct, ok := IndicesPayloads.ShardFiles.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		fp, err := i.shards.FilePutter(r.Context(), index, shard, filename)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		defer fp.Close()
+		n, err := io.Copy(fp, r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		fmt.Printf("%s/%s/%s n=%d\n", index, shard, filename, n)
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
+
+func (i *indices) postShard() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShard.FindStringSubmatch(r.URL.Path)
+		fmt.Println(args)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		err := i.shards.CreateShard(r.Context(), index, shard)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+	})
+}
+
+func (i *indices) putShardReinit() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShardReinit.FindStringSubmatch(r.URL.Path)
+		fmt.Println(args)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		err := i.shards.ReinitShard(r.Context(), index, shard)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
