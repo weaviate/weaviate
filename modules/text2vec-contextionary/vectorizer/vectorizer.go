@@ -160,7 +160,6 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	}
 
 	vector, ie, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")}, overrides)
-
 	if err != nil {
 		switch err.(type) {
 		case ErrNoUsableWords:
