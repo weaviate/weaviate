@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -30,19 +29,14 @@ import (
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
-	uuid, err := s.canWriteOne(ctx, object.ID())
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+	uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
 	return s.putOne(ctx, uuid, object)
-}
-
-func (s *Shard) canWriteOne(ctx context.Context, id strfmt.UUID) ([]byte, error) {
-	if s.isReadOnly() {
-		return nil, storagestate.ErrStatusReadOnly
-	}
-
-	return uuid.MustParse(id.String()).MarshalBinary()
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {

@@ -83,9 +83,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 }
 
 func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, err error) {
-	if s.isReadOnly() {
-		return nil, nil, nil, 0, storagestate.ErrStatusReadOnly
-	}
 	if uid, err = parseBytesUUID(id); err != nil {
 		return nil, nil, uid, 0, err
 	}
