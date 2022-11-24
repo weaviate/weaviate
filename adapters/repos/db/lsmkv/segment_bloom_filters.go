@@ -15,6 +15,11 @@ func (ind *segment) bloomFilterPath() string {
 	return fmt.Sprintf("%s.bloom", extless)
 }
 
+func (ind *segment) bloomFilterSecondaryPath(pos int) string {
+	extless := strings.TrimSuffix(ind.path, filepath.Ext(ind.path))
+	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
+}
+
 func (ind *segment) initBloomFilter() error {
 	ok, err := fileExists(ind.bloomFilterPath())
 	if err != nil {
@@ -37,7 +42,7 @@ func (ind *segment) initBloomFilter() error {
 	}
 
 	if err := ind.storeBloomFilterOnDisk(); err != nil {
-		return err
+		return fmt.Errorf("store bloom filter on disk: %w", err)
 	}
 
 	took := time.Since(before)
@@ -87,6 +92,16 @@ func (ind *segment) loadBloomFilterFromDisk() error {
 
 func (ind *segment) initSecondaryBloomFilter(pos int) error {
 	before := time.Now()
+
+	ok, err := fileExists(ind.bloomFilterSecondaryPath(pos))
+	if err != nil {
+		return err
+	}
+
+	if ok {
+		return ind.loadBloomFilterSecondaryFromDisk(pos)
+	}
+
 	keys, err := ind.secondaryIndices[pos].AllKeys()
 	if err != nil {
 		return err
@@ -96,6 +111,10 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 	for _, key := range keys {
 		ind.secondaryBloomFilters[pos].Add(key)
 	}
+
+	if err := ind.storeBloomFilterSecondaryOnDisk(pos); err != nil {
+		return fmt.Errorf("store secondary bloom filter on disk: %w", err)
+	}
 	took := time.Since(before)
 
 	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_secondary").
@@ -103,5 +122,42 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 		WithField("path", ind.path).
 		WithField("took", took).
 		Debugf("building bloom filter took %s\n", took)
+	return nil
+}
+
+func (ind *segment) storeBloomFilterSecondaryOnDisk(pos int) error {
+	f, err := os.Create(ind.bloomFilterSecondaryPath(pos))
+	if err != nil {
+		return fmt.Errorf("open file for writing: %w", err)
+	}
+
+	_, err = ind.secondaryBloomFilters[pos].WriteTo(f)
+	if err != nil {
+		return fmt.Errorf("write bloom filter to disk: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close bloom filter file: %w", err)
+	}
+
+	return nil
+}
+
+func (ind *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
+	f, err := os.Open(ind.bloomFilterSecondaryPath(pos))
+	if err != nil {
+		return fmt.Errorf("open file for reading: %w", err)
+	}
+
+	ind.secondaryBloomFilters[pos] = new(bloom.BloomFilter)
+	_, err = ind.secondaryBloomFilters[pos].ReadFrom(f)
+	if err != nil {
+		return fmt.Errorf("read bloom filter from disk: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close bloom filter file: %w", err)
+	}
+
 	return nil
 }
