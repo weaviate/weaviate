@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"os"
 	"syscall"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -190,47 +189,6 @@ func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error 
 	ind.countNetAdditions = netCount
 
 	return lastErr
-}
-
-func (ind *segment) initBloomFilter() error {
-	before := time.Now()
-	keys, err := ind.index.AllKeys()
-	if err != nil {
-		return err
-	}
-
-	ind.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
-		ind.bloomFilter.Add(key)
-	}
-
-	took := time.Since(before)
-	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_primary").
-		WithField("path", ind.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-	return nil
-}
-
-func (ind *segment) initSecondaryBloomFilter(pos int) error {
-	before := time.Now()
-	keys, err := ind.secondaryIndices[pos].AllKeys()
-	if err != nil {
-		return err
-	}
-
-	ind.secondaryBloomFilters[pos] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
-		ind.secondaryBloomFilters[pos].Add(key)
-	}
-	took := time.Since(before)
-
-	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_secondary").
-		WithField("secondary_index_position", pos).
-		WithField("path", ind.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-	return nil
 }
 
 func (ind *segment) close() error {

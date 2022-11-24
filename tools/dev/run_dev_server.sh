@@ -44,7 +44,7 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-      CLUSTER_HOSTNAME="node1" \
+      CLUSTER_HOSTNAME="$CLUSTER_HOSTNAME" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       go_run ./cmd/weaviate-server \
