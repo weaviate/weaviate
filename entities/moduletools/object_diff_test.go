@@ -37,19 +37,39 @@ func TestObjectDiff(t *testing.T) {
 	t.Run("string slices are the same", func(t *testing.T) {
 		objDiff := NewObjectDiff(nil).
 			WithProp("sameStringSlices1", []string{"aa", "bb", "cc"}, []string{"aa", "bb", "cc"}).
-			WithProp("sameStringSlices2", []string{}, []string{})
+			WithProp("sameStringSlices2", []string{"aa", "bb", "cc"}, []interface{}{"aa", "bb", "cc"}).
+			WithProp("sameStringSlices3", []interface{}{"aa", "bb", "cc"}, []string{"aa", "bb", "cc"}).
+			WithProp("sameStringSlices4", []interface{}{"aa", "bb", "cc"}, []interface{}{"aa", "bb", "cc"}).
+			WithProp("sameStringSlices5", []string{}, []string{}).
+			WithProp("sameStringSlices6", []string{}, []interface{}{}).
+			WithProp("sameStringSlices7", []interface{}{}, []string{}).
+			WithProp("sameStringSlices8", []interface{}{}, []interface{}{})
 
-		assert.False(t, objDiff.IsChangedProp("sameStringSlices1"))
-		assert.False(t, objDiff.IsChangedProp("sameStringSlices2"))
+		for _, prop := range []string{
+			"sameStringSlices1", "sameStringSlices2", "sameStringSlices3", "sameStringSlices4",
+			"sameStringSlices5", "sameStringSlices6", "sameStringSlices7", "sameStringSlices8",
+		} {
+			assert.False(t, objDiff.IsChangedProp(prop))
+		}
 	})
 
 	t.Run("string slices are different", func(t *testing.T) {
 		objDiff := NewObjectDiff(nil).
 			WithProp("differentStringSlices1", []string{"aa", "bb", "cc"}, []string{"aa", "bb", "cc", "dd"}).
-			WithProp("differentStringSlices2", []string{"aa", "bb", "cc"}, []string{"cc", "bb", "aa"})
+			WithProp("differentStringSlices2", []string{"aa", "bb", "cc"}, []interface{}{"aa", "bb", "cc", "dd"}).
+			WithProp("differentStringSlices3", []interface{}{"aa", "bb", "cc"}, []string{"aa", "bb", "cc", "dd"}).
+			WithProp("differentStringSlices4", []interface{}{"aa", "bb", "cc"}, []interface{}{"aa", "bb", "cc", "dd"}).
+			WithProp("differentStringSlices5", []string{"aa", "bb", "cc"}, []string{"cc", "bb", "aa"}).
+			WithProp("differentStringSlices6", []string{"aa", "bb", "cc"}, []interface{}{"cc", "bb", "aa"}).
+			WithProp("differentStringSlices7", []interface{}{"aa", "bb", "cc"}, []string{"cc", "bb", "aa"}).
+			WithProp("differentStringSlices8", []interface{}{"aa", "bb", "cc"}, []interface{}{"cc", "bb", "aa"})
 
-		assert.True(t, objDiff.IsChangedProp("differentStringSlices1"))
-		assert.True(t, objDiff.IsChangedProp("differentStringSlices2"))
+		for _, prop := range []string{
+			"differentStringSlices1", "differentStringSlices2", "differentStringSlices3", "differentStringSlices4",
+			"differentStringSlices5", "differentStringSlices6", "differentStringSlices7", "differentStringSlices8",
+		} {
+			assert.True(t, objDiff.IsChangedProp(prop))
+		}
 	})
 
 	t.Run("nils are different", func(t *testing.T) {
@@ -59,10 +79,9 @@ func TestObjectDiff(t *testing.T) {
 			WithProp("nil3", []string{"some value"}, nil).
 			WithProp("nil4", nil, []string{"some value"})
 
-		assert.True(t, objDiff.IsChangedProp("nil1"))
-		assert.True(t, objDiff.IsChangedProp("nil2"))
-		assert.True(t, objDiff.IsChangedProp("nil3"))
-		assert.True(t, objDiff.IsChangedProp("nil4"))
+		for _, prop := range []string{"nil1", "nil2", "nil3", "nil4"} {
+			assert.True(t, objDiff.IsChangedProp(prop))
+		}
 	})
 
 	t.Run("not set is the same", func(t *testing.T) {
@@ -71,7 +90,7 @@ func TestObjectDiff(t *testing.T) {
 		assert.False(t, objDiff.IsChangedProp("notSet"))
 	})
 
-	t.Run("non string types are different", func(t *testing.T) {
+	t.Run("non strings are different", func(t *testing.T) {
 		objDiff := NewObjectDiff(nil).
 			WithProp("float1", 1.23, 1.23).
 			WithProp("float2", 1.23, 1.234).
@@ -86,17 +105,11 @@ func TestObjectDiff(t *testing.T) {
 			WithProp("boolSlice1", []bool{false}, []bool{false}).
 			WithProp("boolSlice2", []bool{false}, []bool{false, true})
 
-		assert.True(t, objDiff.IsChangedProp("float1"))
-		assert.True(t, objDiff.IsChangedProp("float2"))
-		assert.True(t, objDiff.IsChangedProp("int1"))
-		assert.True(t, objDiff.IsChangedProp("int2"))
-		assert.True(t, objDiff.IsChangedProp("bool1"))
-		assert.True(t, objDiff.IsChangedProp("bool2"))
-		assert.True(t, objDiff.IsChangedProp("floatSlice1"))
-		assert.True(t, objDiff.IsChangedProp("floatSlice2"))
-		assert.True(t, objDiff.IsChangedProp("intSlice1"))
-		assert.True(t, objDiff.IsChangedProp("intSlice2"))
-		assert.True(t, objDiff.IsChangedProp("boolSlice1"))
-		assert.True(t, objDiff.IsChangedProp("boolSlice2"))
+		for _, prop := range []string{
+			"float1", "float2", "int1", "int2", "bool1", "bool2",
+			"floatSlice1", "floatSlice2", "intSlice1", "intSlice2", "boolSlice1", "boolSlice2",
+		} {
+			assert.True(t, objDiff.IsChangedProp(prop))
+		}
 	})
 }
