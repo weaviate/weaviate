@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"syscall"
 
@@ -152,7 +153,32 @@ func (ind *segment) close() error {
 }
 
 func (ind *segment) drop() error {
-	return os.Remove(ind.path)
+	// support for persisting bloom filters and cnas was added in v1.17,
+	// therefore the files may not be present on segments created with previous
+	// versions. By using RemoveAll, which does not error on NotExists, these
+	// drop calls are backward-compatible:
+	if err := os.RemoveAll(ind.bloomFilterPath()); err != nil {
+		return fmt.Errorf("drop bloom filter: %w", err)
+	}
+
+	for i := 0; i < int(ind.secondaryIndexCount); i++ {
+		if err := os.RemoveAll(ind.bloomFilterSecondaryPath(i)); err != nil {
+			return fmt.Errorf("drop bloom filter: %w", err)
+		}
+	}
+
+	if err := os.RemoveAll(ind.countNetPath()); err != nil {
+		return fmt.Errorf("drop count net additions file: %w", err)
+	}
+
+	// for the segment itself, we're not using RemoveAll, but Remove. If there
+	// was a NotExists error here, something would be seriously wrong and we
+	// don't want to ignore it.
+	if err := os.Remove(ind.path); err != nil {
+		return fmt.Errorf("drop segment: %w", err)
+	}
+
+	return nil
 }
 
 // Size returns the total size of the segment in bytes, including the header

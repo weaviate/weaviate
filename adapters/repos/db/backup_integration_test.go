@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -203,27 +203,37 @@ func TestBackup_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
-			assert.Len(t, files, 1)
+			assert.Len(t, files, 4)
 
 			// build regex to get very close approximation to the expected
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			re := path.Clean(fmt.Sprintf("^bucketlevelbackup_%s_lsm\\/objects\\/.*\\.(wal|db)", shard.name))
+			re := path.Clean(fmt.Sprintf("^bucketlevelbackup_%s_lsm\\/objects\\/.*\\.(wal|db|bloom|cna)", shard.name))
 
-			// we expect to see only two files inside the bucket at this point:
-			//   1. a *.db file
-			//   2. a *.wal file
+			// we expect to see only four files inside the bucket at this point:
+			//   1. a *.db file - the segment itself
+			//   2. a *.bloom file - the segments' bloom filter (only since v1.17)
+			//   3. a *.secondary.0.bloom file - the bloom filter for the secondary index at pos 0 (only since v1.17)
+			//   4. a *.cna file - th segment's count net additions (only since v1.17)
 			//
-			// both of these files are the result of the above FlushMemtable's
-			// underlying call to FlushAndSwitch. The *.db is the flushed original
-			// WAL, and the *.wal is the new one
-			isMatch, err := regexp.MatchString(re, files[0])
-			assert.Nil(t, err)
-			assert.True(t, isMatch)
+			// These files are created when the memtable is flushed, and the new
+			// segment is initialized. Both happens as a result of calling
+			// FlushMemtable().
+			for i := range files {
+				isMatch, err := regexp.MatchString(re, files[i])
+				assert.Nil(t, err)
+				assert.True(t, isMatch, files[i])
+			}
 
 			// check that we have one of each: *.db
-			assert.True(t, strings.HasSuffix(files[0], ".db"))
+			exts := make([]string, 4)
+			for i, file := range files {
+				exts[i] = filepath.Ext(file)
+			}
+			assert.Contains(t, exts, ".db")    // the main segment
+			assert.Contains(t, exts, ".cna")   // the segment's count net additions
+			assert.Contains(t, exts, ".bloom") // matches both bloom filters (primary+secondary)
 		})
 
 		err = objBucket.ResumeCompaction(ctx)
