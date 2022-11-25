@@ -15,7 +15,11 @@ import (
 type existsOnLowerSegmentsFn func(key []byte) (bool, error)
 
 func (ind *segment) countNetPath() string {
-	extless := strings.TrimSuffix(ind.path, filepath.Ext(ind.path))
+	return countNetPathFromSegmentPath(ind.path)
+}
+
+func countNetPathFromSegmentPath(segPath string) string {
+	extless := strings.TrimSuffix(segPath, filepath.Ext(segPath))
 	return fmt.Sprintf("%s.cna", extless)
 }
 
@@ -33,11 +37,6 @@ func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error 
 	if ok {
 		return ind.loadCountNetFromDisk()
 	}
-
-	// before := time.Now()
-	// defer func() {
-	// 	fmt.Printf("init count net additions took %s\n", time.Since(before))
-	// }()
 
 	var lastErr error
 	countNet := 0
@@ -75,12 +74,29 @@ func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error 
 }
 
 func (ind *segment) storeCountNetOnDisk() error {
-	f, err := os.Create(ind.countNetPath())
+	return storeCountNetOnDisk(ind.countNetPath(), ind.countNetAdditions)
+}
+
+// prefillCountNetAdditions is a helper function that can be used in
+// compactions. A compacted segment behaves exactly as the two segments it
+// replaces. As a result the count net additions of a compacted segment is
+// simply the sum of the old two segments.
+//
+// by "prefilling" which means creating the file on disk, the subsequent
+// newSegment() call can skip re-calculating the count net additions which
+// would have a high cost on large segment groups.
+func prefillCountNetAdditions(segPath string, updatedCountNetAdditions int) error {
+	return storeCountNetOnDisk(countNetPathFromSegmentPath(segPath),
+		updatedCountNetAdditions)
+}
+
+func storeCountNetOnDisk(path string, value int) error {
+	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}
 
-	if err := binary.Write(f, binary.LittleEndian, int64(ind.countNetAdditions)); err != nil {
+	if err := binary.Write(f, binary.LittleEndian, int64(value)); err != nil {
 		return fmt.Errorf("write cna to file: %w", err)
 	}
 
