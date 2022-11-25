@@ -167,8 +167,15 @@ func TestBackup_ListFiles(t *testing.T) {
 	t.Run("assert expected bucket contents", func(t *testing.T) {
 		files, err := b.ListFiles(ctx)
 		assert.Nil(t, err)
-		assert.Len(t, files, 1)
-		assert.Equal(t, filepath.Ext(files[0]), ".db")
+		assert.Len(t, files, 3)
+
+		exts := make([]string, 3)
+		for i, file := range files {
+			exts[i] = filepath.Ext(file)
+		}
+		assert.Contains(t, exts, ".db")    // the segment itself
+		assert.Contains(t, exts, ".bloom") // the segment's bloom filter
+		assert.Contains(t, exts, ".cna")   // the segment's count net additions
 	})
 
 	err = b.Shutdown(context.Background())
