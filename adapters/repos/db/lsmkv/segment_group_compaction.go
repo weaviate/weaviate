@@ -195,6 +195,9 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
+	updatedCountNetAdditions := sg.segments[old1].countNetAdditions +
+		sg.segments[old2].countNetAdditions
+
 	if err := sg.segments[old1].close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
 	}
@@ -220,6 +223,10 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	newPath, err := sg.stripTmpExtension(newPathTmp)
 	if err != nil {
 		return errors.Wrap(err, "strip .tmp extension of new segment")
+	}
+
+	if err := prefillCountNetAdditions(newPath, updatedCountNetAdditions); err != nil {
+		return fmt.Errorf("prefill count net additions: %w", err)
 	}
 
 	exists := sg.makeExistsOnLower(old1)
