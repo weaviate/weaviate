@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package lsmkv
 
 import (
@@ -86,8 +97,6 @@ func TestCreateBloomInit(t *testing.T) {
 }
 
 func TestRepairCorruptedBloomOnInit(t *testing.T) {
-	// this test deletes the initial bloom and makes sure it gets recreated after
-	// the bucket is initialized
 	ctx := context.Background()
 	dirName := makeTestDir(t)
 	defer removeTestDir(t, dirName)
@@ -105,7 +114,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 	fname, ok := findFileWithExt(files, ".bloom")
 	require.True(t, ok)
 
-	// now corrupt the file by replacing the count value without adapting the checksum
+	// now corrupt the bloom filter by randomly overriding data
 	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
 
 	// now create a new bucket and assert that the file is ignored, re-created on
@@ -114,6 +123,41 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 	require.Nil(t, err)
 
 	value, err := b2.Get([]byte("hello"))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte("world"), value)
+}
+
+func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
+	ctx := context.Background()
+	dirName := makeTestDir(t)
+	defer removeTestDir(t, dirName)
+
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucket(ctx, dirName, "", logger, nil,
+		WithStrategy(StrategyReplace),
+		WithSecondaryIndices(1))
+	require.Nil(t, err)
+
+	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
+		WithSecondaryKey(0, []byte("bonjour"))))
+	require.Nil(t, b.FlushMemtable(ctx))
+
+	files, err := os.ReadDir(dirName)
+	require.Nil(t, err)
+	fname, ok := findFileWithExt(files, "secondary.0.bloom")
+	require.True(t, ok)
+
+	// now corrupt the file by replacing the count value without adapting the checksum
+	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
+
+	// now create a new bucket and assert that the file is ignored, re-created on
+	// init, and the count matches
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.Nil(t, err)
+
+	value, err := b2.GetBySecondary(0, []byte("bonjour"))
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
 }
