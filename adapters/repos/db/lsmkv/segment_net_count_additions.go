@@ -12,12 +12,20 @@
 package lsmkv
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ErrInvalidChecksum indicates the the read file should not be trusted. For
+// any pre-computed data this is a recoverable issue, as the data can simply be
+// re-computed at read-time.
+var ErrInvalidChecksum = errors.New("invalid checksum")
 
 // existOnLowerSegments is a simple function that can be passed at segment
 // initialization time to check if any of the keys are truly new or previously
@@ -102,13 +110,26 @@ func prefillCountNetAdditions(segPath string, updatedCountNetAdditions int) erro
 }
 
 func storeCountNetOnDisk(path string, value int) error {
+	buf := new(bytes.Buffer)
+
+	if err := binary.Write(buf, binary.LittleEndian, uint64(value)); err != nil {
+		return fmt.Errorf("write cna to buf: %w", err)
+	}
+
+	data := buf.Bytes()
+	chksm := crc32.ChecksumIEEE(data)
+
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}
 
-	if err := binary.Write(f, binary.LittleEndian, int64(value)); err != nil {
-		return fmt.Errorf("write cna to file: %w", err)
+	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+		return fmt.Errorf("write checkusm to file: %w", err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("write cna data to file: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
@@ -124,11 +145,23 @@ func (ind *segment) loadCountNetFromDisk() error {
 		return fmt.Errorf("open file for reading: %w", err)
 	}
 
-	var cna int64
-	if err := binary.Read(f, binary.LittleEndian, &cna); err != nil {
-		return fmt.Errorf("read cna from file: %w", err)
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(f); err != nil {
+		return fmt.Errorf("read cna data from file: %w", err)
 	}
-	ind.countNetAdditions = int(cna)
+	data := buf.Bytes()
+	if len(data) != 12 {
+		return ErrInvalidChecksum
+	}
+
+	chcksm := binary.LittleEndian.Uint32(data[:4])
+	actual := crc32.ChecksumIEEE(data[4:])
+
+	if chcksm != actual {
+		return ErrInvalidChecksum
+	}
+
+	ind.countNetAdditions = int(binary.LittleEndian.Uint64(data[4:12]))
 
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close cna file: %w", err)
