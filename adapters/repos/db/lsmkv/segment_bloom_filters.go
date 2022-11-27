@@ -82,7 +82,7 @@ func (ind *segment) storeBloomFilterOnDisk() error {
 
 	_, err := ind.bloomFilter.WriteTo(buf)
 	if err != nil {
-		return fmt.Errorf("write bloom filter to disk: %w", err)
+		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
 	data := buf.Bytes()
@@ -95,6 +95,10 @@ func (ind *segment) storeBloomFilterOnDisk() error {
 
 	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
 		return fmt.Errorf("write checkusm to file: %w", err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("write bloom filter to disk: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
@@ -144,7 +148,17 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 	}
 
 	if ok {
-		return ind.loadBloomFilterSecondaryFromDisk(pos)
+		err = ind.loadBloomFilterSecondaryFromDisk(pos)
+		if err == nil {
+			return nil
+		}
+
+		if err != ErrInvalidChecksum {
+			// not a recoverable error
+			return err
+		}
+
+		// now continue re-calculating
 	}
 
 	keys, err := ind.secondaryIndices[pos].AllKeys()
@@ -171,13 +185,25 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 }
 
 func (ind *segment) storeBloomFilterSecondaryOnDisk(pos int) error {
+	buf := new(bytes.Buffer)
+	_, err := ind.secondaryBloomFilters[pos].WriteTo(buf)
+	if err != nil {
+		return fmt.Errorf("write bloom filter: %w", err)
+	}
+
+	data := buf.Bytes()
+	chksm := crc32.ChecksumIEEE(data)
+
 	f, err := os.Create(ind.bloomFilterSecondaryPath(pos))
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}
 
-	_, err = ind.secondaryBloomFilters[pos].WriteTo(f)
-	if err != nil {
+	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+		return fmt.Errorf("write checkusm to file: %w", err)
+	}
+
+	if _, err := f.Write(data); err != nil {
 		return fmt.Errorf("write bloom filter to disk: %w", err)
 	}
 
@@ -194,8 +220,19 @@ func (ind *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 		return fmt.Errorf("open file for reading: %w", err)
 	}
 
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(f); err != nil {
+		return fmt.Errorf("read bloom filter data from file: %w", err)
+	}
+	data := buf.Bytes()
+	chcksm := binary.LittleEndian.Uint32(data[:4])
+	actual := crc32.ChecksumIEEE(data[4:])
+	if chcksm != actual {
+		return ErrInvalidChecksum
+	}
+
 	ind.secondaryBloomFilters[pos] = new(bloom.BloomFilter)
-	_, err = ind.secondaryBloomFilters[pos].ReadFrom(f)
+	_, err = ind.secondaryBloomFilters[pos].ReadFrom(bytes.NewReader(data[4:]))
 	if err != nil {
 		return fmt.Errorf("read bloom filter from disk: %w", err)
 	}
