@@ -54,7 +54,23 @@ func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error 
 	}
 
 	if ok {
-		return ind.loadCountNetFromDisk()
+		err = ind.loadCountNetFromDisk()
+		if err == nil {
+			return nil
+		}
+
+		if err != ErrInvalidChecksum {
+			// not a recoverable error
+			return err
+		}
+
+		// ErrInvalidChecksum is recoverable, we just need to delete the file
+		err = ind.deleteCountNetFromDisk()
+		if err != nil {
+			return nil
+		}
+
+		// now continue re-calculating
 	}
 
 	var lastErr error
@@ -165,6 +181,15 @@ func (ind *segment) loadCountNetFromDisk() error {
 
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close cna file: %w", err)
+	}
+
+	return nil
+}
+
+func (ind *segment) deleteCountNetFromDisk() error {
+	err := os.Remove(ind.countNetPath())
+	if err != nil {
+		return fmt.Errorf("delete count net file: %w", err)
 	}
 
 	return nil
