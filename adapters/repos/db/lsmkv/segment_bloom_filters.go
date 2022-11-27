@@ -12,7 +12,10 @@
 package lsmkv
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +41,17 @@ func (ind *segment) initBloomFilter() error {
 	}
 
 	if ok {
-		return ind.loadBloomFilterFromDisk()
+		err = ind.loadBloomFilterFromDisk()
+		if err == nil {
+			return nil
+		}
+
+		if err != ErrInvalidChecksum {
+			// not a recoverable error
+			return err
+		}
+
+		// now continue re-calculating
 	}
 
 	before := time.Now()
@@ -65,14 +78,23 @@ func (ind *segment) initBloomFilter() error {
 }
 
 func (ind *segment) storeBloomFilterOnDisk() error {
+	buf := new(bytes.Buffer)
+
+	_, err := ind.bloomFilter.WriteTo(buf)
+	if err != nil {
+		return fmt.Errorf("write bloom filter to disk: %w", err)
+	}
+
+	data := buf.Bytes()
+	chksm := crc32.ChecksumIEEE(data)
+
 	f, err := os.Create(ind.bloomFilterPath())
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}
 
-	_, err = ind.bloomFilter.WriteTo(f)
-	if err != nil {
-		return fmt.Errorf("write bloom filter to disk: %w", err)
+	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+		return fmt.Errorf("write checkusm to file: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
@@ -88,8 +110,20 @@ func (ind *segment) loadBloomFilterFromDisk() error {
 		return fmt.Errorf("open file for reading: %w", err)
 	}
 
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(f); err != nil {
+		return fmt.Errorf("read bloom filter data from file: %w", err)
+	}
+	data := buf.Bytes()
+
+	chcksm := binary.LittleEndian.Uint32(data[:4])
+	actual := crc32.ChecksumIEEE(data[4:])
+	if chcksm != actual {
+		return ErrInvalidChecksum
+	}
+
 	ind.bloomFilter = new(bloom.BloomFilter)
-	_, err = ind.bloomFilter.ReadFrom(f)
+	_, err = ind.bloomFilter.ReadFrom(bytes.NewReader(data[4:]))
 	if err != nil {
 		return fmt.Errorf("read bloom filter from disk: %w", err)
 	}
