@@ -81,7 +81,7 @@ func TestCreateCNAInit(t *testing.T) {
 
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok = findFileWithExt(files, ".cna")
+	_, ok = findFileWithExt(files, ".cna")
 	require.True(t, ok)
 }
 
