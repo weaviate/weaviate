@@ -27,8 +27,7 @@ import (
 
 func TestCreateCNAOnFlush(t *testing.T) {
 	ctx := context.Background()
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
@@ -49,8 +48,7 @@ func TestCreateCNAInit(t *testing.T) {
 	// this test deletes the initial cna and makes sure it gets recreated after
 	// the bucket is initialized
 	ctx := context.Background()
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
@@ -89,8 +87,7 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 	// this test deletes the initial cna and makes sure it gets recreated after
 	// the bucket is initialized
 	ctx := context.Background()
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
