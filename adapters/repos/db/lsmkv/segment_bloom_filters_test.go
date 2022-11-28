@@ -25,8 +25,7 @@ import (
 
 func TestCreateBloomOnFlush(t *testing.T) {
 	ctx := context.Background()
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
@@ -53,8 +52,7 @@ func TestCreateBloomInit(t *testing.T) {
 	// this test deletes the initial bloom and makes sure it gets recreated after
 	// the bucket is initialized
 	ctx := context.Background()
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
@@ -98,8 +96,7 @@ func TestCreateBloomInit(t *testing.T) {
 
 func TestRepairCorruptedBloomOnInit(t *testing.T) {
 	ctx := context.Background()
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
@@ -129,8 +126,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	ctx := context.Background()
-	dirName := makeTestDir(t)
-	defer removeTestDir(t, dirName)
+	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
 
