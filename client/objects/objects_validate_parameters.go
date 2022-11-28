@@ -26,7 +26,7 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/semi-technologies/weaviate/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewObjectsValidateParams creates a new ObjectsValidateParams object

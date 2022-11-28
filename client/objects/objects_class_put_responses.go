@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/semi-technologies/weaviate/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // ObjectsClassPutReader is a Reader for the ObjectsClassPut structure.
@@ -72,7 +72,7 @@ func (o *ObjectsClassPutReader) ReadResponse(response runtime.ClientResponse, co
 		return nil, result
 
 	default:
-		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
+		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
 }
 

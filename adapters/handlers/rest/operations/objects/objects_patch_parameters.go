@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
 
-	"github.com/semi-technologies/weaviate/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewObjectsPatchParams creates a new ObjectsPatchParams object

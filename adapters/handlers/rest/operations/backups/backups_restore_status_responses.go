@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/semi-technologies/weaviate/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // BackupsRestoreStatusOKCode is the HTTP code returned for type BackupsRestoreStatusOK
