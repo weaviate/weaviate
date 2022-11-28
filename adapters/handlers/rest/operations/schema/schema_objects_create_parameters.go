@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/models"
 )
 
 // NewSchemaObjectsCreateParams creates a new SchemaObjectsCreateParams object
