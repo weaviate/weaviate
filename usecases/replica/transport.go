@@ -25,14 +25,85 @@ const (
 	RequestKey = "request_id"
 )
 
+type StatusCode int
+
+const (
+	StatusOK            = 0
+	StatusClassNotFound = iota + 200
+	StatusShardNotFound
+	StatusNotFound
+	StatusAlreadyExisted
+	StatusConflict = iota + 300
+	StatusPreconditionFailed
+	StatusReadOnly
+)
+
+// Error reports error happing during replication
+type Error struct {
+	Code StatusCode `json:"code"`
+	Msg  string     `json:"msg,omitempty"`
+	Err  error      `json:"-"`
+}
+
+// Empty checks whether e is an empty error which equivalent to e == nil
+func (e *Error) Empty() bool {
+	return e.Code == StatusOK && e.Msg == "" && e.Err == nil
+}
+
+// NewError create new replication error
+func NewError(code StatusCode, msg string) *Error {
+	return &Error{code, msg, nil}
+}
+
+func (e *Error) Clone() *Error {
+	return &Error{Code: e.Code, Msg: e.Msg, Err: e.Err}
+}
+
+// Unwrap underlying error
+func (e *Error) Unwrap() error { return e.Err }
+
+func (e *Error) Error() string { return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err) }
+
+// statusText returns a text for the status code. It returns the empty
+// string if the code is unknown.
+func statusText(code StatusCode) string {
+	switch code {
+	case StatusOK:
+		return "ok"
+	case StatusNotFound:
+		return "not found"
+	case StatusClassNotFound:
+		return "class not found"
+	case StatusShardNotFound:
+		return "shard not found"
+	case StatusConflict:
+		return "conflict"
+	case StatusPreconditionFailed:
+		return "precondition failed"
+	case StatusAlreadyExisted:
+		return "already existed"
+	case StatusReadOnly:
+		return "read only"
+	default:
+		return ""
+	}
+}
+
+func (e *Error) Timeout() bool {
+	t, ok := e.Err.(interface {
+		Timeout() bool
+	})
+	return ok && t.Timeout()
+}
+
 type SimpleResponse struct {
-	Errors []string `json:"errors"`
+	Errors []Error `json:"errors,omitempty"`
 }
 
 func (r *SimpleResponse) FirstError() error {
-	for _, msg := range r.Errors {
-		if msg != "" {
-			return &Error{Msg: msg}
+	for i, err := range r.Errors {
+		if !err.Empty() {
+			return &r.Errors[i]
 		}
 	}
 	return nil
@@ -43,33 +114,19 @@ type DeleteBatchResponse struct {
 	Batch []UUID2Error `json:"batch,omitempty"`
 }
 
+type UUID2Error struct {
+	UUID  string `json:"uuid,omitempty"`
+	Error Error  `json:"error,omitempty"`
+}
+
 // FirstError returns the first found error
 func (r *DeleteBatchResponse) FirstError() error {
-	for _, r := range r.Batch {
-		if r.Error != "" {
-			return &Error{Msg: r.Error}
+	for i, ue := range r.Batch {
+		if !ue.Error.Empty() {
+			return &r.Batch[i].Error
 		}
 	}
 	return nil
-}
-
-type Error struct {
-	Msg string `json:"msg"`
-	Err error  `json:"-"`
-}
-
-// Unwrap underlying error
-func (e *Error) Unwrap() error {
-	return e.Err
-}
-
-func (e *Error) Error() string {
-	return fmt.Sprintf("%v :%v", e.Msg, e.Err)
-}
-
-type UUID2Error struct {
-	UUID  string `json:"uuid,omitempty"`
-	Error string `json:"error,omitempty"`
 }
 
 type ReplicationClient interface {

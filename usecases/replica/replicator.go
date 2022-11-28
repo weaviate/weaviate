@@ -13,7 +13,6 @@ package replica
 
 import (
 	"context"
-	"errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -189,9 +188,9 @@ func errorsFromSimpleResponses(batchSize int, rs []SimpleResponse, defaultErr er
 			continue
 		}
 		n++
-		for i, msg := range resp.Errors {
-			if msg != "" && errs[i] == nil {
-				errs[i] = errors.New(msg)
+		for i, err := range resp.Errors {
+			if !err.Empty() && errs[i] == nil {
+				errs[i] = err.Clone()
 			}
 		}
 	}
@@ -214,8 +213,8 @@ func resultsFromDeletionResponses(size int, rs []DeleteBatchResponse, defaultErr
 		}
 		n++
 		for i, x := range resp.Batch {
-			if x.Error != "" && ret[i].Err == nil {
-				ret[i].Err = errors.New(x.Error)
+			if !x.Error.Empty() && ret[i].Err == nil {
+				ret[i].Err = x.Error.Clone()
 			}
 			if ret[i].UUID == "" && x.UUID != "" {
 				ret[i].UUID = strfmt.UUID(x.UUID)

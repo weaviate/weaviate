@@ -50,7 +50,7 @@ func newFakeServer(t *testing.T, method, path string) *fakeServer {
 	return &fakeServer{
 		method:         method,
 		path:           path,
-		RequestError:   replica.SimpleResponse{Errors: []string{"error"}},
+		RequestError:   replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}},
 		RequestSuccess: replica.SimpleResponse{},
 	}
 }
@@ -177,7 +177,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 func TestReplicationPutObjects(t *testing.T) {
 	ctx := context.Background()
 	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
-	fs.RequestError.Errors = append(fs.RequestError.Errors, "error2")
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
@@ -256,7 +256,7 @@ func TestReplicationMergeObject(t *testing.T) {
 func TestReplicationAddReferences(t *testing.T) {
 	ctx := context.Background()
 	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references")
-	fs.RequestError.Errors = append(fs.RequestError.Errors, "error2")
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
@@ -290,7 +290,7 @@ func TestReplicationAddReferences(t *testing.T) {
 func TestReplicationDeleteObjects(t *testing.T) {
 	ctx := context.Background()
 	fs := newFakeServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects")
-	fs.RequestError.Errors = append(fs.RequestError.Errors, "error2")
+	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 	client := NewReplicationClient(ts.Client())

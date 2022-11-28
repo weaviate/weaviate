@@ -73,7 +73,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.Client.On("PutObject", ctx, nodes[0], cls, shard, anyVal, obj).Return(resp, nil)
-		resp2 := SimpleResponse{Errors: []string{errAny.Error()}}
+		resp2 := SimpleResponse{[]Error{{Err: errAny}}}
 		f.Client.On("PutObject", ctx, nodes[1], cls, shard, anyVal, obj).Return(resp2, nil)
 		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
@@ -138,7 +138,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.Client.On("MergeObject", ctx, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
-		resp2 := SimpleResponse{Errors: []string{errAny.Error()}}
+		resp2 := SimpleResponse{[]Error{{Err: errAny}}}
 		f.Client.On("MergeObject", ctx, nodes[1], cls, shard, anyVal, merge).Return(resp2, nil)
 		f.Client.On("Abort", ctx, nodes[0], cls, shard, anyVal).Return(resp, nil)
 		f.Client.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
@@ -201,14 +201,14 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 			resp := a[5].(*DeleteBatchResponse)
 			*resp = DeleteBatchResponse{
-				Batch: []UUID2Error{{UUID: "1", Error: ""}, {UUID: "2", Error: "e1"}},
+				Batch: []UUID2Error{{"1", Error{}}, {"2", Error{Msg: "e1"}}},
 			}
 		}
 	}
 	result := rep.DeleteObjects(ctx, shard, docIDs, false)
 	assert.Equal(t, len(result), 2)
 	assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
-	assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: errors.New("e1")}, result[1])
+	assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: &Error{Msg: "e1"}}, result[1])
 }
 
 func TestReplicatorPutObjects(t *testing.T) {
@@ -250,7 +250,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.Client.On("PutObjects", ctx, nodes[0], cls, shard, anyVal, objs).Return(resp, nil)
-		resp2 := SimpleResponse{Errors: []string{"E1", "E2"}}
+		resp2 := SimpleResponse{[]Error{{Msg: "E1"}, {Msg: "E2"}}}
 		f.Client.On("PutObjects", ctx, nodes[1], cls, shard, anyVal, objs).Return(resp2, nil)
 		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
@@ -317,7 +317,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		f.Client.On("AddReferences", ctx, nodes[0], cls, shard, anyVal, refs).Return(resp, nil)
-		resp2 := SimpleResponse{Errors: []string{"E1", "E2"}}
+		resp2 := SimpleResponse{[]Error{{Msg: "E1"}, {Msg: "E2"}}}
 		f.Client.On("AddReferences", ctx, nodes[1], cls, shard, anyVal, refs).Return(resp2, nil)
 		f.Client.On("Abort", ctx, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.Client.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
