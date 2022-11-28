@@ -29,3 +29,8 @@ tools/
 coverage-integration.txt
 coverage-unit.txt
 
+# wikipedia dataset when downloaded according to docs
+weaviate-wikipedia-*
+# the local path when extracting the wiki dataset
+var/weaviate/
+

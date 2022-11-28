@@ -13,9 +13,9 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"syscall"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -148,97 +148,37 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	return ind, nil
 }
 
-// existOnLowerSegments is a simple function that can be passed at segment
-// initialization time to check if any of the keys are truly new or previously
-// seen. This can in turn be used to build up the net count additions. The
-// reason this is abstrate:
-type existsOnLowerSegmentsFn func(key []byte) (bool, error)
-
-func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
-	if ind.strategy != SegmentStrategyReplace {
-		// replace is the only strategy that supports counting
-		return nil
-	}
-
-	// before := time.Now()
-	// defer func() {
-	// 	fmt.Printf("init count net additions took %s\n", time.Since(before))
-	// }()
-
-	var lastErr error
-	netCount := 0
-	cb := func(key []byte, tombstone bool) {
-		existedOnPrior, err := exists(key)
-		if err != nil {
-			lastErr = err
-		}
-
-		if tombstone && existedOnPrior {
-			netCount--
-		}
-
-		if !tombstone && !existedOnPrior {
-			netCount++
-		}
-	}
-
-	extr := newBufferedKeyAndTombstoneExtractor(ind.contents, ind.dataStartPos,
-		ind.dataEndPos, 10e6, ind.secondaryIndexCount, cb)
-
-	extr.do()
-
-	ind.countNetAdditions = netCount
-
-	return lastErr
-}
-
-func (ind *segment) initBloomFilter() error {
-	before := time.Now()
-	keys, err := ind.index.AllKeys()
-	if err != nil {
-		return err
-	}
-
-	ind.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
-		ind.bloomFilter.Add(key)
-	}
-
-	took := time.Since(before)
-	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_primary").
-		WithField("path", ind.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-	return nil
-}
-
-func (ind *segment) initSecondaryBloomFilter(pos int) error {
-	before := time.Now()
-	keys, err := ind.secondaryIndices[pos].AllKeys()
-	if err != nil {
-		return err
-	}
-
-	ind.secondaryBloomFilters[pos] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
-		ind.secondaryBloomFilters[pos].Add(key)
-	}
-	took := time.Since(before)
-
-	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_secondary").
-		WithField("secondary_index_position", pos).
-		WithField("path", ind.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-	return nil
-}
-
 func (ind *segment) close() error {
 	return syscall.Munmap(ind.contents)
 }
 
 func (ind *segment) drop() error {
-	return os.Remove(ind.path)
+	// support for persisting bloom filters and cnas was added in v1.17,
+	// therefore the files may not be present on segments created with previous
+	// versions. By using RemoveAll, which does not error on NotExists, these
+	// drop calls are backward-compatible:
+	if err := os.RemoveAll(ind.bloomFilterPath()); err != nil {
+		return fmt.Errorf("drop bloom filter: %w", err)
+	}
+
+	for i := 0; i < int(ind.secondaryIndexCount); i++ {
+		if err := os.RemoveAll(ind.bloomFilterSecondaryPath(i)); err != nil {
+			return fmt.Errorf("drop bloom filter: %w", err)
+		}
+	}
+
+	if err := os.RemoveAll(ind.countNetPath()); err != nil {
+		return fmt.Errorf("drop count net additions file: %w", err)
+	}
+
+	// for the segment itself, we're not using RemoveAll, but Remove. If there
+	// was a NotExists error here, something would be seriously wrong and we
+	// don't want to ignore it.
+	if err := os.Remove(ind.path); err != nil {
+		return fmt.Errorf("drop segment: %w", err)
+	}
+
+	return nil
 }
 
 // Size returns the total size of the segment in bytes, including the header
