@@ -16,8 +16,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/crc32"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -130,43 +128,12 @@ func storeCountNetOnDisk(path string, value int) error {
 }
 
 func (ind *segment) loadCountNetFromDisk() error {
-	f, err := os.Open(ind.countNetPath())
+	data, err := loadWithChecksum(ind.countNetPath(), 12)
 	if err != nil {
-		return fmt.Errorf("open file for reading: %w", err)
+		return err
 	}
 
-	buf := new(bytes.Buffer)
-	if _, err := buf.ReadFrom(f); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("read cna data from file: %w", err)
-	}
-	data := buf.Bytes()
-	if len(data) != 12 {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return ErrInvalidChecksum
-	}
-
-	chcksm := binary.LittleEndian.Uint32(data[:4])
-	actual := crc32.ChecksumIEEE(data[4:])
-	if chcksm != actual {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return ErrInvalidChecksum
-	}
-
-	ind.countNetAdditions = int(binary.LittleEndian.Uint64(data[4:12]))
-
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close cna file: %w", err)
-	}
+	ind.countNetAdditions = int(binary.LittleEndian.Uint64(data[0:8]))
 
 	return nil
 }
