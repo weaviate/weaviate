@@ -207,12 +207,14 @@ func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
-	terms := strings.Split(keywordRanking.Query, " ") // FIXME use better splitter
+	terms := helpers.TokenizeText(keywordRanking.Query)
+	if terms[0] != keywordRanking.Query { // Search query should include the full original query, to query on non alphanums
+		terms = append([]string{keywordRanking.Query}, terms...)
+	}
 	idLists := make([]docPointersWithScore, len(terms))
 
 	for i, term := range terms {
-		lower_term := strings.ToLower(term)
-		ids, err := b.retrieveForSingleTermMultipleProps(ctx, objectByIndexID, keywordRanking.Properties, lower_term)
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, objectByIndexID, keywordRanking.Properties, term)
 		if err != nil {
 			return nil, nil, err
 		}

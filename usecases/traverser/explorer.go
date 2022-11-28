@@ -236,6 +236,13 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	return concatenatedResults
 }
 
+func shortenVectorString(maxLength int, vector []float32) string {
+	if len(vector) <= maxLength {
+		return fmt.Sprintf("%v", vector)
+	}
+	return fmt.Sprintf("%v...", vector[:maxLength])
+}
+
 func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Result, error) {
 	results := [][]search.Result{}
 	weights := []float64{}
@@ -278,7 +285,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					if err != nil {
 						return nil, err
 					}
-					fmt.Printf("found vector: %v\n", vector)
+					fmt.Printf("found vector from query: %v\n", vector)
 				}
 				res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
 				if err != nil {
@@ -287,7 +294,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 				// Set the scoreexplain property to vector for every result
 				for i := range res2 {
-					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
+					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
 				}
 
 				alpha := params.HybridSearch.Alpha
@@ -335,7 +342,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					if err != nil {
 						return nil, err
 					}
-					fmt.Printf("found vector: %v\n", vector)
+					fmt.Printf("found vector: %v\n", shortenVectorString(10, vector))
 
 					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
 					if err != nil {
@@ -344,7 +351,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					// Set the scoreexplain property to vector for every result
 					for i := range res2 {
-						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
+						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
 					}
 					results = append(results, res2)
 
@@ -363,7 +370,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					// Set the scoreexplain property to vector for every result
 					for i := range res2 {
-						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", vector, res2[i].ExplainScore)
+						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
 					}
 
 					results = append(results, res2)
