@@ -135,10 +135,18 @@ func storeCountNetOnDisk(path string, value int) error {
 	}
 
 	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("write checkusm to file: %w", err)
 	}
 
 	if _, err := f.Write(data); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("write cna data to file: %w", err)
 	}
 
@@ -157,16 +165,28 @@ func (ind *segment) loadCountNetFromDisk() error {
 
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(f); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("read cna data from file: %w", err)
 	}
 	data := buf.Bytes()
 	if len(data) != 12 {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return ErrInvalidChecksum
 	}
 
 	chcksm := binary.LittleEndian.Uint32(data[:4])
 	actual := crc32.ChecksumIEEE(data[4:])
 	if chcksm != actual {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return ErrInvalidChecksum
 	}
 

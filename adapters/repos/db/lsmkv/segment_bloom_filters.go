@@ -94,10 +94,18 @@ func (ind *segment) storeBloomFilterOnDisk() error {
 	}
 
 	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("write checkusm to file: %w", err)
 	}
 
 	if _, err := f.Write(data); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("write bloom filter to disk: %w", err)
 	}
 
@@ -116,6 +124,10 @@ func (ind *segment) loadBloomFilterFromDisk() error {
 
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(f); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("read bloom filter data from file: %w", err)
 	}
 	data := buf.Bytes()
@@ -123,12 +135,20 @@ func (ind *segment) loadBloomFilterFromDisk() error {
 	chcksm := binary.LittleEndian.Uint32(data[:4])
 	actual := crc32.ChecksumIEEE(data[4:])
 	if chcksm != actual {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return ErrInvalidChecksum
 	}
 
 	ind.bloomFilter = new(bloom.BloomFilter)
 	_, err = ind.bloomFilter.ReadFrom(bytes.NewReader(data[4:]))
 	if err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("read bloom filter from disk: %w", err)
 	}
 
@@ -200,10 +220,18 @@ func (ind *segment) storeBloomFilterSecondaryOnDisk(pos int) error {
 	}
 
 	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("write checkusm to file: %w", err)
 	}
 
 	if _, err := f.Write(data); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("write bloom filter to disk: %w", err)
 	}
 
@@ -222,18 +250,30 @@ func (ind *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(f); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("read bloom filter data from file: %w", err)
 	}
 	data := buf.Bytes()
 	chcksm := binary.LittleEndian.Uint32(data[:4])
 	actual := crc32.ChecksumIEEE(data[4:])
 	if chcksm != actual {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return ErrInvalidChecksum
 	}
 
 	ind.secondaryBloomFilters[pos] = new(bloom.BloomFilter)
 	_, err = ind.secondaryBloomFilters[pos].ReadFrom(bytes.NewReader(data[4:]))
 	if err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
 		return fmt.Errorf("read bloom filter from disk: %w", err)
 	}
 
