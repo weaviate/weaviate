@@ -126,35 +126,7 @@ func storeCountNetOnDisk(path string, value int) error {
 		return fmt.Errorf("write cna to buf: %w", err)
 	}
 
-	data := buf.Bytes()
-	chksm := crc32.ChecksumIEEE(data)
-
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("open file for writing: %w", err)
-	}
-
-	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("write checkusm to file: %w", err)
-	}
-
-	if _, err := f.Write(data); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("write cna data to file: %w", err)
-	}
-
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close cna file: %w", err)
-	}
-
-	return nil
+	return writeWithChecksum(buf.Bytes(), path)
 }
 
 func (ind *segment) loadCountNetFromDisk() error {

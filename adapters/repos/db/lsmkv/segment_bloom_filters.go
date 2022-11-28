@@ -85,35 +85,17 @@ func (ind *segment) storeBloomFilterOnDisk() error {
 		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
-	data := buf.Bytes()
-	chksm := crc32.ChecksumIEEE(data)
+	return writeWithChecksum(buf.Bytes(), ind.bloomFilterPath())
+}
 
-	f, err := os.Create(ind.bloomFilterPath())
+func (ind *segment) storeBloomFilterSecondaryOnDisk(pos int) error {
+	buf := new(bytes.Buffer)
+	_, err := ind.secondaryBloomFilters[pos].WriteTo(buf)
 	if err != nil {
-		return fmt.Errorf("open file for writing: %w", err)
+		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
-	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("write checkusm to file: %w", err)
-	}
-
-	if _, err := f.Write(data); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("write bloom filter to disk: %w", err)
-	}
-
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close bloom filter file: %w", err)
-	}
-
-	return nil
+	return writeWithChecksum(buf.Bytes(), ind.bloomFilterSecondaryPath(pos))
 }
 
 func (ind *segment) loadBloomFilterFromDisk() error {
@@ -204,44 +186,6 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 	return nil
 }
 
-func (ind *segment) storeBloomFilterSecondaryOnDisk(pos int) error {
-	buf := new(bytes.Buffer)
-	_, err := ind.secondaryBloomFilters[pos].WriteTo(buf)
-	if err != nil {
-		return fmt.Errorf("write bloom filter: %w", err)
-	}
-
-	data := buf.Bytes()
-	chksm := crc32.ChecksumIEEE(data)
-
-	f, err := os.Create(ind.bloomFilterSecondaryPath(pos))
-	if err != nil {
-		return fmt.Errorf("open file for writing: %w", err)
-	}
-
-	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("write checkusm to file: %w", err)
-	}
-
-	if _, err := f.Write(data); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("write bloom filter to disk: %w", err)
-	}
-
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close bloom filter file: %w", err)
-	}
-
-	return nil
-}
-
 func (ind *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	f, err := os.Open(ind.bloomFilterSecondaryPath(pos))
 	if err != nil {
@@ -275,6 +219,37 @@ func (ind *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 		// leak.  We still want to return the original error below.
 		f.Close()
 		return fmt.Errorf("read bloom filter from disk: %w", err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close bloom filter file: %w", err)
+	}
+
+	return nil
+}
+
+func writeWithChecksum(data []byte, path string) error {
+	chksm := crc32.ChecksumIEEE(data)
+
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("open file for writing: %w", err)
+	}
+
+	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
+		return fmt.Errorf("write checkusm to file: %w", err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		// ignoring f.Close() error here, as we don't care about whether the file
+		// was flushed, the call is mainly intended to prevent a file descriptor
+		// leak.  We still want to return the original error below.
+		f.Close()
+		return fmt.Errorf("write bloom filter to disk: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
