@@ -113,6 +113,19 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 	assert.Equal(t, 1, b2.Count())
 }
 
+func TestPrefillCountNetAdditions(t *testing.T) {
+	dirName := t.TempDir()
+	segmentName := path.Join(dirName, "foo.db")
+	expectedFileName := path.Join(dirName, "foo.cna")
+
+	err := prefillCountNetAdditions(segmentName, 20)
+	require.Nil(t, err)
+
+	data, err := loadWithChecksum(expectedFileName, 12)
+	count := binary.LittleEndian.Uint64(data)
+	assert.Equal(t, 20, int(count))
+}
+
 func findFileWithExt(files []os.DirEntry, ext string) (string, bool) {
 	for _, file := range files {
 		fname := file.Name()

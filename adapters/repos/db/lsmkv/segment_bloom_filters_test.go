@@ -46,6 +46,19 @@ func TestCreateBloomOnFlush(t *testing.T) {
 
 	_, ok = findFileWithExt(files, "secondary.0.bloom")
 	assert.True(t, ok)
+
+	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+		WithStrategy(StrategyReplace),
+		WithSecondaryIndices(1))
+	require.Nil(t, err)
+
+	valuePrimary, err := b2.Get([]byte("hello"))
+	require.Nil(t, err)
+	valueSecondary, err := b2.GetBySecondary(0, []byte("bonjour"))
+	require.Nil(t, err)
+
+	assert.Equal(t, []byte("world"), valuePrimary)
+	assert.Equal(t, []byte("world"), valueSecondary)
 }
 
 func TestCreateBloomInit(t *testing.T) {
@@ -156,6 +169,29 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	value, err := b2.GetBySecondary(0, []byte("bonjour"))
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
+}
+
+func TestLoadWithChecksumErrorCases(t *testing.T) {
+	t.Run("file does not exist", func(t *testing.T) {
+		dirName := t.TempDir()
+		_, err := loadWithChecksum(path.Join(dirName, "my-file"), -1)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("file has incorrect length", func(t *testing.T) {
+		dirName := t.TempDir()
+		fName := path.Join(dirName, "my-file")
+		f, err := os.Create(fName)
+		require.Nil(t, err)
+
+		_, err = f.Write(make([]byte, 13))
+		require.Nil(t, err)
+
+		require.Nil(t, f.Close())
+
+		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17)
+		assert.NotNil(t, err)
+	})
 }
 
 func corruptBloomFile(fname string) error {
