@@ -173,11 +173,18 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 		bm25Config := s.index.getInvertedIndexConfig().BM25
 
-		return inverted.NewBM25Searcher(bm25Config, s.store,
+		searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
-			s.index.logger, s.versioner.Version()).
-			Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			s.index.logger, s.versioner.Version())
+		if keywordRanking != nil && keywordRanking.Type == "bm25" {
+			return searcher.BM25F(ctx, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object {
+				v, _ := s.objectByIndexID(ctx, index, false)
+				return v
+			})
+		} else {
+			return searcher.Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+		}
 	}
 
 	if filters == nil {

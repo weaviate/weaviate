@@ -23,6 +23,7 @@ type Result struct {
 	ID                   strfmt.UUID
 	ClassName            string
 	Score                float32
+	ExplainScore         string
 	Dist                 float32
 	Vector               []float32
 	Beacon               string

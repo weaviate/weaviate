@@ -775,6 +775,22 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
+
+			// If the request is a BM25F with no properties selected, use all possible properties
+			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
+				// Loop over classes and find i.Config.ClassName.String()
+				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
+				if err != nil {
+					return nil, err
+				}
+
+				propHash := cl.Properties
+				// Get keys of hash
+				for _, v := range propHash {
+					keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+				}
+
+			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
@@ -792,6 +808,30 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outScores = append(outScores, scores...)
 	}
 
+	if len(outObjects) == len(outScores) {
+		if keywordRanking != nil && keywordRanking.Type == "bm25" {
+			for ii := range outObjects {
+
+				oo := outObjects[ii]
+
+				os := outScores[ii]
+				if oo.AdditionalProperties() == nil {
+					oo.Object.Additional = make(map[string]interface{})
+				}
+				oo.Object.Additional["score"] = os
+				// Collect all keys starting with "BM25F" and add them to the Additional
+				explainScore := ""
+				for k, v := range oo.Object.Additional {
+					if strings.HasPrefix(k, "BM25F") {
+
+						explainScore = fmt.Sprintf("%v, %v:%v", explainScore, k, v)
+						delete(oo.Object.Additional, k)
+					}
+				}
+				oo.Object.Additional["explainScore"] = explainScore
+			}
+		}
+	}
 	if len(sort) > 0 {
 		if len(shardNames) > 1 {
 			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)

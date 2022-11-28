@@ -1267,7 +1267,7 @@ func TestCRUD(t *testing.T) {
 					Schema: map[string]interface{}{
 						"id": id,
 					},
-					Score:                1,
+					Score:                0,
 					AdditionalProperties: models.AdditionalProperties{},
 					Dims:                 4,
 				},
