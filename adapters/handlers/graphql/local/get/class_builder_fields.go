@@ -242,7 +242,7 @@ func buildGetClassField(classObject *graphql.Object,
 ) graphql.Field {
 	field := realBuildGetClassField(classObject, class, modulesProvider)
 	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
-		field.Args["hybridSearch"] = hybridArgument(classObject, class, modulesProvider)
+		field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
 	}
 	return field
 }
@@ -381,7 +381,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		}
 
 		var hybridParams *searchparams.HybridSearch
-		if hybrid, ok := p.Args["hybridSearch"]; ok {
+		if hybrid, ok := p.Args["hybrid"]; ok {
 
 			// Extract hybrid search params from the processed query
 			// Everything hybrid can go in another namespace AFTER modulesprovider is
