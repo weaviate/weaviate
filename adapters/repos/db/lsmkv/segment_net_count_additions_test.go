@@ -122,6 +122,7 @@ func TestPrefillCountNetAdditions(t *testing.T) {
 	require.Nil(t, err)
 
 	data, err := loadWithChecksum(expectedFileName, 12)
+	require.Nil(t, err)
 	count := binary.LittleEndian.Uint64(data)
 	assert.Equal(t, 20, int(count))
 }
