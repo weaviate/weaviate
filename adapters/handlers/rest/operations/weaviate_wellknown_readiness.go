@@ -21,7 +21,7 @@ import (
 
 	"github.com/go-openapi/runtime/middleware"
 
-	"github.com/semi-technologies/weaviate/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // WeaviateWellknownReadinessHandlerFunc turns a function with the right signature into a weaviate wellknown readiness handler

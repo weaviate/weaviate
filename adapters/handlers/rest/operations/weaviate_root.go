@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/semi-technologies/weaviate/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // WeaviateRootHandlerFunc turns a function with the right signature into a weaviate root handler
