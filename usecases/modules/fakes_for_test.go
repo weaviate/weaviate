@@ -64,7 +64,7 @@ func (m dummyText2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType 
 }
 
 func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
-	in *models.Object, cfg moduletools.ClassConfig,
+	in *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
 	in.Vector = []float32{1, 2, 3}
 	return nil
