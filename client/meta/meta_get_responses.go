@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/models"
 )
 
 // MetaGetReader is a Reader for the MetaGet structure.
@@ -60,7 +60,7 @@ func (o *MetaGetReader) ReadResponse(response runtime.ClientResponse, consumer r
 		return nil, result
 
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 

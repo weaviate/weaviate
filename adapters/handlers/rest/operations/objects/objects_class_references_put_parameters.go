@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/models"
 )
 
 // NewObjectsClassReferencesPutParams creates a new ObjectsClassReferencesPutParams object

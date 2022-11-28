@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/models"
 )
 
 // NewSchemaObjectsUpdateParams creates a new SchemaObjectsUpdateParams object

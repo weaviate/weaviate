@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/models"
 )
 
 // BatchObjectsCreateHandlerFunc turns a function with the right signature into a batch objects create handler
