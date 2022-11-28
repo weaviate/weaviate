@@ -1,11 +1,10 @@
 linters:
-  disable:
+  enable:
     - errcheck
     - misspell
     - bodyclose
     - gofumpt
     - exhaustive
-  enable:
     - govet
 linters-settings:
   exhaustive:
