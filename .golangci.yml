@@ -21,3 +21,6 @@ issues:
     - linters:
         - staticcheck
       text: "SA1015:"
+    - linters:
+        - staticcheck
+      text: "SA5011:"
