@@ -483,7 +483,6 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
-
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),

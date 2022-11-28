@@ -485,7 +485,8 @@ type additionalCheck struct {
 func (ac *additionalCheck) isAdditional(name string) bool {
 	if name == "classification" || name == "certainty" ||
 		name == "distance" || name == "id" || name == "vector" ||
-		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" {
+		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
+		name == "score" || name == "explainScore" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -570,6 +571,14 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "creationTimeUnix" {
 							additionalProps.CreationTimeUnix = true
+							continue
+						}
+						if additionalProperty == "score" {
+							additionalProps.Score = true
+							continue
+						}
+						if additionalProperty == "explainScore" {
+							additionalProps.ExplainScore = true
 							continue
 						}
 						if additionalProperty == "lastUpdateTimeUnix" {

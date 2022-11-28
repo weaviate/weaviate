@@ -130,14 +130,6 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context,
 		return nil, errors.Errorf("filtered keyword search (bm25) not supported yet")
 	}
 
-	if len(params.KeywordRanking.Properties) == 0 {
-		return nil, errors.Errorf("keyword search (bm25) requires exactly one property")
-	}
-
-	if len(params.KeywordRanking.Properties) > 1 {
-		return nil, errors.Errorf("multi-property keyword search (BM25F) not supported yet")
-	}
-
 	if len(params.KeywordRanking.Query) == 0 {
 		return nil, errors.Errorf("keyword search (bm25) must have query set")
 	}
@@ -318,6 +310,14 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 		if params.AdditionalProperties.ID {
 			additionalProperties["id"] = res.ID
+		}
+
+		if params.AdditionalProperties.Score {
+			additionalProperties["score"] = res.Score
+		}
+
+		if params.AdditionalProperties.ExplainScore {
+			additionalProperties["explainScore"] = res.ExplainScore
 		}
 
 		if params.AdditionalProperties.Vector {
