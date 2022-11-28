@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -80,7 +81,8 @@ func (m *Provider) UsingRef2Vec(className string) bool {
 }
 
 func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
-	findObjectFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
+	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
+	logger logrus.FieldLogger,
 ) error {
 	class, err := m.getClass(object.Class)
 	if err != nil {
@@ -129,7 +131,7 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if object.Vector == nil {
-			if err := vectorizer.VectorizeObject(ctx, object, cfg); err != nil {
+			if err := vectorizer.VectorizeObject(ctx, object, objectDiff, cfg); err != nil {
 				return fmt.Errorf("update vector: %w", err)
 			}
 		}
