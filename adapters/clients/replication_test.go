@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -101,12 +102,14 @@ func anyObject(uuid strfmt.UUID) models.Object {
 }
 
 func TestReplicationPutObject(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	f := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
 	ts := f.server(t)
 	defer ts.Close()
 
-	client := NewReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client())
 	t.Run("EncodeRequest", func(t *testing.T) {
 		obj := &storobj.Object{}
 		_, err := client.PutObject(ctx, "Node1", "C1", "S1", "RID", obj)
@@ -141,6 +144,8 @@ func TestReplicationPutObject(t *testing.T) {
 }
 
 func TestReplicationDeleteObject(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	uuid := UUID1
 	path := "/replicas/indices/C1/shards/S1/objects/" + uuid.String()
@@ -148,7 +153,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 
-	client := NewReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid)
 		assert.NotNil(t, err)
@@ -175,13 +180,14 @@ func TestReplicationDeleteObject(t *testing.T) {
 }
 
 func TestReplicationPutObjects(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
-	client := NewReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client())
 	t.Run("EncodeRequest", func(t *testing.T) {
 		objs := []*storobj.Object{{}}
 		_, err := client.PutObjects(ctx, "Node1", "C1", "S1", "RID", objs)
@@ -220,13 +226,14 @@ func TestReplicationPutObjects(t *testing.T) {
 }
 
 func TestReplicationMergeObject(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	uuid := UUID1
 	f := newFakeServer(t, http.MethodPatch, "/replicas/indices/C1/shards/S1/objects/"+uuid.String())
 	ts := f.server(t)
 	defer ts.Close()
 
-	client := NewReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client())
 	doc := &objects.MergeDocument{ID: uuid}
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.MergeObject(ctx, "", "C1", "S1", "", doc)
@@ -254,13 +261,15 @@ func TestReplicationMergeObject(t *testing.T) {
 }
 
 func TestReplicationAddReferences(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
 
-	client := NewReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client())
 	refs := []objects.BatchReference{{OriginalIndex: 1}, {OriginalIndex: 2}}
 	t.Run("ConnectionError", func(t *testing.T) {
 		_, err := client.AddReferences(ctx, "", "C1", "S1", "", refs)
@@ -288,12 +297,14 @@ func TestReplicationAddReferences(t *testing.T) {
 }
 
 func TestReplicationDeleteObjects(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	fs := newFakeServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
-	client := NewReplicationClient(ts.Client())
+	client := newReplicationClient(ts.Client())
 
 	docs := []uint64{1, 2}
 	t.Run("ConnectionError", func(t *testing.T) {
@@ -322,17 +333,22 @@ func TestReplicationDeleteObjects(t *testing.T) {
 }
 
 func TestReplicationAbort(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	path := "/replicas/indices/C1/shards/S1:abort"
 	fs := newFakeServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
+	client := newReplicationClient(ts.Client())
 
-	client := NewReplicationClient(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
+		client := newReplicationClient(ts.Client())
+		client.maxBackOff = client.timeoutUnit * 20
 		_, err := client.Abort(ctx, "", "C1", "S1", "")
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 
 	t.Run("Error", func(t *testing.T) {
@@ -346,7 +362,7 @@ func TestReplicationAbort(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
-
+	client.timeoutUnit = client.maxBackOff * 3
 	t.Run("ServerInternalError", func(t *testing.T) {
 		_, err := client.Abort(ctx, fs.host, "C1", "S1", RequestInternalError)
 		assert.NotNil(t, err)
@@ -355,14 +371,16 @@ func TestReplicationAbort(t *testing.T) {
 }
 
 func TestReplicationCommit(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	path := "/replicas/indices/C1/shards/S1:commit"
 	fs := newFakeServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
 	resp := replica.SimpleResponse{}
+	client := newReplicationClient(ts.Client())
 
-	client := NewReplicationClient(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
 		err := client.Commit(ctx, "", "C1", "S1", "", &resp)
 		assert.NotNil(t, err)
@@ -386,4 +404,26 @@ func TestReplicationCommit(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
+}
+
+func TestExpBackOff(t *testing.T) {
+	N := 200
+	av := time.Duration(0)
+	delay := time.Nanosecond * 20
+	for i := 0; i < N; i++ {
+		av += backOff(delay)
+	}
+	av /= time.Duration(N)
+	// fmt.Println(av)
+	if av < time.Nanosecond*30 || av > time.Nanosecond*50 {
+		t.Errorf("average time got %v", av)
+	}
+}
+
+func newReplicationClient(httpClient *http.Client) *replicationClient {
+	c := NewReplicationClient(httpClient).(*replicationClient)
+	c.minBackOff = time.Millisecond * 1
+	c.maxBackOff = time.Millisecond * 8
+	c.timeoutUnit = time.Millisecond * 20
+	return c
 }

@@ -163,11 +163,13 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 		case "abort":
 			resp = i.shards.AbortReplication(r.Context(), index, shard, requestID)
 		default:
-			http.Error(w, fmt.Sprintf("unrecognized commit phase command: %s", cmd),
-				http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("unrecognized command: %s", cmd), http.StatusNotImplemented)
 			return
 		}
-
+		if resp == nil { // could not find request with specified id
+			http.Error(w, "request not found", http.StatusNotFound)
+			return
+		}
 		b, err := json.Marshal(resp)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
