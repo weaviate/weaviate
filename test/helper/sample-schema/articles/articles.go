@@ -20,11 +20,6 @@ import (
 func ArticlesClass() *models.Class {
 	return &models.Class{
 		Class: "Article",
-		ModuleConfig: map[string]interface{}{
-			"ref2vec-centroid": map[string]interface{}{
-				"referenceProperties": []string{"hasParagraphs"},
-			},
-		},
 		Properties: []*models.Property{
 			{
 				Name:     "title",
@@ -35,7 +30,6 @@ func ArticlesClass() *models.Class {
 				DataType: []string{"Paragraph"},
 			},
 		},
-		Vectorizer: "ref2vec-centroid",
 	}
 }
 
@@ -53,6 +47,11 @@ func ParagraphsClass() *models.Class {
 }
 
 type Article models.Object
+
+func (a *Article) WithID(id strfmt.UUID) *Article {
+	a.ID = id
+	return a
+}
 
 func (a *Article) WithReferences(refs ...*models.SingleRef) *Article {
 	props := a.Properties.(map[string]interface{})
@@ -80,6 +79,11 @@ func NewArticle() *Article {
 }
 
 type Paragraph models.Object
+
+func (p *Paragraph) WithID(id strfmt.UUID) *Paragraph {
+	p.ID = id
+	return p
+}
 
 func (p *Paragraph) WithContents(contents string) *Paragraph {
 	props := p.Properties.(map[string]interface{})

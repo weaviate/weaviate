@@ -62,6 +62,12 @@ func UpdateObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func PatchObject(t *testing.T, object *models.Object) {
+	params := objects.NewObjectsPatchParams().WithID(object.ID).WithBody(object)
+	resp, err := Client(t).Objects.ObjectsPatch(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func DeleteClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, nil)
@@ -72,6 +78,18 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsClassDeleteParams().
 		WithClassName(object.Class).WithID(object.ID)
 	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
+	params := batch.NewBatchObjectsDeleteParams().WithBody(body)
+	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func AddReferences(t *testing.T, refs []*models.BatchReference) {
+	params := batch.NewBatchReferencesCreateParams().WithBody(refs)
+	resp, err := Client(t).Batch.BatchReferencesCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
