@@ -35,11 +35,11 @@ type commitOp[T any] func(ctx context.Context, host, requestID string) (T, error
 
 // coordinator coordinates replication of write request
 type coordinator[T any] struct {
-	ReplicationClient // needed to commit and abort operation
-	replicaFinder     // host names of replicas
-	class             string
-	shard             string
-	requestID         string
+	Client        // needed to commit and abort operation
+	replicaFinder // host names of replicas
+	class         string
+	shard         string
+	requestID     string
 	// responses collect all responses of batch job
 	responses []T
 	nodes     []string
@@ -47,7 +47,7 @@ type coordinator[T any] struct {
 
 func newCoordinator[T any](r *Replicator, shard string) *coordinator[T] {
 	return &coordinator[T]{
-		ReplicationClient: r.client,
+		Client: r.client,
 		replicaFinder: &finder{
 			schema:   r.stateGetter,
 			resolver: r.resolver,

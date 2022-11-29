@@ -129,7 +129,7 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-type ReplicationClient interface {
+type Client interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
