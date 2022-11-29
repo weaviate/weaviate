@@ -3,7 +3,6 @@ package replication
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -13,22 +12,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/semi-technologies/weaviate/test/helper/sample-schema/articles"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/context"
-)
-
-const (
-	envGCSEndpoint            = "GCS_ENDPOINT"
-	envGCSStorageEmulatorHost = "STORAGE_EMULATOR_HOST"
-	envGCSCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
-	envGCSProjectID           = "GOOGLE_CLOUD_PROJECT"
-	envGCSBucket              = "BACKUP_GCS_BUCKET"
-
-	crudTestProjectID  = "replication-end2end"
-	crudTestBucketName = "crud-bucket"
 )
 
 var (
@@ -63,16 +50,9 @@ func immediateReplicaCRUD(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	t.Run("pre-instance env setup", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envGCSCredentials, ""))
-		require.Nil(t, os.Setenv(envGCSProjectID, crudTestProjectID))
-		require.Nil(t, os.Setenv(envGCSBucket, crudTestBucketName))
-	})
-
 	compose, err := docker.New().
 		WithWeaviateCluster().
 		WithText2VecContextionary().
-		WithBackendGCS(crudTestBucketName).
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -80,14 +60,6 @@ func immediateReplicaCRUD(t *testing.T) {
 			t.Fatalf("failed to terminte test containers: %s", err.Error())
 		}
 	}()
-
-	t.Run("post-instance env setup", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
-		require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
-
-		moduleshelper.CreateGCSBucket(ctx, t, crudTestProjectID, crudTestBucketName)
-		helper.SetupClient(compose.GetWeaviate().URI())
-	})
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
