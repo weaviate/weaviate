@@ -20,7 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/test/helper/journey"
-	"github.com/semi-technologies/weaviate/test/helper/modules"
+	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/stretchr/testify/require"
 )
 
