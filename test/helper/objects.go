@@ -38,6 +38,20 @@ func CreateClass(t *testing.T, class *models.Class) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func GetClass(t *testing.T, class string) *models.Class {
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.Payload
+}
+
+func UpdateClass(t *testing.T, class *models.Class) {
+	params := schema.NewSchemaObjectsUpdateParams().
+		WithObjectClass(class).WithClassName(class.Class)
+	resp, err := Client(t).Schema.SchemaObjectsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsCreateParams().WithBody(object)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
