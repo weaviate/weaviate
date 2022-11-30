@@ -14,7 +14,7 @@ package answer
 import (
 	"fmt"
 
-	"github.com/graphql-go/graphql"
+	"github.com/tailor-inc/graphql"
 )
 
 func (p *AnswerProvider) additionalAnswerField(classname string) *graphql.Field {
