@@ -55,6 +55,14 @@ type Class struct {
 
 	// Specify how the vectors for this class should be determined. The options are either 'none' - this means you have to import a vector with each object yourself - or the name of a module that provides vectorization capabilities, such as 'text2vec-contextionary'. If left empty, it will use the globally configured default which can itself either be 'none' or a specific module.
 	Vectorizer string `json:"vectorizer,omitempty"`
+
+	// Hybrid search config
+	HybridSearchConfig *HybridSearchConfig `json:"hybridSearchConfig,omitempty"`
+}
+
+type HybridSearchConfig struct {
+	Alpha float64 `json:"alpha,omitempty"` // Weight the searches
+	Limit int    `json:"limit,omitempty"` // Limit the number of results
 }
 
 // Validate validates this class

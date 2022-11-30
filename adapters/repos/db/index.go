@@ -66,6 +66,8 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
+	hybridSearchConfig    models.HybridSearchConfig
+
 	metrics *Metrics
 }
 
@@ -81,7 +83,7 @@ type nodeResolver interface {
 // the shards that are local to a node
 func NewIndex(ctx context.Context, config IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
-	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
+	vectorIndexUserConfig schema.VectorIndexConfig, hybridSearchConfig models.HybridSearchConfig,  sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -102,6 +104,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		classSearcher:         cs,
 		vectorIndexUserConfig: vectorIndexUserConfig,
 		invertedIndexConfig:   invertedIndexConfig,
+		hybridSearchConfig:	hybridSearchConfig,
 		stopwords:             sd,
 		replicator:            repl,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
@@ -769,7 +772,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					if v.DataType[0] == "text" {
+					if v.DataType[0] == "text" || v.DataType[0] == "string" { //Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
 				}

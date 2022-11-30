@@ -201,6 +201,13 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		}
 	}
 
+	if class.HybridSearchConfig == nil {
+		class.HybridSearchConfig = &models.HybridSearchConfig{
+			Alpha: config.DefaultAlpha,
+			Limit: config.DefaultHybridSearchLimit,
+		}
+	}
+
 	if class.InvertedIndexConfig.Stopwords == nil {
 		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
 			Preset: stopwords.EnglishPreset,
