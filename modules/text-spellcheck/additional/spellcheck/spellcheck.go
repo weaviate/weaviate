@@ -15,11 +15,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/graphql-go/graphql"
-	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/text-spellcheck/ent"
+	"github.com/tailor-inc/graphql"
+	"github.com/tailor-inc/graphql/language/ast"
 )
 
 type Params struct{}

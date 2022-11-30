@@ -14,8 +14,8 @@ package answer
 import (
 	"testing"
 
-	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
+	"github.com/tailor-inc/graphql"
 )
 
 func TestAnswerField(t *testing.T) {
