@@ -12,15 +12,20 @@
 package moduleshelper
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"cloud.google.com/go/storage"
 	"github.com/semi-technologies/weaviate/test/helper"
 	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/option"
 )
 
 func GetClassCount(t *testing.T, className string) int64 {
@@ -56,4 +61,20 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 		file.Close()
 	}
 	return filePaths
+}
+
+func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName string) {
+	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+	require.Nil(t, err)
+
+	err = client.Bucket(bucketName).Create(ctx, projectID, nil)
+	gcsErr, ok := err.(*googleapi.Error)
+	if ok {
+		// the bucket persists from the previous test.
+		// if the bucket already exists, we can proceed
+		if gcsErr.Code == http.StatusConflict {
+			return
+		}
+	}
+	require.Nil(t, err)
 }
