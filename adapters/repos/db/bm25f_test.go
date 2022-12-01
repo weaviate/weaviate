@@ -47,8 +47,8 @@ func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
 	}
 }
 
-func 
-SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
+func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
+) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
