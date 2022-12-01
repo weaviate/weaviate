@@ -307,20 +307,22 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			return docPointersWithScore{}, errors.Wrap(err,
 				"read doc ids and their frequencies from inverted index")
 		}
-		// Find the property in the class
-		for _, p := range c.Properties {
-			if p.Name == property {
-				if p.Tokenization == "word" {
-					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
-				} else {
-					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
-				}
-				if err != nil {
-					return docPointersWithScore{}, errors.Wrap(err,
-						"read doc ids and their frequencies from inverted index")
-				}
-			}
+		p, err := schema.GetPropertyByName(c, property)
+		if err != nil {
+			return docPointersWithScore{}, errors.Wrap(err,
+				"read property frome class")
 		}
+
+		if p.Tokenization == "word" {
+			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
+		} else {
+			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
+		}
+		if err != nil {
+			return docPointersWithScore{}, errors.Wrap(err,
+				"read doc ids and their frequencies from inverted index")
+		}
+
 		for i := range ids.docIDs {
 			ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
 		}
