@@ -268,7 +268,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	sc := fmt.Sprintf("%v", res[0].Score())
 	require.Equal(t, "2.805", sc[:5])
 	sc = fmt.Sprintf("%v", res[1].Score())
-	require.Equal(t, "0.063", res[1].Score())
+	require.Equal(t, "0.063", sc[:5])
 	// require.Equal(t, float32(0.014773461), res[2].Score())
 	// require.Equal(t, float32(0.006913103), res[3].Score())
 }
