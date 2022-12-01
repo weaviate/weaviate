@@ -303,6 +303,10 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 		var ids docPointersWithScore
 		var err error
 		c, err := schema.GetClassByName(b.schema.Objects, string(className))
+		if err != nil {
+			return docPointersWithScore{}, errors.Wrap(err,
+				"read doc ids and their frequencies from inverted index")
+		}
 		// Find the property in the class
 		for _, p := range c.Properties {
 			if p.Name == property {
