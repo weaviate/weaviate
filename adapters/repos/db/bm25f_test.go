@@ -63,6 +63,11 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: "word",
 			},
+			{
+				Name:         "stringField",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "field",
+			},
 		},
 	}
 
@@ -85,6 +90,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	testData = append(testData, map[string]interface{}{"title": "journey journey", "description": "journey journey journey"})
 	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey"})
 	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY"})
+	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(offtopic!!!!"})
 
 	for i, data := range testData {
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -173,11 +179,6 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[2].DocID())
 		require.Equal(t, uint64(0), res[3].DocID())
 
-		// Check scores
-		require.Equal(t, float32(0.059571605), res[0].Score())
-		require.Equal(t, float32(0.056116596), res[1].Score())
-		require.Equal(t, float32(0.04963747), res[2].Score())
-		require.Equal(t, float32(0.046090268), res[3].Score())
 	})
 	// Check search with two terms
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
@@ -204,8 +205,20 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(4), res[1].DocID())
 		require.Equal(t, uint64(5), res[2].DocID())
 		require.Equal(t, uint64(6), res[3].DocID())
-		require.Equal(t, uint64(2), res[4].DocID())
 	})
+
+	fmt.Println("Search with non alphanums")
+	// Check search with no properties (should include all properties)
+	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(offtopic!!!!"}
+	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	require.Nil(t, err)
+
+	t.Run("bm25f non alphanums", func(t *testing.T) {
+		fmt.Printf("Results: %+v", res[0])
+		require.Equal(t, uint64(7), res[0].DocID())
+
+	})
+
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {

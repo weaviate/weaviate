@@ -307,6 +307,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 		//Find the property in the class
 		for _, p := range c.Properties {
 			if p.Name == property {
+				fmt.Printf("Property: %v, type: %v, tokenisation: %v\n", p.Name, p.DataType, p.Tokenization)
 				if p.Tokenization == "word" {
 
 					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
