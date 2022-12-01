@@ -224,7 +224,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 		// TODO support all additional props
 		res, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
 		if err != nil {
-			d.indexLock.Unlock()
+			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
