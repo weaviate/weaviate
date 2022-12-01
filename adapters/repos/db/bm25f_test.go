@@ -47,7 +47,8 @@ func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
 	}
 }
 
-func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
+func 
+SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
@@ -255,7 +256,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 
 	// Check results in correct order
 	require.Equal(t, uint64(6), res[0].DocID())
-	require.Equal(t, uint64(1), res[3].DocID())
+	require.Equal(t, uint64(3), res[3].DocID())
 
 	// Print results
 	fmt.Println("--- Start results for boosted search ---")
@@ -264,8 +265,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	require.Equal(t, float32(0.056813046), res[0].Score())
-	require.Equal(t, float32(0.054633126), res[1].Score())
+	require.Equal(t, float32(2.805209), res[0].Score())
+	require.Equal(t, float32(0.06341988), res[1].Score())
 	// require.Equal(t, float32(0.014773461), res[2].Score())
 	// require.Equal(t, float32(0.006913103), res[3].Score())
 }

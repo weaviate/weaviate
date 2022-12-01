@@ -305,7 +305,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 		c, err := schema.GetClassByName(b.schema.Objects, string(className))
 		if err != nil {
 			return docPointersWithScore{}, errors.Wrap(err,
-				"read doc ids and their frequencies from inverted index")
+				"get class by name")
 		}
 		p, err := schema.GetPropertyByName(c, property)
 		if err != nil {
@@ -333,7 +333,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 	// Merge the results from different properties
 	ids := b.mergeIdss(idss, objectByIndexID, propNames)
 
-	b.scoreBM25F(ids, properties)
+	b.scoreBM25F(ids, propNames)
 	return ids, nil
 }
 
