@@ -17,8 +17,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
@@ -27,21 +29,29 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/replica"
 )
 
-var marshaller = clusterapi.IndicesPayloads
+// ReplicationClient is to coordinate operations among replicas
 
-type ReplicationClient struct {
-	client *http.Client
+type replicationClient struct {
+	client      *http.Client
+	minBackOff  time.Duration
+	maxBackOff  time.Duration
+	timeoutUnit time.Duration
 }
 
-func NewReplicationClient(httpClient *http.Client) *ReplicationClient {
-	return &ReplicationClient{client: httpClient}
+func NewReplicationClient(httpClient *http.Client) replica.Client {
+	return &replicationClient{
+		client:      httpClient,
+		minBackOff:  time.Millisecond * 150,
+		maxBackOff:  time.Second * 20,
+		timeoutUnit: time.Second,
+	}
 }
 
-func (c *ReplicationClient) PutObject(ctx context.Context, host, index,
+func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	shard, requestID string, obj *storobj.Object,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	payload, err := marshaller.SingleObject.Marshal(obj)
+	payload, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
@@ -51,25 +61,12 @@ func (c *ReplicationClient) PutObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	marshaller.SingleObject.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("connect: %w", err)
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("status code: %v", res.StatusCode)
-	}
-
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
-
-	return resp, nil
+	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
+	err = c.do(c.timeoutUnit*2, req, &resp)
+	return resp, err
 }
 
-func (c *ReplicationClient) DeleteObject(ctx context.Context, host, index,
+func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 	shard, requestID string, uuid strfmt.UUID,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
@@ -78,26 +75,11 @@ func (c *ReplicationClient) DeleteObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	res, err := c.client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("connect: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode == http.StatusNotFound {
-		// TODO: return and err and let the coordinator decided what it needs to be done
-		return resp, nil
-	}
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("status code: %v", res.StatusCode)
-	}
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
-	return resp, nil
+	err = c.do(c.timeoutUnit*2, req, &resp)
+	return resp, err
 }
 
-func (c *ReplicationClient) PutObjects(ctx context.Context, host, index,
+func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 	shard, requestID string, objects []*storobj.Object,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
@@ -111,22 +93,11 @@ func (c *ReplicationClient) PutObjects(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("connect: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("status code: %v", res.StatusCode)
-	}
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
-	return resp, nil
+	err = c.do(c.timeoutUnit*10, req, &resp)
+	return resp, err
 }
 
-func (c *ReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
+func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
 	doc *objects.MergeDocument,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
@@ -142,22 +113,11 @@ func (c *ReplicationClient) MergeObject(ctx context.Context, host, index, shard,
 	}
 
 	clusterapi.IndicesPayloads.MergeDoc.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("connect: %w", err)
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("status code: %v", res.StatusCode)
-	}
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
-	return resp, nil
+	err = c.do(c.timeoutUnit*2, req, &resp)
+	return resp, err
 }
 
-func (c *ReplicationClient) AddReferences(ctx context.Context, host, index,
+func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 	shard, requestID string, refs []objects.BatchReference,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
@@ -173,22 +133,11 @@ func (c *ReplicationClient) AddReferences(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ReferenceList.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("connect: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("status code: %v", res.StatusCode)
-	}
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
-	return resp, nil
+	err = c.do(c.timeoutUnit*10, req, &resp)
+	return resp, err
 }
 
-func (c *ReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
+func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 	docIDs []uint64, dryRun bool,
 ) (resp replica.SimpleResponse, err error) {
 	body, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(docIDs, dryRun)
@@ -201,45 +150,21 @@ func (c *ReplicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("connect: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("status code: %v", res.StatusCode)
-	}
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
-	return resp, nil
+	err = c.do(c.timeoutUnit*10, req, &resp)
+	return resp, err
 }
 
 // Commit asks a host to commit and stores the response in the value pointed to by resp
-func (c *ReplicationClient) Commit(ctx context.Context, host, index, shard string, requestID string, resp interface{}) error {
+func (c *replicationClient) Commit(ctx context.Context, host, index, shard string, requestID string, resp interface{}) error {
 	req, err := newHttpCMD(ctx, host, "commit", index, shard, requestID, nil)
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}
 
-	res, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("status code: %v", res.StatusCode)
-	}
-
-	if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-	return nil
+	return c.do(c.timeoutUnit*32, req, &resp)
 }
 
-func (c *ReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
+func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
 	resp replica.SimpleResponse, err error,
 ) {
 	req, err := newHttpCMD(ctx, host, "abort", index, shard, requestID, nil)
@@ -247,19 +172,8 @@ func (c *ReplicationClient) Abort(ctx context.Context, host, index, shard, reque
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	res, err := c.client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("connect: %w", err)
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("status code: %v", res.StatusCode)
-	}
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return resp, fmt.Errorf("decode response: %w", err)
-	}
-	return resp, nil
+	err = c.do(c.timeoutUnit, req, &resp)
+	return resp, err
 }
 
 func newHttpRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader) (*http.Request, error) {
@@ -282,4 +196,61 @@ func newHttpCMD(ctx context.Context, host, cmd, index, shard, requestId string, 
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
 	return http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
+}
+
+func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp interface{}) (err error) {
+	var (
+		ctx, cancel = context.WithTimeout(req.Context(), timeout)
+		errs        = make(chan error, 1)
+		delay       = c.minBackOff
+		maxBackOff  = c.maxBackOff
+		shouldRetry = false
+	)
+	defer cancel()
+
+	try := func(req *http.Request) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return true, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			return shouldRetry, fmt.Errorf("status code: %v", code)
+		}
+		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+			return false, fmt.Errorf("decode response: %w", err)
+		}
+		return false, nil
+	}
+
+	for {
+		go func() {
+			if shouldRetry {
+				time.Sleep(delay)
+			}
+			var err error
+			shouldRetry, err = try(req)
+			errs <- err
+		}()
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%v: %w", err, ctx.Err())
+		case err = <-errs:
+			if err == nil || !shouldRetry {
+				return err
+			}
+			if delay = backOff(delay); delay >= maxBackOff {
+				return err
+			}
+		}
+	}
+}
+
+// backOff return a new random duration in the interval [d, 3d].
+// It implements truncated exponential back-off with introduced jitter.
+func backOff(d time.Duration) time.Duration {
+	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }

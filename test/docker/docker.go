@@ -13,6 +13,8 @@ package docker
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
@@ -40,6 +42,33 @@ func (d *DockerCompose) Terminate(ctx context.Context) error {
 		}
 	}
 	return errs
+}
+
+func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *time.Duration) error {
+	for _, c := range d.containers {
+		if c.name == container {
+			if err := c.container.Stop(ctx, timeout); err != nil {
+				return fmt.Errorf("cannot stop %q: %w", c.name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (d *DockerCompose) Start(ctx context.Context, container string) error {
+	for _, c := range d.containers {
+		if c.name == container {
+			if err := c.container.Start(ctx); err != nil {
+				return fmt.Errorf("cannot start %q: %w", c.name, err)
+			}
+			newURI, err := c.container.Endpoint(context.Background(), "")
+			if err != nil {
+				return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
+			}
+			c.uri = newURI
+		}
+	}
+	return nil
 }
 
 func (d *DockerCompose) GetMinIO() *DockerContainer {

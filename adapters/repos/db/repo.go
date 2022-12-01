@@ -31,7 +31,7 @@ type DB struct {
 	config        Config
 	indices       map[string]*Index
 	remoteIndex   sharding.RemoteIndexClient
-	replicaClient replica.ReplicationClient
+	replicaClient replica.Client
 	nodeResolver  nodeResolver
 	remoteNode    *sharding.RemoteNode
 	promMetrics   *monitoring.PrometheusMetrics
@@ -76,7 +76,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
-	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.ReplicationClient,
+	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics,
 ) *DB {
 	return &DB{

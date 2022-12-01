@@ -31,13 +31,13 @@ type nodeResolver interface {
 type Replicator struct {
 	class       string
 	stateGetter shardingState
-	client      ReplicationClient
+	client      Client
 	resolver    nodeResolver
 }
 
 func NewReplicator(className string,
 	stateGetter shardingState, nodeResolver nodeResolver,
-	client ReplicationClient,
+	client Client,
 ) *Replicator {
 	return &Replicator{
 		class:       className,

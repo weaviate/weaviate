@@ -117,7 +117,7 @@ func (db *DB) CommitReplication(ctx context.Context, class,
 ) interface{} {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
-		return *pr
+		return nil
 	}
 
 	return index.CommitReplication(ctx, shard, requestID)
@@ -209,9 +209,7 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) interface{} {
 	localShard, ok := i.Shards[shard]
 	if !ok {
-		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard},
-		}}
+		return nil
 	}
 	return localShard.commit(ctx, requestID, &i.backupStateLock)
 }

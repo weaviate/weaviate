@@ -69,7 +69,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
 		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		createBucket(testCtx, t, projectID, bucketName)
+		moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("store backup meta in gcs", func(t *testing.T) {
@@ -150,7 +150,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
 		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		createBucket(testCtx, t, projectID, bucketName)
+		moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("copy objects", func(t *testing.T) {
@@ -190,7 +190,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
 		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
 
-		createBucket(testCtx, t, projectID, bucketName)
+		moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
 	})
 
 	t.Run("copy files", func(t *testing.T) {
