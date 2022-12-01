@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -111,6 +112,8 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 ) (*models.Object, error) {
 	var merged map[string]interface{}
 	var vector []float32
+	var objDiff *moduletools.ObjectDiff
+
 	if old == nil {
 		merged = new
 		vector = newVec
@@ -120,7 +123,9 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 			return nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
 		}
 
+		objDiff = moduletools.NewObjectDiff(oldVec)
 		for key, value := range new {
+			objDiff.WithProp(key, oldMap[key], value)
 			oldMap[key] = value
 		}
 
@@ -130,7 +135,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		} else {
 			vectorizerName, err := m.modulesProvider.VectorizerName(className)
 			if err != nil {
-				return nil, fmt.Errorf("find vectorzer name: %w", err)
+				return nil, fmt.Errorf("find vectorizer name: %w", err)
 			}
 			if vectorizerName == config.VectorizerModuleNone {
 				vector = oldVec
@@ -138,11 +143,11 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		}
 	}
 
-	// Note: vector could be a nil vector in case a vectorizer is configered,
+	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
 	obj := &models.Object{Class: className, Properties: merged, Vector: vector}
 
-	if err := m.modulesProvider.UpdateVector(ctx, obj, m.findObject, m.logger); err != nil {
+	if err := m.modulesProvider.UpdateVector(ctx, obj, objDiff, m.findObject, m.logger); err != nil {
 		return nil, err
 	}
 

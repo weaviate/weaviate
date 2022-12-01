@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/img2vec-neural/ent"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
@@ -41,9 +42,9 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	settings ClassSettings,
+	objDiff *moduletools.ObjectDiff, settings ClassSettings,
 ) error {
-	vec, err := v.object(ctx, object.ID, object.Properties, settings)
+	vec, err := v.object(ctx, object.ID, object.Properties, objDiff, settings)
 	if err != nil {
 		return err
 	}
@@ -62,8 +63,10 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string) ([]fl
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	schema interface{}, ichek ClassSettings,
+	schema interface{}, objDiff *moduletools.ObjectDiff, ichek ClassSettings,
 ) ([]float32, error) {
+	vectorize := objDiff == nil || objDiff.GetVec() == nil
+
 	// vectorize image
 	images := []string{}
 	if schema != nil {
@@ -74,8 +77,14 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 			valueString, ok := value.(string)
 			if ok {
 				images = append(images, valueString)
+				vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
 			}
 		}
+	}
+
+	// no property was changed, old vector can be used
+	if !vectorize {
+		return objDiff.GetVec(), nil
 	}
 
 	vectors := [][]float32{}
