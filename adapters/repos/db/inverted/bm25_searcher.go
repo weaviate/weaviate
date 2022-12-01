@@ -298,7 +298,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
 			boost, _ = strconv.Atoi(boostStr)
-			fmt.Printf("Boosting %s by %d\n", property, boost)
 		}
 
 		var ids docPointersWithScore
@@ -307,7 +306,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 		//Find the property in the class
 		for _, p := range c.Properties {
 			if p.Name == property {
-				fmt.Printf("Property: %v, type: %v, tokenisation: %v\n", p.Name, p.DataType, p.Tokenization)
 				if p.Tokenization == "word" {
 
 					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
@@ -322,7 +320,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			}
 		}
 	for i := range ids.docIDs {
-			fmt.Printf("Boosting %s from %f to %f\n", property, ids.docIDs[i].frequency, ids.docIDs[i].frequency*float64(boost))
 			ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
 		}
 		idss = append(idss, ids)
