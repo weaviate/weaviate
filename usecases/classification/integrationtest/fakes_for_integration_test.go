@@ -443,21 +443,25 @@ func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shar
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
+
 func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
 	id strfmt.UUID,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
+
 func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
 	objs []*storobj.Object,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
+
 func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
 	mergeDoc *objects.MergeDocument,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
+
 func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 	docIDs []uint64, dryRun bool,
 ) (replica.SimpleResponse, error) {

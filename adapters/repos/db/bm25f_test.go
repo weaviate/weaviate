@@ -178,7 +178,6 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(5), res[1].DocID())
 		require.Equal(t, uint64(6), res[2].DocID())
 		require.Equal(t, uint64(0), res[3].DocID())
-
 	})
 	// Check search with two terms
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
@@ -216,9 +215,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f non alphanums", func(t *testing.T) {
 		fmt.Printf("Results: %+v", res[0])
 		require.Equal(t, uint64(7), res[0].DocID())
-
 	})
-
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {
@@ -269,8 +266,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	// Check scores
 	require.Equal(t, float32(0.056813046), res[0].Score())
 	require.Equal(t, float32(0.054633126), res[1].Score())
-	//require.Equal(t, float32(0.014773461), res[2].Score())
-	//require.Equal(t, float32(0.006913103), res[3].Score())
+	// require.Equal(t, float32(0.014773461), res[2].Score())
+	// require.Equal(t, float32(0.006913103), res[3].Score())
 }
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly

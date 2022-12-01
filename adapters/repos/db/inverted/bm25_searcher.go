@@ -303,15 +303,13 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 		var ids docPointersWithScore
 		var err error
 		c, err := schema.GetClassByName(b.schema.Objects, string(className))
-		//Find the property in the class
+		// Find the property in the class
 		for _, p := range c.Properties {
 			if p.Name == property {
 				if p.Tokenization == "word" {
-
 					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
 				} else {
 					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
-
 				}
 				if err != nil {
 					return docPointersWithScore{}, errors.Wrap(err,
@@ -319,7 +317,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 				}
 			}
 		}
-	for i := range ids.docIDs {
+		for i := range ids.docIDs {
 			ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
 		}
 		idss = append(idss, ids)
