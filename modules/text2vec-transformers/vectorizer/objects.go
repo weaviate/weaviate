@@ -19,6 +19,7 @@ import (
 
 	"github.com/fatih/camelcase"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/ent"
 )
 
@@ -57,9 +58,9 @@ func sortStringKeys(schema_map map[string]interface{}) []string {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	settings ClassSettings,
+	objDiff *moduletools.ObjectDiff, settings ClassSettings,
 ) error {
-	vec, err := v.object(ctx, object.Class, object.Properties, settings)
+	vec, err := v.object(ctx, object.Class, object.Properties, objDiff, settings)
 	if err != nil {
 		return err
 	}
@@ -70,7 +71,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 
 func appendPropIfText(icheck ClassSettings, list *[]string, propName string,
 	value interface{},
-) {
+) bool {
 	valueString, ok := value.(string)
 	if ok {
 		if icheck.VectorizePropertyName(propName) {
@@ -80,18 +81,20 @@ func appendPropIfText(icheck ClassSettings, list *[]string, propName string,
 		} else {
 			*list = append(*list, strings.ToLower(valueString))
 		}
+		return true
 	}
+	return false
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, icheck ClassSettings,
+	schema interface{}, objDiff *moduletools.ObjectDiff, icheck ClassSettings,
 ) ([]float32, error) {
-	var corpi []string
+	vectorize := objDiff == nil || objDiff.GetVec() == nil
 
+	var corpi []string
 	if icheck.VectorizeClassName() {
 		corpi = append(corpi, camelCaseToLower(className))
 	}
-
 	if schema != nil {
 		schemamap := schema.(map[string]interface{})
 		for _, prop := range sortStringKeys(schemamap) {
@@ -99,19 +102,31 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 				continue
 			}
 
-			if asSlice, ok := schemamap[prop].([]interface{}); ok {
-				for _, elem := range asSlice {
-					appendPropIfText(icheck, &corpi, prop, elem)
+			appended := false
+			switch val := schemamap[prop].(type) {
+			case []string:
+				for _, elem := range val {
+					appended = appendPropIfText(icheck, &corpi, prop, elem) || appended
 				}
-			} else {
-				appendPropIfText(icheck, &corpi, prop, schemamap[prop])
+			case []interface{}:
+				for _, elem := range val {
+					appended = appendPropIfText(icheck, &corpi, prop, elem) || appended
+				}
+			default:
+				appended = appendPropIfText(icheck, &corpi, prop, val)
 			}
+
+			vectorize = vectorize || (appended && objDiff != nil && objDiff.IsChangedProp(prop))
 		}
 	}
-
 	if len(corpi) == 0 {
 		// fall back to using the class name
 		corpi = append(corpi, camelCaseToLower(className))
+	}
+
+	// no property was changed, old vector can be used
+	if !vectorize {
+		return objDiff.GetVec(), nil
 	}
 
 	text := strings.Join(corpi, " ")
