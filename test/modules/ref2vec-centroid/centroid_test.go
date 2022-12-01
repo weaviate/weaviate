@@ -28,6 +28,12 @@ func TestCentroid(t *testing.T) {
 
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
+	articleClass.ModuleConfig = map[string]interface{}{
+		"ref2vec-centroid": map[string]interface{}{
+			"referenceProperties": []string{"hasParagraphs"},
+		},
+	}
+	articleClass.Vectorizer = "ref2vec-centroid"
 
 	helper.CreateClass(t, paragraphClass)
 	helper.CreateClass(t, articleClass)

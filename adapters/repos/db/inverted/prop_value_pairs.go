@@ -78,7 +78,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int,
 		if b == nil && (pv.prop == filters.InternalPropCreationTimeUnix ||
 			pv.prop == filters.InternalPropLastUpdateTimeUnix) {
 			return errors.Errorf("timestamps must be indexed to be filterable! " +
-				"add `indexTimestaps: true` to the invertedIndexConfig")
+				"add `indexTimestamps: true` to the invertedIndexConfig")
 		}
 
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {

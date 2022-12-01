@@ -84,7 +84,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
-	replicaClient replica.ReplicationClient,
+	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)

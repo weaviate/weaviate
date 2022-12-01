@@ -75,7 +75,6 @@ func startWeaviate(ctx context.Context,
 			networkName: {containerName},
 		},
 		ExposedPorts: []string{"8080/tcp"},
-		AutoRemove:   true,
 		Env:          env,
 		WaitingFor: wait.
 			ForHTTP("/v1/.well-known/ready").
