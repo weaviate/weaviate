@@ -310,7 +310,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 		p, err := schema.GetPropertyByName(c, property)
 		if err != nil {
 			return docPointersWithScore{}, errors.Wrap(err,
-				"read property frome class")
+				"read property from class")
 		}
 
 		if p.Tokenization == "word" {
