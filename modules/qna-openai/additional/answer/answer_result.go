@@ -23,53 +23,54 @@ import (
 )
 
 func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
-	if len(in) > 0 {
-		question := p.paramsHelper.GetQuestion(argumentModuleParams["ask"])
-		if question == "" {
-			return in, errors.New("empty question")
-		}
-		properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
+	if len(in) == 0 {
+		return in, nil
+	}
+	question := p.paramsHelper.GetQuestion(argumentModuleParams["ask"])
+	if question == "" {
+		return in, errors.New("empty question")
+	}
+	properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
 
-		for i := range in {
-			textProperties := map[string]string{}
-			schema := in[i].Object().Properties.(map[string]interface{})
-			for property, value := range schema {
-				if p.containsProperty(property, properties) {
-					if valueString, ok := value.(string); ok && len(valueString) > 0 {
-						textProperties[property] = valueString
-					}
+	for i := range in {
+		textProperties := map[string]string{}
+		schema := in[i].Object().Properties.(map[string]interface{})
+		for property, value := range schema {
+			if p.containsProperty(property, properties) {
+				if valueString, ok := value.(string); ok && len(valueString) > 0 {
+					textProperties[property] = valueString
 				}
 			}
-
-			var texts []string
-			for _, value := range textProperties {
-				texts = append(texts, value)
-			}
-			text := strings.Join(texts, " ")
-			if len(text) == 0 {
-				return in, errors.New("empty content")
-			}
-
-			answer, err := p.qna.Answer(ctx, text, question, cfg)
-			if err != nil {
-				return in, err
-			}
-
-			ap := in[i].AdditionalProperties
-			if ap == nil {
-				ap = models.AdditionalProperties{}
-			}
-			propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
-			ap["answer"] = &qnamodels.Answer{
-				Result:        answer.Answer,
-				Property:      propertyName,
-				StartPosition: startPos,
-				EndPosition:   endPos,
-				HasAnswer:     answer.Answer != nil,
-			}
-
-			in[i].AdditionalProperties = ap
 		}
+
+		var texts []string
+		for _, value := range textProperties {
+			texts = append(texts, value)
+		}
+		text := strings.Join(texts, " ")
+		if len(text) == 0 {
+			return in, errors.New("empty content")
+		}
+
+		answer, err := p.qna.Answer(ctx, text, question, cfg)
+		if err != nil {
+			return in, err
+		}
+
+		ap := in[i].AdditionalProperties
+		if ap == nil {
+			ap = models.AdditionalProperties{}
+		}
+		propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
+		ap["answer"] = &qnamodels.Answer{
+			Result:        answer.Answer,
+			Property:      propertyName,
+			StartPosition: startPos,
+			EndPosition:   endPos,
+			HasAnswer:     answer.Answer != nil,
+		}
+
+		in[i].AdditionalProperties = ap
 	}
 
 	return in, nil
@@ -77,7 +78,7 @@ func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, par
 
 func (p *AnswerProvider) containsProperty(property string, properties []string) bool {
 	if len(properties) == 0 {
-		return true
+		return false
 	}
 	for i := range properties {
 		if properties[i] == property {
