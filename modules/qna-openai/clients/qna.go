@@ -145,12 +145,12 @@ func (v *qna) getApiKey(ctx context.Context) (string, error) {
 type answersInput struct {
 	Prompt           string   `json:"prompt"`
 	Model            string   `json:"model"`
-	MaxTokens        int64    `json:"max_tokens"`
+	MaxTokens        float64  `json:"max_tokens"`
 	Temperature      float64  `json:"temperature"`
 	Stop             []string `json:"stop"`
 	FrequencyPenalty float64  `json:"frequency_penalty"`
 	PresencePenalty  float64  `json:"presence_penalty"`
-	TopP             int64    `json:"top_p"`
+	TopP             float64  `json:"top_p"`
 }
 
 type answersResponse struct {

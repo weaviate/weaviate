@@ -13,7 +13,6 @@ package config
 
 import (
 	"encoding/json"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
@@ -37,7 +36,7 @@ const (
 	topPProperty             = "topP"
 )
 
-var maxTokensForModel = map[string]int64{
+var maxTokensForModel = map[string]float64{
 	"text-ada-001":     2048,
 	"text-babbage-001": 2048,
 	"text-curie-001":   2048,
@@ -69,7 +68,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
-	maxTokens := ic.getIntProperty(maxTokensProperty, DefaultOpenAIMaxTokens)
+	maxTokens := ic.getFloatProperty(maxTokensProperty, DefaultOpenAIMaxTokens)
 	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > getMaxTokensForModel(*model)) {
 		return errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used")
 	}
@@ -84,7 +83,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0")
 	}
 
-	topP := ic.getIntProperty(topPProperty, DefaultOpenAITopP)
+	topP := ic.getFloatProperty(topPProperty, DefaultOpenAITopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
 	}
@@ -106,31 +105,6 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 		}
 		return nil
 	}
-	return &defaultValue
-}
-
-func (ic *classSettings) getIntProperty(name string, defaultValue int64) *int64 {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
-	}
-
-	model, ok := ic.cfg.ClassByModuleName("qna-openai")[name]
-	if ok {
-		intValue, ok := model.(int)
-		if ok {
-			i := int64(intValue)
-			return &i
-		}
-		asNumber, ok := model.(json.Number)
-		if ok {
-			asInt, _ := asNumber.Int64()
-			return &asInt
-		}
-
-		return nil
-	}
-
 	return &defaultValue
 }
 
@@ -158,7 +132,7 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue float64) *fl
 	return &defaultValue
 }
 
-func getMaxTokensForModel(model string) int64 {
+func getMaxTokensForModel(model string) float64 {
 	return maxTokensForModel[model]
 }
 
@@ -175,8 +149,8 @@ func (ic *classSettings) Model() string {
 	return *ic.getStringProperty(modelProperty, DefaultOpenAIModel)
 }
 
-func (ic *classSettings) MaxTokens() int64 {
-	return *ic.getIntProperty(maxTokensProperty, DefaultOpenAIMaxTokens)
+func (ic *classSettings) MaxTokens() float64 {
+	return *ic.getFloatProperty(maxTokensProperty, DefaultOpenAIMaxTokens)
 }
 
 func (ic *classSettings) Temperature() float64 {
@@ -191,6 +165,6 @@ func (ic *classSettings) PresencePenalty() float64 {
 	return *ic.getFloatProperty(presencePenaltyProperty, DefaultOpenAIPresencePenalty)
 }
 
-func (ic *classSettings) TopP() int64 {
-	return *ic.getIntProperty(topPProperty, DefaultOpenAITopP)
+func (ic *classSettings) TopP() float64 {
+	return *ic.getFloatProperty(topPProperty, DefaultOpenAITopP)
 }
