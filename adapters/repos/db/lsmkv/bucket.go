@@ -75,7 +75,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	metrics *Metrics, opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
-	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
+	defaultMemTableThreshold := uint64(200 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterIdle := 60 * time.Second
 	defaultStrategy := StrategyReplace
