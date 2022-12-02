@@ -13,6 +13,7 @@ package config
 
 import (
 	"encoding/json"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
