@@ -77,6 +77,7 @@ func NewTxManager(remote Remote, logger logrus.FieldLogger) *TxManager {
 		// nil-check on every call.
 		commitFn:   newDummyCommitResponseFn(),
 		responseFn: newDummyCommitResponseFn(),
+		logger:     logger,
 	}
 }
 
