@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -90,6 +91,9 @@ func (m *Manager) startupJoinCluster(ctx context.Context,
 ) error {
 	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
 	if err != nil {
+		if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
+			return nil
+		}
 		return fmt.Errorf("read schema: open transaction: %w", err)
 	}
 
@@ -125,6 +129,9 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 ) error {
 	tx, err := m.cluster.BeginTransaction(ctx, ReadSchema, nil, DefaultTxTTL)
 	if err != nil {
+		if m.clusterSyncImpossibleBecauseRemoteNodeTooOld(err) {
+			return nil
+		}
 		return fmt.Errorf("read schema: open transaction: %w", err)
 	}
 
@@ -155,6 +162,29 @@ func isEmpty(schema *State) bool {
 	}
 
 	if len(schema.ObjectSchema.Classes) == 0 {
+		return true
+	}
+
+	return false
+}
+
+func (m *Manager) clusterSyncImpossibleBecauseRemoteNodeTooOld(err error) bool {
+	// string-matching on the error message isn't the cleanest way possible, but
+	// unfortunately there's not an easy way to find out, as this check has to
+	// work with whatever was already present in v1.16.x
+	//
+	// in theory we could have used the node api which also returns the versions,
+	// however, the node API depends on the DB which depends on the schema
+	// manager, so we cannot use them at schema manager startup which happens
+	// before db startup.
+	//
+	// Given that this workaround should only ever be required during a rolling
+	// update from v1.16 to v1.17, we can consider this acceptable
+	if strings.Contains(err.Error(), "unrecognized schema transaction type") {
+		m.logger.WithFields(logrusStartupSyncFields()).
+			Info("skipping schema cluster sync because not all nodes in the cluster " +
+				"support schema cluster sync yet. To enable schema cluster sync at startup " +
+				"make sure all nodes in the cluster run at least v1.17")
 		return true
 	}
 
