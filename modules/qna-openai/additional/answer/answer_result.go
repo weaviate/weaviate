@@ -78,7 +78,7 @@ func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, par
 
 func (p *AnswerProvider) containsProperty(property string, properties []string) bool {
 	if len(properties) == 0 {
-		return false
+		return true
 	}
 	for i := range properties {
 		if properties[i] == property {
