@@ -15,6 +15,8 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -75,6 +77,14 @@ func (f *fakeClient) Commit(ctx context.Context, host, index, shard, requestID s
 func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID)
 	return args.Get(0).(SimpleResponse), args.Error(1)
+}
+
+func (f *fakeClient) GetObject(ctx context.Context, host, index, shard string,
+	id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (*storobj.Object, error) {
+	args := f.Called(ctx, host, index, shard, id, props, additional)
+	return args.Get(0).(*storobj.Object), args.Error(1)
 }
 
 // Replica finder
