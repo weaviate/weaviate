@@ -108,6 +108,16 @@ func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
 	return vector, nil
 }
 
+func sortStringKeys(schema_map map[string]interface{}) []string {
+	keys := make([]string, 0, len(schema_map))
+	for k := range schema_map {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+>>>>>>> 31f6cfa51 (regen reformat)
+}
+
 func appendPropIfText(icheck ClassIndexCheck, list *[]string, propName string,
 	value interface{},
 ) bool {

@@ -58,7 +58,6 @@ func (d *DB) init(ctx context.Context) error {
 					Alpha: config.DefaultAlpha,
 				}
 			} else {
-
 			}
 
 			idx, err := NewIndex(ctx, IndexConfig{

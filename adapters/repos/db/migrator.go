@@ -35,7 +35,6 @@ type Migrator struct {
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State,
 ) error {
-
 	HybridSearchConfigI := class.HybridSearchConfig
 	HybridSearchConfig := models.HybridSearchConfig{}
 	if HybridSearchConfigI == nil {

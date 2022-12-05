@@ -379,5 +379,4 @@ func TestRFJourney(t *testing.T) {
 	for _, r := range res {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
-
 }
