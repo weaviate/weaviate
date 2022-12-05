@@ -133,7 +133,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("could not laod or initialize schema: %v", err)
+		return nil, fmt.Errorf("could not load or initialize schema: %v", err)
 	}
 
 	return m, nil
