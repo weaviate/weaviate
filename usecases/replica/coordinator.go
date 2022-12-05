@@ -48,7 +48,7 @@ type coordinator[T any] struct {
 func newCoordinator[T any](r *Replicator, shard string) *coordinator[T] {
 	return &coordinator[T]{
 		Client: r.client,
-		replicaFinder: &finder{
+		replicaFinder: &rFinder{
 			schema:   r.stateGetter,
 			resolver: r.resolver,
 			class:    r.class,
