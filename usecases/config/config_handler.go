@@ -48,8 +48,7 @@ const (
 	DefaultBM25b  = float32(0.75)
 
 	// These hybrid tuning params can be overwritten on a per-class basis
-	DefaultAlpha = float64(0.5)
-	DefaultHybridSearchLimit = int(1000)
+	DefaultAlpha = float32(0.5)
 )
 
 const (

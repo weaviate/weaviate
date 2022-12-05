@@ -3029,6 +3029,10 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
+        "hybridSearchConfig": {
+          "description": "Config hybrid search parameters",
+          "type": "object"
+        },
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
         },
@@ -3349,6 +3353,17 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/GraphQLResponse"
+      }
+    },
+    "HybridSearchConfig": {
+      "description": "Configure the hybrid search type",
+      "type": "object",
+      "properties": {
+        "alpha": {
+          "description": "weights one result set over the other",
+          "type": "number",
+          "format": "float"
+        }
       }
     },
     "InvertedIndexConfig": {
@@ -7336,6 +7351,10 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
+        "hybridSearchConfig": {
+          "description": "Config hybrid search parameters",
+          "type": "object"
+        },
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
         },
@@ -7682,6 +7701,17 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/GraphQLResponse"
+      }
+    },
+    "HybridSearchConfig": {
+      "description": "Configure the hybrid search type",
+      "type": "object",
+      "properties": {
+        "alpha": {
+          "description": "weights one result set over the other",
+          "type": "number",
+          "format": "float"
+        }
       }
     },
     "InvertedIndexConfig": {

@@ -202,10 +202,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 	}
 
 	if class.HybridSearchConfig == nil {
-		class.HybridSearchConfig = &models.HybridSearchConfig{
-			Alpha: config.DefaultAlpha,
-			Limit: config.DefaultHybridSearchLimit,
-		}
+		class.HybridSearchConfig = &models.HybridSearchConfig{}
 	}
 
 	if class.InvertedIndexConfig.Stopwords == nil {

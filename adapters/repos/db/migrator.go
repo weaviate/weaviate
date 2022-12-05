@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
@@ -33,6 +35,30 @@ type Migrator struct {
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State,
 ) error {
+
+	HybridSearchConfigI := class.HybridSearchConfig
+	HybridSearchConfig := models.HybridSearchConfig{}
+	if HybridSearchConfigI == nil {
+		HybridSearchConfig = models.HybridSearchConfig{
+			Alpha: 0.5,
+		}
+	} else {
+		dict := HybridSearchConfigI.(map[string]interface{})
+		AlphaI, ok := dict["alpha"]
+		if ok {
+			AlphaN := AlphaI.(json.Number)
+			Alpha, err := AlphaN.Float64()
+			if err != nil {
+				return errors.Wrap(err, "alpha is not a float")
+			}
+			HybridSearchConfig = models.HybridSearchConfig{
+				Alpha: float32(Alpha),
+			}
+		} else {
+			return fmt.Errorf("alpha is not found in HybridSearchConfig")
+		}
+	}
+
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                 schema.ClassName(class.Class),
@@ -48,6 +74,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
+		HybridSearchConfig,
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, m.db.promMetrics)
 	if err != nil {

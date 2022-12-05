@@ -301,7 +301,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, o
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
 			boost, _ = strconv.Atoi(boostStr)
-			fmt.Printf("Boosting %s by %d\n", property, boost)
 		}
 
 		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
@@ -310,7 +309,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, o
 				"read doc ids and their frequencies from inverted index")
 		}
 		for i := range ids.docIDs {
-			fmt.Printf("Boosting %s from %f to %f\n", property, ids.docIDs[i].frequency, ids.docIDs[i].frequency*float64(boost))
 			ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
 		}
 		idss = append(idss, ids)
