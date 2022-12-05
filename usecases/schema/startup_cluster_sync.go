@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/sirupsen/logrus"
@@ -138,6 +139,15 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 	}
 
 	if !Equal(localSchema, pl.Schema) {
+		localSchemaJSON, err1 := json.Marshal(localSchema)
+		consensusSchemaJSON, err2 := json.Marshal(pl.Schema)
+		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
+			"local_schema":     string(localSchemaJSON),
+			"consensus_schema": string(consensusSchemaJSON),
+			"marhsal_error_1":  err1,
+			"marhsal_error_2":  err2,
+		}).Errorf("mismatch between local schema and cluster consensus schema")
+
 		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +
 			"but local node has a different (non-null) schema")
 	}
