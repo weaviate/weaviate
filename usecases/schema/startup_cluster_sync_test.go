@@ -13,6 +13,7 @@ package schema
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -149,6 +150,49 @@ func TestStartupSync(t *testing.T) {
 
 		localSchema := sm.GetSchemaSkipAuth()
 		assert.Equal(t, "GutenTag", localSchema.FindClassByName("GutenTag").Class)
+	})
+
+	t.Run("new node joining, other nodes include an outdated version", func(t *testing.T) {
+		clusterState := &fakeClusterState{
+			hosts: []string{"node1", "node2"},
+		}
+
+		txClient := &fakeTxClient{
+			openErr: fmt.Errorf("unrecognized schema transaction type"),
+		}
+
+		sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, nil)
+		require.Nil(t, err) // no error, sync was skipped
+
+		schema := sm.GetSchemaSkipAuth()
+		assert.Len(t, schema.Objects.Classes, 0, "schema is still empty")
+	})
+
+	t.Run("node with data (re-)joining, but other nodes are too old", func(t *testing.T) {
+		// we expect that sync would be skipped beacause the other nodes can't take
+		// part in the sync
+		clusterState := &fakeClusterState{
+			hosts: []string{"node1", "node2"},
+		}
+
+		txClient := &fakeTxClient{
+			openErr: fmt.Errorf("unrecognized schema transaction type"),
+		}
+
+		sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
+			ObjectSchema: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class:           "Hola",
+						VectorIndexType: "hnsw",
+					},
+				},
+			},
+		})
+		require.Nil(t, err) // startup sync was skipped, no error
+		schema := sm.GetSchemaSkipAuth()
+		require.Len(t, schema.Objects.Classes, 1, "schema is still the local schema")
+		assert.Equal(t, "Hola", schema.Objects.Classes[0].Class)
 	})
 }
 
