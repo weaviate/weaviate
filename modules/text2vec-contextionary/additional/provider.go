@@ -14,6 +14,8 @@ package additional
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/entities/moduletools"
+
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -22,7 +24,7 @@ import (
 type AdditionalProperty interface {
 	AdditionalPropertyFn(ctx context.Context,
 		in []search.Result, params interface{}, limit *int,
-		argumentModuleParams map[string]interface{}) ([]search.Result, error)
+		argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error)
 	ExtractAdditionalFn(param []*ast.Argument) interface{}
 	AdditonalPropertyDefaultValue() interface{}
 }

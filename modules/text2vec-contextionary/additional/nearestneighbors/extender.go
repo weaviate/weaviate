@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/moduletools"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -41,7 +43,7 @@ func (e *Extender) AdditonalPropertyDefaultValue() interface{} {
 
 func (e *Extender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return e.Multi(ctx, in, limit)
 }
