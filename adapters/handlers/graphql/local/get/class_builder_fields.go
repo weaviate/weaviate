@@ -241,9 +241,9 @@ func buildGetClassField(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) graphql.Field {
 	field := realBuildGetClassField(classObject, class, modulesProvider)
-	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
-		field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
-	}
+
+	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
+
 	return field
 }
 

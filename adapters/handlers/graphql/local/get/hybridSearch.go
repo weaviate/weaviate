@@ -13,6 +13,7 @@ package get
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/tailor-inc/graphql"
 
@@ -40,34 +41,42 @@ func hybridArgument(classObject *graphql.Object,
 func hybridOperands(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) graphql.InputObjectConfigFieldMap {
-	ss := graphql.NewInputObject(graphql.InputObjectConfig{
-		Name:   class.Class + "SubSearch",
-		Fields: hybridSubSearch(classObject, class, modulesProvider),
-	})
+	
+		ss := graphql.NewInputObject(graphql.InputObjectConfig{
+			Name:   class.Class + "SubSearch",
+			Fields: hybridSubSearch(classObject, class, modulesProvider),
+		})
 
-	return graphql.InputObjectConfigFieldMap{
-		"operands": &graphql.InputObjectFieldConfig{
-			Description: "Subsearch list",
-			Type:        graphql.NewList(ss),
-		},
-		"limit": &graphql.InputObjectFieldConfig{
-			Description: "limit",
-			Type:        graphql.Int,
-		},
+		fieldMap:=  graphql.InputObjectConfigFieldMap{
+			
+			"limit": &graphql.InputObjectFieldConfig{
+				Description: "limit",
+				Type:        graphql.Int,
+			},
 
-		"query": &graphql.InputObjectFieldConfig{
-			Description: "Query string",
-			Type:        graphql.String,
-		},
-		"alpha": &graphql.InputObjectFieldConfig{
-			Description: "Search weight",
-			Type:        graphql.Float,
-		},
-		"vector": &graphql.InputObjectFieldConfig{
-			Description: "Vector search",
-			Type:        graphql.NewList(graphql.Float),
-		},
-	}
+			"query": &graphql.InputObjectFieldConfig{
+				Description: "Query string",
+				Type:        graphql.String,
+			},
+			"alpha": &graphql.InputObjectFieldConfig{
+				Description: "Search weight",
+				Type:        graphql.Float,
+			},
+			"vector": &graphql.InputObjectFieldConfig{
+				Description: "Vector search",
+				Type:        graphql.NewList(graphql.Float),
+			},
+		}
+
+		if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {
+			fieldMap["operands"] = &graphql.InputObjectFieldConfig{
+				Description: "Subsearch list",
+				Type:        graphql.NewList(ss),
+			}
+		}
+	
+
+	return fieldMap
 }
 
 func hybridSubSearch(classObject *graphql.Object,
