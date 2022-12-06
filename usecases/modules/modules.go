@@ -484,6 +484,7 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 			if err := m.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
+			cfg := NewClassBasedModuleConfig(class, "")
 			for name, value := range moduleParams {
 				additionalPropertyFn := m.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
@@ -492,7 +493,7 @@ func (m *Provider) additionalExtend(ctx context.Context, in []search.Result,
 						searchVectorValue.SetSearchVector(searchVector)
 						searchValue = searchVectorValue
 					}
-					resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams)
+					resArray, err := additionalPropertyFn(ctx, toBeExtended, searchValue, nil, argumentModuleParams, cfg)
 					if err != nil {
 						return nil, errors.Errorf("extend %s: %v", name, err)
 					}

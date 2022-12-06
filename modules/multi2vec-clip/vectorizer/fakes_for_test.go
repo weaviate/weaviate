@@ -58,6 +58,10 @@ func (c fakeClassConfig) Class() map[string]interface{} {
 	return c.config
 }
 
+func (c fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return c.config
+}
+
 func (c fakeClassConfig) Property(propName string) map[string]interface{} {
 	return c.config
 }

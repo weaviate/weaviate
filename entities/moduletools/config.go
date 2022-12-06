@@ -16,5 +16,6 @@ package moduletools
 // when validation schema config
 type ClassConfig interface {
 	Class() map[string]interface{}
+	ClassByModuleName(moduleName string) map[string]interface{}
 	Property(propName string) map[string]interface{}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/danaugrs/go-tsne/tsne"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -50,7 +51,7 @@ func (e *PathBuilder) AdditonalPropertyDefaultValue() interface{} {
 
 func (f *PathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
 		return f.CalculatePath(in, parameters)
