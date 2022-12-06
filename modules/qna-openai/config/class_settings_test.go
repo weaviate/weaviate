@@ -24,9 +24,9 @@ func Test_classSettings_Validate(t *testing.T) {
 		name                 string
 		cfg                  moduletools.ClassConfig
 		wantModel            string
-		wantMaxTokens        int64
+		wantMaxTokens        float64
 		wantTemperature      float64
-		wantTopP             int64
+		wantTopP             float64
 		wantFrequencyPenalty float64
 		wantPresencePenalty  float64
 		wantErr              error
