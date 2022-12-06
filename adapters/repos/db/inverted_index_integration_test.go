@@ -73,8 +73,9 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
-	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("add class", func(t *testing.T) {
