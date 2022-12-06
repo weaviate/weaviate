@@ -63,6 +63,8 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", func(t *testing.T) {
