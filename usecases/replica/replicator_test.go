@@ -351,6 +351,7 @@ type fakeFactory struct {
 	Nodes          []string
 	shard2replicas map[string][]string
 	Client         *fakeClient
+	RClient        *fakeRClient
 }
 
 func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
@@ -360,6 +361,7 @@ func newFakeFactory(class, shard string, nodes []string) *fakeFactory {
 		Nodes:          nodes,
 		shard2replicas: map[string][]string{shard: nodes},
 		Client:         &fakeClient{},
+		RClient:        &fakeRClient{},
 	}
 }
 
@@ -370,7 +372,8 @@ func (f fakeFactory) newReplicator() *Replicator {
 		f.CLS,
 		shardingState,
 		nodeResolver,
-		f.Client)
+		f.Client,
+		f.RClient)
 }
 
 func (f fakeFactory) newFinder() *Finder {

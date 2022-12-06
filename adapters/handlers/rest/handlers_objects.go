@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	uco "github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,7 +46,7 @@ type ModulesProvider interface {
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object) (*models.Object, error)
 	ValidateObject(context.Context, *models.Principal, *models.Object) error
-	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ additional.Properties) (*models.Object, error)
+	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties) (*models.Object, error)
 	DeleteObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ *models.Object) (*models.Object, error)
 	HeadObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) (bool, *uco.Error)
@@ -131,7 +132,14 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		}
 	}
 
-	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal, params.ClassName, params.ID, additional)
+	replProps, err := getReplicationParams(params)
+	if err != nil {
+		return objects.NewObjectsClassGetBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	object, err := h.manager.GetObject(params.HTTPRequest.Context(), principal,
+		params.ClassName, params.ID, additional, replProps)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -656,4 +664,22 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 		return map[string]interface{}{}
 	}
 	return moduleParams
+}
+
+func getReplicationParams(params objects.ObjectsClassGetParams) (*additional.ReplicationProperties, error) {
+	repl := additional.ReplicationProperties{}
+	if params.NodeName != nil {
+		repl.NodeName = *params.NodeName
+	}
+
+	if maybe := params.ConsistencyLevel; maybe != nil {
+		switch replica.ConsistencyLevel(*maybe) {
+		case replica.One, replica.Quorum, replica.All:
+		default:
+			return nil, fmt.Errorf("unreckognized consistency level %q, "+
+				"try one of the following: ['ONE', 'QUORUM', 'ALL']", *maybe)
+		}
+	}
+
+	return &repl, nil
 }

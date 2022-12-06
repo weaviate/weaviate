@@ -291,7 +291,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 							},
 						},
 					},
-				}, additional.Properties{})
+				}, additional.Properties{}, nil)
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			props := res.Object().Properties.(map[string]interface{})

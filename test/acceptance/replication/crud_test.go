@@ -77,9 +77,9 @@ func immediateReplicaCRUD(t *testing.T) {
 	articleClass := articles.ArticlesClass()
 
 	t.Run("create schema", func(t *testing.T) {
-		paragraphClass.ShardingConfig = map[string]interface{}{"replicas": 2}
+		paragraphClass.ShardingConfig = map[string]interface{}{"replicas": 2} //, "desiredCount": 1}
 		helper.CreateClass(t, paragraphClass)
-		articleClass.ShardingConfig = map[string]interface{}{"replicas": 2}
+		articleClass.ShardingConfig = map[string]interface{}{"replicas": 2} //, "desiredCount": 1}
 		helper.CreateClass(t, articleClass)
 	})
 
@@ -217,7 +217,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert object is patched on node 1", func(t *testing.T) {
-			after, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0])
+			after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -242,7 +242,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert object removed from node 2", func(t *testing.T) {
-			_, err := getObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0])
+			_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
 			assert.Equal(t, err, &objects.ObjectsClassGetNotFound{})
 		})
 
@@ -371,7 +371,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("assert object is patched on node 1", func(t *testing.T) {
-				after, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0])
+				after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
 				require.Nil(t, err)
 
 				newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -396,7 +396,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("assert object removed from node 2", func(t *testing.T) {
-				_, err := getObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0])
+				_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
 				assert.Equal(t, err, &objects.ObjectsClassGetNotFound{})
 			})
 

@@ -308,7 +308,7 @@ func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocumen
 	return objects.MergeDocument{
 		Class:      ref.From.Class.String(),
 		ID:         ref.From.TargetID,
-		UpdateTime: time.Now().UnixNano(),
+		UpdateTime: time.Now().UnixMilli(),
 		References: objects.BatchReferences{ref},
 	}
 }

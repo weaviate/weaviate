@@ -92,7 +92,8 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
-	repl := replica.NewReplicator(config.ClassName.String(), sg, nodeResolver, replicaClient)
+	repl := replica.NewReplicator(config.ClassName.String(),
+		sg, nodeResolver, replicaClient, remoteClient)
 
 	index := &Index{
 		Config:                config,
@@ -585,25 +586,38 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
+	replProps *additional.ReplicationProperties,
 ) (*storobj.Object, error) {
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return nil, err
 	}
 
-	local := i.getSchema.
-		ShardingState(i.Config.ClassName.String()).
-		IsShardLocal(shardName)
+	var (
+		obj   *storobj.Object
+		local = i.getSchema.
+			ShardingState(i.Config.ClassName.String()).
+			IsShardLocal(shardName)
+	)
 
-	if !local {
-		remote, err := i.remote.GetObject(ctx, shardName, id, props, additional)
-		return remote, err
-	}
-
-	shard := i.Shards[shardName]
-	obj, err := shard.objectByID(ctx, id, props, additional)
-	if err != nil {
-		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	if local {
+		if i.replicationEnabled() {
+			obj, err = i.replicator.GetObject(ctx, shardName, id, props, additional, replProps)
+			if err != nil {
+				return nil, fmt.Errorf("fetch object %q from replicas: %w", id, err)
+			}
+		} else {
+			shard := i.Shards[shardName]
+			obj, err = shard.objectByID(ctx, id, props, additional)
+			if err != nil {
+				return nil, fmt.Errorf("shard %s: %w", shard.ID(), err)
+			}
+		}
+	} else {
+		obj, err = i.remote.GetObject(ctx, shardName, id, props, additional)
+		if err != nil {
+			return nil, fmt.Errorf("get object from remote index: %w", err)
+		}
 	}
 
 	return obj, nil

@@ -36,7 +36,7 @@ func (m *Manager) AddObjectReference(
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
-		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID, additional.Properties{})
+		objectRes, err := m.getObjectFromRepo(ctx, "", input.ID, additional.Properties{}, nil)
 		if err != nil {
 			errnf := ErrNotFound{} // treated as StatusBadRequest for backward comp
 			if errors.As(err, &errnf) {

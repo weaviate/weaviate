@@ -47,6 +47,10 @@ type ObjectsClassGetParams struct {
 	  In: path
 	*/
 	ClassName string
+	/*Determines how many replicas must acknowledge a request before it is considered successful
+	  In: query
+	*/
+	ConsistencyLevel *string
 	/*Unique ID of the Object.
 	  Required: true
 	  In: path
@@ -56,6 +60,10 @@ type ObjectsClassGetParams struct {
 	  In: query
 	*/
 	Include *string
+	/*The target node which should fulfill the request
+	  In: query
+	*/
+	NodeName *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -74,6 +82,11 @@ func (o *ObjectsClassGetParams) BindRequest(r *http.Request, route *middleware.M
 		res = append(res, err)
 	}
 
+	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
+	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
@@ -81,6 +94,11 @@ func (o *ObjectsClassGetParams) BindRequest(r *http.Request, route *middleware.M
 
 	qInclude, qhkInclude, _ := qs.GetOK("include")
 	if err := o.bindInclude(qInclude, qhkInclude, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qNodeName, qhkNodeName, _ := qs.GetOK("node_name")
+	if err := o.bindNodeName(qNodeName, qhkNodeName, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -101,6 +119,24 @@ func (o *ObjectsClassGetParams) bindClassName(rawData []string, hasKey bool, for
 	// Parameter is provided by construction from the route
 
 	o.ClassName = raw
+
+	return nil
+}
+
+// bindConsistencyLevel binds and validates parameter ConsistencyLevel from query.
+func (o *ObjectsClassGetParams) bindConsistencyLevel(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.ConsistencyLevel = &raw
 
 	return nil
 }
@@ -152,6 +188,24 @@ func (o *ObjectsClassGetParams) bindInclude(rawData []string, hasKey bool, forma
 	}
 
 	o.Include = &raw
+
+	return nil
+}
+
+// bindNodeName binds and validates parameter NodeName from query.
+func (o *ObjectsClassGetParams) bindNodeName(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.NodeName = &raw
 
 	return nil
 }
