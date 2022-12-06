@@ -66,8 +66,7 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
-	hybridSearchConfig     models.HybridSearchConfig
-	hybridSearchConfigLock sync.Mutex
+	hybridSearchConfig models.HybridSearchConfig
 
 	metrics *Metrics
 }
@@ -239,24 +238,6 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	defer i.invertedIndexConfigLock.Unlock()
 
 	i.invertedIndexConfig = updated
-
-	return nil
-}
-
-func (i *Index) getHybridSearchConfig() models.HybridSearchConfig {
-	i.hybridSearchConfigLock.Lock()
-	defer i.hybridSearchConfigLock.Unlock()
-
-	return i.hybridSearchConfig
-}
-
-func (i *Index) updateHybridSearchConfig(ctx context.Context,
-	updated models.HybridSearchConfig,
-) error {
-	i.hybridSearchConfigLock.Lock()
-	defer i.hybridSearchConfigLock.Unlock()
-
-	i.hybridSearchConfig = updated
 
 	return nil
 }

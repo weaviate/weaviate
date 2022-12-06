@@ -50,14 +50,11 @@ func (d *DB) init(ctx context.Context) error {
 			}
 
 			HybridSearchConfig := class.HybridSearchConfig
-			HybridSearchConfig = models.HybridSearchConfig{
-				Alpha: config.DefaultAlpha,
-			}
+
 			if HybridSearchConfig == nil {
 				HybridSearchConfig = models.HybridSearchConfig{
 					Alpha: config.DefaultAlpha,
 				}
-			} else {
 			}
 
 			idx, err := NewIndex(ctx, IndexConfig{
