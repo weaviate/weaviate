@@ -36,7 +36,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		argumentModuleParams := map[string]interface{}{}
 
 		// when
-		out, err := summaryProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
+		out, err := summaryProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
 
 		// then
 		require.NotNil(t, err)
@@ -61,7 +61,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		argumentModuleParams := map[string]interface{}{}
 
 		// when
-		out, err := summaryProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
+		out, err := summaryProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
 
 		// then
 		require.NotNil(t, err)
@@ -85,7 +85,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		argumentModuleParams := map[string]interface{}{}
 
 		// when
-		out, err := summaryProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams)
+		out, err := summaryProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
 		// then
 		require.Nil(t, err)
 		require.NotEmpty(t, out)

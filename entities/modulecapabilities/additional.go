@@ -14,6 +14,7 @@ package modulecapabilities
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -35,7 +36,7 @@ type AdditionalPropertyWithSearchVector interface {
 // functions performing given logic
 type AdditionalPropertyFn = func(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{}) ([]search.Result, error)
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error)
 
 // AdditionalSearch defines on which type of query a given
 // additional logic can be performed
