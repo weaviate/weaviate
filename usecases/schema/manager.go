@@ -205,16 +205,16 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// store in local cache
 	m.state = *schema
 
+	if err := m.migrateSchemaIfNecessary(ctx); err != nil {
+		return fmt.Errorf("migrate schema: %w", err)
+	}
+
+	// make sure that all migrations have completed before checking sync,
+	// otherwise two identical schemas might fail the check based on form rather
+	// than content
+
 	if err := m.startupClusterSync(ctx, schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
-	}
-
-	if err := m.checkSingleShardMigration(ctx); err != nil {
-		return errors.Wrap(err, "migrating sharding state from previous version")
-	}
-
-	if err := m.checkShardingStateForReplication(ctx); err != nil {
-		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
 	}
 
 	// store in persistent storage
@@ -222,6 +222,21 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return fmt.Errorf("initialized a new schema, but couldn't update remote: %v", err)
 	}
 
+	return nil
+}
+
+func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
+	// introduced when Weaviate started supporting multi-shards per class in v1.8
+	if err := m.checkSingleShardMigration(ctx); err != nil {
+		return errors.Wrap(err, "migrating sharding state from previous version")
+	}
+
+	// introduced when Weaviate started supporting replication in v1.17
+	if err := m.checkShardingStateForReplication(ctx); err != nil {
+		return errors.Wrap(err, "migrating sharding state from previous version (before replication)")
+	}
+
+	// if other migrations become necessary in the future, you can add them here.
 	return nil
 }
 

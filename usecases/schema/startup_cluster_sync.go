@@ -149,11 +149,11 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 		localSchemaJSON, err1 := json.Marshal(localSchema)
 		consensusSchemaJSON, err2 := json.Marshal(pl.Schema)
 		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
-			"local_schema":     string(localSchemaJSON),
-			"consensus_schema": string(consensusSchemaJSON),
-			"marhsal_error_1":  err1,
-			"marhsal_error_2":  err2,
-		}).Errorf("mismatch between local schema and cluster consensus schema")
+			"local_schema":         string(localSchemaJSON),
+			"remote_schema":        string(consensusSchemaJSON),
+			"marhsal_error_local":  err1,
+			"marhsal_error_remote": err2,
+		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
 
 		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +
 			"but local node has a different (non-null) schema")
