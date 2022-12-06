@@ -34,67 +34,66 @@ import (
 func Benchmark_Migration(b *testing.B) {
 	fmt.Printf("Running benchmark %v times\n", b.N)
 	for i := 0; i < b.N; i++ {
+		func() {
+			rand.Seed(time.Now().UnixNano())
+			dirName := b.TempDir()
 
-		rand.Seed(time.Now().UnixNano())
-		dirName := b.TempDir()
+			shardState := singleShardState()
+			logger := logrus.New()
+			schemaGetter := &fakeSchemaGetter{shardState: shardState}
+			repo := New(logger, Config{
+				RootPath:                         dirName,
+				QueryMaximumResults:              1000,
+				MaxImportGoroutinesFactor:        1,
+				TrackVectorDimensions:            true,
+				ReindexVectorDimensionsAtStartup: false,
+			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+			repo.SetSchemaGetter(schemaGetter)
+			err := repo.WaitForStartup(testCtx())
+			require.Nil(b, err)
+			defer repo.Shutdown(context.Background())
 
-		shardState := singleShardState()
-		logger := logrus.New()
-		schemaGetter := &fakeSchemaGetter{shardState: shardState}
-		repo := New(logger, Config{
-			RootPath:                         dirName,
-			QueryMaximumResults:              1000,
-			MaxImportGoroutinesFactor:        1,
-			TrackVectorDimensions:            true,
-			ReindexVectorDimensionsAtStartup: false,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-		defer repo.Shutdown(context.Background())
-		repo.SetSchemaGetter(schemaGetter)
-		err := repo.WaitForStartup(testCtx())
-		if err != nil {
-			b.Fatal(err)
-		}
+			migrator := NewMigrator(repo, logger)
 
-		migrator := NewMigrator(repo, logger)
-
-		class := &models.Class{
-			Class:               "Test",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
-
-		migrator.AddClass(context.Background(), class, schemaGetter.shardState)
-
-		schemaGetter.schema = schema
-
-		repo.config.TrackVectorDimensions = false
-
-		dim := 128
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = rand.Float32()
+			class := &models.Class{
+				Class:               "Test",
+				VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+				InvertedIndexConfig: invertedConfig(),
+			}
+			schema := schema.Schema{
+				Objects: &models.Schema{
+					Classes: []*models.Class{class},
+				},
 			}
 
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec)
-			if err != nil {
-				b.Fatal(err)
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+			schemaGetter.schema = schema
+
+			repo.config.TrackVectorDimensions = false
+
+			dim := 128
+			for i := 0; i < 100; i++ {
+				vec := make([]float32, dim)
+				for j := range vec {
+					vec[j] = rand.Float32()
+				}
+
+				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+				obj := &models.Object{Class: "Test", ID: id}
+				err := repo.PutObject(context.Background(), obj, vec)
+				if err != nil {
+					b.Fatal(err)
+				}
 			}
-		}
 
-		fmt.Printf("Added vectors, now migrating\n")
+			fmt.Printf("Added vectors, now migrating\n")
 
-		repo.config.ReindexVectorDimensionsAtStartup = true
-		repo.config.TrackVectorDimensions = true
-		migrator.RecalculateVectorDimensions(context.TODO())
-		fmt.Printf("Benchmark complete")
+			repo.config.ReindexVectorDimensionsAtStartup = true
+			repo.config.TrackVectorDimensions = true
+			migrator.RecalculateVectorDimensions(context.TODO())
+			fmt.Printf("Benchmark complete")
+		}()
 	}
 }
 
@@ -113,10 +112,11 @@ func Test_Migration(t *testing.T) {
 		TrackVectorDimensions:            true,
 		ReindexVectorDimensionsAtStartup: false,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	defer repo.Shutdown(context.Background())
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("set schema", func(t *testing.T) {
@@ -182,6 +182,7 @@ func Test_DimensionTracking(t *testing.T) {
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
 	defer repo.Shutdown(context.Background())
+
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("set schema", func(t *testing.T) {
