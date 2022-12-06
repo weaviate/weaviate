@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -171,9 +172,32 @@ func TestRemoteDoesntAllowOpeningTransaction(t *testing.T) {
 	assert.Len(t, broadcaster.abortCalledId, 36, "a valid uuid was aborted")
 }
 
+func TestRemoteDoesntAllowOpeningTransactionAbortFails(t *testing.T) {
+	payload := "my-payload"
+	trType := TransactionType("my-type")
+	ctx := context.Background()
+	broadcaster := &fakeBroadcaster{
+		openErr:  ErrConcurrentTransaction,
+		abortErr: fmt.Errorf("cannot abort"),
+	}
+
+	man, hook := newTestTxManagerWithRemoteLoggerHook(broadcaster)
+
+	tx1, err := man.BeginTransaction(ctx, trType, payload, 0)
+	require.Nil(t, tx1)
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "open transaction")
+
+	assert.Len(t, broadcaster.abortCalledId, 36, "a valid uuid was aborted")
+
+	require.Len(t, hook.Entries, 1)
+	assert.Equal(t, "broadcast tx abort failed", hook.Entries[0].Message)
+}
+
 type fakeBroadcaster struct {
 	openErr       error
 	commitErr     error
+	abortErr      error
 	abortCalledId string
 }
 
@@ -187,7 +211,7 @@ func (f *fakeBroadcaster) BroadcastAbortTransaction(ctx context.Context,
 	tx *Transaction,
 ) error {
 	f.abortCalledId = tx.ID
-	return nil
+	return f.abortErr
 }
 
 func (f *fakeBroadcaster) BroadcastCommitTransaction(ctx context.Context,
@@ -427,4 +451,9 @@ func newTestTxManager() *TxManager {
 func newTestTxManagerWithRemote(remote Remote) *TxManager {
 	logger, _ := test.NewNullLogger()
 	return NewTxManager(remote, logger)
+}
+
+func newTestTxManagerWithRemoteLoggerHook(remote Remote) (*TxManager, *test.Hook) {
+	logger, hook := test.NewNullLogger()
+	return NewTxManager(remote, logger), hook
 }

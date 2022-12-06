@@ -97,8 +97,8 @@ You can find [code examples here](https://github.com/semi-technologies/weaviate-
 
 ## Support
 
-- [Stackoverflow for questions](https://stackoverflow.com/questions/tagged/weaviate)
-- [Github for issues](https://github.com/semi-technologies/weaviate/issues)
+- [Stack Overflow for questions](https://stackoverflow.com/questions/tagged/weaviate)
+- [GitHub for issues](https://github.com/semi-technologies/weaviate/issues)
 - [Slack channel to connect](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
 - [Newsletter to stay in the know](http://weaviate-newsletter.semi.technology/)
 

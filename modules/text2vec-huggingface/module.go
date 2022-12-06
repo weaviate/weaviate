@@ -44,7 +44,7 @@ type HuggingFaceModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object,
+	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
 		settings vectorizer.ClassSettings) error
 	Texts(ctx context.Context, input []string,
 		settings vectorizer.ClassSettings) ([]float32, error)
@@ -124,10 +124,10 @@ func (m *HuggingFaceModule) RootHandler() http.Handler {
 }
 
 func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, cfg moduletools.ClassConfig,
+	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
 	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, icheck)
+	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
 }
 
 func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {

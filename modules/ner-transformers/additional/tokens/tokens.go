@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/semi-technologies/weaviate/entities/moduletools"
+
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/modules/ner-transformers/ent"
 	"github.com/tailor-inc/graphql"
@@ -47,7 +49,7 @@ func (p *TokenProvider) AdditionalFieldFn(classname string) *graphql.Field {
 
 func (p *TokenProvider) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
 		return p.findTokens(ctx, in, parameters)
