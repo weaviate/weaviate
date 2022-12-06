@@ -848,6 +848,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
 
@@ -957,6 +958,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
 
@@ -1405,6 +1407,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
 	class := &models.Class{

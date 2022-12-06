@@ -27,7 +27,7 @@ const (
 
 // Ref is an abstraction of the cross-refs which are specified in a URI format
 // in the API. When this type is used it is safe to assume that a Ref is
-// semantically valid. This guarantuee would not be possible on the URI format,
+// semantically valid. This guarantee would not be possible on the URI format,
 // as the URI can be well-formed, but not contain the data we expect in it.
 // Do not use directly, such as crossref.Ref{}, as you won't have any
 // guarantees in this case. Always use one of the parsing options or New()

@@ -63,6 +63,8 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", func(t *testing.T) {
@@ -149,7 +151,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(),
 			"timestamps must be indexed to be filterable! "+
-				"add `indexTimestaps: true` to the invertedIndexConfig")
+				"add `indexTimestamps: true` to the invertedIndexConfig")
 	})
 }
 

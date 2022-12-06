@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/test/docker"
 	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/semi-technologies/weaviate/test/helper/journey"
+	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,7 +65,7 @@ func Test_BackupJourney(t *testing.T) {
 			require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
 			require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
 
-			createBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
@@ -97,7 +98,7 @@ func Test_BackupJourney(t *testing.T) {
 			require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
 			require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
 
-			createBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
