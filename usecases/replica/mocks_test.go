@@ -105,6 +105,10 @@ func (f *fakeShardingState) ShardingState(class string) *sharding.State {
 	return &state
 }
 
+func (f *fakeShardingState) NodeName() string {
+	return "Coordinator"
+}
+
 // node resolver
 type fakeNodeResolver struct {
 	hosts map[string]string

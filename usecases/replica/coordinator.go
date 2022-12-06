@@ -14,7 +14,6 @@ package replica
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
@@ -45,7 +44,7 @@ type coordinator[T any] struct {
 	nodes     []string
 }
 
-func newCoordinator[T any](r *Replicator, shard string) *coordinator[T] {
+func newCoordinator[T any](r *Replicator, shard, requestID string) *coordinator[T] {
 	return &coordinator[T]{
 		Client: r.client,
 		replicaFinder: &rFinder{
@@ -55,7 +54,7 @@ func newCoordinator[T any](r *Replicator, shard string) *coordinator[T] {
 		},
 		class:     r.class,
 		shard:     shard,
-		requestID: time.Now().String(), // TODO: use a counter to build request id
+		requestID: requestID,
 	}
 }
 
