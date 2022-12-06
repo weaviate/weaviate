@@ -32,9 +32,9 @@ type RemoteReplicaIncomingRepo interface {
 		shardName, requestID string, docIDs []uint64, dryRun bool) SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName,
 		shardName, requestID string, refs []objects.BatchReference) SimpleResponse
-	CommitReplication(ctx context.Context, indexName,
+	CommitReplication(indexName,
 		shardName, requestID string) interface{}
-	AbortReplication(ctx context.Context, indexName,
+	AbortReplication(indexName,
 		shardName, requestID string) interface{}
 }
 
@@ -84,14 +84,14 @@ func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, index
 	return rri.repo.ReplicateReferences(ctx, indexName, shardName, requestID, refs)
 }
 
-func (rri *RemoteReplicaIncoming) CommitReplication(ctx context.Context, indexName,
+func (rri *RemoteReplicaIncoming) CommitReplication(indexName,
 	shardName, requestID string,
 ) interface{} {
-	return rri.repo.CommitReplication(ctx, indexName, shardName, requestID)
+	return rri.repo.CommitReplication(indexName, shardName, requestID)
 }
 
-func (rri *RemoteReplicaIncoming) AbortReplication(ctx context.Context, indexName,
+func (rri *RemoteReplicaIncoming) AbortReplication(indexName,
 	shardName, requestID string,
 ) interface{} {
-	return rri.repo.AbortReplication(ctx, indexName, shardName, requestID)
+	return rri.repo.AbortReplication(indexName, shardName, requestID)
 }

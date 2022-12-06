@@ -40,9 +40,9 @@ type Replicator interface {
 		docIDs []uint64, dryRun bool) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, shard, requestID string,
 		refs []objects.BatchReference) replica.SimpleResponse
-	CommitReplication(ctx context.Context, shard,
+	CommitReplication(shard,
 		requestID string) interface{}
-	AbortReplication(ctx context.Context, shardName,
+	AbortReplication(shardName,
 		requestID string) interface{}
 }
 
@@ -112,7 +112,7 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 	return index.ReplicateReferences(ctx, shard, requestID, refs)
 }
 
-func (db *DB) CommitReplication(ctx context.Context, class,
+func (db *DB) CommitReplication(class,
 	shard, requestID string,
 ) interface{} {
 	index, pr := db.replicatedIndex(class)
@@ -120,10 +120,10 @@ func (db *DB) CommitReplication(ctx context.Context, class,
 		return nil
 	}
 
-	return index.CommitReplication(ctx, shard, requestID)
+	return index.CommitReplication(shard, requestID)
 }
 
-func (db *DB) AbortReplication(ctx context.Context, class,
+func (db *DB) AbortReplication(class,
 	shard, requestID string,
 ) interface{} {
 	index, pr := db.replicatedIndex(class)
@@ -131,7 +131,7 @@ func (db *DB) AbortReplication(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.AbortReplication(ctx, shard, requestID)
+	return index.AbortReplication(shard, requestID)
 }
 
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
@@ -206,22 +206,22 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 	return localShard.prepareAddReferences(ctx, requestID, refs)
 }
 
-func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) interface{} {
+func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	localShard, ok := i.Shards[shard]
 	if !ok {
 		return nil
 	}
-	return localShard.commit(ctx, requestID, &i.backupStateLock)
+	return localShard.commit(context.Background(), requestID, &i.backupStateLock)
 }
 
-func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) interface{} {
+func (i *Index) AbortReplication(shard, requestID string) interface{} {
 	localShard, ok := i.Shards[shard]
 	if !ok {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard},
 		}}
 	}
-	return localShard.abort(ctx, requestID)
+	return localShard.abort(context.Background(), requestID)
 }
 
 func (i *Index) IncomingFilePutter(ctx context.Context, shardName,

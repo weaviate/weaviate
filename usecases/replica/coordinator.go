@@ -121,7 +121,7 @@ func (c *coordinator[T]) Replicate(ctx context.Context, ask readyOp, com commitO
 	if err := c.broadcast(ctx, c.nodes, ask); err != nil {
 		return fmt.Errorf("broadcast: %w", err)
 	}
-	if err := c.commitAll(ctx, c.nodes, com); err != nil {
+	if err := c.commitAll(context.Background(), c.nodes, com); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
 	return nil

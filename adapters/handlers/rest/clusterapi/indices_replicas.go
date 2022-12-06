@@ -39,9 +39,9 @@ type replicator interface {
 		requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
 		requestID string, refs []objects.BatchReference) replica.SimpleResponse
-	CommitReplication(ctx context.Context, indexName,
+	CommitReplication(indexName,
 		shardName, requestID string) interface{}
-	AbortReplication(ctx context.Context, indexName,
+	AbortReplication(indexName,
 		shardName, requestID string) interface{}
 }
 
@@ -159,9 +159,9 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 
 		switch cmd {
 		case "commit":
-			resp = i.shards.CommitReplication(r.Context(), index, shard, requestID)
+			resp = i.shards.CommitReplication(index, shard, requestID)
 		case "abort":
-			resp = i.shards.AbortReplication(r.Context(), index, shard, requestID)
+			resp = i.shards.AbortReplication(index, shard, requestID)
 		default:
 			http.Error(w, fmt.Sprintf("unrecognized command: %s", cmd), http.StatusNotImplemented)
 			return
