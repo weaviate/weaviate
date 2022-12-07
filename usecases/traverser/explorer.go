@@ -395,7 +395,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 	}
 	fused := FusionReciprocal(weights, results)
 	if params.HybridSearch.Limit == 0 {
-		params.HybridSearch.Limit = 1000 // FIXME use global limit config, whereever it is
+		params.HybridSearch.Limit = 1000 // FIXME use global limit config, where 	ever it is
 	}
 	if len(fused) > params.HybridSearch.Limit {
 		fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
