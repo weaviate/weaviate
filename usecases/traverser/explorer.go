@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -256,6 +257,11 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	}
 
 	sort.Slice(concatenatedResults, func(i, j int) bool {
+		a := float64(concatenatedResults[j].Score)
+		b := float64(concatenatedResults[i].Score)
+		if (a-b)*(a-b) < 0.00001 {
+			return concatenatedResults[i].Secondary_score > concatenatedResults[j].Secondary_score
+		}
 		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)
 	})
 	return concatenatedResults
@@ -282,6 +288,11 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		if params.HybridSearch.Query != "" {
 			// Simple unified interface
 
+			params.KeywordRanking = &searchparams.KeywordRanking{
+				Query: params.HybridSearch.Query,
+
+				Type:  "bm25",
+			}
 			// Result 1 is the bm25 "sparse" search
 			res1, err := e.search.ClassSearch(ctx, params)
 			if err != nil {
@@ -290,6 +301,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 			// Set the scoreexplain property to bm25 for every result
 			for i := range res1 {
+				res1[i].Secondary_score = res1[i].Score
 				res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 			}
 
@@ -319,10 +331,11 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 				// Set the scoreexplain property to vector for every result
 				for i := range res2 {
+					res2[i].Secondary_score = 1-res2[i].Dist
 					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
 				}
 
-				alpha := params.HybridSearch.Alpha
+				alpha := 1-params.HybridSearch.Alpha
 				results = append(results, res1, res2)
 				weights = append(weights, alpha, 1-alpha)
 
@@ -350,6 +363,9 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					// Set the scoreexplain property to bm25 for every result
 					for i := range res1 {
+						scStr := res1[i].AdditionalProperties["score"].(string)
+						sc,_ := strconv.ParseFloat(scStr, 64)
+						res1[i].Score = float32(sc)
 						res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 					}
 
