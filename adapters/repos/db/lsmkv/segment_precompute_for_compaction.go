@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/sirupsen/logrus"
 	"github.com/willf/bloom"
 )
 
@@ -27,7 +28,9 @@ import (
 // result this can be run without the need to obtain any locks. All files
 // created will have a .tmp suffix so they don't interfere with existing
 // segments that might have a similar name.
-func preComputeSegmentMeta(path string, updatedCountNetAdditions int) ([]string, error) {
+func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
+	logger logrus.FieldLogger,
+) ([]string, error) {
 	out := []string{path}
 
 	if !strings.HasSuffix(path, ".tmp") {
@@ -85,6 +88,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int) ([]string,
 		dataStartPos:        SegmentHeaderSize, // fixed value that's the same for all strategies
 		dataEndPos:          header.indexStart,
 		index:               primaryDiskIndex,
+		logger:              logger,
 	}
 
 	if ind.secondaryIndexCount > 0 {
