@@ -214,7 +214,6 @@ func TestBM25FJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("bm25f non alphanums", func(t *testing.T) {
-		fmt.Printf("Results: %+v", res[0])
 		require.Equal(t, uint64(7), res[0].DocID())
 	})
 }
