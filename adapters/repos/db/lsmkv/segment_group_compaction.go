@@ -197,7 +197,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		sg.segments[old2].countNetAdditions
 	sg.maintenanceLock.RUnlock()
 
-	precomputedFiles, err := preComputeSegmentMeta(newPathTmp, updatedCountNetAdditions)
+	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
+		updatedCountNetAdditions, sg.logger)
 	if err != nil {
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
