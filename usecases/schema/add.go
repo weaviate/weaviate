@@ -101,6 +101,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	out := m.migrator.AddClass(ctx, class, shardingState)
 	return out
 }
+
 func (m *Manager) addClass(ctx context.Context, class *models.Class,
 ) error {
 	m.Lock()
@@ -124,8 +125,6 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	if err != nil {
 		return err
 	}
-
-
 
 	err = m.invertedConfigValidator(class.InvertedIndexConfig)
 	if err != nil {

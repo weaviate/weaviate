@@ -81,7 +81,7 @@ type nodeResolver interface {
 // the shards that are local to a node
 func NewIndex(ctx context.Context, config IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
-	vectorIndexUserConfig schema.VectorIndexConfig,  sg schemaUC.SchemaGetter,
+	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,

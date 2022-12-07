@@ -49,9 +49,6 @@ func (d *DB) init(ctx context.Context) error {
 				}
 			}
 
-
-	
-
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),
 				RootPath:                  d.config.RootPath,

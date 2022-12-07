@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-
 	"time"
 
 	"github.com/pkg/errors"
@@ -34,8 +33,6 @@ type Migrator struct {
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State,
 ) error {
-
-
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                 schema.ClassName(class.Class),

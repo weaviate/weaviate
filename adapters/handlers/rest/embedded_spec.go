@@ -3351,7 +3351,6 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
-
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
@@ -7337,7 +7336,6 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
-
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
         },
@@ -7686,7 +7684,6 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
-
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate",
       "type": "object",
