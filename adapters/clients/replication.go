@@ -161,7 +161,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 		return fmt.Errorf("create http request: %w", err)
 	}
 
-	return c.do(c.timeoutUnit*60, req, &resp)
+	return c.do(c.timeoutUnit*64, req, &resp)
 }
 
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
@@ -242,8 +242,8 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp in
 			if err == nil || !shouldRetry {
 				return err
 			}
-			if delay = backOff(delay); delay >= maxBackOff {
-				return err
+			if delay = backOff(delay); delay > maxBackOff {
+				delay = maxBackOff
 			}
 		}
 	}
