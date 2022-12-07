@@ -41,6 +41,11 @@ func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object
 	return helper.GetObject(t, class, id)
 }
 
+func getObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodename string) (*models.Object, error) {
+	helper.SetupClient(host)
+	return helper.GetObjectFromNode(t, class, id, nodename)
+}
+
 func patchObject(t *testing.T, host string, patch *models.Object) {
 	helper.SetupClient(host)
 	helper.PatchObject(t, patch)

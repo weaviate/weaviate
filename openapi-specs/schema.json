@@ -1558,6 +1558,20 @@
       "required": false,
       "type": "string"
     },
+    "CommonConsistencyLevelParameterQuery": {
+      "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+      "in": "query",
+      "name": "consistency_level",
+      "required": false,
+      "type": "string"
+    },
+    "CommonNodeNameParameterQuery": {
+      "description": "The target node which should fulfill the request",
+      "in": "query",
+      "name": "node_name",
+      "required": false,
+      "type": "string"
+    },
     "CommonSortParameterQuery": {
       "description": "Sort parameter to pass an information about the names of the sort fields",
       "in": "query",
@@ -2078,6 +2092,12 @@
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonNodeNameParameterQuery"
           }
         ],
         "responses": {

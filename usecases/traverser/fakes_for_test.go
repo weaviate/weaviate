@@ -117,6 +117,7 @@ func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 func (f *fakeVectorSearcher) Object(ctx context.Context,
 	className string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
+	_ *additional.ReplicationProperties,
 ) (*search.Result, error) {
 	args := f.Called(className, id)
 	return args.Get(0).(*search.Result), args.Error(1)
@@ -147,6 +148,7 @@ func (f *fakeVectorRepo) ObjectsByID(ctx context.Context, id strfmt.UUID,
 
 func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
+	repl *additional.ReplicationProperties,
 ) (*search.Result, error) {
 	return nil, nil
 }

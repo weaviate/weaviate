@@ -30,7 +30,9 @@ type ObjectsClassGetURL struct {
 	ClassName string
 	ID        strfmt.UUID
 
-	Include *string
+	ConsistencyLevel *string
+	Include          *string
+	NodeName         *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -80,12 +82,28 @@ func (o *ObjectsClassGetURL) Build() (*url.URL, error) {
 
 	qs := make(url.Values)
 
+	var consistencyLevelQ string
+	if o.ConsistencyLevel != nil {
+		consistencyLevelQ = *o.ConsistencyLevel
+	}
+	if consistencyLevelQ != "" {
+		qs.Set("consistency_level", consistencyLevelQ)
+	}
+
 	var includeQ string
 	if o.Include != nil {
 		includeQ = *o.Include
 	}
 	if includeQ != "" {
 		qs.Set("include", includeQ)
+	}
+
+	var nodeNameQ string
+	if o.NodeName != nil {
+		nodeNameQ = *o.NodeName
+	}
+	if nodeNameQ != "" {
+		qs.Set("node_name", nodeNameQ)
 	}
 
 	_result.RawQuery = qs.Encode()

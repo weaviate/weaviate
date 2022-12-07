@@ -23,6 +23,18 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+type fakeRClient struct {
+	mock.Mock
+}
+
+func (f *fakeRClient) GetObject(ctx context.Context, host, index, shard string,
+	id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (*storobj.Object, error) {
+	args := f.Called(ctx, host, index, shard, id, props, additional)
+	return args.Get(0).(*storobj.Object), args.Error(1)
+}
+
 type fakeClient struct {
 	mock.Mock
 }

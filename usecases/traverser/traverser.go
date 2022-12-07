@@ -52,7 +52,8 @@ type VectorSearcher interface {
 		offset, limit int, filters *filters.LocalFilter) ([]search.Result, error)
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
-		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+		props search.SelectProperties, additional additional.Properties,
+		properties *additional.ReplicationProperties) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
