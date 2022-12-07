@@ -13,11 +13,8 @@ package replica
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -36,7 +33,7 @@ type Replicator struct {
 	stateGetter shardingState
 	client      Client
 	resolver    nodeResolver
-	finder      *Finder
+	*Finder
 }
 
 func NewReplicator(className string,
@@ -48,34 +45,8 @@ func NewReplicator(className string,
 		stateGetter: stateGetter,
 		client:      client,
 		resolver:    nodeResolver,
-		finder:      NewFinder(className, stateGetter, nodeResolver, rClient),
+		Finder:      NewFinder(className, stateGetter, nodeResolver, rClient),
 	}
-}
-
-func (r *Replicator) GetObject(ctx context.Context, shard string, id strfmt.UUID,
-	search search.SelectProperties, addl additional.Properties,
-	props *additional.ReplicationProperties,
-) (*storobj.Object, error) {
-	if props == nil {
-		props = &additional.ReplicationProperties{}
-	}
-
-	if props.NodeName != "" {
-		obj, err := r.finder.NodeObject(ctx, props.NodeName, shard, id, search, addl)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed to get object %q on shard %q: %w",
-				id, shard, err)
-		}
-		return obj, err
-	}
-
-	if props.ConsistencyLevel == "" {
-		props.ConsistencyLevel = string(All)
-	}
-
-	return r.finder.FindOne(ctx, ConsistencyLevel(props.ConsistencyLevel),
-		shard, id, search, addl)
 }
 
 func (r *Replicator) PutObject(ctx context.Context, shard string,
@@ -203,7 +174,7 @@ func (r *rFinder) FindReplicas(shardName string) []string {
 	for _, node := range shard.BelongsToNodes {
 		host, ok := r.resolver.NodeHostname(node)
 		if !ok || host == "" {
-			continue
+			return nil
 		}
 		replicas = append(replicas, host)
 	}

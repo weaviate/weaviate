@@ -667,6 +667,10 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 }
 
 func getReplicationParams(params objects.ObjectsClassGetParams) (*additional.ReplicationProperties, error) {
+	if params.NodeName == nil && params.ConsistencyLevel == nil {
+		return nil, nil
+	}
+
 	repl := additional.ReplicationProperties{}
 	if params.NodeName != nil {
 		repl.NodeName = *params.NodeName
@@ -675,10 +679,15 @@ func getReplicationParams(params objects.ObjectsClassGetParams) (*additional.Rep
 	if maybe := params.ConsistencyLevel; maybe != nil {
 		switch replica.ConsistencyLevel(*maybe) {
 		case replica.One, replica.Quorum, replica.All:
+			repl.ConsistencyLevel = *maybe
 		default:
 			return nil, fmt.Errorf("unreckognized consistency level %q, "+
 				"try one of the following: ['ONE', 'QUORUM', 'ALL']", *maybe)
 		}
+	}
+
+	if repl.ConsistencyLevel != "" && repl.NodeName != "" {
+		return nil, fmt.Errorf("consistency_level and node_name are mutually exclusive")
 	}
 
 	return &repl, nil

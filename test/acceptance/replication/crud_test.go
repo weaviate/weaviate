@@ -106,8 +106,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("restart node 1", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviate().Name())
-			require.Nil(t, err)
+			restartNode1(ctx, t, compose)
 		})
 	})
 
@@ -192,8 +191,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("restart node 1", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviate().Name())
-			require.Nil(t, err)
+			restartNode1(ctx, t, compose)
 		})
 	})
 
@@ -247,8 +245,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("restart node 1", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviate().Name())
-			require.Nil(t, err)
+			restartNode1(ctx, t, compose)
 		})
 	})
 
@@ -346,8 +343,7 @@ func eventualReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("restart node 1", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviate().Name())
-		require.Nil(t, err)
+		restartNode1(ctx, t, compose)
 	})
 
 	t.Run("assert any future writes are replicated", func(t *testing.T) {
@@ -401,8 +397,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("restart node 1", func(t *testing.T) {
-				err = compose.Start(ctx, compose.GetWeaviate().Name())
-				require.Nil(t, err)
+				restartNode1(ctx, t, compose)
 			})
 		})
 
@@ -428,4 +423,12 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 		})
 	})
+}
+
+func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
+	// since node1 is the gossip "leader", node 2 must be stopped and restarted
+	// after node1 to re-facilitate internode communication
+	require.Nil(t, compose.Stop(ctx, compose.GetWeaviateNode2().Name(), nil))
+	require.Nil(t, compose.Start(ctx, compose.GetWeaviate().Name()))
+	require.Nil(t, compose.Start(ctx, compose.GetWeaviateNode2().Name()))
 }

@@ -575,34 +575,31 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return nil, err
 	}
 
-	var (
-		obj   *storobj.Object
-		local = i.getSchema.
-			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
-	)
+	var obj *storobj.Object
 
-	if local {
-		if i.replicationEnabled() {
-			obj, err = i.replicator.GetObject(ctx, shardName, id, props, additional, replProps)
-			if err != nil {
-				return nil, fmt.Errorf("fetch object %q from replicas: %w", id, err)
-			}
+	if i.replicationEnabled() && replProps != nil {
+		if replProps.NodeName != "" {
+			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, additional)
+		} else if replProps.ConsistencyLevel != "" {
+			obj, err = i.replicator.FindOne(ctx,
+				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, additional)
 		} else {
-			shard := i.Shards[shardName]
-			obj, err = shard.objectByID(ctx, id, props, additional)
-			if err != nil {
-				return nil, fmt.Errorf("shard %s: %w", shard.ID(), err)
-			}
+			err = fmt.Errorf("replication properties are inconsistent: %+v", replProps)
+		}
+	} else if i.isLocalShard(shardName) {
+		shard := i.Shards[shardName]
+		obj, err = shard.objectByID(ctx, id, props, additional)
+		if err != nil {
+			err = fmt.Errorf("shard %s: %w", shard.ID(), err)
 		}
 	} else {
 		obj, err = i.remote.GetObject(ctx, shardName, id, props, additional)
 		if err != nil {
-			return nil, fmt.Errorf("get object from remote index: %w", err)
+			err = fmt.Errorf("get object from remote index: %w", err)
 		}
 	}
 
-	return obj, nil
+	return obj, err
 }
 
 func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
