@@ -35,9 +35,8 @@ type Migrator struct {
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State,
 ) error {
-	// FIXME refactor to its own function
 	HybridSearchConfigI := class.HybridSearchConfig
-	var HybridSearchConfig models.HybridSearchConfig
+	HybridSearchConfig := models.HybridSearchConfig{}
 	if HybridSearchConfigI == nil {
 		HybridSearchConfig = models.HybridSearchConfig{
 			Alpha: 0.5,

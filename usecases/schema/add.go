@@ -102,55 +102,6 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	return out
 }
 
-func (m *Manager) doParseHybridSearchConfig(ctx context.Context, class *models.Class) (*models.HybridSearchConfig, error) {
-	var HybridSearchConfig models.HybridSearchConfig
-	if class.HybridSearchConfig != nil {
-		HybridSearchConfigI := class.HybridSearchConfig
-
-		if HybridSearchConfigI == nil {
-			HybridSearchConfig = models.HybridSearchConfig{
-				Alpha: 0.5,
-			}
-		} else {
-			switch HybridSearchConfigI.(type) {
-			case map[string]interface{}:
-				dict := HybridSearchConfigI.(map[string]interface{})
-				AlphaI, ok := dict["alpha"]
-				if ok {
-					AlphaN := AlphaI.(json.Number)
-					Alpha, err := AlphaN.Float64()
-					if err != nil {
-						return nil, errors.Wrap(err, "alpha is not a float")
-					}
-					HybridSearchConfig = models.HybridSearchConfig{
-						Alpha: float32(Alpha),
-					}
-				} else {
-					return nil, fmt.Errorf("alpha is not found in HybridSearchConfig")
-				}
-			case *models.HybridSearchConfig:
-				HybridSearchConfig = *HybridSearchConfigI.(*models.HybridSearchConfig)
-			default:
-				return nil, fmt.Errorf("HybridSearchConfig is not a map[string]interface{} or models.HybridSearchConfig but is instead %T", HybridSearchConfigI)
-			}
-		}
-	} else {
-		HybridSearchConfig = models.HybridSearchConfig{
-			Alpha: 0.5,
-		}
-	}
-	return &HybridSearchConfig, nil
-}
-
-func (m *Manager) parseHybridSearchConfig(ctx context.Context, class *models.Class) error {
-	HybridSearchConfig, err := m.doParseHybridSearchConfig(ctx, class)
-	if err != nil {
-		return err
-	}
-	class.HybridSearchConfig = HybridSearchConfig
-	return nil
-}
-
 func (m *Manager) addClass(ctx context.Context, class *models.Class,
 ) error {
 	m.Lock()
@@ -171,11 +122,6 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	}
 
 	err = m.parseVectorIndexConfig(ctx, class)
-	if err != nil {
-		return err
-	}
-
-	err = m.parseHybridSearchConfig(ctx, class)
 	if err != nil {
 		return err
 	}
@@ -256,9 +202,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 	}
 
 	if class.HybridSearchConfig == nil {
-		class.HybridSearchConfig = &models.HybridSearchConfig{
-			Alpha: 0.5,
-		}
+		class.HybridSearchConfig = &models.HybridSearchConfig{}
 	}
 
 	if class.InvertedIndexConfig.Stopwords == nil {
