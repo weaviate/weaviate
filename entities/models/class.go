@@ -35,9 +35,6 @@ type Class struct {
 	// Description of the class.
 	Description string `json:"description,omitempty"`
 
-	// Config hybrid search parameters
-	HybridSearchConfig interface{} `json:"hybridSearchConfig,omitempty"`
-
 	// inverted index config
 	InvertedIndexConfig *InvertedIndexConfig `json:"invertedIndexConfig,omitempty"`
 

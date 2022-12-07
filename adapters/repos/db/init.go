@@ -49,13 +49,8 @@ func (d *DB) init(ctx context.Context) error {
 				}
 			}
 
-			HybridSearchConfig := class.HybridSearchConfig
 
-			if HybridSearchConfig == nil {
-				HybridSearchConfig = models.HybridSearchConfig{
-					Alpha: config.DefaultAlpha,
-				}
-			}
+	
 
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),
@@ -68,7 +63,6 @@ func (d *DB) init(ctx context.Context) error {
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
-				HybridSearchConfig.(models.HybridSearchConfig),
 
 				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex, d.replicaClient, d.promMetrics)
 			if err != nil {

@@ -377,17 +377,7 @@
       },
       "type": "object"
     },
-    "HybridSearchConfig": {
-      "description": "Configure the hybrid search type",
-      "properties": {
-        "alpha": {
-          "description": "weights one result set over the other",
-          "format": "float",
-          "type": "number"
-        }
-      },
-      "type": "object"
-    },
+
     "StopwordConfig": {
       "description": "fine-grained control over stopword list usage",
       "properties": {
@@ -596,10 +586,7 @@
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
-        "hybridSearchConfig": {
-          "description": "Config hybrid search parameters",
-          "type": "object"
-        },
+
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
         },
