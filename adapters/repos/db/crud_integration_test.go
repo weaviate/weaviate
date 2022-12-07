@@ -1299,8 +1299,8 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
-	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("prepare data for test", func(t *testing.T) {
@@ -1459,6 +1459,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("create required schema", func(t *testing.T) {
@@ -1594,8 +1595,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
-	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("create required schema", func(t *testing.T) {

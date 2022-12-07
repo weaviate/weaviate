@@ -236,7 +236,7 @@ type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return in, nil
 }
@@ -255,7 +255,7 @@ type fakeExtender struct {
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
@@ -284,7 +284,7 @@ type fakeProjector struct {
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
@@ -305,7 +305,7 @@ type fakePathBuilder struct {
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.returnArgs, nil
 }

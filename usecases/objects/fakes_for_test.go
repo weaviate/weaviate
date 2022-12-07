@@ -222,7 +222,7 @@ type fakeExtender struct {
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.multi, nil
 }
@@ -241,7 +241,7 @@ type fakeProjector struct {
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.multi, nil
 }
@@ -260,7 +260,7 @@ type fakePathBuilder struct {
 
 func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
-	argumentModuleParams map[string]interface{},
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return f.multi, nil
 }
@@ -332,7 +332,7 @@ func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	for name, value := range moduleParams {
 		additionalPropertyFn := p.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn != nil && value != nil {
-			resArray, err := additionalPropertyFn(ctx, in, nil, nil, nil)
+			resArray, err := additionalPropertyFn(ctx, in, nil, nil, nil, nil)
 			if err != nil {
 				return nil, err
 			}

@@ -19,7 +19,6 @@ github.com/davecgh/go-spew/spew,https://github.com/davecgh/go-spew/blob/master/s
 google.golang.org/genproto/googleapis/rpc/status,Unknown,Apache-2.0
 gopkg.in/yaml.v2,Unknown,Apache-2.0
 github.com/go-openapi/jsonreference,https://github.com/go-openapi/jsonreference/blob/master/LICENSE,Apache-2.0
-github.com/graphql-go/graphql,https://github.com/graphql-go/graphql/blob/master/LICENSE,MIT
 golang.org/x/sys,Unknown,BSD-3-Clause
 github.com/hashicorp/errwrap,https://github.com/hashicorp/errwrap/blob/master/LICENSE,MPL-2.0
 github.com/willf/bitset,https://github.com/willf/bitset/blob/master/LICENSE,BSD-3-Clause
