@@ -218,16 +218,28 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
 	// Concatenate the results
-	concatenatedResults := []search.Result{}
+	mapResults := map[strfmt.UUID]search.Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
+			docId := res.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // FIXME replace 60 with a variable
 
+			//Get previous results from the map, if any
+			previousResult, ok := mapResults[docId]
+			if ok {
+				score = score + float64(previousResult.Score)
+			} 
 			res.AdditionalProperties["rank_score"] = score
 			res.AdditionalProperties["score"] = score
 			res.Score = float32(score)
-			concatenatedResults = append(concatenatedResults, res)
+			mapResults[docId] = res
 		}
+	}
+
+	// Sort the results
+	concatenatedResults := []search.Result{}
+	for _, res := range mapResults {
+		concatenatedResults = append(concatenatedResults, res)
 	}
 
 	sort.Slice(concatenatedResults, func(i, j int) bool {
@@ -383,7 +395,7 @@ func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Resul
 	}
 	fused := FusionReciprocal(weights, results)
 	if params.HybridSearch.Limit == 0 {
-		params.HybridSearch.Limit = 1000 // FIXME make this a class config option
+		params.HybridSearch.Limit = 1000 // FIXME use global limit config, whereever it is
 	}
 	if len(fused) > params.HybridSearch.Limit {
 		fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
