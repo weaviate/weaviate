@@ -33,10 +33,9 @@ image:
 
 ### Chaos-Pipeline
 
-To use this build in a chaos pipeline, change the `WEAVIATE_VERSION` in the `.travis.yml` to  `$TAG_ONLY`, for example, like so:
+To use this build in a chaos pipeline, change the `WEAVIATE_VERSION` in `.github/workflows/tests.yaml` to `$TAG_ONLY`, for example, like so:
 
 ```yaml
 env:
-  matrix:
-    - WEAVIATE_VERSION: $TAG_ONLY
+  WEAVIATE_VERSION: $TAG_ONLY
 ```
