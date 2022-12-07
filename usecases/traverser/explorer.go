@@ -224,11 +224,11 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 			docId := res.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // FIXME replace 60 with a variable
 
-			//Get previous results from the map, if any
+			// Get previous results from the map, if any
 			previousResult, ok := mapResults[docId]
 			if ok {
 				score = score + float64(previousResult.Score)
-			} 
+			}
 			res.AdditionalProperties["rank_score"] = score
 			res.AdditionalProperties["score"] = score
 			res.Score = float32(score)
