@@ -217,28 +217,42 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 }
 
 func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
-	// Concatenate the results
+	//Printf the IDs of the results
+	for i, result := range results {
+		for _, res := range result {
+			fmt.Printf("FusionReciprocal: resultset %v, result: %v\n", i, res.ID)
+		}
+	}
+
+	
 	mapResults := map[strfmt.UUID]search.Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
-			docId := res.ID
+			tempResult:= res
+			docId := tempResult.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // FIXME replace 60 with a variable
 
 			// Get previous results from the map, if any
 			previousResult, ok := mapResults[docId]
 			if ok {
+				
+				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", previousResult.AdditionalProperties["explainScore"], tempResult.ID ,score)
 				score = score + float64(previousResult.Score)
+			} else {
+				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", tempResult.ExplainScore, tempResult.ID ,score)
 			}
-			res.AdditionalProperties["rank_score"] = score
-			res.AdditionalProperties["score"] = score
-			res.Score = float32(score)
-			mapResults[docId] = res
+			tempResult.AdditionalProperties["rank_score"] = score
+			tempResult.AdditionalProperties["score"] = score
+			
+			tempResult.Score = float32(score)
+			mapResults[docId] = tempResult
 		}
 	}
 
 	// Sort the results
 	concatenatedResults := []search.Result{}
 	for _, res := range mapResults {
+		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
 		concatenatedResults = append(concatenatedResults, res)
 	}
 
