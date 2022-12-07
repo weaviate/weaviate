@@ -50,17 +50,19 @@ type Replicator struct {
 	client         Client
 	resolver       nodeResolver
 	requestCounter atomic.Uint64
+	*Finder
 }
 
 func NewReplicator(className string,
 	stateGetter shardingState, nodeResolver nodeResolver,
-	client Client,
+	client Client, rClient RClient,
 ) *Replicator {
 	return &Replicator{
 		class:       className,
 		stateGetter: stateGetter,
 		client:      client,
 		resolver:    nodeResolver,
+		Finder:      NewFinder(className, stateGetter, nodeResolver, rClient),
 	}
 }
 
@@ -192,7 +194,6 @@ func (r *rFinder) FindReplicas(shardName string) []string {
 			return nil
 		}
 		replicas = append(replicas, host)
-
 	}
 	return replicas
 }

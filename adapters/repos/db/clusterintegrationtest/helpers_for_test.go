@@ -309,7 +309,7 @@ func manuallyResolveRef(t *testing.T, obj *models.Object,
 			// find referenced object to get his actual vector from DB
 			require.NotNil(t, repo)
 			res, err := repo.Object(context.Background(), parsed.Class, parsed.TargetID,
-				nil, additional.Properties{Vector: true})
+				nil, additional.Properties{Vector: true}, nil)
 			require.Nil(t, err)
 			require.NotNil(t, res)
 			out[i] = map[string]interface{}{

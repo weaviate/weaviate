@@ -73,7 +73,7 @@ func Test_GetAction(t *testing.T) {
 
 		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{})
+		_, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{}, nil)
 		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
@@ -95,7 +95,8 @@ func Test_GetAction(t *testing.T) {
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{})
+		res, err := manager.GetObject(context.Background(),
+			&models.Principal{}, "", id, additional.Properties{}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -123,7 +124,8 @@ func Test_GetAction(t *testing.T) {
 
 		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "single_include_vector", 3)
 
-		res, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{Vector: true})
+		res, err := manager.GetObject(context.Background(),
+			&models.Principal{}, "", id, additional.Properties{Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -153,7 +155,7 @@ func Test_GetAction(t *testing.T) {
 		metrics.On("AddUsageDimensions", "ActionClass", "get_rest", "single_include_vector", 3)
 
 		res, err := manager.GetObject(context.Background(), &models.Principal{},
-			"ActionClass", id, additional.Properties{Vector: true})
+			"ActionClass", id, additional.Properties{Vector: true}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -292,7 +294,7 @@ func Test_GetAction(t *testing.T) {
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
-					})
+					}, nil)
 				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
 			})
 
@@ -311,7 +313,7 @@ func Test_GetAction(t *testing.T) {
 						ModuleParams: map[string]interface{}{
 							"semanticPath": getDefaultParam("semanticPath"),
 						},
-					})
+					}, nil)
 				assert.Equal(t, errors.New("get extend: unknown capability: semanticPath"), err)
 			})
 
@@ -365,7 +367,7 @@ func Test_GetAction(t *testing.T) {
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
 						},
-					})
+					}, nil)
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
 			})
@@ -710,7 +712,8 @@ func Test_GetThing(t *testing.T) {
 
 		vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
 
-		_, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{})
+		_, err := manager.GetObject(context.Background(),
+			&models.Principal{}, "", id, additional.Properties{}, nil)
 		assert.Equal(t, NewErrNotFound("no object with id '99ee9968-22ec-416a-9032-cff80f2f7fdf'"), err)
 	})
 
@@ -732,7 +735,8 @@ func Test_GetThing(t *testing.T) {
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		res, err := manager.GetObject(context.Background(), &models.Principal{}, "", id, additional.Properties{})
+		res, err := manager.GetObject(context.Background(),
+			&models.Principal{}, "", id, additional.Properties{}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -782,7 +786,7 @@ func Test_GetThing(t *testing.T) {
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
 						},
-					})
+					}, nil)
 				assert.Equal(t, errors.New("get extend: unknown capability: featureProjection"), err)
 			})
 
@@ -836,7 +840,7 @@ func Test_GetThing(t *testing.T) {
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
 						},
-					})
+					}, nil)
 				require.Nil(t, err)
 				assert.Equal(t, expected, res)
 			})
@@ -981,7 +985,7 @@ func Test_GetObject(t *testing.T) {
 	t.Run("without projection", func(t *testing.T) {
 		m := newFakeGetManager(schema)
 		m.repo.On("Object", className, id, mock.Anything, mock.Anything).Return((*search.Result)(nil), nil).Once()
-		_, err := m.GetObject(context.Background(), &principal, className, id, adds)
+		_, err := m.GetObject(context.Background(), &principal, className, id, adds, nil)
 		if err == nil {
 			t.Errorf("GetObject() must return an error for non existing object")
 		}
@@ -994,7 +998,7 @@ func Test_GetObject(t *testing.T) {
 			VectorWeights: (map[string]string)(nil),
 		}
 
-		got, err := m.GetObject(context.Background(), &principal, className, id, adds)
+		got, err := m.GetObject(context.Background(), &principal, className, id, adds, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, got)
 	})
@@ -1024,7 +1028,7 @@ func Test_GetObject(t *testing.T) {
 				ModuleParams: map[string]interface{}{
 					"Unknown": getDefaultParam("Unknown"),
 				},
-			})
+			}, nil)
 		if err == nil {
 			t.Errorf("GetObject() must return unknown feature projection error")
 		}
@@ -1052,7 +1056,7 @@ func Test_GetObject(t *testing.T) {
 				ModuleParams: map[string]interface{}{
 					"nearestNeighbors": true,
 				},
-			})
+			}, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})

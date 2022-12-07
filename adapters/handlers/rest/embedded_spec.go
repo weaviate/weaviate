@@ -1093,6 +1093,12 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonNodeNameParameterQuery"
           }
         ],
         "responses": {
@@ -4097,6 +4103,12 @@ func init() {
       "name": "class",
       "in": "query"
     },
+    "CommonConsistencyLevelParameterQuery": {
+      "type": "string",
+      "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+      "name": "consistency_level",
+      "in": "query"
+    },
     "CommonIncludeParameterQuery": {
       "type": "string",
       "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
@@ -4108,6 +4120,12 @@ func init() {
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
+      "in": "query"
+    },
+    "CommonNodeNameParameterQuery": {
+      "type": "string",
+      "description": "The target node which should fulfill the request",
+      "name": "node_name",
       "in": "query"
     },
     "CommonOffsetParameterQuery": {
@@ -5263,6 +5281,18 @@ func init() {
             "type": "string",
             "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
             "name": "include",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The target node which should fulfill the request",
+            "name": "node_name",
             "in": "query"
           }
         ],
@@ -8457,6 +8487,12 @@ func init() {
       "name": "class",
       "in": "query"
     },
+    "CommonConsistencyLevelParameterQuery": {
+      "type": "string",
+      "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+      "name": "consistency_level",
+      "in": "query"
+    },
     "CommonIncludeParameterQuery": {
       "type": "string",
       "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
@@ -8468,6 +8504,12 @@ func init() {
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
+      "in": "query"
+    },
+    "CommonNodeNameParameterQuery": {
+      "type": "string",
+      "description": "The target node which should fulfill the request",
+      "name": "node_name",
       "in": "query"
     },
     "CommonOffsetParameterQuery": {
