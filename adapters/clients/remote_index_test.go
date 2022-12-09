@@ -14,8 +14,10 @@ package clients
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -191,6 +193,47 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 		st, err := client.GetShardStatus(ctx, fs.host, "C1", "S1")
 		assert.Nil(t, err)
 		assert.Equal(t, "READONLY", st)
+	})
+}
+
+func TestRemoteIndexPutFile(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx  = context.Background()
+		path = "/indices/C1/shards/S1/files/file1"
+		fs   = newFakeRemoteIndexServer(t, http.MethodPost, path)
+	)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	rsc := struct {
+		*strings.Reader
+		io.Closer
+	}{
+		strings.NewReader("hello, world"),
+		io.NopCloser(nil),
+	}
+	t.Run("ConnectionError", func(t *testing.T) {
+		err := client.PutFile(ctx, "", "C1", "S1", "file1", rsc)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "connect")
+	})
+	n := 0
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		if n == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+		} else if n == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+		} else {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		n++
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		err := client.PutFile(ctx, fs.host, "C1", "S1", "file1", rsc)
+		assert.Nil(t, err)
 	})
 }
 
