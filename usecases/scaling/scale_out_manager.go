@@ -301,7 +301,7 @@ func (som *ScaleOutManager) ReinitShard(ctx context.Context,
 
 type nodeClient interface {
 	PutFile(ctx context.Context, hostName, indexName,
-		shardName, fileName string, payload io.ReadCloser) error
+		shardName, fileName string, payload io.ReadSeekCloser) error
 	CreateShard(ctx context.Context,
 		hostName, indexName, shardName string) error
 	ReinitShard(ctx context.Context,

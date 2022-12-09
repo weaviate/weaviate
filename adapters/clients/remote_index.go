@@ -610,7 +610,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
-	//TODO improve path
+	// TODO improve path
 
 	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
 	method := http.MethodGet
@@ -660,7 +660,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 	if err != nil {
 		return errors.Wrap(err, "marshal request payload")
 	}
-	//TODO improve path
+	// TODO improve path
 	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -703,7 +703,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
-	shardName, fileName string, payload io.ReadCloser,
+	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
 	defer payload.Close()
 	path := fmt.Sprintf("/indices/%s/shards/%s/files/%s",
@@ -711,14 +711,12 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(), payload)
-	if err != nil {
-		return fmt.Errorf("create http request: %w", err)
-	}
-
-	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 	try := func(ctx context.Context) (bool, error) {
+		req, err := http.NewRequestWithContext(ctx, method, url.String(), payload)
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -726,8 +724,11 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusNoContent {
-			// TODO: make request retryable before activating the line below
-			shouldRetry := false //(code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			if shouldRetry {
+				_, err := payload.Seek(0, 0)
+				shouldRetry = (err == nil)
+			}
 			body, _ := io.ReadAll(res.Body)
 			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
 		}
@@ -770,7 +771,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 func (c *RemoteIndex) ReinitShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
-	//TODO improve path
+	// TODO improve path
 
 	path := fmt.Sprintf("/indices/%s/shards/%s/_reinit", indexName, shardName)
 

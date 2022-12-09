@@ -86,7 +86,7 @@ type RemoteIndexClient interface {
 		targetStatus string) error
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
-		payload io.ReadCloser) error
+		payload io.ReadSeekCloser) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
