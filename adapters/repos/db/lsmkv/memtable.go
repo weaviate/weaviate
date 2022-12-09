@@ -32,6 +32,7 @@ type Memtable struct {
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
 	lastWrite          time.Time
+	createdAt          time.Time
 	metrics            *memtableMetrics
 }
 
@@ -53,6 +54,7 @@ func newMemtable(path string, strategy string,
 		strategy:         strategy,
 		secondaryIndices: secondaryIndices,
 		lastWrite:        time.Now(),
+		createdAt:        time.Now(),
 		metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 	}
 
@@ -316,6 +318,13 @@ func (l *Memtable) Size() uint64 {
 	defer l.RUnlock()
 
 	return l.size
+}
+
+func (l *Memtable) ActiveDuration() time.Duration {
+	l.RLock()
+	defer l.RUnlock()
+
+	return time.Since(l.createdAt)
 }
 
 func (l *Memtable) IdleDuration() time.Duration {

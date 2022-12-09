@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package lsmkv
 
 import (
@@ -97,4 +108,12 @@ func TestMemtableSizeAdvisor_NextTarget(t *testing.T) {
 	target, changed := a.NextTarget(10*1024*1024, 17*time.Second)
 	assert.False(t, changed)
 	assert.Equal(t, 10*1024*1024, target)
+}
+
+func TestMemtableSizeAdvisor_MissingConfig(t *testing.T) {
+	// even with an all-default value config the advisor should still return
+	// reasonable results, for example many integration tests might not provide a
+	// reasonable config to the advisor
+	a := newMemtableSizeAdvisor(memtableSizeAdvisorCfg{})
+	assert.Equal(t, 10485760, a.Initial())
 }

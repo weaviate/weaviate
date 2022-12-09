@@ -246,8 +246,13 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	FlushIdleAfter            int
-	TrackVectorDimensions     bool
+	MemtablesFlushIdleAfter   int
+	MemtablesInitialSizeMB    int
+	MemtablesMaxSizeMB        int
+	MemtablesMinActiveSeconds int
+	MemtablesMaxActiveSeconds int
+
+	TrackVectorDimensions bool
 }
 
 func indexID(class schema.ClassName) string {

@@ -166,7 +166,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	repo := db.New(appState.Logger, db.Config{
 		ServerVersion:                    config.ServerVersion,
 		GitHash:                          config.GitHash,
-		FlushIdleAfter:                   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesFlushIdleAfter:          appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesInitialSizeMB:           10,
+		MemtablesMaxSizeMB:               appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
+		MemtablesMinActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
+		MemtablesMaxActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		RootPath:                         appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                       appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:              appState.ServerConfig.Config.QueryMaximumResults,
