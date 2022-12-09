@@ -33,6 +33,9 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 ) ([]string, error) {
 	out := []string{path}
 
+	// as a guardrail validate that the segment is considered a .tmp segment.
+	// This way we can be sure that we're not accidentally operating on a live
+	// segment as the segment group completely ignores .tmp segment files
 	if !strings.HasSuffix(path, ".tmp") {
 		return nil, fmt.Errorf("pre computing a segment expects a .tmp segment path")
 	}
