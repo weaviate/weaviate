@@ -55,7 +55,7 @@ func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	}
 }
 
-func TestEnvironmentSetFlushAfter(t *testing.T) {
+func TestEnvironmentSetFlushAfter_BackwardCompatibility(t *testing.T) {
 	factors := []struct {
 		name        string
 		flushAfter  []string
@@ -81,6 +81,143 @@ func TestEnvironmentSetFlushAfter(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.Persistence.FlushIdleMemtablesAfter)
+			}
+		})
+	}
+}
+
+func TestEnvironmentSetFlushAfter_NewName(t *testing.T) {
+	factors := []struct {
+		name        string
+		flushAfter  []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"1"}, 1, false},
+		{"not given", []string{}, DefaultPersistenceFlushIdleMemtablesAfter, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"zero factor", []string{"0"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.flushAfter) == 1 {
+				os.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", tt.flushAfter[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.FlushIdleMemtablesAfter)
+			}
+		})
+	}
+}
+
+func TestEnvironmentFlushConflictingValues(t *testing.T) {
+	// if both the old and new variable names are used the new variable name
+	// should be taken into consideration
+	os.Clearenv()
+	os.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", "16")
+	os.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "17")
+	conf := Config{}
+	err := FromEnv(&conf)
+	require.Nil(t, err)
+
+	assert.Equal(t, 17, conf.Persistence.FlushIdleMemtablesAfter)
+}
+
+func TestEnvironmentMemtable_MaxSize(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"100"}, 100, false},
+		{"not given", []string{}, DefaultPersistenceMemtablesMaxSize, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"zero factor", []string{"0"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("PERSISTENCE_MEMTABLES_MAX_SIZE_MB", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.MemtablesMaxSizeMB)
+			}
+		})
+	}
+}
+
+func TestEnvironmentMemtable_MinDuration(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"100"}, 100, false},
+		{"not given", []string{}, DefaultPersistenceMemtablesMinDuration, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"zero factor", []string{"0"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.MemtablesMinActiveDurationSeconds)
+			}
+		})
+	}
+}
+
+func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"100"}, 100, false},
+		{"not given", []string{}, DefaultPersistenceMemtablesMaxDuration, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"zero factor", []string{"0"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.MemtablesMaxActiveDurationSeconds)
 			}
 		})
 	}
