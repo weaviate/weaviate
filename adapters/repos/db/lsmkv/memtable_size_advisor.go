@@ -1,6 +1,21 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package lsmkv
 
 import "time"
+
+// if not enough config is provided we can fall back to this reasonable default
+// value
+const reasonableMemtableDefault = 10 * 1024 * 1024
 
 type memtableSizeAdvisorCfg struct {
 	initial     int
@@ -11,22 +26,39 @@ type memtableSizeAdvisorCfg struct {
 }
 
 type memtableSizeAdvisor struct {
-	cfg memtableSizeAdvisorCfg
+	cfg    memtableSizeAdvisorCfg
+	active bool
 }
 
 func newMemtableSizeAdvisor(cfg memtableSizeAdvisorCfg) *memtableSizeAdvisor {
-	return &memtableSizeAdvisor{
+	a := &memtableSizeAdvisor{
 		cfg: cfg,
 	}
+
+	// only activate if initial size, step size, max size, and max duration are
+	// given
+	if a.cfg.maxSize > 0 && a.cfg.initial > 0 && a.cfg.stepSize > 0 && a.cfg.maxDuration > 0 {
+		a.active = true
+	}
+
+	return a
 }
 
 func (m memtableSizeAdvisor) Initial() int {
-	return m.cfg.initial
+	if m.active {
+		return m.cfg.initial
+	} else {
+		return reasonableMemtableDefault
+	}
 }
 
 func (m memtableSizeAdvisor) NextTarget(previousTarget int,
 	timeSinceFlush time.Duration,
 ) (int, bool) {
+	if !m.active {
+		return reasonableMemtableDefault, false
+	}
+
 	if timeSinceFlush < m.cfg.minDuration {
 		next := min(previousTarget+m.cfg.stepSize, m.cfg.maxSize)
 		return next, next != previousTarget

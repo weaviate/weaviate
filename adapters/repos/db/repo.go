@@ -98,7 +98,11 @@ type Config struct {
 	QueryMaximumResults              int64
 	ResourceUsage                    config.ResourceUsage
 	MaxImportGoroutinesFactor        float64
-	FlushIdleAfter                   int
+	MemtablesFlushIdleAfter          int
+	MemtablesInitialSizeMB           int
+	MemtablesMaxSizeMB               int
+	MemtablesMinActiveSeconds        int
+	MemtablesMaxActiveSeconds        int
 	TrackVectorDimensions            bool
 	ReindexVectorDimensionsAtStartup bool
 	ServerVersion                    string
