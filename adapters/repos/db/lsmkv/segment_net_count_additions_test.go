@@ -33,6 +33,7 @@ func TestCreateCNAOnFlush(t *testing.T) {
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable(ctx))
@@ -54,6 +55,7 @@ func TestCreateCNAInit(t *testing.T) {
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable(ctx))
@@ -74,8 +76,9 @@ func TestCreateCNAInit(t *testing.T) {
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
-	_, err = NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
 
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -93,6 +96,7 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable(ctx))
@@ -109,6 +113,7 @@ func TestRepairCorruptedCNAOnInit(t *testing.T) {
 	// init, and the count matches
 	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
 
 	assert.Equal(t, 1, b2.Count())
 }
