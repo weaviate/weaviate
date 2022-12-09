@@ -610,9 +610,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
-	// TODO improve path
-
-	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -660,8 +658,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 	if err != nil {
 		return errors.Wrap(err, "marshal request payload")
 	}
-	// TODO improve path
-	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -685,17 +682,6 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
 		}
 
-		// TODO: remove it since we are not using the content in any way.
-		// Change server to code
-		// _, err = io.ReadAll(res.Body)
-		// if err != nil {
-		// 	return false, fmt.Errorf("read body: %w", err)
-		// }
-
-		// ct, ok := clusterapi.IndicesPayloads.UpdateShardsStatusResults.CheckContentTypeHeader(res)
-		// if !ok {
-		// 	return false, errors.Errorf("unexpected content type: %s", ct)
-		// }
 		return false, nil
 	}
 
@@ -768,12 +754,10 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 	return c.retry(ctx, 7, try)
 }
 
-func (c *RemoteIndex) ReinitShard(ctx context.Context,
+func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
-	// TODO improve path
-
-	path := fmt.Sprintf("/indices/%s/shards/%s/_reinit", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s:reinit", indexName, shardName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}

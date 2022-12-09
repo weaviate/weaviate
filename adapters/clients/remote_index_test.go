@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 //	_       _
 //
 // __      _____  __ ___   ___  __ _| |_ ___
@@ -60,13 +71,13 @@ func TestRemoteIndexReInitShardIn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	path := "/indices/C1/shards/S1/_reinit"
+	path := "/indices/C1/shards/S1:reinit"
 	fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newRemoteIndex(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
-		err := client.ReinitShard(ctx, "", "C1", "S1")
+		err := client.ReInitShard(ctx, "", "C1", "S1")
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
@@ -82,7 +93,7 @@ func TestRemoteIndexReInitShardIn(t *testing.T) {
 		n++
 	}
 	t.Run("Success", func(t *testing.T) {
-		err := client.ReinitShard(ctx, fs.host, "C1", "S1")
+		err := client.ReInitShard(ctx, fs.host, "C1", "S1")
 		assert.Nil(t, err)
 	})
 }
@@ -122,7 +133,7 @@ func TestRemoteIndexUpdateShardStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	path := "/indices/C1/shards/S1/_status"
+	path := "/indices/C1/shards/S1/status"
 	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
@@ -151,7 +162,7 @@ func TestRemoteIndexShardStatus(t *testing.T) {
 	t.Parallel()
 	var (
 		ctx    = context.Background()
-		path   = "/indices/C1/shards/S1/_status"
+		path   = "/indices/C1/shards/S1/status"
 		fs     = newFakeRemoteIndexServer(t, http.MethodGet, path)
 		Status = "READONLY"
 	)

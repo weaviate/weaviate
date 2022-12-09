@@ -207,7 +207,7 @@ func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, inde
 }
 
 func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, shardName,
-	fileName string, payload io.ReadCloser,
+	fileName string, payload io.ReadSeekCloser,
 ) error {
 	return nil
 }
