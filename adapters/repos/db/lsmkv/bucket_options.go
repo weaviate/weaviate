@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 )
 
@@ -80,7 +79,6 @@ func WithDynamicMemtableSizing(
 			minDuration: time.Duration(minActiveSeconds) * time.Second,
 			maxDuration: time.Duration(maxActiveSeconds) * time.Second,
 		}
-		spew.Dump(cfg)
 		b.memtableResizer = newMemtableSizeAdvisor(cfg)
 		return nil
 	}
