@@ -158,6 +158,22 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		assert.True(t, len(companies) > 0)
 	})
 
+	t.Run("grouping mode set to closest with near text", func(t *testing.T) {
+		query := `
+			{
+				Get {
+					Company(nearText: {concepts: "Apple"}, group: {type: closest, force:1.0}) {
+						name
+					}
+				}
+			}
+			`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		assert.True(t, len(companies) == 1)
+	})
+
 	t.Run("grouping with where filter", func(t *testing.T) {
 		query := `
 			{
