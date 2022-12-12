@@ -30,7 +30,6 @@ func hybridArgument(classObject *graphql.Object,
 			graphql.InputObjectConfig{
 				Name: fmt.Sprintf("%shybridInpObj", prefix),
 				Fields:
-				// hybridFields(prefix),
 				hybridOperands(classObject, class, modulesProvider),
 				Description: "Hybrid search",
 			},

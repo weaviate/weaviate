@@ -13,7 +13,7 @@ package traverser
 
 import (
 
-	"github.com/semi-technologies/weaviate/entities/search"
+
 	"context"
 	"fmt"
 	"net/http"
