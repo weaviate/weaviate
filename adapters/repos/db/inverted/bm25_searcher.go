@@ -202,17 +202,18 @@ func mergeScores(termresults []docPointersWithScore) docPointersWithScore {
 	return results
 }
 
-func (b *BM25Searcher) BM25F(ctx context.Context, limit int,
+func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
-	terms := strings.Split(keywordRanking.Query, " ")
+	terms := helpers.TokenizeText(keywordRanking.Query)
+
 	idLists := make([]docPointersWithScore, len(terms))
 
 	for i, term := range terms {
-		lower_term := strings.ToLower(term)
-		ids, err := b.retrieveForSingleTermMultipleProps(ctx, objectByIndexID, keywordRanking.Properties, lower_term)
+
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, term, keywordRanking.Query)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -283,9 +284,7 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 }
 
 // BM25F search each given property for a single term.  Results will be combined later
-func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, objectByIndexID func(index uint64) *storobj.Object,
-	properties []string, term string,
-) (docPointersWithScore, error) {
+func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, className schema.ClassName, objectByIndexID func(index uint64) *storobj.Object, properties []string, term string, query string) (docPointersWithScore, error) {
 	idss := []docPointersWithScore{}
 
 	searchTerm := term
@@ -299,16 +298,32 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, o
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
 			boost, _ = strconv.Atoi(boostStr)
-			fmt.Printf("Boosting %s by %d\n", property, boost)
 		}
 
-		ids, err := b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
+		var ids docPointersWithScore
+		var err error
+		c, err := schema.GetClassByName(b.schema.Objects, string(className))
+		if err != nil {
+			return docPointersWithScore{}, errors.Wrap(err,
+				"get class by name")
+		}
+		p, err := schema.GetPropertyByName(c, property)
+		if err != nil {
+			return docPointersWithScore{}, errors.Wrap(err,
+				"read property from class")
+		}
+
+		if p.Tokenization == "word" {
+			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
+		} else {
+			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
+		}
 		if err != nil {
 			return docPointersWithScore{}, errors.Wrap(err,
 				"read doc ids and their frequencies from inverted index")
 		}
+
 		for i := range ids.docIDs {
-			fmt.Printf("Boosting %s from %f to %f\n", property, ids.docIDs[i].frequency, ids.docIDs[i].frequency*float64(boost))
 			ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
 		}
 		idss = append(idss, ids)
@@ -318,7 +333,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, o
 	// Merge the results from different properties
 	ids := b.mergeIdss(idss, objectByIndexID, propNames)
 
-	b.scoreBM25F(ids, properties)
+	b.scoreBM25F(ids, propNames)
 	return ids, nil
 }
 

@@ -47,7 +47,8 @@ func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
 	}
 }
 
-func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
+func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
+) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
@@ -62,6 +63,11 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				Name:         "description",
 				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: "word",
+			},
+			{
+				Name:         "stringField",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "field",
 			},
 		},
 	}
@@ -85,6 +91,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	testData = append(testData, map[string]interface{}{"title": "journey journey", "description": "journey journey journey"})
 	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey"})
 	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY"})
+	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(offtopic!!!!"})
 
 	for i, data := range testData {
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -172,12 +179,6 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(5), res[1].DocID())
 		require.Equal(t, uint64(6), res[2].DocID())
 		require.Equal(t, uint64(0), res[3].DocID())
-
-		// Check scores
-		require.Equal(t, float32(0.059571605), res[0].Score())
-		require.Equal(t, float32(0.056116596), res[1].Score())
-		require.Equal(t, float32(0.04963747), res[2].Score())
-		require.Equal(t, float32(0.046090268), res[3].Score())
 	})
 	// Check search with two terms
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
@@ -204,7 +205,16 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(4), res[1].DocID())
 		require.Equal(t, uint64(5), res[2].DocID())
 		require.Equal(t, uint64(6), res[3].DocID())
-		require.Equal(t, uint64(2), res[4].DocID())
+	})
+
+	fmt.Println("Search with non alphanums")
+	// Check search with no properties (should include all properties)
+	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(offtopic!!!!"}
+	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	require.Nil(t, err)
+
+	t.Run("bm25f non alphanums", func(t *testing.T) {
+		require.Equal(t, uint64(7), res[0].DocID())
 	})
 }
 
@@ -245,7 +255,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 
 	// Check results in correct order
 	require.Equal(t, uint64(6), res[0].DocID())
-	require.Equal(t, uint64(1), res[3].DocID())
+	require.Equal(t, uint64(3), res[3].DocID())
 
 	// Print results
 	fmt.Println("--- Start results for boosted search ---")
@@ -254,10 +264,12 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	require.Equal(t, float32(0.056813046), res[0].Score())
-	require.Equal(t, float32(0.054633126), res[1].Score())
-	//require.Equal(t, float32(0.014773461), res[2].Score())
-	//require.Equal(t, float32(0.006913103), res[3].Score())
+	sc := fmt.Sprintf("%v", res[0].Score())
+	require.Equal(t, "2.805", sc[:5])
+	sc = fmt.Sprintf("%v", res[1].Score())
+	require.Equal(t, "0.063", sc[:5])
+	// require.Equal(t, float32(0.014773461), res[2].Score())
+	// require.Equal(t, float32(0.006913103), res[3].Score())
 }
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
