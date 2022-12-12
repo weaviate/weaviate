@@ -192,11 +192,19 @@ func (sg *SegmentGroup) compactOnce() error {
 func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	newPathTmp string,
 ) error {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
-
+	sg.maintenanceLock.RLock()
 	updatedCountNetAdditions := sg.segments[old1].countNetAdditions +
 		sg.segments[old2].countNetAdditions
+	sg.maintenanceLock.RUnlock()
+
+	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
+		updatedCountNetAdditions, sg.logger)
+	if err != nil {
+		return fmt.Errorf("precompute segment meta: %w", err)
+	}
+
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
 
 	if err := sg.segments[old1].close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
@@ -217,20 +225,23 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.segments[old1] = nil
 	sg.segments[old2] = nil
 
+	var newPath string
 	// the old segments have been deleted, we can now safely remove the .tmp
-	// extension from the new segment which carried the name of the second old
-	// segment
-	newPath, err := sg.stripTmpExtension(newPathTmp)
-	if err != nil {
-		return errors.Wrap(err, "strip .tmp extension of new segment")
+	// extension from the new segment itself and the pre-computed files which
+	// carried the name of the second old segment
+	for i, path := range precomputedFiles {
+		updated, err := sg.stripTmpExtension(path)
+		if err != nil {
+			return errors.Wrap(err, "strip .tmp extension of new segment")
+		}
+
+		if i == 0 {
+			// the first element in the list is the segment itself
+			newPath = updated
+		}
 	}
 
-	if err := prefillCountNetAdditions(newPath, updatedCountNetAdditions); err != nil {
-		return fmt.Errorf("prefill count net additions: %w", err)
-	}
-
-	exists := sg.makeExistsOnLower(old1)
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, exists)
+	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil)
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
 	}

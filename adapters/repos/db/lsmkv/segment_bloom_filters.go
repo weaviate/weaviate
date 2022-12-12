@@ -35,7 +35,8 @@ func (ind *segment) bloomFilterSecondaryPath(pos int) string {
 }
 
 func (ind *segment) initBloomFilter() error {
-	ok, err := fileExists(ind.bloomFilterPath())
+	path := ind.bloomFilterPath()
+	ok, err := fileExists(path)
 	if err != nil {
 		return err
 	}
@@ -55,18 +56,8 @@ func (ind *segment) initBloomFilter() error {
 	}
 
 	before := time.Now()
-	keys, err := ind.index.AllKeys()
-	if err != nil {
+	if err := ind.computeAndStoreBloomFilter(path); err != nil {
 		return err
-	}
-
-	ind.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
-		ind.bloomFilter.Add(key)
-	}
-
-	if err := ind.storeBloomFilterOnDisk(); err != nil {
-		return fmt.Errorf("store bloom filter on disk: %w", err)
 	}
 
 	took := time.Since(before)
@@ -77,7 +68,51 @@ func (ind *segment) initBloomFilter() error {
 	return nil
 }
 
-func (ind *segment) storeBloomFilterOnDisk() error {
+func (ind *segment) computeAndStoreBloomFilter(path string) error {
+	keys, err := ind.index.AllKeys()
+	if err != nil {
+		return err
+	}
+
+	ind.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
+	for _, key := range keys {
+		ind.bloomFilter.Add(key)
+	}
+
+	if err := ind.storeBloomFilterOnDisk(path); err != nil {
+		return fmt.Errorf("store bloom filter on disk: %w", err)
+	}
+
+	return nil
+}
+
+func (ind *segment) precomputeBloomFilter() error {
+	before := time.Now()
+
+	path := fmt.Sprintf("%s.tmp", ind.bloomFilterPath())
+	ok, err := fileExists(path)
+	if err != nil {
+		return err
+	}
+
+	if ok {
+		return fmt.Errorf("a bloom filter already exists with path %s", path)
+	}
+
+	if err := ind.computeAndStoreBloomFilter(path); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+	ind.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
+		WithField("path", ind.path).
+		WithField("took", took).
+		Debugf("building bloom filter took %s\n", took)
+
+	return nil
+}
+
+func (ind *segment) storeBloomFilterOnDisk(path string) error {
 	buf := new(bytes.Buffer)
 
 	_, err := ind.bloomFilter.WriteTo(buf)
@@ -85,17 +120,7 @@ func (ind *segment) storeBloomFilterOnDisk() error {
 		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
-	return writeWithChecksum(buf.Bytes(), ind.bloomFilterPath())
-}
-
-func (ind *segment) storeBloomFilterSecondaryOnDisk(pos int) error {
-	buf := new(bytes.Buffer)
-	_, err := ind.secondaryBloomFilters[pos].WriteTo(buf)
-	if err != nil {
-		return fmt.Errorf("write bloom filter: %w", err)
-	}
-
-	return writeWithChecksum(buf.Bytes(), ind.bloomFilterSecondaryPath(pos))
+	return writeWithChecksum(buf.Bytes(), path)
 }
 
 func (ind *segment) loadBloomFilterFromDisk() error {
@@ -116,7 +141,8 @@ func (ind *segment) loadBloomFilterFromDisk() error {
 func (ind *segment) initSecondaryBloomFilter(pos int) error {
 	before := time.Now()
 
-	ok, err := fileExists(ind.bloomFilterSecondaryPath(pos))
+	path := ind.bloomFilterSecondaryPath(pos)
+	ok, err := fileExists(path)
 	if err != nil {
 		return err
 	}
@@ -135,6 +161,21 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 		// now continue re-calculating
 	}
 
+	if err := ind.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+
+	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_secondary").
+		WithField("secondary_index_position", pos).
+		WithField("path", ind.path).
+		WithField("took", took).
+		Debugf("building bloom filter took %s\n", took)
+	return nil
+}
+
+func (ind *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) error {
 	keys, err := ind.secondaryIndices[pos].AllKeys()
 	if err != nil {
 		return err
@@ -145,17 +186,47 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 		ind.secondaryBloomFilters[pos].Add(key)
 	}
 
-	if err := ind.storeBloomFilterSecondaryOnDisk(pos); err != nil {
+	if err := ind.storeBloomFilterSecondaryOnDisk(path, pos); err != nil {
 		return fmt.Errorf("store secondary bloom filter on disk: %w", err)
 	}
-	took := time.Since(before)
 
-	ind.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_secondary").
+	return nil
+}
+
+func (ind *segment) precomputeSecondaryBloomFilter(pos int) error {
+	before := time.Now()
+	path := fmt.Sprintf("%s.tmp", ind.bloomFilterSecondaryPath(pos))
+
+	ok, err := fileExists(path)
+	if err != nil {
+		return err
+	}
+
+	if ok {
+		return fmt.Errorf("a secondary bloom filter already exists with path %s", path)
+	}
+
+	if err := ind.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
+		return err
+	}
+
+	took := time.Since(before)
+	ind.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
 		WithField("secondary_index_position", pos).
 		WithField("path", ind.path).
 		WithField("took", took).
 		Debugf("building bloom filter took %s\n", took)
 	return nil
+}
+
+func (ind *segment) storeBloomFilterSecondaryOnDisk(path string, pos int) error {
+	buf := new(bytes.Buffer)
+	_, err := ind.secondaryBloomFilters[pos].WriteTo(buf)
+	if err != nil {
+		return fmt.Errorf("write bloom filter: %w", err)
+	}
+
+	return writeWithChecksum(buf.Bytes(), path)
 }
 
 func (ind *segment) loadBloomFilterSecondaryFromDisk(pos int) error {

@@ -33,6 +33,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 		WithStrategy(StrategyReplace),
 		WithSecondaryIndices(1))
 	require.Nil(t, err)
+	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -51,6 +52,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 		WithStrategy(StrategyReplace),
 		WithSecondaryIndices(1))
 	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
 
 	valuePrimary, err := b2.Get([]byte("hello"))
 	require.Nil(t, err)
@@ -73,6 +75,7 @@ func TestCreateBloomInit(t *testing.T) {
 		WithStrategy(StrategyReplace),
 		WithSecondaryIndices(1))
 	require.Nil(t, err)
+	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -96,8 +99,9 @@ func TestCreateBloomInit(t *testing.T) {
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
-	_, err = NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
+	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -115,6 +119,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	b, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable(ctx))
@@ -131,6 +136,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 	// init, and the count matches
 	b2, err := NewBucket(ctx, dirName, "", logger, nil, WithStrategy(StrategyReplace))
 	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
 
 	value, err := b2.Get([]byte("hello"))
 	assert.Nil(t, err)
@@ -147,6 +153,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 		WithStrategy(StrategyReplace),
 		WithSecondaryIndices(1))
 	require.Nil(t, err)
+	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -165,6 +172,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	b2, err := NewBucket(ctx, dirName, "", logger, nil,
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
+	defer b2.Shutdown(ctx)
 
 	value, err := b2.GetBySecondary(0, []byte("bonjour"))
 	assert.Nil(t, err)
