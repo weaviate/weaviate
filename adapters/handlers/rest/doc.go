@@ -18,7 +18,7 @@
 //	  https
 //	Host: localhost
 //	BasePath: /v1
-//	Version: 1.16.6
+//	Version: 1.16.7
 //	Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
 //
 //	Consumes:
