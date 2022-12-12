@@ -14,7 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"sort"
+	
 	"strconv"
 
 	"github.com/go-openapi/strfmt"
@@ -82,6 +82,7 @@ type vectorClassSearch interface {
 func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider, metrics explorerMetrics,
 ) *Explorer {
+	
 	return &Explorer{
 		search:           search,
 		logger:           logger,
@@ -217,55 +218,8 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
-func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
-	// Printf the IDs of the results
-	for i, result := range results {
-		for _, res := range result {
-			fmt.Printf("FusionReciprocal: resultset %v, result: %v\n", i, res.ID)
-		}
-	}
 
-	mapResults := map[strfmt.UUID]search.Result{}
-	for resultSetIndex, result := range results {
-		for i, res := range result {
-			tempResult := res
-			docId := tempResult.ID
-			score := weights[resultSetIndex] / float64(i+60+1) // FIXME replace 60 with a variable
 
-			// Get previous results from the map, if any
-			previousResult, ok := mapResults[docId]
-			if ok {
-
-				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
-				score = score + float64(previousResult.Score)
-			} else {
-				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", tempResult.ExplainScore, tempResult.ID, score)
-			}
-			tempResult.AdditionalProperties["rank_score"] = score
-			tempResult.AdditionalProperties["score"] = score
-
-			tempResult.Score = float32(score)
-			mapResults[docId] = tempResult
-		}
-	}
-
-	// Sort the results
-	concatenatedResults := []search.Result{}
-	for _, res := range mapResults {
-		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
-		concatenatedResults = append(concatenatedResults, res)
-	}
-
-	sort.Slice(concatenatedResults, func(i, j int) bool {
-		a := float64(concatenatedResults[j].Score)
-		b := float64(concatenatedResults[i].Score)
-		if (a-b)*(a-b) < 0.00001 {
-			return concatenatedResults[i].Secondary_score > concatenatedResults[j].Secondary_score
-		}
-		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)
-	})
-	return concatenatedResults
-}
 
 func shortenVectorString(maxLength int, vector []float32) string {
 	if len(vector) <= maxLength {
@@ -274,7 +228,7 @@ func shortenVectorString(maxLength int, vector []float32) string {
 	return fmt.Sprintf("%v...", vector[:maxLength])
 }
 
-func (e *Explorer) hybrid(ctx context.Context, params GetParams) ([]search.Result, error) {
+func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Result, error) {
 	results := [][]search.Result{}
 	weights := []float64{}
 
@@ -457,7 +411,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	var res []search.Result
 	var err error
 	if params.HybridSearch != nil {
-		res, err = e.hybrid(ctx, params)
+		res, err = e.Hybrid(ctx, params)
 		if err != nil {
 			return nil, err
 		}
