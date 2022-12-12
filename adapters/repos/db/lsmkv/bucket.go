@@ -29,11 +29,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type memtableSizer interface {
-	Initial() int
-	NextTarget(previous int, cycle time.Duration) (int, bool)
-}
-
 type Bucket struct {
 	dir      string
 	rootDir  string
@@ -49,7 +44,7 @@ type Bucket struct {
 	walThreshold      uint64
 	flushAfterIdle    time.Duration
 	memtableThreshold uint64
-	memtableResizer   memtableSizer
+	memtableResizer   *memtableSizeAdvisor
 	strategy          string
 	secondaryIndices  uint16
 
