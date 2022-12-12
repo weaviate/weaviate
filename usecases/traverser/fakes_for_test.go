@@ -12,8 +12,6 @@
 package traverser
 
 import (
-
-
 	"context"
 	"fmt"
 	"net/http"

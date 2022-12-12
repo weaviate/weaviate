@@ -14,7 +14,6 @@ package traverser
 import (
 	"context"
 	"fmt"
-	
 	"strconv"
 
 	"github.com/go-openapi/strfmt"
@@ -82,7 +81,6 @@ type vectorClassSearch interface {
 func NewExplorer(search vectorClassSearch, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider, metrics explorerMetrics,
 ) *Explorer {
-	
 	return &Explorer{
 		search:           search,
 		logger:           logger,
@@ -218,9 +216,6 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
-
-
-
 func shortenVectorString(maxLength int, vector []float32) string {
 	if len(vector) <= maxLength {
 		return fmt.Sprintf("%v", vector)
@@ -245,7 +240,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 			params.KeywordRanking = &searchparams.KeywordRanking{
 				Query: params.HybridSearch.Query,
 
-				Type:  "bm25",
+				Type: "bm25",
 			}
 			// Result 1 is the bm25 "sparse" search
 			res1, err := e.search.ClassSearch(ctx, params)
@@ -285,11 +280,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 				// Set the scoreexplain property to vector for every result
 				for i := range res2 {
-					res2[i].Secondary_score = 1-res2[i].Dist
+					res2[i].Secondary_score = 1 - res2[i].Dist
 					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
 				}
 
-				alpha := 1-params.HybridSearch.Alpha
+				alpha := 1 - params.HybridSearch.Alpha
 				results = append(results, res1, res2)
 				weights = append(weights, alpha, 1-alpha)
 
@@ -318,7 +313,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					// Set the scoreexplain property to bm25 for every result
 					for i := range res1 {
 						scStr := res1[i].AdditionalProperties["score"].(string)
-						sc,_ := strconv.ParseFloat(scStr, 64)
+						sc, _ := strconv.ParseFloat(scStr, 64)
 						res1[i].Score = float32(sc)
 						res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 					}

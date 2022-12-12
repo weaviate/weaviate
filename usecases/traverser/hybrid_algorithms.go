@@ -1,12 +1,24 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package traverser
 
 import (
-	"sort"
 	"fmt"
+	"sort"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/search"
-
 )
+
 func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 	allDocs := map[strfmt.UUID]*search.Result{}
 	// Loop over each array of results and add the score of each document to the totals
@@ -37,7 +49,6 @@ func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 
 	return out
 }
-
 
 func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
 	// Printf the IDs of the results
@@ -89,7 +100,6 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	return concatenatedResults
 }
 
-
 func FusionScoreConcatenate(results [][]*search.Result) []*search.Result {
 	// Concatenate the results
 	concatenatedResults := []*search.Result{}
@@ -101,7 +111,6 @@ func FusionScoreConcatenate(results [][]*search.Result) []*search.Result {
 		a := concatenatedResults[i].Score
 
 		b := concatenatedResults[j].Score
-
 
 		return a > b
 	})

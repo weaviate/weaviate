@@ -28,9 +28,8 @@ func hybridArgument(classObject *graphql.Object,
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name: fmt.Sprintf("%shybridInpObj", prefix),
-				Fields:
-				hybridOperands(classObject, class, modulesProvider),
+				Name:        fmt.Sprintf("%shybridInpObj", prefix),
+				Fields:      hybridOperands(classObject, class, modulesProvider),
 				Description: "Hybrid search",
 			},
 		),
