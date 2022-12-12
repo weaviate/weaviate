@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	DefaultCohereModel           = "multilingual-22-11"
+	DefaultCohereModel           = "multilingual-22-12"
 	DefaultTruncate              = "RIGHT"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
@@ -31,7 +31,7 @@ const (
 )
 
 var (
-	availableCohereModels    = []string{"multilingual-22-11", "small", "medium", "large"}
+	availableCohereModels    = []string{"multilingual-22-12", "small", "medium", "large"}
 	experimetnalCohereModels = []string{"multilingual-2210-alpha"}
 	availableTruncates       = []string{"NONE", "LEFT", "RIGHT"}
 )
