@@ -161,7 +161,7 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 		// now continue re-calculating
 	}
 
-	if err := ind.computeAndStoreSeondaryBloomFilter(path, pos); err != nil {
+	if err := ind.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
 		return err
 	}
 
@@ -175,7 +175,7 @@ func (ind *segment) initSecondaryBloomFilter(pos int) error {
 	return nil
 }
 
-func (ind *segment) computeAndStoreSeondaryBloomFilter(path string, pos int) error {
+func (ind *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) error {
 	keys, err := ind.secondaryIndices[pos].AllKeys()
 	if err != nil {
 		return err
@@ -206,7 +206,7 @@ func (ind *segment) precomputeSecondaryBloomFilter(pos int) error {
 		return fmt.Errorf("a secondary bloom filter already exists with path %s", path)
 	}
 
-	if err := ind.computeAndStoreSeondaryBloomFilter(path, pos); err != nil {
+	if err := ind.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
 		return err
 	}
 
