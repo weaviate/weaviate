@@ -83,7 +83,7 @@ jobs:
           verbose: true
   Modules-Acceptance-Tests:
     needs: [Run-Swagger]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v3
       - name: Set up Go
@@ -107,7 +107,7 @@ jobs:
         run: ./test/run.sh --acceptance-only
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-8-cores
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v3
