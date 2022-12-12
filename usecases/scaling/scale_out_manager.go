@@ -239,7 +239,7 @@ func (som *ScaleOutManager) LocalScaleOut(ctx context.Context,
 			// Now that all files are on the remote node's new shard, the shard needs
 			// to be reinitialized. Otherwise, it would not recognize the files when
 			// serving traffic later.
-			if err := som.ReinitShard(ctx, targetNode, className, shardName); err != nil {
+			if err := som.ReInitShard(ctx, targetNode, className, shardName); err != nil {
 				return fmt.Errorf("create new shard on remote node: %w", err)
 			}
 		}
@@ -288,7 +288,7 @@ func (som *ScaleOutManager) CreateShard(ctx context.Context,
 	return som.nodes.CreateShard(ctx, hostname, className, shardName)
 }
 
-func (som *ScaleOutManager) ReinitShard(ctx context.Context,
+func (som *ScaleOutManager) ReInitShard(ctx context.Context,
 	targetNode, className, shardName string,
 ) error {
 	hostname, ok := som.clusterState.NodeHostname(targetNode)
@@ -296,15 +296,15 @@ func (som *ScaleOutManager) ReinitShard(ctx context.Context,
 		return fmt.Errorf("resolve hostname for node %q", targetNode)
 	}
 
-	return som.nodes.ReinitShard(ctx, hostname, className, shardName)
+	return som.nodes.ReInitShard(ctx, hostname, className, shardName)
 }
 
 type nodeClient interface {
 	PutFile(ctx context.Context, hostName, indexName,
-		shardName, fileName string, payload io.ReadCloser) error
+		shardName, fileName string, payload io.ReadSeekCloser) error
 	CreateShard(ctx context.Context,
 		hostName, indexName, shardName string) error
-	ReinitShard(ctx context.Context,
+	ReInitShard(ctx context.Context,
 		hostName, indexName, shardName string) error
 	IncreaseReplicationFactor(ctx context.Context, hostName, indexName string,
 		ssBefore, ssAfter *sharding.State) error

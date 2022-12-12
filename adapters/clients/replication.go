@@ -31,19 +31,12 @@ import (
 
 // ReplicationClient is to coordinate operations among replicas
 
-type replicationClient struct {
-	client      *http.Client
-	minBackOff  time.Duration
-	maxBackOff  time.Duration
-	timeoutUnit time.Duration
-}
+type replicationClient retryClient
 
 func NewReplicationClient(httpClient *http.Client) replica.Client {
 	return &replicationClient{
-		client:      httpClient,
-		minBackOff:  time.Millisecond * 150,
-		maxBackOff:  time.Second * 20,
-		timeoutUnit: time.Second,
+		client:  httpClient,
+		retryer: newRetryer(),
 	}
 }
 
@@ -199,19 +192,12 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 }
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp interface{}) (err error) {
-	var (
-		ctx, cancel = context.WithTimeout(req.Context(), timeout)
-		errs        = make(chan error, 1)
-		delay       = c.minBackOff
-		maxBackOff  = c.maxBackOff
-		shouldRetry = false
-	)
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
-
-	try := func(req *http.Request) (bool, error) {
+	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return true, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -224,29 +210,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp in
 		}
 		return false, nil
 	}
-
-	for {
-		go func() {
-			if shouldRetry {
-				time.Sleep(delay)
-			}
-			var err error
-			shouldRetry, err = try(req)
-			errs <- err
-		}()
-
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("%v: %w", err, ctx.Err())
-		case err = <-errs:
-			if err == nil || !shouldRetry {
-				return err
-			}
-			if delay = backOff(delay); delay > maxBackOff {
-				delay = maxBackOff
-			}
-		}
-	}
+	return c.retry(ctx, 7, try)
 }
 
 // backOff return a new random duration in the interval [d, 3d].
