@@ -338,7 +338,7 @@ func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName,
-	shardName, fileName string, payload io.ReadCloser,
+	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
 	return nil
 }

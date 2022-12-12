@@ -47,7 +47,7 @@ type fakeServer struct {
 	host           string
 }
 
-func newFakeServer(t *testing.T, method, path string) *fakeServer {
+func newFakeReplicationServer(t *testing.T, method, path string) *fakeServer {
 	return &fakeServer{
 		method:         method,
 		path:           path,
@@ -105,7 +105,7 @@ func TestReplicationPutObject(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	f := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
+	f := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
 	ts := f.server(t)
 	defer ts.Close()
 
@@ -149,7 +149,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 	ctx := context.Background()
 	uuid := UUID1
 	path := "/replicas/indices/C1/shards/S1/objects/" + uuid.String()
-	fs := newFakeServer(t, http.MethodDelete, path)
+	fs := newFakeReplicationServer(t, http.MethodDelete, path)
 	ts := fs.server(t)
 	defer ts.Close()
 
@@ -182,7 +182,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 func TestReplicationPutObjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
+	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
@@ -229,7 +229,7 @@ func TestReplicationMergeObject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	uuid := UUID1
-	f := newFakeServer(t, http.MethodPatch, "/replicas/indices/C1/shards/S1/objects/"+uuid.String())
+	f := newFakeReplicationServer(t, http.MethodPatch, "/replicas/indices/C1/shards/S1/objects/"+uuid.String())
 	ts := f.server(t)
 	defer ts.Close()
 
@@ -264,7 +264,7 @@ func TestReplicationAddReferences(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	fs := newFakeServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references")
+	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
@@ -300,7 +300,7 @@ func TestReplicationDeleteObjects(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	fs := newFakeServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects")
+	fs := newFakeReplicationServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects")
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
@@ -337,7 +337,7 @@ func TestReplicationAbort(t *testing.T) {
 
 	ctx := context.Background()
 	path := "/replicas/indices/C1/shards/S1:abort"
-	fs := newFakeServer(t, http.MethodPost, path)
+	fs := newFakeReplicationServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(ts.Client())
@@ -348,7 +348,6 @@ func TestReplicationAbort(t *testing.T) {
 		_, err := client.Abort(ctx, "", "C1", "S1", "")
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 
 	t.Run("Error", func(t *testing.T) {
@@ -375,7 +374,7 @@ func TestReplicationCommit(t *testing.T) {
 
 	ctx := context.Background()
 	path := "/replicas/indices/C1/shards/S1:commit"
-	fs := newFakeServer(t, http.MethodPost, path)
+	fs := newFakeReplicationServer(t, http.MethodPost, path)
 	ts := fs.server(t)
 	defer ts.Close()
 	resp := replica.SimpleResponse{}

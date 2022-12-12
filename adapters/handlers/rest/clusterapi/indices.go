@@ -59,13 +59,13 @@ const (
 	urlPatternReferences = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/references`
 	urlPatternShardsStatus = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/_status`
+		`\/shards\/([A-Za-z0-9]+)\/status`
 	urlPatternShardFiles = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/files/(.*)`
 	urlPatternShard = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)$`
 	urlPatternShardReinit = `\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)/_reinit`
+		`\/shards\/([A-Za-z0-9]+):reinit`
 )
 
 type shards interface {
@@ -104,7 +104,7 @@ type shards interface {
 	FilePutter(ctx context.Context, indexName, shardName,
 		filePath string) (io.WriteCloser, error)
 	CreateShard(ctx context.Context, indexName, shardName string) error
-	ReinitShard(ctx context.Context, indexName, shardName string) error
+	ReInitShard(ctx context.Context, indexName, shardName string) error
 }
 
 func NewIndices(shards shards) *indices {
@@ -817,8 +817,6 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 			return
 		}
 
-		IndicesPayloads.UpdateShardsStatusResults.SetContentTypeHeader(w)
-
 		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -895,7 +893,7 @@ func (i *indices) putShardReinit() http.Handler {
 
 		index, shard := args[1], args[2]
 
-		err := i.shards.ReinitShard(r.Context(), index, shard)
+		err := i.shards.ReInitShard(r.Context(), index, shard)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
