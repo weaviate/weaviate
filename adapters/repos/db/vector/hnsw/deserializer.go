@@ -21,7 +21,9 @@ import (
 )
 
 type Deserializer struct {
-	logger logrus.FieldLogger
+	logger                   logrus.FieldLogger
+	reusableBuffer           []byte
+	reusableConnectionsSlice []uint64
 }
 
 type DeserializationResult struct {
@@ -53,6 +55,22 @@ func (dr DeserializationResult) ReplaceLinks(node uint64, level uint16) bool {
 
 func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
 	return &Deserializer{logger: logger}
+}
+
+func (c *Deserializer) resetResusableBuffer(size int) {
+	if size <= cap(c.reusableBuffer) {
+		c.reusableBuffer = c.reusableBuffer[:size]
+	} else {
+		c.reusableBuffer = make([]byte, size, size*2)
+	}
+}
+
+func (c *Deserializer) resetReusableConnectionsSlice(size int) {
+	if size <= cap(c.reusableConnectionsSlice) {
+		c.reusableConnectionsSlice = c.reusableConnectionsSlice[:size]
+	} else {
+		c.reusableConnectionsSlice = make([]uint64, size, size*2)
+	}
 }
 
 func (c *Deserializer) Do(fd *bufio.Reader,
@@ -213,20 +231,15 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	keepReplaceInfo bool,
 ) (int, error) {
-	source, err := c.readUint64(r)
+	c.resetResusableBuffer(12)
+	_, err := io.ReadFull(r, c.reusableBuffer)
 	if err != nil {
 		return 0, err
 	}
 
-	level, err := c.readUint16(r)
-	if err != nil {
-		return 0, err
-	}
-
-	length, err := c.readUint16(r)
-	if err != nil {
-		return 0, err
-	}
+	source := binary.LittleEndian.Uint64(c.reusableBuffer[0:8])
+	level := binary.LittleEndian.Uint16(c.reusableBuffer[8:10])
+	length := binary.LittleEndian.Uint16(c.reusableBuffer[10:12])
 
 	targets, err := c.readUint64Slice(r, int(length))
 	if err != nil {
@@ -247,7 +260,8 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-	res.Nodes[int(source)].connections[int(level)] = targets
+	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
+	copy(res.Nodes[int(source)].connections[int(level)], targets)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -266,20 +280,15 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 func (c *Deserializer) ReadAddLinks(r io.Reader,
 	res *DeserializationResult,
 ) (int, error) {
-	source, err := c.readUint64(r)
+	c.resetResusableBuffer(12)
+	_, err := io.ReadFull(r, c.reusableBuffer)
 	if err != nil {
 		return 0, err
 	}
 
-	level, err := c.readUint16(r)
-	if err != nil {
-		return 0, err
-	}
-
-	length, err := c.readUint16(r)
-	if err != nil {
-		return 0, err
-	}
+	source := binary.LittleEndian.Uint64(c.reusableBuffer[0:8])
+	level := binary.LittleEndian.Uint16(c.reusableBuffer[8:10])
+	length := binary.LittleEndian.Uint16(c.reusableBuffer[10:12])
 
 	targets, err := c.readUint64Slice(r, int(length))
 	if err != nil {
@@ -434,50 +443,52 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 
 func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
-	tmpBuf := make([]byte, 8)
-	_, err := io.ReadFull(r, tmpBuf)
+	c.resetResusableBuffer(8)
+	_, err := io.ReadFull(r, c.reusableBuffer)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read uint64")
 	}
 
-	value = binary.LittleEndian.Uint64(tmpBuf)
+	value = binary.LittleEndian.Uint64(c.reusableBuffer)
 
 	return value, nil
 }
 
 func (c *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
-	tmpBuf := make([]byte, 2)
-	_, err := io.ReadFull(r, tmpBuf)
+	c.resetResusableBuffer(2)
+	_, err := io.ReadFull(r, c.reusableBuffer)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to read uint16")
 	}
 
-	value = binary.LittleEndian.Uint16(tmpBuf)
+	value = binary.LittleEndian.Uint16(c.reusableBuffer)
 
 	return value, nil
 }
 
 func (c *Deserializer) ReadCommitType(r io.Reader) (HnswCommitType, error) {
-	tmpBuf := make([]byte, 1)
-	if _, err := io.ReadFull(r, tmpBuf); err != nil {
+	c.resetResusableBuffer(1)
+	if _, err := io.ReadFull(r, c.reusableBuffer); err != nil {
 		return 0, errors.Wrap(err, "failed to read commit type")
 	}
 
-	return HnswCommitType(tmpBuf[0]), nil
+	return HnswCommitType(c.reusableBuffer[0]), nil
 }
 
 func (c *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error) {
-	values := make([]uint64, length)
-	for i := range values {
-		value, err := c.readUint64(r)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to read []uint64")
-		}
-		values[i] = value
+	c.resetResusableBuffer(length * 8)
+	c.resetReusableConnectionsSlice(length)
+	_, err := io.ReadFull(r, c.reusableBuffer)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read uint64 slice")
 	}
 
-	return values, nil
+	for i := range c.reusableConnectionsSlice {
+		c.reusableConnectionsSlice[i] = binary.LittleEndian.Uint64(c.reusableBuffer[i*8 : (i+1)*8])
+	}
+
+	return c.reusableConnectionsSlice, nil
 }
 
 // If the connections array is to small to contain the current target-levelit
