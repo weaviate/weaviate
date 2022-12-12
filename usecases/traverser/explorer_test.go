@@ -607,6 +607,54 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
+	t.Run("near vector with group", func(t *testing.T) {
+		params := GetParams{
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			NearVector: &searchparams.NearVector{
+				Vector: []float32{0.8, 0.2, 0.7},
+			},
+			Group: &GroupParams{
+				Strategy: "closest",
+				Force:    1.0,
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				ID: "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+				Dims: 128,
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		log, _ := test.NewNullLogger()
+		metrics := &fakeMetrics{}
+		explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics)
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
+		expectedParamsToSearch.AdditionalProperties.Vector = true
+		search.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 1)
+		})
+	})
+
 	t.Run("when the semanticPath prop is set but cannot be", func(t *testing.T) {
 		params := GetParams{
 			ClassName:  "BestClass",

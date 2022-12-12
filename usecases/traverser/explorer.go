@@ -177,10 +177,11 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 	params.SearchVector = searchVector
 
-	if len(params.AdditionalProperties.ModuleParams) > 0 {
+	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
 		// if a module-specific additional prop is set, assume it needs the vector
 		// present for backward-compatibility. This could be improved by actually
 		// asking the module based on specific conditions
+		// if a group is set, vectors are needed
 		params.AdditionalProperties.Vector = true
 	}
 
