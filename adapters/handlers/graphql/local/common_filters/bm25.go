@@ -30,9 +30,7 @@ func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {
 	if ok {
 		args.Query = query.(string)
 	}
-
-	// FIXME add limit
-
+	
 	args.Type = "bm25"
 
 	return args
