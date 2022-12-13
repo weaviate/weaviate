@@ -198,9 +198,10 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 	})
 }
 
-func realBuildGetClassField(classObject *graphql.Object,
+func buildGetClassField(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) graphql.Field {
+	
 	field := graphql.Field{
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
@@ -234,13 +235,6 @@ func realBuildGetClassField(classObject *graphql.Object,
 		}
 	}
 
-	return field
-}
-
-func buildGetClassField(classObject *graphql.Object,
-	class *models.Class, modulesProvider ModulesProvider,
-) graphql.Field {
-	field := realBuildGetClassField(classObject, class, modulesProvider)
 
 	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
 
