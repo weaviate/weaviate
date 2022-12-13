@@ -48,7 +48,7 @@ const (
 	DefaultBM25b  = float32(0.75)
 
 	// These hybrid tuning params can be overwritten on a per-class basis
-	DefaultAlpha = float32(0.5)
+	DefaultAlpha = float32(0.75)
 )
 
 const (
