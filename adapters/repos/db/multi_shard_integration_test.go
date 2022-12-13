@@ -279,7 +279,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 	repo := New(logger, Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
-		FlushIdleAfter:            60,
+		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
