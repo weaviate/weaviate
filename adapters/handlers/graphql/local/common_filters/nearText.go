@@ -12,8 +12,9 @@
 package common_filters
 
 import (
-	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"fmt"
+
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 )
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
@@ -36,8 +37,6 @@ func ExtractNearText(source map[string]interface{}) (searchparams.NearTextParams
 			return searchparams.NearTextParams{}, fmt.Errorf("autocorrect is not supported for hybrid nearText")
 		}
 	}
-
-
 
 	// limit is an optional arg, so it could be nil
 	limit, ok := source["limit"]

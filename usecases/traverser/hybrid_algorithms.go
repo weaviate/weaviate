@@ -76,7 +76,6 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
 				score = score + float64(previousResult.Score)
 			} else {
-				
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", tempResult.ExplainScore, tempResult.ID, score)
 			}
 			tempResult.AdditionalProperties["rank_score"] = score

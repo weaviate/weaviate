@@ -30,8 +30,11 @@ import (
 // with the default values initialized.
 func NewObjectsListParams() ObjectsListParams {
 
-	// initialize parameters with default values
-	offsetDefault := int64(0)
+	var (
+		// initialize parameters with default values
+
+		offsetDefault = int64(0)
+	)
 
 	return ObjectsListParams{
 		Offset: &offsetDefault,

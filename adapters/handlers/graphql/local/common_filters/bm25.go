@@ -30,7 +30,7 @@ func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {
 	if ok {
 		args.Query = query.(string)
 	}
-	
+
 	args.Type = "bm25"
 
 	return args
