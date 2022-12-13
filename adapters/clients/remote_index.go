@@ -34,12 +34,10 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
-type RemoteIndex struct {
-	client *http.Client
-}
+type RemoteIndex retryClient
 
 func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
-	return &RemoteIndex{client: httpClient}
+	return &RemoteIndex{client: httpClient, retryer: newRetryer()}
 }
 
 func (c *RemoteIndex) PutObject(ctx context.Context, hostName, indexName,
@@ -612,7 +610,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
 ) (string, error) {
-	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
@@ -620,35 +618,37 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	if err != nil {
 		return "", errors.Wrap(err, "open http request")
 	}
-
+	var status string
 	clusterapi.IndicesPayloads.GetShardStatusParams.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return "", errors.Wrap(err, "send http request")
-	}
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
 
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return "", errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
+		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		resBytes, err := io.ReadAll(res.Body)
+		if err != nil {
+			return false, errors.Wrap(err, "read body")
+		}
 
-	resBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", errors.Wrap(err, "read body")
-	}
+		ct, ok := clusterapi.IndicesPayloads.GetShardStatusResults.CheckContentTypeHeader(res)
+		if !ok {
+			return false, errors.Errorf("unexpected content type: %s", ct)
+		}
 
-	ct, ok := clusterapi.IndicesPayloads.GetShardStatusResults.CheckContentTypeHeader(res)
-	if !ok {
-		return "", errors.Errorf("unexpected content type: %s", ct)
+		status, err = clusterapi.IndicesPayloads.GetShardStatusResults.Unmarshal(resBytes)
+		if err != nil {
+			return false, errors.Wrap(err, "unmarshal body")
+		}
+		return false, nil
 	}
-
-	status, err := clusterapi.IndicesPayloads.GetShardStatusResults.Unmarshal(resBytes)
-	if err != nil {
-		return "", errors.Wrap(err, "unmarshal body")
-	}
-	return status, nil
+	return status, c.retry(ctx, 5, try)
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -658,45 +658,38 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 	if err != nil {
 		return errors.Wrap(err, "marshal request payload")
 	}
-
-	path := fmt.Sprintf("/indices/%s/shards/%s/_status", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
-	req, err := http.NewRequestWithContext(ctx, method, url.String(),
-		bytes.NewReader(paramsBytes))
-	if err != nil {
-		return errors.Wrap(err, "open http request")
+	try := func(ctx context.Context) (bool, error) {
+		req, err := http.NewRequestWithContext(ctx, method, url.String(),
+			bytes.NewReader(paramsBytes))
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+		clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
+
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+
+		return false, nil
 	}
 
-	clusterapi.IndicesPayloads.UpdateShardStatusParams.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	_, err = io.ReadAll(res.Body)
-	if err != nil {
-		return errors.Wrap(err, "read body")
-	}
-
-	ct, ok := clusterapi.IndicesPayloads.UpdateShardsStatusResults.CheckContentTypeHeader(res)
-	if !ok {
-		return errors.Errorf("unexpected content type: %s", ct)
-	}
-
-	return nil
+	return c.retry(ctx, 7, try)
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
-	shardName, fileName string, payload io.ReadCloser,
+	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
 	defer payload.Close()
 	path := fmt.Sprintf("/indices/%s/shards/%s/files/%s",
@@ -704,26 +697,31 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 
 	method := http.MethodPost
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	try := func(ctx context.Context) (bool, error) {
+		req, err := http.NewRequestWithContext(ctx, method, url.String(), payload)
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
+		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
 
-	req, err := http.NewRequestWithContext(ctx, method, url.String(), payload)
-	if err != nil {
-		return errors.Wrap(err, "open http request")
+		if code := res.StatusCode; code != http.StatusNoContent {
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			if shouldRetry {
+				_, err := payload.Seek(0, 0)
+				shouldRetry = (err == nil)
+			}
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		return false, nil
 	}
 
-	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
-	res, err := c.client.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	return nil
+	return c.retry(ctx, 7, try)
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
@@ -736,56 +734,61 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
-		return errors.Wrap(err, "open http request")
+		return fmt.Errorf("create http request: %w", err)
+	}
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusCreated {
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		return false, nil
 	}
 
-	res, err := c.client.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	return nil
+	return c.retry(ctx, 7, try)
 }
 
-func (c *RemoteIndex) ReinitShard(ctx context.Context,
+func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	hostName, indexName, shardName string,
 ) error {
-	path := fmt.Sprintf("/indices/%s/shards/%s/_reinit", indexName, shardName)
+	path := fmt.Sprintf("/indices/%s/shards/%s:reinit", indexName, shardName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
-		return errors.Wrap(err, "open http request")
+		return fmt.Errorf("create http request: %w", err)
+	}
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusNoContent {
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+
+		}
+		return false, nil
 	}
 
-	res, err := c.client.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	return nil
+	return c.retry(ctx, 7, try)
 }
 
 func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	hostName, indexName string, ssBefore, ssAfter *sharding.State,
 ) error {
-	path := fmt.Sprintf("/replicas/indices/%s/replication-factor/_increase", indexName)
+	path := fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
@@ -794,23 +797,24 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	try := func(ctx context.Context) (bool, error) {
+		req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewReader(body))
+		if err != nil {
+			return false, fmt.Errorf("create http request: %w", err)
+		}
 
-	req, err := http.NewRequestWithContext(ctx, method, url.String(), bytes.NewReader(body))
-	if err != nil {
-		return errors.Wrap(err, "open http request")
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusNoContent {
+			body, _ := io.ReadAll(res.Body)
+			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		return false, nil
 	}
-
-	res, err := c.client.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(res.Body)
-		return errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	return nil
+	return c.retry(ctx, 7, try)
 }

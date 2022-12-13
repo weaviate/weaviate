@@ -93,7 +93,7 @@ type VectorRepo interface {
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
 	// Object returns object of the specified class giving by its id
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (*search.Result, error)
+		additional additional.Properties, repl *additional.ReplicationProperties) (*search.Result, error)
 	// Exists returns true if an object of a giving class exists
 	Exists(ctx context.Context, class string, id strfmt.UUID) (bool, error)
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,

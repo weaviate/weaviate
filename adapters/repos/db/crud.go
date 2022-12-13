@@ -132,7 +132,7 @@ func (d *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	d.indexLock.RLock()
 
 	for _, index := range d.indices {
-		res, err := index.objectByID(ctx, id, props, additional)
+		res, err := index.objectByID(ctx, id, props, additional, nil)
 		if err != nil {
 			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
@@ -155,14 +155,14 @@ func (d *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 // Object gets object with id from index of specified class.
 func (d *DB) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
-	adds additional.Properties,
+	adds additional.Properties, repl *additional.ReplicationProperties,
 ) (*search.Result, error) {
 	idx := d.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil, nil
 	}
 
-	obj, err := idx.objectByID(ctx, id, props, adds)
+	obj, err := idx.objectByID(ctx, id, props, adds, repl)
 	if err != nil {
 		return nil, errors.Wrapf(err, "search index %s", idx.ID())
 	}
@@ -230,7 +230,7 @@ func (d *DB) AddReference(ctx context.Context,
 	return d.Merge(ctx, objects.MergeDocument{
 		Class:      className,
 		ID:         source,
-		UpdateTime: time.Now().UnixNano(),
+		UpdateTime: time.Now().UnixMilli(),
 		References: objects.BatchReferences{
 			objects.BatchReference{
 				From: crossref.NewSource(schema.ClassName(className),

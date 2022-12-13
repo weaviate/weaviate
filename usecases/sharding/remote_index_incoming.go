@@ -262,7 +262,7 @@ func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 	return index.IncomingCreateShard(ctx, shardName)
 }
 
-func (rii *RemoteIndexIncoming) ReinitShard(ctx context.Context,
+func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	indexName, shardName string,
 ) error {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))

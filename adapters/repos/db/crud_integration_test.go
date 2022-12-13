@@ -258,7 +258,7 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, err)
 
 		res, err = repo.Object(context.Background(), expected.Class, thingID, nil,
-			additional.Properties{})
+			additional.Properties{}, nil)
 		require.Nil(t, err)
 
 		assert.Equal(t, expected, res.ObjectWithVector(false))
@@ -624,7 +624,8 @@ func TestCRUD(t *testing.T) {
 
 	// Check the same, but with Object()
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.Object(context.Background(), "TheBestThingClass", thingID, search.SelectProperties{}, additional.Properties{})
+		item, err := repo.Object(context.Background(), "TheBestThingClass",
+			thingID, search.SelectProperties{}, additional.Properties{}, nil)
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -1973,13 +1974,13 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
 
 		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
-			additional.Properties{})
+			additional.Properties{}, nil)
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj1.Properties, res.ObjectWithVector(false).Properties)
 
 		res, err = repo.Object(context.Background(), classNameWithRefs, obj2ID, nil,
-			additional.Properties{})
+			additional.Properties{}, nil)
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)

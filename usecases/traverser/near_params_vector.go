@@ -33,7 +33,8 @@ type nearParamsVector struct {
 
 type nearParamsSearcher interface {
 	Object(ctx context.Context, className string, id strfmt.UUID,
-		props search.SelectProperties, additional additional.Properties) (*search.Result, error)
+		props search.SelectProperties, additional additional.Properties,
+		repl *additional.ReplicationProperties) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 }
@@ -167,7 +168,7 @@ func (v *nearParamsVector) findVector(ctx context.Context, className string, id 
 }
 
 func (v *nearParamsVector) classFindVector(ctx context.Context, className string, id strfmt.UUID) ([]float32, error) {
-	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{})
+	res, err := v.search.Object(ctx, className, id, search.SelectProperties{}, additional.Properties{}, nil)
 	if err != nil {
 		return nil, err
 	}

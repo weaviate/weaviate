@@ -74,6 +74,11 @@ type ObjectsClassGetParams struct {
 
 	/*ClassName*/
 	ClassName string
+	/*ConsistencyLevel
+	  Determines how many replicas must acknowledge a request before it is considered successful
+
+	*/
+	ConsistencyLevel *string
 	/*ID
 	  Unique ID of the Object.
 
@@ -84,6 +89,11 @@ type ObjectsClassGetParams struct {
 
 	*/
 	Include *string
+	/*NodeName
+	  The target node which should fulfill the request
+
+	*/
+	NodeName *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -134,6 +144,17 @@ func (o *ObjectsClassGetParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects class get params
+func (o *ObjectsClassGetParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsClassGetParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects class get params
+func (o *ObjectsClassGetParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects class get params
 func (o *ObjectsClassGetParams) WithID(id strfmt.UUID) *ObjectsClassGetParams {
 	o.SetID(id)
@@ -156,6 +177,17 @@ func (o *ObjectsClassGetParams) SetInclude(include *string) {
 	o.Include = include
 }
 
+// WithNodeName adds the nodeName to the objects class get params
+func (o *ObjectsClassGetParams) WithNodeName(nodeName *string) *ObjectsClassGetParams {
+	o.SetNodeName(nodeName)
+	return o
+}
+
+// SetNodeName adds the nodeName to the objects class get params
+func (o *ObjectsClassGetParams) SetNodeName(nodeName *string) {
+	o.NodeName = nodeName
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -167,6 +199,22 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	// path param id
@@ -184,6 +232,22 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 		qInclude := qrInclude
 		if qInclude != "" {
 			if err := r.SetQueryParam("include", qInclude); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	if o.NodeName != nil {
+
+		// query param node_name
+		var qrNodeName string
+		if o.NodeName != nil {
+			qrNodeName = *o.NodeName
+		}
+		qNodeName := qrNodeName
+		if qNodeName != "" {
+			if err := r.SetQueryParam("node_name", qNodeName); err != nil {
 				return err
 			}
 		}

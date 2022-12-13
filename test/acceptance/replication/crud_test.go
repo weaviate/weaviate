@@ -77,9 +77,9 @@ func immediateReplicaCRUD(t *testing.T) {
 	articleClass := articles.ArticlesClass()
 
 	t.Run("create schema", func(t *testing.T) {
-		paragraphClass.ShardingConfig = map[string]interface{}{"replicas": 2}
+		paragraphClass.ShardingConfig = map[string]interface{}{"replicas": 2} //, "desiredCount": 1}
 		helper.CreateClass(t, paragraphClass)
-		articleClass.ShardingConfig = map[string]interface{}{"replicas": 2}
+		articleClass.ShardingConfig = map[string]interface{}{"replicas": 2} //, "desiredCount": 1}
 		helper.CreateClass(t, articleClass)
 	})
 
@@ -106,8 +106,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("restart node 1", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviate().Name())
-			require.Nil(t, err)
+			restartNode1(ctx, t, compose)
 		})
 	})
 
@@ -192,8 +191,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("restart node 1", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviate().Name())
-			require.Nil(t, err)
+			restartNode1(ctx, t, compose)
 		})
 	})
 
@@ -217,7 +215,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert object is patched on node 1", func(t *testing.T) {
-			after, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0])
+			after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -242,13 +240,12 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert object removed from node 2", func(t *testing.T) {
-			_, err := getObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0])
+			_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
 			assert.Equal(t, err, &objects.ObjectsClassGetNotFound{})
 		})
 
 		t.Run("restart node 1", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviate().Name())
-			require.Nil(t, err)
+			restartNode1(ctx, t, compose)
 		})
 	})
 
@@ -346,8 +343,7 @@ func eventualReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("restart node 1", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviate().Name())
-		require.Nil(t, err)
+		restartNode1(ctx, t, compose)
 	})
 
 	t.Run("assert any future writes are replicated", func(t *testing.T) {
@@ -371,7 +367,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("assert object is patched on node 1", func(t *testing.T) {
-				after, err := getObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0])
+				after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
 				require.Nil(t, err)
 
 				newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -396,13 +392,12 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("assert object removed from node 2", func(t *testing.T) {
-				_, err := getObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0])
+				_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
 				assert.Equal(t, err, &objects.ObjectsClassGetNotFound{})
 			})
 
 			t.Run("restart node 1", func(t *testing.T) {
-				err = compose.Start(ctx, compose.GetWeaviate().Name())
-				require.Nil(t, err)
+				restartNode1(ctx, t, compose)
 			})
 		})
 
@@ -428,4 +423,12 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 		})
 	})
+}
+
+func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
+	// since node1 is the gossip "leader", node 2 must be stopped and restarted
+	// after node1 to re-facilitate internode communication
+	require.Nil(t, compose.Stop(ctx, compose.GetWeaviateNode2().Name(), nil))
+	require.Nil(t, compose.Start(ctx, compose.GetWeaviate().Name()))
+	require.Nil(t, compose.Start(ctx, compose.GetWeaviateNode2().Name()))
 }
