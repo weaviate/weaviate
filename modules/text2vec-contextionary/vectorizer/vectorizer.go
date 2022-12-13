@@ -89,15 +89,6 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return nil
 }
 
-func sortStringKeys(schema_map map[string]interface{}) []string {
-	keys := make([]string, 0, len(schema_map))
-	for k := range schema_map {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
 	icheck ClassIndexCheck,
 ) ([]float32, error) {
