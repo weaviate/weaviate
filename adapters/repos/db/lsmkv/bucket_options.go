@@ -34,7 +34,7 @@ func WithStrategy(strategy string) BucketOption {
 
 func WithMemtableThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
-		b.memTableThreshold = threshold
+		b.memtableThreshold = threshold
 		return nil
 	}
 }
@@ -63,6 +63,23 @@ func WithSecondaryIndices(count uint16) BucketOption {
 func WithLegacyMapSorting() BucketOption {
 	return func(b *Bucket) error {
 		b.legacyMapSortingBeforeCompaction = true
+		return nil
+	}
+}
+
+func WithDynamicMemtableSizing(
+	initialMB, maxMB, minActiveSeconds, maxActiveSeconds int,
+) BucketOption {
+	return func(b *Bucket) error {
+		mb := 1024 * 1024
+		cfg := memtableSizeAdvisorCfg{
+			initial:     initialMB * mb,
+			stepSize:    10 * mb,
+			maxSize:     maxMB * mb,
+			minDuration: time.Duration(minActiveSeconds) * time.Second,
+			maxDuration: time.Duration(maxActiveSeconds) * time.Second,
+		}
+		b.memtableResizer = newMemtableSizeAdvisor(cfg)
 		return nil
 	}
 }

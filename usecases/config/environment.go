@@ -103,17 +103,8 @@ func FromEnv(config *Config) error {
 		config.Persistence.DataPath = v
 	}
 
-	if v := os.Getenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER"); v != "" {
-		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return errors.Wrapf(err, "parse PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER as int")
-		} else if asInt <= 0 {
-			return errors.New("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER must be a positive value larger 0")
-		}
-
-		config.Persistence.FlushIdleMemtablesAfter = asInt
-	} else {
-		config.Persistence.FlushIdleMemtablesAfter = DefaultPersistenceFlushIdleMemtablesAfter
+	if err := config.parseMemtableConfig(); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("ORIGIN"); v != "" {
@@ -219,9 +210,77 @@ func FromEnv(config *Config) error {
 	return nil
 }
 
+func (c *Config) parseMemtableConfig() error {
+	// first parse old name for flush value
+	if err := parsePositiveInt(
+		"PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER",
+		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
+		DefaultPersistenceFlushIdleMemtablesAfter,
+	); err != nil {
+		return err
+	}
+
+	// then parse with new name and use previous value in case it's not set
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS",
+		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
+		c.Persistence.FlushIdleMemtablesAfter,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_MAX_SIZE_MB",
+		func(val int) { c.Persistence.MemtablesMaxSizeMB = val },
+		DefaultPersistenceMemtablesMaxSize,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS",
+		func(val int) { c.Persistence.MemtablesMinActiveDurationSeconds = val },
+		DefaultPersistenceMemtablesMinDuration,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS",
+		func(val int) { c.Persistence.MemtablesMaxActiveDurationSeconds = val },
+		DefaultPersistenceMemtablesMaxDuration,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func parsePositiveInt(varName string, cb func(val int), defaultValue int) error {
+	if v := os.Getenv(varName); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse %s as int: %w", varName, err)
+		} else if asInt <= 0 {
+			return fmt.Errorf("%s must be a positive value larger 0", varName)
+		}
+
+		cb(asInt)
+	} else {
+		cb(defaultValue)
+	}
+
+	return nil
+}
+
 const DefaultQueryMaximumResults = int64(10000)
 
-const DefaultPersistenceFlushIdleMemtablesAfter = 60
+const (
+	DefaultPersistenceFlushIdleMemtablesAfter = 60
+	DefaultPersistenceMemtablesMaxSize        = 200
+	DefaultPersistenceMemtablesMinDuration    = 15
+	DefaultPersistenceMemtablesMaxDuration    = 45
+)
 
 const VectorizerModuleNone = "none"
 

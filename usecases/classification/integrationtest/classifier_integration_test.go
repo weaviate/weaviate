@@ -45,7 +45,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	sg := &fakeSchemaGetter{shardState: shardState}
 
 	vrepo := db.New(logger, db.Config{
-		FlushIdleAfter:            60,
+		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,

@@ -41,9 +41,10 @@ type Bucket struct {
 	// normal operation
 	flushLock sync.RWMutex
 
-	memTableThreshold uint64
 	walThreshold      uint64
 	flushAfterIdle    time.Duration
+	memtableThreshold uint64
+	memtableResizer   *memtableSizeAdvisor
 	strategy          string
 	secondaryIndices  uint16
 
@@ -87,7 +88,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	b := &Bucket{
 		dir:               dir,
 		rootDir:           rootDir,
-		memTableThreshold: defaultMemTableThreshold,
+		memtableThreshold: defaultMemTableThreshold,
 		walThreshold:      defaultWalThreshold,
 		flushAfterIdle:    defaultFlushAfterIdle,
 		strategy:          defaultStrategy,
@@ -99,6 +100,10 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		if err := opt(b); err != nil {
 			return nil, err
 		}
+	}
+
+	if b.memtableResizer != nil {
+		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
 	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
@@ -144,7 +149,7 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
-	b.memTableThreshold = size
+	b.memtableThreshold = size
 }
 
 // Get retrieves the single value for the given key.
@@ -645,7 +650,7 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 			Fatal("flush and switch failed")
 	}
 
-	memtableTooLarge := b.active.Size() >= b.memTableThreshold
+	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(stat.Size()) >= b.walThreshold
 	dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
 		b.active.IdleDuration() >= b.flushAfterIdle
@@ -667,11 +672,19 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 
 	b.flushLock.Unlock()
 	if shouldSwitch {
+		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
 				WithField("path", b.dir).
 				WithError(err).
 				Errorf("flush and switch failed")
+		}
+
+		if b.memtableResizer != nil {
+			next, ok := b.memtableResizer.NextTarget(int(b.memtableThreshold), cycleLength)
+			if ok {
+				b.memtableThreshold = uint64(next)
+			}
 		}
 	}
 }
