@@ -67,11 +67,16 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 
 			// Get previous results from the map, if any
 			previousResult, ok := mapResults[docId]
+
+			if tempResult.AdditionalProperties == nil {
+				tempResult.AdditionalProperties = map[string]interface{}{}
+			}
 			if ok {
 
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
 				score = score + float64(previousResult.Score)
 			} else {
+				
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", tempResult.ExplainScore, tempResult.ID, score)
 			}
 			tempResult.AdditionalProperties["rank_score"] = score
@@ -92,7 +97,7 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	sort.Slice(concatenatedResults, func(i, j int) bool {
 		a := float64(concatenatedResults[j].Score)
 		b := float64(concatenatedResults[i].Score)
-		if (a-b)*(a-b) < 0.00001 {
+		if (a-b)*(a-b) < 0.0000001*0.0000001 {
 			return concatenatedResults[i].Secondary_score > concatenatedResults[j].Secondary_score
 		}
 		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)

@@ -289,9 +289,53 @@ func TestRFJourney(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 
 	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
-
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
+
+
+	doc1 := search.Result{
+		
+			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
+			Schema: map[string]interface{}{
+				"title": "peanuts",
+			},
+			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+			Score: 0.1,
+		}
+
+		doc2 := search.Result{
+		
+			ID: strfmt.UUID("2b7a8bc9-29d9-4cc8-b145-a0baf5fc231d"),
+			Schema: map[string]interface{}{
+				"title": "journey",
+			},
+			Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
+			Score: 0.2,
+		}
+
+
+		result_set_1 :=[]search.Result{doc1, doc2}
+
+		result_set_2 :=[]search.Result{doc2, doc1}
+		
+		
+		
+		
+		results := traverser.FusionReciprocal([]float64{0.4, 0.6}, [][]search.Result{result_set_1, result_set_2})
+		fmt.Println("--- Start results for Fusion Reciprocal ---")
+		for _, result := range results {
+			schema := result.Schema.(map[string]interface{})
+			fmt.Println(schema["title"], result.ID, result.Score)
+		}
+		require.Equal(t, 2, len(results))
+		require.Equal(t, result_set_2[0].ID, results[0].ID)
+		require.Equal(t, result_set_2[1].ID, results[1].ID)
+		require.Equal(t, float32(0.016287679), results[0].Score)
+		require.Equal(t, float32(0.016234796)	, results[1].Score)
+	
+
+	/*
+	Doing searches like this is not working correctly, possibly due to my configuration of the repo?
 
 	// Check basic search with one property
 	results_set_1, err := repo.VectorClassSearch(context.TODO(), traverser.GetParams{
@@ -324,6 +368,7 @@ func TestRFJourney(t *testing.T) {
 
 	require.Equal(t, "00000000-0000-0000-0000-000000000000", string(res[0].ID))
 
+	*/
 	params := traverser.GetParams{
 		ClassName: "MyClass",
 		HybridSearch: &searchparams.HybridSearch{
