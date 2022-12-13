@@ -264,8 +264,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	require.Equal(t, float32(0.056813046), res[0].Score())
-	require.Equal(t, float32(0.054633126), res[1].Score())
+	require.Equal(t, float32(2.805209), res[0].Score())
+	require.Equal(t, float32(0.06341988), res[1].Score())
 }
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
