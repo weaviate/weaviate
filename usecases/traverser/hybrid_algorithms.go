@@ -98,7 +98,7 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 		a := float64(concatenatedResults[j].Score)
 		b := float64(concatenatedResults[i].Score)
 		if (a-b)*(a-b) < 0.0000001*0.0000001 {
-			return concatenatedResults[i].Secondary_score > concatenatedResults[j].Secondary_score
+			return concatenatedResults[i].SecondarySortValue > concatenatedResults[j].SecondarySortValue
 		}
 		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)
 	})

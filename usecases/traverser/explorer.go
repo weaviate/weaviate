@@ -250,7 +250,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 			// Set the scoreexplain property to bm25 for every result
 			for i := range res1 {
-				res1[i].Secondary_score = res1[i].Score
+				res1[i].SecondarySortValue = res1[i].Score
 				res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
 			}
 
@@ -280,7 +280,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 				// Set the scoreexplain property to vector for every result
 				for i := range res2 {
-					res2[i].Secondary_score = 1 - res2[i].Dist
+					res2[i].SecondarySortValue = 1 - res2[i].Dist
 					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
 				}
 
