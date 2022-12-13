@@ -265,7 +265,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 
 	// Check scores
 	EqualFloats(t, float32(0.04598), res[0].Score(), 6)
-	EqualFloats(t, float32(0.01435), res[1].Score(),6)
+	EqualFloats(t, float32(0.01435), res[1].Score(), 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
