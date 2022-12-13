@@ -456,7 +456,6 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 			args.Type = "hybrid"
 			p := args
-			// p := common_filters.ExtractHybrid(hybrid.(map[string]interface{}, r.modulesProvider))
 			hybridParams = &p
 		}
 
