@@ -431,4 +431,5 @@ func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompo
 	require.Nil(t, compose.Stop(ctx, compose.GetWeaviateNode2().Name(), nil))
 	require.Nil(t, compose.Start(ctx, compose.GetWeaviate().Name()))
 	require.Nil(t, compose.Start(ctx, compose.GetWeaviateNode2().Name()))
+	<-time.After(1 * time.Second) // wait for initialization
 }
