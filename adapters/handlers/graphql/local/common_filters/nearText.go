@@ -11,7 +11,10 @@
 
 package common_filters
 
-import "github.com/semi-technologies/weaviate/entities/searchparams"
+import (
+	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"fmt"
+)
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
@@ -29,17 +32,12 @@ func ExtractNearText(source map[string]interface{}) (searchparams.NearTextParams
 	autocorrect, ok := source["autocorrect"]
 	if ok {
 		args.Autocorrect = autocorrect.(bool)
-	}
-
-	/* FIXME
-	// if there's text transformer present and autocorrect set to true
-	// perform text transformation operation
-	if args.Autocorrect && nearTextTransformer != nil {
-		if transformedValues, err := g.nearTextTransformer.Transform(args.Values); err == nil {
-			args.Values = transformedValues
+		if args.Autocorrect {
+			return searchparams.NearTextParams{}, fmt.Errorf("autocorrect is not supported for hybrid nearText")
 		}
 	}
-	*/
+
+
 
 	// limit is an optional arg, so it could be nil
 	limit, ok := source["limit"]
