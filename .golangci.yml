@@ -6,6 +6,7 @@ linters:
     - bodyclose
     - gofumpt
     - exhaustive
+    - govet
 linters-settings:
   exhaustive:
     # Presence of "default" case in switch statements satisfies exhaustiveness,
