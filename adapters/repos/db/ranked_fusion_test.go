@@ -113,7 +113,6 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		// vector := []float32{1, 3, 5, 0.4} //FIXME, make correct vectors?
 		err := repo.PutObject(context.Background(), obj, nil)
 		require.Nil(t, err)
 	}

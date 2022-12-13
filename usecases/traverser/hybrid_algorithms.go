@@ -63,7 +63,7 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 		for i, res := range result {
 			tempResult := res
 			docId := tempResult.ID
-			score := weights[resultSetIndex] / float64(i+60+1) // FIXME replace 60 with a variable
+			score := weights[resultSetIndex] / float64(i+60+1) // TODO replace 60 with a class configured variable
 
 			// Get previous results from the map, if any
 			previousResult, ok := mapResults[docId]

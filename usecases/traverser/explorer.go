@@ -328,7 +328,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 
 					var err error
 					vector, err = e.modulesProvider.VectorFromInput(ctx,
-						params.ClassName, sp.Values[0]) // FIXME where is the search query?
+						params.ClassName, sp.Values[0])
 					if err != nil {
 						return nil, err
 					}
