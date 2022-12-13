@@ -323,18 +323,18 @@ func TestRFJourney(t *testing.T) {
 	result_set_2 := []search.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
-	results := traverser.FusionReciprocal([]float64{0.4, 0.6}, [][]search.Result{result_set_1, result_set_2})
-	fmt.Println("--- Start results for Fusion Reciprocal ---")
-	for _, result := range results {
-		schema := result.Schema.(map[string]interface{})
-		fmt.Println(schema["title"], result.ID, result.Score)
-	}
-	require.Equal(t, 3, len(results))
-	require.Equal(t, result_set_2[0].ID, results[0].ID)
-	require.Equal(t, result_set_2[1].ID, results[1].ID)
-	require.Equal(t, result_set_2[2].ID, results[2].ID)
-	require.Equal(t, float32(0.016287679), results[0].Score)
-	require.Equal(t, float32(0.016234796), results[1].Score)
+		results := traverser.FusionReciprocal([]float64{0.4, 0.6}, [][]search.Result{result_set_1, result_set_2})
+		fmt.Println("--- Start results for Fusion Reciprocal ---")
+		for _, result := range results {
+			schema := result.Schema.(map[string]interface{})
+			fmt.Println(schema["title"], result.ID, result.Score)
+		}
+		require.Equal(t, 3, len(results))
+		require.Equal(t, result_set_2[0].ID, results[0].ID)
+		require.Equal(t, result_set_2[1].ID, results[1].ID)
+		require.Equal(t, result_set_2[2].ID, results[2].ID)
+		require.Equal(t, float32(0.016287679), results[0].Score)
+		require.Equal(t, float32(0.016234796), results[1].Score)
 	})
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
@@ -352,8 +352,6 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, float32(0.016181914), results[1].Score)
 	})
 
-
-
 	t.Run("Vector Only", func(t *testing.T) {
 		results := traverser.FusionReciprocal([]float64{0.0, 1.0}, [][]search.Result{result_set_1, result_set_2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
@@ -368,7 +366,6 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, float32(0.016340561), results[0].Score)
 		require.Equal(t, float32(0.016181914), results[1].Score)
 	})
-
 
 	t.Run("BM25 only", func(t *testing.T) {
 		results := traverser.FusionReciprocal([]float64{1.0, 0.0}, [][]search.Result{result_set_1, result_set_2})
