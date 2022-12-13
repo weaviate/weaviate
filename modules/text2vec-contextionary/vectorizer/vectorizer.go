@@ -115,7 +115,6 @@ func sortStringKeys(schema_map map[string]interface{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
->>>>>>> 31f6cfa51 (regen reformat)
 }
 
 func appendPropIfText(icheck ClassIndexCheck, list *[]string, propName string,
