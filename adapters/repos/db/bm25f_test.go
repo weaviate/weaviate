@@ -264,7 +264,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	require.Equal(t, float32(2.805209), res[0].Score())
+	require.Equal(t, float32(2.805156), res[0].Score())
 	require.Equal(t, float32(0.06341988), res[1].Score())
 }
 
