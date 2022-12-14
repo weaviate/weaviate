@@ -51,7 +51,6 @@ func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 }
 
 func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
-
 	mapResults := map[strfmt.UUID]search.Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {

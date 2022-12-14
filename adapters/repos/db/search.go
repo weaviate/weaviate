@@ -119,27 +119,21 @@ func extractDistanceFromParams(params traverser.GetParams) float32 {
 func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
-	
-
 	var searchErrors []error
 	totalLimit := offset + limit
 
 	index := db.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return []search.Result {}, fmt.Errorf("tried to browse non-existing index for %s", class)
+		return []search.Result{}, fmt.Errorf("tried to browse non-existing index for %s", class)
 	}
 
 	objs, dist, err := index.objectVectorSearch(
 		ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
 	if err != nil {
-
 		return []search.Result{}, errors.Wrapf(err, "search index %s", index.ID())
-
 	}
 
-	
 	found := hydrateObjectsIntoSearchResults(objs, dist)
-	
 
 	if len(searchErrors) > 0 {
 		var msg strings.Builder
