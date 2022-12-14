@@ -51,12 +51,6 @@ func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 }
 
 func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
-	// Printf the IDs of the results
-	for i, result := range results {
-		for _, res := range result {
-			fmt.Printf("FusionReciprocal: resultset %v, result: %v\n", i, res.ID)
-		}
-	}
 
 	mapResults := map[strfmt.UUID]search.Result{}
 	for resultSetIndex, result := range results {
@@ -94,9 +88,8 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	}
 
 	sort.Slice(concatenatedResults, func(i, j int) bool {
-		a := float64(concatenatedResults[j].Score)
-		b := float64(concatenatedResults[i].Score)
-		if (a-b)*(a-b) < 0.0000001*0.0000001 {
+		a_b := float64(concatenatedResults[j].Score - concatenatedResults[i].Score)
+		if a_b*a_b < 1e-14 {
 			return concatenatedResults[i].SecondarySortValue > concatenatedResults[j].SecondarySortValue
 		}
 		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)

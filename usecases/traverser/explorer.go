@@ -368,7 +368,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					results = append(results, res2)
 
 				default:
-					panic("unknown subsearch type:" + subsearch.Type)
+					return nil, fmt.Errorf("unknown search type: %v", subsearch.Type)
 				}
 			}
 		}
