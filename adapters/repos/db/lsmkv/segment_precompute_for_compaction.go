@@ -45,6 +45,8 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("open file: %w", err)
 	}
 
+	defer file.Close()
+
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
@@ -54,6 +56,8 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	if err != nil {
 		return nil, fmt.Errorf("mmap file: %w", err)
 	}
+
+	defer syscall.Munmap(content)
 
 	header, err := parseSegmentHeader(bytes.NewReader(content[:SegmentHeaderSize]))
 	if err != nil {
