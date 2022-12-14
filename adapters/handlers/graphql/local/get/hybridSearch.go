@@ -43,13 +43,7 @@ func hybridOperands(classObject *graphql.Object,
 		Name:   class.Class + "SubSearch",
 		Fields: hybridSubSearch(classObject, class, modulesProvider),
 	})
-
 	fieldMap := graphql.InputObjectConfigFieldMap{
-		"limit": &graphql.InputObjectFieldConfig{
-			Description: "limit",
-			Type:        graphql.Int,
-		},
-
 		"query": &graphql.InputObjectFieldConfig{
 			Description: "Query string",
 			Type:        graphql.String,

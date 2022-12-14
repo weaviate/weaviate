@@ -374,12 +374,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		}
 	}
 	fused := FusionReciprocal(weights, results)
-	if params.HybridSearch.Limit == 0 {
-		params.HybridSearch.Limit = 1000 // FIXME use global limit config, where 	ever it is
+	if params.Pagination.Limit == 0 {
+		params.Pagination.Limit = 100 // FIXME use global limit config, where 	ever it is
 	}
-	if len(fused) > params.HybridSearch.Limit {
-		fmt.Printf("limiting results from %v to %v\n", len(fused), params.HybridSearch.Limit)
-		fused = fused[:params.HybridSearch.Limit]
+	if len(fused) > params.Pagination.Limit {
+		fmt.Printf("limiting results from %v to %v\n", len(fused), params.Pagination.Limit)
+		fused = fused[:params.Pagination.Limit]
 	}
 
 	return fused, nil
