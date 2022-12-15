@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -69,17 +70,23 @@ func (v *Validator) properties(ctx context.Context, object interface{}) error {
 		if propertyValue == nil {
 			continue // nil values are removed and filtered out
 		}
-		dataType, err := schema.GetPropertyDataType(class, propertyKey)
+
+		// properties in the class are saved with lower case first letter
+		propertyKeyLowerCase := strings.ToLower(propertyKey[:1])
+		if len(propertyKey) > 1 {
+			propertyKeyLowerCase += propertyKey[1:]
+		}
+		dataType, err := schema.GetPropertyDataType(class, propertyKeyLowerCase)
 		if err != nil {
 			return err
 		}
 
-		data, err := v.extractAndValidateProperty(ctx, propertyKey, propertyValue, className, dataType)
+		data, err := v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType)
 		if err != nil {
 			return err
 		}
 
-		returnSchema[propertyKey] = data
+		returnSchema[propertyKeyLowerCase] = data
 	}
 
 	object.(*models.Object).Properties = returnSchema

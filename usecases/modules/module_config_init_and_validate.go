@@ -96,7 +96,7 @@ func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
 	prop *models.Property, cfg *ClassBasedModuleConfig,
 	cc modulecapabilities.ClassConfigurator,
 ) {
-	dt, _ := schema.GetPropertyDataType(class, prop.Name)
+	dt, _ := schema.GetValueDataTypeFromString(prop.DataType[0])
 	modDefaults := cc.PropertyConfigDefaults(dt)
 	userSpecified := cfg.Property(prop.Name)
 	mergedConfig := map[string]interface{}{}
