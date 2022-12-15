@@ -110,8 +110,8 @@ func (r *Replicator) MergeObject(ctx context.Context, shard string,
 }
 
 func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
-	resp := SimpleResponse{}
 	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
+		resp := SimpleResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()

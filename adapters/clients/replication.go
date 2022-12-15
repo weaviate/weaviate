@@ -154,7 +154,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 		return fmt.Errorf("create http request: %w", err)
 	}
 
-	return c.do(c.timeoutUnit*64, req, &resp)
+	return c.do(c.timeoutUnit*64, req, resp)
 }
 
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
