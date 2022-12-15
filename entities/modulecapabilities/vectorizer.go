@@ -42,3 +42,8 @@ type ReferenceVectorizer interface {
 	VectorizeObject(ctx context.Context, object *models.Object,
 		cfg moduletools.ClassConfig, findObjectFn FindObjectFn) error
 }
+
+type InputVectorizer interface {
+	VectorizeInput(ctx context.Context, input string,
+		cfg moduletools.ClassConfig) ([]float32, error)
+}

@@ -46,6 +46,9 @@ const (
 	// These BM25 tuning params can be overwritten on a per-class basis
 	DefaultBM25k1 = float32(1.2)
 	DefaultBM25b  = float32(0.75)
+
+	// These hybrid tuning params can be overwritten on a per-class basis
+	DefaultAlpha = float32(0.75)
 )
 
 const (

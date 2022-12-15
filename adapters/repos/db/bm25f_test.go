@@ -241,7 +241,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.NotNil(t, idx)
 
 	// Check boosted
-	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
 	addit := additional.Properties{}
 	res, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
@@ -254,8 +254,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	// Check results in correct order
-	require.Equal(t, uint64(6), res[0].DocID())
-	require.Equal(t, uint64(3), res[3].DocID())
+	require.Equal(t, uint64(1), res[0].DocID())
+	require.Equal(t, uint64(5), res[3].DocID())
 
 	// Print results
 	fmt.Println("--- Start results for boosted search ---")
@@ -264,12 +264,14 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	sc := fmt.Sprintf("%v", res[0].Score())
-	require.Equal(t, "2.805", sc[:5])
-	sc = fmt.Sprintf("%v", res[1].Score())
-	require.Equal(t, "0.063", sc[:5])
-	// require.Equal(t, float32(0.014773461), res[2].Score())
-	// require.Equal(t, float32(0.006913103), res[3].Score())
+	EqualFloats(t, float32(0.04598), res[0].Score(), 6)
+	EqualFloats(t, float32(0.01435), res[1].Score(), 6)
+}
+
+func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
+	s1 := fmt.Sprintf("%v", expected)
+	s2 := fmt.Sprintf("%v", actual)
+	require.Equal(t, s1[:significantFigures+1], s2[:significantFigures+1])
 }
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly

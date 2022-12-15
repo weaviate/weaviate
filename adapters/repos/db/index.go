@@ -776,7 +776,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 			// If the request is a BM25F with no properties selected, use all possible properties
 			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
-				// Loop over classes and find i.Config.ClassName.String()
+
 				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
 				if err != nil {
 					return nil, err
@@ -785,7 +785,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+					if v.DataType[0] == "text" || v.DataType[0] == "string" { // Also the array types?
+						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+					}
 				}
 
 			}
