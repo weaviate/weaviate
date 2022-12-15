@@ -12,13 +12,16 @@
 package traverser
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 )
 
 type Metrics struct {
-	queriesCount *prometheus.GaugeVec
-	dimensions   *prometheus.CounterVec
+	queriesCount     *prometheus.GaugeVec
+	queriesDurations *prometheus.HistogramVec
+	dimensions       *prometheus.CounterVec
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
@@ -27,8 +30,9 @@ func NewMetrics(prom *monitoring.PrometheusMetrics) *Metrics {
 	}
 
 	return &Metrics{
-		queriesCount: prom.QueriesCount,
-		dimensions:   prom.QueryDimensions,
+		queriesCount:     prom.QueriesCount,
+		queriesDurations: prom.QueriesDurations,
+		dimensions:       prom.QueryDimensions,
 	}
 }
 
@@ -63,6 +67,19 @@ func (m *Metrics) QueriesGetInc(className string) {
 		"class_name": className,
 		"query_type": "get_graphql",
 	}).Inc()
+}
+
+func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
+	if m == nil {
+		return
+	}
+
+	took := float64(time.Now().UnixMilli() - startMs)
+
+	m.queriesDurations.With(prometheus.Labels{
+		"class_name": className,
+		"query_type": "get_graphql",
+	}).Observe(float64(took))
 }
 
 func (m *Metrics) QueriesGetDec(className string) {
