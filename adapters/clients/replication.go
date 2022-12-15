@@ -55,7 +55,7 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*2, req, &resp)
+	err = c.do(c.timeoutUnit*10, req, &resp)
 	return resp, err
 }
 
@@ -194,15 +194,28 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp interface{}) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
+
+	// we have to save the req body contents (if present)
+	// prior to the first request. otherwise, the first
+	// request reads and closes the request body, and all
+	// future retries fail
+	body := readRequestBody(req)
+
 	try := func(ctx context.Context) (bool, error) {
+		req.Body = io.NopCloser(bytes.NewReader(body))
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
+		if res.StatusCode == http.StatusServiceUnavailable {
+			// give the node a chance to reinit the DB
+			time.Sleep(time.Second)
+			return true, fmt.Errorf("host %q is unavailable", req.Host)
+		}
 		if code := res.StatusCode; code != http.StatusOK {
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			shouldRetry := code == http.StatusInternalServerError || code == http.StatusTooManyRequests
 			return shouldRetry, fmt.Errorf("status code: %v", code)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
@@ -217,4 +230,13 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp in
 // It implements truncated exponential back-off with introduced jitter.
 func backOff(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
+}
+
+func readRequestBody(req *http.Request) []byte {
+	var body []byte
+	if req.Body != nil {
+		body, _ = io.ReadAll(req.Body)
+		req.Body.Close()
+	}
+	return body
 }
