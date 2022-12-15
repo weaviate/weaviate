@@ -6,6 +6,7 @@ linters:
     - bodyclose
     - gofumpt
     - exhaustive
+    - govet
 linters-settings:
   exhaustive:
     # Presence of "default" case in switch statements satisfies exhaustiveness,
@@ -20,3 +21,6 @@ issues:
     - linters:
         - staticcheck
       text: "SA1015:"
+    - linters:
+        - staticcheck
+      text: "SA5011"

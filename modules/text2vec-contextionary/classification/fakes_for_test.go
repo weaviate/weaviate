@@ -315,6 +315,10 @@ type fakeModulesProvider struct {
 	contextualClassifier modulecapabilities.Classifier
 }
 
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+	panic("not implemented")
+}
+
 func NewFakeModulesProvider(vectorizer *fakeVectorizer) *fakeModulesProvider {
 	return &fakeModulesProvider{New(vectorizer)}
 }

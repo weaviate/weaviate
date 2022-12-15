@@ -2567,6 +2567,10 @@ type fakeModulesProvider struct {
 	customC11yModule *fakeText2vecContextionaryModule
 }
 
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+	panic("not implemented")
+}
+
 func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,

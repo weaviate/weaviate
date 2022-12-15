@@ -51,6 +51,10 @@ type ObjectMove struct {
 	Beacon string
 }
 
+func NewNearTextParams() *NearTextParams {
+	return &NearTextParams{}
+}
+
 func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
 	nearText, ok := param.(*NearTextParams)
 	if !ok {

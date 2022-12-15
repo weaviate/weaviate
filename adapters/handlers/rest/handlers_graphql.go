@@ -64,8 +64,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 		if graphQL == nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				{
-					Message: "no graphql provider present, " +
-						"this is most likely because no schema is present. Import a schema first!",
+					Message: "no graphql provider present, this is most likely because no schema is present. Import a schema first!",
 				},
 			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)

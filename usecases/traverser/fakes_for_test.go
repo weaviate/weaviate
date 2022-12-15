@@ -84,6 +84,12 @@ type fakeVectorSearcher struct {
 	results          []search.Result
 }
 
+func (f *fakeVectorSearcher) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
+	filters *filters.LocalFilter,
+) ([]search.Result, error) {
+	panic("not implemented")
+}
+
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	vector []float32, offset, limit int, filters *filters.LocalFilter,
 ) ([]search.Result, error) {

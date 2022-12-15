@@ -16,6 +16,8 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/tailor-inc/graphql"
+
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
@@ -26,27 +28,72 @@ func nearObjectArgument(className string) *graphql.ArgumentConfig {
 	return common_filters.NearObjectArgument("GetObjects", className)
 }
 
-func bm25Argument(className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("GetObjects%s", className)
-	return &graphql.ArgumentConfig{
-		Type: graphql.NewInputObject(
-			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%sBm25InpObj", prefix),
-				Fields: bm25Fields(prefix),
-			},
-		),
+func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
+	nearTextFields := graphql.InputObjectConfigFieldMap{
+		"concepts": &graphql.InputObjectFieldConfig{
+			// Description: descriptions.Concepts,
+			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
+		},
+		"moveTo": &graphql.InputObjectFieldConfig{
+			Description: descriptions.VectorMovement,
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   fmt.Sprintf("%sMoveTo", prefix),
+					Fields: movementInp(fmt.Sprintf("%sMoveTo", prefix)),
+				}),
+		},
+		"certainty": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.Float,
+		},
+		"distance": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Distance,
+			Type:        graphql.Float,
+		},
+		"moveAwayFrom": &graphql.InputObjectFieldConfig{
+			Description: descriptions.VectorMovement,
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   fmt.Sprintf("%sMoveAwayFrom", prefix),
+					Fields: movementInp(fmt.Sprintf("%sMoveAwayFrom", prefix)),
+				}),
+		},
+	}
+	return nearTextFields
+}
+
+func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"concepts": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Keywords,
+			Type:        graphql.NewList(graphql.String),
+		},
+		"objects": &graphql.InputObjectFieldConfig{
+			Description: "objects",
+			Type:        graphql.NewList(objectsInpObj(prefix)),
+		},
+		"force": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Force,
+			Type:        graphql.NewNonNull(graphql.Float),
+		},
 	}
 }
 
-func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
-		"query": &graphql.InputObjectFieldConfig{
-			// Description: descriptions.ID,
-			Type: graphql.String,
+func objectsInpObj(prefix string) *graphql.InputObject {
+	return graphql.NewInputObject(
+		graphql.InputObjectConfig{
+			Name: fmt.Sprintf("%sMovementObjectsInpObj", prefix),
+			Fields: graphql.InputObjectConfigFieldMap{
+				"id": &graphql.InputObjectFieldConfig{
+					Type:        graphql.String,
+					Description: "id of an object",
+				},
+				"beacon": &graphql.InputObjectFieldConfig{
+					Type:        graphql.String,
+					Description: descriptions.Beacon,
+				},
+			},
+			Description: "Movement Object",
 		},
-		"properties": &graphql.InputObjectFieldConfig{
-			// Description: descriptions.Beacon,
-			Type: graphql.NewList(graphql.String),
-		},
-	}
+	)
 }

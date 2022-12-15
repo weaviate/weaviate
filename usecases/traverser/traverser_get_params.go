@@ -27,6 +27,7 @@ type GetParams struct {
 	NearVector           *searchparams.NearVector
 	NearObject           *searchparams.NearObject
 	KeywordRanking       *searchparams.KeywordRanking
+	HybridSearch         *searchparams.HybridSearch
 	SearchVector         []float32
 	Group                *GroupParams
 	ModuleParams         map[string]interface{}

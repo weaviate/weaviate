@@ -13,6 +13,8 @@ package traverser
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -22,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/floatcomp"
 	uc "github.com/semi-technologies/weaviate/usecases/schema"
@@ -58,12 +61,15 @@ type ModulesProvider interface {
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
+	VectorFromInput(ctx context.Context, className string, input string) ([]float32, error)
 }
 
 type vectorClassSearch interface {
 	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
+		filters *filters.LocalFilter) ([]search.Result, error)
+	ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
@@ -212,6 +218,177 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
+func shortenVectorString(maxLength int, vector []float32) string {
+	if len(vector) <= maxLength {
+		return fmt.Sprintf("%v", vector)
+	}
+	return fmt.Sprintf("%v...", vector[:maxLength])
+}
+
+func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Result, error) {
+	results := [][]search.Result{}
+	weights := []float64{}
+
+	hybridSearchLimit := params.Pagination.Limit
+	if hybridSearchLimit == 0 {
+		hybridSearchLimit = 100 // FIXME use global limit config, where 	ever it is
+	}
+
+	if params.HybridSearch != nil {
+		// There are two modes to hybrid search.  One is a simple unified interface, which only takes
+		// a few parameters, like "query", "vector", and "alpha".  It only does two searches and combines them.
+
+		// The other is a more complex, complete interface that allows any number of searches to be combined.
+		// The searches can use all of the options normally available, allowing complete control over the subsearches.
+
+		if params.HybridSearch.Query != "" {
+			// Simple search interface
+			results = make([][]search.Result, 2)
+			weights = make([]float64, 2)
+
+			// Search inverted index by query
+			params.KeywordRanking = &searchparams.KeywordRanking{
+				Query: params.HybridSearch.Query,
+
+				Type: "bm25",
+			}
+			// Result 1 is the bm25 "sparse" search on the inverted index
+			sparseResults, err := e.search.ClassSearch(ctx, params)
+			if err != nil {
+				return nil, err
+			}
+
+			// Set the scoreexplain property to bm25 for every result
+			for i := range sparseResults {
+				sparseResults[i].SecondarySortValue = sparseResults[i].Score
+				sparseResults[i].ExplainScore = "(bm25)" + sparseResults[i].ExplainScore
+			}
+
+			// Result 2 is the vector search, either with a provided vector or with a vector calculated from the query
+			// i.e. nearVec or NearText
+			var vector []float32
+			if e.modulesProvider != nil {
+				if params.HybridSearch.Vector != nil && len(params.HybridSearch.Vector) != 0 {
+					// NearVec search
+					vector = params.HybridSearch.Vector
+				} else {
+					// NearText search
+					// Calculate the vector for the query
+					vector, err = e.modulesProvider.VectorFromInput(ctx,
+						params.ClassName, params.HybridSearch.Query)
+					if err != nil {
+						return nil, err
+					}
+					fmt.Printf("found vector from query: %v\n", vector)
+				}
+				vectorResults, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
+				if err != nil {
+					return nil, err
+				}
+
+				// Set the scoreexplain property to vector for every result
+				for i := range vectorResults {
+					vectorResults[i].SecondarySortValue = 1 - vectorResults[i].Dist
+					vectorResults[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), vectorResults[i].ExplainScore)
+				}
+
+				alpha := params.HybridSearch.Alpha
+				results = [][]search.Result{sparseResults, vectorResults}
+				weights = []float64{1 - alpha, alpha}
+
+			}
+		} else {
+			// Complete hybrid search interface
+
+			// Iterate over subsearches, and execute them
+
+			ss := params.HybridSearch.SubSearches
+
+			for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
+				switch subsearch.Type {
+				case "bm25":
+					fallthrough
+				case "sparseSearch":
+					sp := subsearch.SearchParams.(searchparams.KeywordRanking)
+					weights = append(weights, subsearch.Weight)
+					params.KeywordRanking = &sp
+
+					res1, err := e.search.ClassSearch(ctx, params)
+					if err != nil {
+						return nil, err
+					}
+
+					// Set the scoreexplain property to bm25 for every result
+					for i := range res1 {
+						scStr := res1[i].AdditionalProperties["score"].(string)
+						sc, _ := strconv.ParseFloat(scStr, 64)
+						res1[i].Score = float32(sc)
+						res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
+					}
+
+					results = append(results, res1)
+				case "nearText":
+					sp := subsearch.SearchParams.(searchparams.NearTextParams)
+					weights = append(weights, subsearch.Weight)
+					if e.modulesProvider == nil {
+						continue
+					}
+
+					var err error
+					vector, err := e.modulesProvider.VectorFromInput(ctx,
+						params.ClassName, sp.Values[0])
+					if err != nil {
+						return nil, err
+					}
+					fmt.Printf("found vector: %v\n", shortenVectorString(10, vector))
+
+					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
+					if err != nil {
+						return nil, err
+					}
+
+					// Set the scoreexplain property to vector for every result
+					for i := range res2 {
+						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
+					}
+					results = append(results, res2)
+
+				case "nearVector":
+					var vector []float32
+					sp := subsearch.SearchParams.(searchparams.NearVector)
+					weights = append(weights, subsearch.Weight)
+					if sp.Vector != nil && len(sp.Vector) != 0 {
+						vector = sp.Vector
+					}
+
+					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
+					if err != nil {
+						return nil, err
+					}
+
+					// Set the scoreexplain property to vector for every result
+					for i := range res2 {
+						res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
+					}
+
+					results = append(results, res2)
+
+				default:
+					return nil, fmt.Errorf("unknown search type: %v", subsearch.Type)
+				}
+			}
+		}
+	}
+	fused := FusionReciprocal(weights, results)
+
+	if len(fused) > hybridSearchLimit+1 {
+		fmt.Printf("limiting results from %v to %v\n", len(fused), hybridSearchLimit)
+		fused = fused[:hybridSearchLimit]
+	}
+
+	return fused, nil
+}
+
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
@@ -232,10 +409,19 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if params.Group != nil && (params.Filters != nil || params.Sort != nil) {
 		params.AdditionalProperties.Vector = true
 	}
+	var res []search.Result
+	var err error
+	if params.HybridSearch != nil {
+		res, err = e.Hybrid(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+	} else {
 
-	res, err := e.search.ClassSearch(ctx, params)
-	if err != nil {
-		return nil, errors.Errorf("explorer: list class: search: %v", err)
+		res, err = e.search.ClassSearch(ctx, params)
+		if err != nil {
+			return nil, errors.Errorf("explorer: list class: search: %v", err)
+		}
 	}
 
 	if params.Group != nil {

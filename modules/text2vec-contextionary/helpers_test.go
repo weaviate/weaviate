@@ -152,6 +152,14 @@ func (m *mockText2vecContextionaryModule) AdditionalProperties() map[string]modu
 
 type fakeModulesProvider struct{}
 
+func (f *fakeModulesProvider) GetAll() []modulecapabilities.Module {
+	panic("implement me")
+}
+
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+	panic("not implemented")
+}
+
 func (p *fakeModulesProvider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	args := map[string]*graphql.ArgumentConfig{}
 	txt2vec := &mockText2vecContextionaryModule{}
