@@ -157,7 +157,9 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 
 func (v *vectorizer) getModelString(docType, model, action string) string {
 	modelBaseString := "%s-search-%s-%s-001"
-	if action == "document" {
+	if model == "ada2" {
+		return "text-embedding-ada-002"
+	} else if action == "document" {
 		if docType == "code" {
 			return fmt.Sprintf(modelBaseString, docType, model, "code")
 		}

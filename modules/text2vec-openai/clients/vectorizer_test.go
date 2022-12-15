@@ -216,6 +216,14 @@ func Test_getModelString(t *testing.T) {
 				want: "text-search-ada-doc-001",
 			},
 			{
+				name: "Document type: text model: ada2 vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "ada2",
+				},
+				want: "text-embedding-ada-002",
+			},
+			{
 				name: "Document type: text model: babbage vectorizationType: document",
 				args: args{
 					docType: "text",
@@ -246,6 +254,14 @@ func Test_getModelString(t *testing.T) {
 					model:   "ada",
 				},
 				want: "code-search-ada-code-001",
+			},
+			{
+				name: "Document type: code model: ada2 vectorizationType: code",
+				args: args{
+					docType: "code",
+					model:   "ada2",
+				},
+				want: "text-embedding-ada-002",
 			},
 			{
 				name: "Document type: code model: babbage vectorizationType: code",
@@ -285,6 +301,14 @@ func Test_getModelString(t *testing.T) {
 				want: "text-search-ada-query-001",
 			},
 			{
+				name: "Document type: text model: ada2 vectorizationType: query",
+				args: args{
+					docType: "text",
+					model:   "ada2",
+				},
+				want: "text-embedding-ada-002",
+			},
+			{
 				name: "Document type: text model: babbage vectorizationType: query",
 				args: args{
 					docType: "text",
@@ -308,7 +332,6 @@ func Test_getModelString(t *testing.T) {
 				},
 				want: "text-search-davinci-query-001",
 			},
-
 			{
 				name: "Document type: code model: ada vectorizationType: text",
 				args: args{
@@ -316,6 +339,14 @@ func Test_getModelString(t *testing.T) {
 					model:   "ada",
 				},
 				want: "code-search-ada-text-001",
+			},
+			{
+				name: "Document type: code model: ada2 vectorizationType: text",
+				args: args{
+					docType: "code",
+					model:   "ada2",
+				},
+				want: "text-embedding-ada-002",
 			},
 			{
 				name: "Document type: code model: babbage vectorizationType: text",
