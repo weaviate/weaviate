@@ -25,7 +25,7 @@ require (
 	github.com/prometheus/client_golang v1.11.1
 	github.com/rs/cors v1.5.0
 	github.com/semi-technologies/contextionary v0.0.0-20210324171723-00263e697379
-	github.com/sirupsen/logrus v1.8.1
+	github.com/sirupsen/logrus v1.9.0
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.8.0
@@ -34,7 +34,7 @@ require (
 	go.etcd.io/bbolt v1.3.5
 	golang.org/x/net v0.4.0
 	golang.org/x/oauth2 v0.0.0-20220822191816-0ebed06d0094
-	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f
+	golang.org/x/sync v0.1.0
 	golang.org/x/sys v0.3.0
 	gonum.org/v1/gonum v0.9.1
 	google.golang.org/api v0.85.0
