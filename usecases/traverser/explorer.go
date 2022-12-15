@@ -229,6 +229,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 	results := [][]search.Result{}
 	weights := []float64{}
 
+	hybridSearchLimit := params.Pagination.Limit
+	if hybridSearchLimit == 0 {
+		hybridSearchLimit = 100 // FIXME use global limit config, where 	ever it is
+	}
+
 	if params.HybridSearch != nil {
 		// There are two modes to hybrid search.  One is a simple unified interface, which only takes
 		// a few parameters, like "query", "vector", and "alpha".  It only does two searches and combines them.
@@ -237,37 +242,38 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		// The searches can use all of the options normally available, allowing complete control over the subsearches.
 
 		if params.HybridSearch.Query != "" {
-			// Simple unified interface
+			// Simple search interface
+			results = make([][]search.Result, 2)
+			weights = make([]float64, 2)
 
+			// Search inverted index by query
 			params.KeywordRanking = &searchparams.KeywordRanking{
 				Query: params.HybridSearch.Query,
 
 				Type: "bm25",
 			}
-			// Result 1 is the bm25 "sparse" search
-			res1, err := e.search.ClassSearch(ctx, params)
+			// Result 1 is the bm25 "sparse" search on the inverted index
+			sparseResults, err := e.search.ClassSearch(ctx, params)
 			if err != nil {
 				return nil, err
 			}
 
 			// Set the scoreexplain property to bm25 for every result
-			for i := range res1 {
-				res1[i].SecondarySortValue = res1[i].Score
-				res1[i].ExplainScore = "(bm25)" + res1[i].ExplainScore
+			for i := range sparseResults {
+				sparseResults[i].SecondarySortValue = sparseResults[i].Score
+				sparseResults[i].ExplainScore = "(bm25)" + sparseResults[i].ExplainScore
 			}
 
-			// Result 2 is the vector search, either with the provided vector or with a vector derived from the query
+			// Result 2 is the vector search, either with a provided vector or with a vector calculated from the query
 			// i.e. nearVec or NearText
 			var vector []float32
 			if e.modulesProvider != nil {
 				if params.HybridSearch.Vector != nil && len(params.HybridSearch.Vector) != 0 {
 					// NearVec search
-
 					vector = params.HybridSearch.Vector
 				} else {
 					// NearText search
-
-					// Get the vector for the query
+					// Calculate the vector for the query
 					vector, err = e.modulesProvider.VectorFromInput(ctx,
 						params.ClassName, params.HybridSearch.Query)
 					if err != nil {
@@ -275,29 +281,29 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					}
 					fmt.Printf("found vector from query: %v\n", vector)
 				}
-				res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
+				vectorResults, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
 				if err != nil {
 					return nil, err
 				}
 
 				// Set the scoreexplain property to vector for every result
-				for i := range res2 {
-					res2[i].SecondarySortValue = 1 - res2[i].Dist
-					res2[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), res2[i].ExplainScore)
+				for i := range vectorResults {
+					vectorResults[i].SecondarySortValue = 1 - vectorResults[i].Dist
+					vectorResults[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), vectorResults[i].ExplainScore)
 				}
 
-				alpha := 1 - params.HybridSearch.Alpha
-				results = append(results, res1, res2)
-				weights = append(weights, alpha, 1-alpha)
+				alpha := params.HybridSearch.Alpha
+				results = [][]search.Result{sparseResults, vectorResults}
+				weights = []float64{1 - alpha, alpha}
 
 			}
 		} else {
-			// Complete interface
+			// Complete hybrid search interface
 
 			// Iterate over subsearches, and execute them
 
 			ss := params.HybridSearch.SubSearches
-			var vector []float32
+
 			for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
 				switch subsearch.Type {
 				case "bm25":
@@ -329,14 +335,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					}
 
 					var err error
-					vector, err = e.modulesProvider.VectorFromInput(ctx,
+					vector, err := e.modulesProvider.VectorFromInput(ctx,
 						params.ClassName, sp.Values[0])
 					if err != nil {
 						return nil, err
 					}
 					fmt.Printf("found vector: %v\n", shortenVectorString(10, vector))
 
-					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
+					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -348,14 +354,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					results = append(results, res2)
 
 				case "nearVector":
-
+					var vector []float32
 					sp := subsearch.SearchParams.(searchparams.NearVector)
 					weights = append(weights, subsearch.Weight)
 					if sp.Vector != nil && len(sp.Vector) != 0 {
 						vector = sp.Vector
 					}
 
-					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, 1000, nil)
+					res2, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -374,12 +380,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		}
 	}
 	fused := FusionReciprocal(weights, results)
-	if params.Pagination.Limit == 0 {
-		params.Pagination.Limit = 100 // FIXME use global limit config, where 	ever it is
-	}
-	if len(fused) > params.Pagination.Limit {
-		fmt.Printf("limiting results from %v to %v\n", len(fused), params.Pagination.Limit)
-		fused = fused[:params.Pagination.Limit]
+
+	if len(fused) > hybridSearchLimit {
+		fmt.Printf("limiting results from %v to %v\n", len(fused), hybridSearchLimit)
+		fused = fused[:hybridSearchLimit]
 	}
 
 	return fused, nil
