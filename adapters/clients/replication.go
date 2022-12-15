@@ -210,8 +210,6 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp in
 		defer res.Body.Close()
 
 		if res.StatusCode == http.StatusServiceUnavailable {
-			// give the node a chance to reinit the DB
-			time.Sleep(time.Second)
 			return true, fmt.Errorf("host %q is unavailable", req.Host)
 		}
 		if code := res.StatusCode; code != http.StatusOK {
