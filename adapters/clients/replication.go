@@ -194,7 +194,9 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	try := func(ctx context.Context) (bool, error) {
-		req.Body = io.NopCloser(bytes.NewReader(body))
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)

@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -36,7 +37,7 @@ type DB struct {
 	remoteNode      *sharding.RemoteNode
 	promMetrics     *monitoring.PrometheusMetrics
 	shutdown        chan struct{}
-	startupComplete bool
+	startupComplete atomic.Bool
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modifaction at a time. R/W can be a bit confusing here,
@@ -70,7 +71,7 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 		return err
 	}
 
-	d.startupComplete = true
+	d.startupComplete.Store(true)
 	d.scanResourceUsage()
 
 	return nil
