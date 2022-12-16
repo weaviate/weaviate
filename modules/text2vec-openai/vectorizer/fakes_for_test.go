@@ -52,6 +52,7 @@ type fakeSettings struct {
 	excludedProperty   string
 	openAIType         string
 	openAIModel        string
+	openAIModelVersion string
 }
 
 func (f *fakeSettings) PropertyIndexed(propName string) bool {
@@ -72,4 +73,8 @@ func (f *fakeSettings) Type() string {
 
 func (f *fakeSettings) Model() string {
 	return f.openAIModel
+}
+
+func (f *fakeSettings) ModelVersion() string {
+	return f.openAIModelVersion
 }
