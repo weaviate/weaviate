@@ -17,10 +17,61 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/client/schema"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/helper"
 )
+
+func TestAutoSchemaWithDifferentProperties(t *testing.T) {
+	// Add two objects with different properties to the same class. With autoschema enabled both should be added and
+	// the class should have properties form both classes at the end
+	className := "RandomName234234"
+
+	testCases := []struct {
+		name  string
+		names []string
+	}{
+		{name: "UpperCase", names: []string{"NonExistingProperty", "OtherNonExistingProperty"}},
+		{name: "LowerCase", names: []string{"nonExistingProperty", "otherNonExistingProperty"}},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			obj1 := &models.Object{
+				Class: className,
+				Properties: map[string]interface{}{
+					test.names[0]: "test",
+				},
+			}
+			params := objects.NewObjectsCreateParams().WithBody(obj1)
+			resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
+			helper.AssertRequestOk(t, resp, err, nil)
+
+			obj2 := &models.Object{
+				Class: className,
+				Properties: map[string]interface{}{
+					test.names[1]: "test",
+				},
+			}
+			params2 := objects.NewObjectsCreateParams().WithBody(obj2)
+			resp2, err2 := helper.Client(t).Objects.ObjectsCreate(params2, nil)
+			helper.AssertRequestOk(t, resp2, err2, nil)
+
+			SchmeaParams := schema.NewSchemaDumpParams()
+			resp3, err3 := helper.Client(t).Schema.SchemaDump(SchmeaParams, nil)
+			helper.AssertRequestOk(t, resp3, err3, nil)
+			assert.Len(t, resp3.Payload.Classes, 1)
+			class := resp3.Payload.Classes[0]
+			assert.Len(t, class.Properties, 2)
+			props := class.Properties
+			assert.ElementsMatch(t, []string{props[0].Name, props[1].Name}, []string{"nonExistingProperty", "otherNonExistingProperty"})
+			deleteObjectClass(t, className)
+		})
+	}
+}
 
 // run from setup_test.go
 func autoSchemaObjects(t *testing.T) {
