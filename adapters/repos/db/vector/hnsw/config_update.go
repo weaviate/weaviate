@@ -90,7 +90,15 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+	if h.compressed {
+		h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+	} else {
+		h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
+	}
+	//ToDo: check atomic operation
+	if !h.compressed && parsed.Compressed {
+		h.Compress()
+	}
 
 	return nil
 }

@@ -77,6 +77,10 @@ func newFakeCache() *fakeCache {
 	}
 }
 
+func (f *fakeCache) all() [][]float32 {
+	return nil
+}
+
 type fakeCache struct {
 	store map[uint64]struct{}
 }
