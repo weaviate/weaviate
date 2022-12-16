@@ -2,9 +2,11 @@ package ssdhelpers_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
+	testinghelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/testingHelpers"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,7 +23,6 @@ func TestKMeansNNearest(t *testing.T) {
 	kmeans := ssdhelpers.NewKMeans(
 		3,
 		distanceProvider,
-		6,
 		2,
 	)
 	kmeans.Fit(vectors)
@@ -36,4 +37,25 @@ func TestKMeansNNearest(t *testing.T) {
 			assert.True(t, dist >= min)
 		}
 	}
+}
+
+func extractSegment(i int, v []float32) []float32 {
+	return v[i*1 : (i+1)*1]
+}
+
+func TestRandomData(t *testing.T) {
+	vectors_size := 10000
+	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, 128)
+	distanceProvider := ssdhelpers.NewDistanceProvider(distancer.NewL2SquaredProvider())
+	before := time.Now()
+	kmeans := ssdhelpers.NewKMeansWithFilter(
+		256,
+		distanceProvider.Provider,
+		1,
+		func(x []float32) []float32 {
+			return extractSegment(int(10), x)
+		},
+	)
+	kmeans.Fit(vectors)
+	assert.True(t, time.Since(before).Seconds() < 5)
 }
