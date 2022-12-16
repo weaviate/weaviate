@@ -47,6 +47,7 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 	Model() string
 	Type() string
+	ModelVersion() string
 }
 
 func sortStringKeys(schema_map map[string]interface{}) []string {
@@ -132,8 +133,9 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 	text := strings.Join(corpi, " ")
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		Type:  icheck.Type(),
-		Model: icheck.Model(),
+		Type:         icheck.Type(),
+		Model:        icheck.Model(),
+		ModelVersion: icheck.ModelVersion(),
 	})
 	if err != nil {
 		return nil, err

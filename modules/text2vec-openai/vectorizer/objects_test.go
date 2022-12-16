@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -36,6 +37,7 @@ func TestVectorizingObjects(t *testing.T) {
 		excludedClass       string // to simulate a schema where class names aren't vectorized
 		openAIType          string
 		openAIModel         string
+		openAIModelVersion  string
 	}
 
 	tests := []testCase{
@@ -187,6 +189,7 @@ func TestVectorizingObjects(t *testing.T) {
 				vectorizeClassName: test.excludedClass != "Car",
 				openAIType:         test.openAIType,
 				openAIModel:        test.openAIModel,
+				openAIModelVersion: test.openAIModelVersion,
 			}
 			err := v.Object(context.Background(), test.input, nil, ic)
 
@@ -362,4 +365,67 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 
 func newObjectDiffWithVector() *moduletools.ObjectDiff {
 	return moduletools.NewObjectDiff([]float32{0, 0, 0, 0})
+}
+
+func TestValidateModelVersion(t *testing.T) {
+	type test struct {
+		model    string
+		docType  string
+		version  string
+		possible bool
+	}
+
+	tests := []test{
+		// 001 models
+		{"ada", "text", "001", true},
+		{"ada", "code", "001", true},
+		{"babbage", "text", "001", true},
+		{"babbage", "code", "001", true},
+		{"curie", "text", "001", true},
+		{"curie", "code", "001", true},
+		{"davinci", "text", "001", true},
+		{"davinci", "code", "001", true},
+
+		// 002 models
+		{"ada", "text", "002", true},
+		{"ada", "code", "002", false},
+		{"babbage", "text", "002", false},
+		{"babbage", "code", "002", false},
+		{"curie", "text", "002", false},
+		{"curie", "code", "002", false},
+		{"davinci", "text", "002", false},
+		{"davinci", "code", "002", false},
+
+		// 003
+		{"ada", "text", "003", false},
+	}
+
+	for _, test := range tests {
+		name := fmt.Sprintf("model=%s docType=%s version=%s", test.model, test.docType, test.version)
+		t.Run(name, func(t *testing.T) {
+			err := (&classSettings{}).validateModelVersion(test.version, test.model, test.docType)
+			if test.possible {
+				assert.Nil(t, err, "this combination should be possible")
+			} else {
+				assert.NotNil(t, err, "this combination should not be possible")
+			}
+		})
+	}
+}
+
+func TestPickDefaultModelVersion(t *testing.T) {
+	t.Run("ada with text", func(t *testing.T) {
+		version := PickDefaultModelVersion("ada", "text")
+		assert.Equal(t, "002", version)
+	})
+
+	t.Run("ada with code", func(t *testing.T) {
+		version := PickDefaultModelVersion("ada", "code")
+		assert.Equal(t, "001", version)
+	})
+
+	t.Run("with curie", func(t *testing.T) {
+		version := PickDefaultModelVersion("curie", "text")
+		assert.Equal(t, "001", version)
+	})
 }
