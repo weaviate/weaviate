@@ -12,5 +12,5 @@
 package ent
 
 type VectorizationConfig struct {
-	Type, Model string
+	Type, Model, ModelVersion string
 }
