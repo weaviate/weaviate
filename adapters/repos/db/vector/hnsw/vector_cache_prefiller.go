@@ -19,25 +19,26 @@ import (
 )
 
 type vectorCachePrefiller struct {
-	cache  cache
+	cache  cache[float32]
 	index  *hnsw
 	logger logrus.FieldLogger
 }
 
-type cache interface {
-	get(ctx context.Context, id uint64) ([]float32, error)
+type cache[T any] interface {
+	get(ctx context.Context, id uint64) ([]T, error)
 	len() int32
 	countVectors() int64
 	delete(ctx context.Context, id uint64)
-	preload(id uint64, vec []float32)
+	preload(id uint64, vec []T)
 	prefetch(id uint64)
 	grow(size uint64)
 	drop()
 	updateMaxSize(size int64)
 	copyMaxSize() int64
+	all() [][]T
 }
 
-func newVectorCachePrefiller(cache cache, index *hnsw,
+func newVectorCachePrefiller(cache cache[float32], index *hnsw,
 	logger logrus.FieldLogger,
 ) *vectorCachePrefiller {
 	return &vectorCachePrefiller{
