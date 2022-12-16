@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -118,12 +117,10 @@ type NoopEncoder interface {
 const PQDataFileName = "pq.gob"
 
 type PQConfig struct {
-	Size        int
 	Segments    int
 	Centroids   int
 	Distance    DistanceProvider
 	Dimensions  int
-	DataSize    int
 	EncoderType Encoder
 }
 
@@ -140,6 +137,43 @@ func NewProductQuantizer(segments int, centroids int, distance *DistanceProvider
 		encoderType: encoderType,
 	}
 	return pq
+}
+
+func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float32 {
+	dist := pq.distance.Distance(pq.kms[0].Centroid(x[0]), pq.kms[0].Centroid(y[0]))
+	for i := 1; i < len(x); i++ {
+		dist = pq.distance.Aggregate(dist, pq.distance.Distance(pq.kms[i].Centroid(x[i]), pq.kms[i].Centroid(y[i])))
+	}
+	return dist
+}
+
+func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) float32 {
+	dist := pq.distance.Distance(pq.extractSegment(0, x), pq.kms[0].Centroid(encoded[0]))
+	for i := 1; i < len(encoded); i++ {
+		b := encoded[i]
+		dist = pq.distance.Aggregate(dist, pq.distance.Distance(pq.extractSegment(i, x), pq.kms[i].Centroid(b)))
+	}
+	return dist
+}
+
+type PQDistancer struct {
+	x         []float32
+	distancer DistanceProvider
+	pq        *ProductQuantizer
+	lut       *DistanceLookUpTable
+}
+
+func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {
+	lut := pq.CenterAt(a)
+	return &PQDistancer{
+		x:   a,
+		pq:  pq,
+		lut: lut,
+	}
+}
+
+func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
+	return d.pq.Distance(x, d.lut), true, nil
 }
 
 func (pq *ProductQuantizer) ToDisk(path string) {
@@ -200,29 +234,10 @@ func (pq *ProductQuantizer) extractSegment(i int, v []float32) []float32 {
 	return v[i*pq.ds : (i+1)*pq.ds]
 }
 
-type Action func(workerId uint64, taskIndex uint64, mutex *sync.Mutex)
-
-func concurrently(n uint64, action Action) {
-	n64 := float64(n)
-	workerCount := runtime.GOMAXPROCS(0)
-	mutex := &sync.Mutex{}
-	wg := &sync.WaitGroup{}
-	split := uint64(math.Ceil(n64 / float64(workerCount)))
-	for worker := uint64(0); worker < uint64(workerCount); worker++ {
-		wg.Add(1)
-		go func(workerID uint64) {
-			defer wg.Done()
-			for i := workerID * split; i < uint64(math.Min(float64((workerID+1)*split), n64)); i++ {
-				action(workerID, i, mutex)
-			}
-		}(worker)
-	}
-	wg.Wait()
-}
-
 func (pq *ProductQuantizer) filterSegment(i int) FilterFunc {
+	segment := int(i)
 	return func(x []float32) []float32 {
-		return pq.extractSegment(int(i), x)
+		return pq.extractSegment(segment, x)
 	}
 }
 
@@ -230,7 +245,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 	switch pq.encoderType {
 	case UseTileEncoder:
 		pq.kms = make([]NoopEncoder, pq.m)
-		concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
+		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
 			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i))
 			for j := 0; j < len(data); j++ {
 				pq.kms[i].Add(data[j])
@@ -238,7 +253,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 		})
 	case UseKMeansEncoder:
 		pq.kms = make([]NoopEncoder, pq.m)
-		concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
+		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
 			pq.kms[i] = NewKMeansWithFilter(
 				pq.ks,
 				pq.distance.Provider,
@@ -305,4 +320,11 @@ func (pq *ProductQuantizer) distanceForSegment(segment int, b byte, center []flo
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
 	return lut.LookUp(encoded, pq.distanceForSegment, pq.distance.Aggregate)
+}
+
+type PQDistanceProvider struct {
+	pq         *ProductQuantizer
+	distancer  DistanceProvider
+	dimensions int
+	typeTxt    string
 }

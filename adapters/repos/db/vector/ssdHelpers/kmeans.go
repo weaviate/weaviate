@@ -161,13 +161,20 @@ func (m *KMeans) initCenters(data [][]float32) {
 	}
 	m.centers = make([][]float32, 0, m.K)
 	for i := 0; i < m.K; i++ {
-		m.centers = append(m.centers, m.filter(data[rand.Intn(len(data))]))
+		var vec []float32
+		for vec == nil {
+			vec = data[rand.Intn(len(data))]
+		}
+		m.centers = append(m.centers, m.filter(vec))
 	}
 }
 
 func (m *KMeans) recluster(data [][]float32) {
 	for p := 0; p < len(data); p++ {
 		point := data[p]
+		if point == nil {
+			continue
+		}
 		cis, dis := m.nNearest(point, 1)
 		ci, di := cis[0], dis[0]
 		m.data.cc[ci] = append(m.data.cc[ci], uint64(p))
@@ -182,13 +189,17 @@ func (m *KMeans) recluster(data [][]float32) {
 	}
 }
 
-func (m *KMeans) resortOnEmptySets(dataSize int) {
+func (m *KMeans) resortOnEmptySets(data [][]float32) {
 	k64 := uint64(m.K)
+	dataSize := len(data)
 	for ci := uint64(0); ci < k64; ci++ {
 		if len(m.data.cc[ci]) == 0 {
 			var ri int
 			for {
 				ri = rand.Intn(dataSize)
+				if data[ri] == nil {
+					continue
+				}
 				if len(m.data.cc[m.data.points[ri]]) > 1 {
 					break
 				}
@@ -208,7 +219,11 @@ func (m *KMeans) recalcCenters(data [][]float32) {
 		}
 		size := len(m.data.cc[index])
 		for _, ci := range m.data.cc[index] {
-			v := m.filter(data[ci])
+			vec := data[ci]
+			if vec == nil {
+				panic("")
+			}
+			v := m.filter(vec)
 			for j := 0; j < m.dimensions; j++ {
 				m.centers[index][j] += v[j]
 			}
@@ -240,7 +255,7 @@ func (m *KMeans) Fit(data [][]float32) error { // init centers using min/max per
 		}
 
 		m.recluster(data)
-		m.resortOnEmptySets(dataSize)
+		m.resortOnEmptySets(data)
 		if m.data.changes > 0 {
 			m.recalcCenters(data)
 		}
