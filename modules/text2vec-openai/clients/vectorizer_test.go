@@ -201,6 +201,7 @@ func Test_getModelString(t *testing.T) {
 		type args struct {
 			docType string
 			model   string
+			version string
 		}
 		tests := []struct {
 			name string
@@ -214,6 +215,15 @@ func Test_getModelString(t *testing.T) {
 					model:   "ada",
 				},
 				want: "text-search-ada-doc-001",
+			},
+			{
+				name: "Document type: text model: ada-002 vectorizationType: document",
+				args: args{
+					docType: "text",
+					model:   "ada",
+					version: "002",
+				},
+				want: "text-embedding-ada-002",
 			},
 			{
 				name: "Document type: text model: babbage vectorizationType: document",
@@ -259,7 +269,7 @@ func Test_getModelString(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				v := New("apiKey", nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "document"); got != tt.want {
+				if got := v.getModelString(tt.args.docType, tt.args.model, "document", tt.args.version); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})
@@ -270,6 +280,7 @@ func Test_getModelString(t *testing.T) {
 		type args struct {
 			docType string
 			model   string
+			version string
 		}
 		tests := []struct {
 			name string
@@ -308,7 +319,6 @@ func Test_getModelString(t *testing.T) {
 				},
 				want: "text-search-davinci-query-001",
 			},
-
 			{
 				name: "Document type: code model: ada vectorizationType: text",
 				args: args{
@@ -329,7 +339,7 @@ func Test_getModelString(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				v := New("apiKey", nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "query"); got != tt.want {
+				if got := v.getModelString(tt.args.docType, tt.args.model, "query", tt.args.version); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})
