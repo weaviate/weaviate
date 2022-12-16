@@ -395,6 +395,9 @@ func TestValidateModelVersion(t *testing.T) {
 		{"curie", "code", "002", false},
 		{"davinci", "text", "002", false},
 		{"davinci", "code", "002", false},
+
+		// 003
+		{"ada", "text", "003", false},
 	}
 
 	for _, test := range tests {
@@ -407,6 +410,22 @@ func TestValidateModelVersion(t *testing.T) {
 				assert.NotNil(t, err, "this combination should not be possible")
 			}
 		})
-
 	}
+}
+
+func TestPickDefaultModelVersion(t *testing.T) {
+	t.Run("ada with text", func(t *testing.T) {
+		version := PickDefaultModelVersion("ada", "text")
+		assert.Equal(t, "002", version)
+	})
+
+	t.Run("ada with code", func(t *testing.T) {
+		version := PickDefaultModelVersion("ada", "code")
+		assert.Equal(t, "001", version)
+	})
+
+	t.Run("with curie", func(t *testing.T) {
+		version := PickDefaultModelVersion("curie", "text")
+		assert.Equal(t, "001", version)
+	})
 }
