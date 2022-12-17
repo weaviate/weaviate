@@ -45,13 +45,6 @@ func TestConfigUpdates(t *testing.T) {
 					"virtual shards per physical is immutable: " +
 						"attempted change from \"128\" to \"256\""),
 			},
-			{
-				name:    "attempting to increase replicas beyond cluster size",
-				initial: Config{Replicas: 3},
-				update:  Config{Replicas: 4},
-				expectedError: fmt.Errorf(
-					"cannot scale to 4 replicas, cluster has only 3 nodes"),
-			},
 		}
 
 		for _, test := range tests {

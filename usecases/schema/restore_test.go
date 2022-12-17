@@ -76,7 +76,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		require.Nil(t, err)
 
 		nodes := fakeNodes{[]string{"node1", "node2"}}
-		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes)
+		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 1)
 		require.Nil(t, err)
 
 		shardingBytes, err := shardingState.JSON()
