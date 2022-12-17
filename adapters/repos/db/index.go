@@ -251,6 +251,7 @@ type IndexConfig struct {
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
+	ReplicationFactor         int64
 
 	TrackVectorDimensions bool
 }
@@ -332,9 +333,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) replicationEnabled() bool {
-	shardingState := i.getSchema.
-		ShardingState(i.Config.ClassName.String())
-	return shardingState.Config.Replicas > 1
+	return i.Config.ReplicationFactor > 1
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which

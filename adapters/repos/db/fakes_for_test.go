@@ -64,7 +64,7 @@ func singleShardState() *sharding.State {
 		panic(err)
 	}
 
-	s, err := sharding.InitState("test-index", config, fakeNodes{[]string{"node1"}})
+	s, err := sharding.InitState("test-index", config, fakeNodes{[]string{"node1"}}, 1)
 	if err != nil {
 		panic(err)
 	}
@@ -81,7 +81,7 @@ func multiShardState() *sharding.State {
 	}
 
 	s, err := sharding.InitState("multi-shard-test-index", config,
-		fakeNodes{[]string{"node1"}})
+		fakeNodes{[]string{"node1"}}, 1)
 	if err != nil {
 		panic(err)
 	}

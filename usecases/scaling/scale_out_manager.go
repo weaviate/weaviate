@@ -78,14 +78,14 @@ func (som *ScaleOutManager) SetSchemaManager(sm SchemaManager) {
 // make sure to broadcast that state to all nodes as part of the "update"
 // transaction.
 func (som *ScaleOutManager) Scale(ctx context.Context, className string,
-	old, updated sharding.Config,
+	updated sharding.Config, prevReplFactor, newReplFactor int64,
 ) (*sharding.State, error) {
-	if updated.Replicas > old.Replicas {
-		return som.scaleOut(ctx, className, old, updated)
+	if newReplFactor > prevReplFactor {
+		return som.scaleOut(ctx, className, updated, newReplFactor)
 	}
 
-	if updated.Replicas < old.Replicas {
-		return som.scaleIn(ctx, className, old, updated)
+	if newReplFactor < prevReplFactor {
+		return som.scaleIn(ctx, className, updated)
 	}
 
 	return nil, nil
@@ -107,7 +107,7 @@ func (som *ScaleOutManager) Scale(ctx context.Context, className string,
 // Follow the in-line comments to see how this implementation achieves scalign
 // out
 func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
-	old, updated sharding.Config,
+	updated sharding.Config, replFactor int64,
 ) (*sharding.State, error) {
 	// First identify what the sharding state was before this change. This is
 	// mainly to be able to compare the diff later, so we know where we need to
@@ -127,7 +127,7 @@ func (som *ScaleOutManager) scaleOut(ctx context.Context, className string,
 	// Identify all shards of the class and adjust the replicas. After this is
 	// done, the affected shards now belong to more nodes than they did before.
 	for name, shard := range ssAfter.Physical {
-		shard.AdjustReplicas(updated.Replicas, som.clusterState)
+		shard.AdjustReplicas(int(replFactor), som.clusterState)
 		ssAfter.Physical[name] = shard
 	}
 	// However, so far we have only updated config, now we also need to actually
@@ -267,7 +267,7 @@ func (som *ScaleOutManager) localScaleOut(ctx context.Context,
 }
 
 func (som *ScaleOutManager) scaleIn(ctx context.Context, className string,
-	old, updated sharding.Config,
+	updated sharding.Config,
 ) (*sharding.State, error) {
 	return nil, errors.Errorf("scaling in (reducing replica count) not supported yet")
 }
