@@ -14,7 +14,6 @@ package get
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -223,10 +222,7 @@ func buildGetClassField(classObject *graphql.Object,
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
-	// hacky way to temporarily check feature flag
-	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
-		field.Args["bm25"] = bm25Argument(class.Class)
-	}
+	field.Args["bm25"] = bm25Argument(class.Class)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
