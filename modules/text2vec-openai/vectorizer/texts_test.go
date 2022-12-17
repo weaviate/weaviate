@@ -22,13 +22,15 @@ import (
 // as used in the nearText searcher
 func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
-		name                string
-		input               []string
-		expectedClientCall  string
-		expectedOpenAIType  string
-		openAIType          string
-		expectedOpenAIModel string
-		openAIModel         string
+		name                 string
+		input                []string
+		expectedClientCall   string
+		expectedOpenAIType   string
+		openAIType           string
+		expectedOpenAIModel  string
+		openAIModel          string
+		modelVersion         string
+		expectedModelVersion string
 	}
 
 	tests := []testCase{
@@ -40,6 +42,12 @@ func TestVectorizingTexts(t *testing.T) {
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "hello",
+
+			// use something that doesn't exist on purpose to rule out that this was
+			// set by a default, but validate that the version was set explicitly
+			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			modelVersion:         "003",
+			expectedModelVersion: "003",
 		},
 		{
 			name:                "multiple words",
@@ -49,6 +57,12 @@ func TestVectorizingTexts(t *testing.T) {
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "hello world, this is me!",
+
+			// use something that doesn't exist on purpose to rule out that this was
+			// set by a default, but validate that the version was set explicitly
+			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			modelVersion:         "003",
+			expectedModelVersion: "003",
 		},
 		{
 			name:                "multiple sentences (joined with a dot)",
@@ -58,6 +72,12 @@ func TestVectorizingTexts(t *testing.T) {
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "this is sentence 1. and here's number 2",
+
+			// use something that doesn't exist on purpose to rule out that this was
+			// set by a default, but validate that the version was set explicitly
+			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			modelVersion:         "003",
+			expectedModelVersion: "003",
 		},
 		{
 			name:                "multiple sentences already containing a dot",
@@ -67,6 +87,12 @@ func TestVectorizingTexts(t *testing.T) {
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "this is sentence 1. and here's number 2",
+
+			// use something that doesn't exist on purpose to rule out that this was
+			// set by a default, but validate that the version was set explicitly
+			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			modelVersion:         "003",
+			expectedModelVersion: "003",
 		},
 		{
 			name:                "multiple sentences already containing a question mark",
@@ -76,6 +102,12 @@ func TestVectorizingTexts(t *testing.T) {
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "this is sentence 1? and here's number 2",
+
+			// use something that doesn't exist on purpose to rule out that this was
+			// set by a default, but validate that the version was set explicitly
+			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			modelVersion:         "003",
+			expectedModelVersion: "003",
 		},
 		{
 			name:                "multiple sentences already containing an exclamation mark",
@@ -85,6 +117,12 @@ func TestVectorizingTexts(t *testing.T) {
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "this is sentence 1! and here's number 2",
+
+			// use something that doesn't exist on purpose to rule out that this was
+			// set by a default, but validate that the version was set explicitly
+			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			modelVersion:         "003",
+			expectedModelVersion: "003",
 		},
 		{
 			name:                "multiple sentences already containing comma",
@@ -94,6 +132,12 @@ func TestVectorizingTexts(t *testing.T) {
 			openAIModel:         "ada",
 			expectedOpenAIModel: "ada",
 			expectedClientCall:  "this is sentence 1, and here's number 2",
+
+			// use something that doesn't exist on purpose to rule out that this was
+			// set by a default, but validate that the version was set explicitly
+			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			modelVersion:         "003",
+			expectedModelVersion: "003",
 		},
 	}
 
@@ -104,8 +148,9 @@ func TestVectorizingTexts(t *testing.T) {
 			v := New(client)
 
 			settings := &fakeSettings{
-				openAIType:  test.openAIType,
-				openAIModel: test.openAIModel,
+				openAIType:         test.openAIType,
+				openAIModel:        test.openAIModel,
+				openAIModelVersion: test.modelVersion,
 			}
 			vec, err := v.Texts(context.Background(), test.input, settings)
 
@@ -114,6 +159,7 @@ func TestVectorizingTexts(t *testing.T) {
 			assert.Equal(t, test.expectedClientCall, client.lastInput)
 			assert.Equal(t, client.lastConfig.Type, test.expectedOpenAIType)
 			assert.Equal(t, client.lastConfig.Model, test.expectedOpenAIModel)
+			assert.Equal(t, client.lastConfig.ModelVersion, test.expectedModelVersion)
 		})
 	}
 }
