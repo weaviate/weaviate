@@ -584,3 +584,12 @@ func (s *Shard) notifyReady() {
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
 }
+
+func (s *Shard) objectCount() int {
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return 0
+	}
+
+	return b.Count()
+}
