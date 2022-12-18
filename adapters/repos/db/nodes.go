@@ -66,7 +66,7 @@ func (db *DB) localNodeStatus() *models.NodeStatus {
 	db.indexLock.RLock()
 	for _, index := range db.indices {
 		for shardName, shard := range index.Shards {
-			objectCount := int64(shard.counter.Get())
+			objectCount := int64(shard.objectCount())
 			shardStatus := &models.NodeShardStatus{
 				Name:        shardName,
 				Class:       shard.index.Config.ClassName.String(),
