@@ -60,7 +60,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"key":                 "_id",
 					"virtualPerPhysical":  float64(128),
 				},
-				"replication": map[string]interface{}{
+				"replicationConfig": map[string]interface{}{
 					"factor": float64(1),
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml

@@ -44,8 +44,8 @@ type Class struct {
 	// The properties of the class.
 	Properties []*Property `json:"properties"`
 
-	// replication
-	Replication *ReplicationConfig `json:"replication,omitempty"`
+	// replication config
+	ReplicationConfig *ReplicationConfig `json:"replicationConfig,omitempty"`
 
 	// Manage how the index should be sharded and distributed in the cluster
 	ShardingConfig interface{} `json:"shardingConfig,omitempty"`
@@ -72,7 +72,7 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateReplication(formats); err != nil {
+	if err := m.validateReplicationConfig(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -125,16 +125,16 @@ func (m *Class) validateProperties(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Class) validateReplication(formats strfmt.Registry) error {
+func (m *Class) validateReplicationConfig(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Replication) { // not required
+	if swag.IsZero(m.ReplicationConfig) { // not required
 		return nil
 	}
 
-	if m.Replication != nil {
-		if err := m.Replication.Validate(formats); err != nil {
+	if m.ReplicationConfig != nil {
+		if err := m.ReplicationConfig.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("replication")
+				return ve.ValidateName("replicationConfig")
 			}
 			return err
 		}

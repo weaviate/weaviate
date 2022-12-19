@@ -3049,7 +3049,7 @@ func init() {
             "$ref": "#/definitions/Property"
           }
         },
-        "replication": {
+        "replicationConfig": {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
@@ -7393,7 +7393,7 @@ func init() {
             "$ref": "#/definitions/Property"
           }
         },
-        "replication": {
+        "replicationConfig": {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {

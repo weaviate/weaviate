@@ -270,7 +270,7 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 
 		shardState, err := sharding.InitState(c.Class,
 			c.ShardingConfig.(sharding.Config),
-			m.clusterState, c.Replication.Factor)
+			m.clusterState, c.ReplicationConfig.Factor)
 		if err != nil {
 			return errors.Wrap(err, "init sharding state")
 		}

@@ -76,8 +76,8 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	updatedSharding := updated.ShardingConfig.(sharding.Config)
-	initialRF := initial.Replication.Factor
-	updatedRF := updated.Replication.Factor
+	initialRF := initial.ReplicationConfig.Factor
+	updatedRF := updated.ReplicationConfig.Factor
 	var updatedState *sharding.State
 	if initialRF != updatedRF {
 		uss, err := m.scaleOut.Scale(ctx, className, updatedSharding, initialRF, updatedRF)

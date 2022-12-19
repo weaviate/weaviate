@@ -596,7 +596,7 @@
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
-        "replication": {
+        "replicationConfig": {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "invertedIndexConfig": {
