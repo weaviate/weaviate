@@ -67,8 +67,9 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
-
-	return m.getClassByName(name), nil
+	m.Lock()
+	defer m.Unlock()
+	return m.getClassByName(name).Deepcopy(), nil
 }
 
 func (m *Manager) getClassByName(name string) *models.Class {

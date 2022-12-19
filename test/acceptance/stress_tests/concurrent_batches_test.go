@@ -245,3 +245,52 @@ func Test_AddConcurrentBatches_differentObjects(t *testing.T) {
 	assert.Equal(t, 2, int(result["totalResults"].(float64)))
 	clearExistingObjects(c, url)
 }
+
+func Test_ConcurrentAddsWithAutoschema(t *testing.T) {
+	url := "http://localhost:8080/v1/"
+	parallelReqs := 150
+
+	var objects []*models.Object
+	for i := 0; i < parallelReqs; i++ {
+		object := models.Object{
+			Class:  class,
+			ID:     strfmt.UUID(uuid.New().String()),
+			Vector: models.C11yVector([]float32{1.0, 2, 534, 324, 0.0001}),
+			Properties: map[string]interface{}{
+				"counter" + fmt.Sprint(i): 50,
+			},
+		}
+		objects = append(objects, &object)
+	}
+
+	wg := sync.WaitGroup{}
+	wgStartReqests := sync.WaitGroup{}
+	wgStartReqests.Add(parallelReqs)
+	wg.Add(parallelReqs)
+
+	for i := 0; i < parallelReqs; i++ {
+		go func(j int) {
+			c := createHttpClient()
+			if j == 0 {
+				clearExistingObjects(c, url)
+			}
+			requestAdd := createRequest(url+"batch/objects", "POST", batch{objects[j : j+1]})
+
+			wgStartReqests.Done()
+			wgStartReqests.Wait()
+
+			performRequest(c, requestAdd)
+
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
+
+	c := createHttpClient()
+	requestRead := createRequest(url+"objects?limit="+fmt.Sprint(parallelReqs+1)+"&class="+class, "GET", nil)
+	_, body, _ := performRequest(c, requestRead)
+	var result map[string]interface{}
+	json.Unmarshal(body, &result)
+	assert.Equal(t, parallelReqs, int(result["totalResults"].(float64)))
+	clearExistingObjects(c, url)
+}
