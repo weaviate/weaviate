@@ -122,10 +122,10 @@ func (m *Manager) validateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	s, err := m.schemaManager.GetSchema(principal)
+	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
 	if err != nil {
 		return err
 	}
 
-	return validation.New(s, m.vectorRepo.Exists, m.config).Object(ctx, object)
+	return validation.New(m.vectorRepo.Exists, m.config).Object(ctx, object, class)
 }

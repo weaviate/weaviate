@@ -125,10 +125,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		id = concept.ID
 	}
 
-	// Validate schema given in body with the weaviate schema
-	s, err := b.schemaManager.GetSchema(principal)
-	ec.Add(err)
-
 	// Create Action object
 	object := &models.Object{}
 	object.LastUpdateTimeUnix = 0
@@ -152,15 +148,19 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if _, ok := fieldsToKeep["lastUpdateTimeUnix"]; ok {
 		object.LastUpdateTimeUnix = now
 	}
-
-	err = validation.New(s, b.vectorRepo.Exists, b.config).Object(ctx, object)
-	ec.Add(err)
-
 	class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
 	ec.Add(err)
+	if class == nil {
+		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
+	} else {
+		// not possible without the class being present
+		err = validation.New(b.vectorRepo.Exists, b.config).Object(ctx, object, class)
+		ec.Add(err)
 
-	err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)
-	ec.Add(err)
+		err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)
+		ec.Add(err)
+
+	}
 
 	*resultsC <- BatchObject{
 		UUID:          id,
