@@ -39,15 +39,10 @@ const (
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 )
 
-func (v *Validator) properties(ctx context.Context, object interface{}) error {
+func (v *Validator) properties(ctx context.Context, object interface{}, class *models.Class) error {
 	className := object.(*models.Object).Class
 	isp := object.(*models.Object).Properties
 	vectorWeights := object.(*models.Object).VectorWeights
-
-	class := v.schema.GetClass(schema.ClassName(className))
-	if class == nil {
-		return fmt.Errorf("class '%s' not present in schema", className)
-	}
 
 	if vectorWeights != nil {
 		res, err := v.validateVectorWeights(vectorWeights)
