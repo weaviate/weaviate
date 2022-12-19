@@ -14,7 +14,6 @@ package get
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
@@ -774,32 +773,13 @@ func extractFragmentSpread(class string, spread *ast.FragmentSpread,
 		return result, fmt.Errorf("spread fragment '%s' refers to unknown fragment", name)
 	}
 
-	className, err := hackyWorkaroundToExtractClassName(def, name)
-	if err != nil {
-		return result, err
-	}
-
 	subProperties, additionalProperties, err := extractProperties(class, def.GetSelectionSet(), fragments, modulesProvider)
 	if err != nil {
 		return result, err
 	}
 
-	result.ClassName = string(className)
+	result.ClassName = class
 	result.RefProperties = subProperties
 	result.AdditionalProperties = additionalProperties
 	return result, nil
-}
-
-// It seems there's no proper way to extract this info unfortunately:
-// https://github.com/tailor-inc/graphql/issues/455
-func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string, error) {
-	loc := def.GetLoc()
-	raw := loc.Source.Body[loc.Start:loc.End]
-	r := regexp.MustCompile(fmt.Sprintf(`fragment\s*%s\s*on\s*(\w*)\s*{`, name))
-	matches := r.FindSubmatch(raw)
-	if len(matches) < 2 {
-		return "", fmt.Errorf("could not extract a className from fragment")
-	}
-
-	return string(matches[1]), nil
 }
