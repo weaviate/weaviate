@@ -276,6 +276,10 @@ func (i *replicatedIndices) patchObject() http.Handler {
 		}
 
 		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc)
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -307,6 +311,10 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 		defer r.Body.Close()
 
 		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id))
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -348,6 +356,10 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 
 		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, docIDs, dryRun)
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -375,6 +387,10 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 	}
 
 	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj)
+	if localIndexNotReady(resp) {
+		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+		return
+	}
 
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -402,6 +418,10 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 	}
 
 	resp := i.shards.ReplicateObjects(r.Context(), index, shard, requestID, objs)
+	if localIndexNotReady(resp) {
+		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+		return
+	}
 
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -441,6 +461,10 @@ func (i *replicatedIndices) postRefs() http.Handler {
 		}
 
 		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs)
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -451,4 +475,14 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 		w.Write(b)
 	})
+}
+
+func localIndexNotReady(resp replica.SimpleResponse) bool {
+	if err := resp.FirstError(); err != nil {
+		re, ok := err.(*replica.Error)
+		if ok && re.IsStatusCode(replica.StatusNotReady) {
+			return true
+		}
+	}
+	return false
 }

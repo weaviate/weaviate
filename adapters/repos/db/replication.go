@@ -135,6 +135,12 @@ func (db *DB) AbortReplication(class,
 }
 
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
+	if !db.startupComplete.Load() {
+		return nil, &replica.SimpleResponse{Errors: []replica.Error{
+			*replica.NewError(replica.StatusNotReady, name),
+		}}
+	}
+
 	if idx = db.GetIndex(schema.ClassName(name)); idx == nil {
 		return nil, &replica.SimpleResponse{Errors: []replica.Error{
 			*replica.NewError(replica.StatusClassNotFound, name),
