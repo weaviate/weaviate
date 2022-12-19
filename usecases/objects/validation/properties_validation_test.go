@@ -127,7 +127,6 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			v := &Validator{
-				schema: tt.fields.schema,
 				exists: tt.fields.exists,
 				config: tt.fields.config,
 			}
