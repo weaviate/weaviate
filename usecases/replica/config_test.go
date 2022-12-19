@@ -52,14 +52,14 @@ func Test_ValidateConfig(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			class := &models.Class{
-				Replication: test.initialconfig,
+				ReplicationConfig: test.initialconfig,
 			}
 			err := ValidateConfig(class)
 			if test.expectedErr != nil {
 				assert.EqualError(t, test.expectedErr, err.Error())
 			} else {
 				assert.Nil(t, err)
-				assert.EqualValues(t, test.resultConfig, class.Replication)
+				assert.EqualValues(t, test.resultConfig, class.ReplicationConfig)
 			}
 		})
 	}
@@ -84,8 +84,8 @@ func Test_ValidateConfigUpdate(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := ValidateConfigUpdate(
-				&models.Class{Replication: test.initial},
-				&models.Class{Replication: test.update},
+				&models.Class{ReplicationConfig: test.initial},
+				&models.Class{ReplicationConfig: test.update},
 				&fakeNodeCounter{3})
 			if test.expectedError == nil {
 				assert.Nil(t, err)

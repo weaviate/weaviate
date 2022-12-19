@@ -52,7 +52,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMinActiveSeconds: m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds: m.db.config.MemtablesMaxActiveSeconds,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
-			ReplicationFactor:         class.Replication.Factor,
+			ReplicationFactor:         class.ReplicationConfig.Factor,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will

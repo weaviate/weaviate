@@ -22,13 +22,13 @@ type nodeCounter interface {
 }
 
 func ValidateConfig(class *models.Class) error {
-	if class.Replication == nil {
-		class.Replication = &models.ReplicationConfig{Factor: 1}
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 		return nil
 	}
 
-	if class.Replication.Factor < 1 {
-		class.Replication.Factor = 1
+	if class.ReplicationConfig.Factor < 1 {
+		class.ReplicationConfig.Factor = 1
 	}
 
 	return nil
@@ -37,19 +37,19 @@ func ValidateConfig(class *models.Class) error {
 func ValidateConfigUpdate(old, updated *models.Class, nodeCounter nodeCounter) error {
 	// This is not possible if schema is being updated via by a client.
 	// But for a test object that wasn't created by a client, it is.
-	if old.Replication == nil {
-		old.Replication = &models.ReplicationConfig{Factor: 1}
+	if old.ReplicationConfig == nil {
+		old.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	}
 
-	if updated.Replication == nil {
-		updated.Replication = &models.ReplicationConfig{Factor: 1}
+	if updated.ReplicationConfig == nil {
+		updated.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	}
 
-	if old.Replication.Factor != updated.Replication.Factor {
+	if old.ReplicationConfig.Factor != updated.ReplicationConfig.Factor {
 		nc := nodeCounter.NodeCount()
-		if int(updated.Replication.Factor) > nc {
+		if int(updated.ReplicationConfig.Factor) > nc {
 			return fmt.Errorf("cannot scale to %d replicas, cluster has only %d nodes",
-				updated.Replication.Factor, nc)
+				updated.ReplicationConfig.Factor, nc)
 		}
 	}
 
