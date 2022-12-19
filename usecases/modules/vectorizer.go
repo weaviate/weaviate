@@ -80,15 +80,10 @@ func (m *Provider) UsingRef2Vec(className string) bool {
 	return false
 }
 
-func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
+func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	class, err := m.getClass(object.Class)
-	if err != nil {
-		return err
-	}
-
 	vectorizerName, idxCfg, err := m.getClassVectorizer(object.Class)
 	if err != nil {
 		return err

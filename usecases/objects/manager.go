@@ -112,7 +112,7 @@ type ModulesProvider interface {
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
 	UsingRef2Vec(className string) bool
-	UpdateVector(ctx context.Context, object *models.Object, objectDiff *moduletools.ObjectDiff,
+	UpdateVector(ctx context.Context, object *models.Object, class *models.Class, objectDiff *moduletools.ObjectDiff,
 		repo modulecapabilities.FindObjectFn, logger logrus.FieldLogger) error
 	VectorizerName(className string) (string, error)
 }
