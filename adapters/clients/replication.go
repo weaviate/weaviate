@@ -44,18 +44,18 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	shard, requestID string, obj *storobj.Object,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	payload, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
+	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
 
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", bytes.NewReader(payload))
+	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*2, req, &resp)
+	err = c.do(c.timeoutUnit*10, req, body, &resp)
 	return resp, err
 }
 
@@ -68,7 +68,7 @@ func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.do(c.timeoutUnit*2, req, &resp)
+	err = c.do(c.timeoutUnit*2, req, nil, &resp)
 	return resp, err
 }
 
@@ -80,13 +80,13 @@ func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", bytes.NewReader(body))
+	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
 	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*10, req, &resp)
+	err = c.do(c.timeoutUnit*10, req, body, &resp)
 	return resp, err
 }
 
@@ -100,13 +100,13 @@ func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard,
 	}
 
 	req, err := newHttpReplicaRequest(ctx, http.MethodPatch, host, index, shard,
-		requestID, doc.ID.String(), bytes.NewReader(body))
+		requestID, doc.ID.String(), nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
 	clusterapi.IndicesPayloads.MergeDoc.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*2, req, &resp)
+	err = c.do(c.timeoutUnit*2, req, body, &resp)
 	return resp, err
 }
 
@@ -119,14 +119,13 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
 	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard,
-		requestID, "references",
-		bytes.NewReader(body))
+		requestID, "references", nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
 	clusterapi.IndicesPayloads.ReferenceList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*10, req, &resp)
+	err = c.do(c.timeoutUnit*10, req, body, &resp)
 	return resp, err
 }
 
@@ -137,13 +136,13 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, "", bytes.NewReader(body))
+	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, "", nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*10, req, &resp)
+	err = c.do(c.timeoutUnit*10, req, body, &resp)
 	return resp, err
 }
 
@@ -154,7 +153,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 		return fmt.Errorf("create http request: %w", err)
 	}
 
-	return c.do(c.timeoutUnit*64, req, resp)
+	return c.do(c.timeoutUnit*64, req, nil, resp)
 }
 
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
@@ -165,7 +164,7 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.do(c.timeoutUnit, req, &resp)
+	err = c.do(c.timeoutUnit, req, nil, &resp)
 	return resp, err
 }
 
@@ -191,10 +190,13 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 	return http.NewRequest(http.MethodPost, url.String(), body)
 }
 
-func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp interface{}) (err error) {
+func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	try := func(ctx context.Context) (bool, error) {
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
 		res, err := c.client.Do(req)
 		if err != nil {
 			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
@@ -202,7 +204,8 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, resp in
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			shouldRetry := code == http.StatusInternalServerError ||
+				code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable
 			return shouldRetry, fmt.Errorf("status code: %v", code)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {

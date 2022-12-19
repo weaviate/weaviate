@@ -35,6 +35,7 @@ const (
 	StatusShardNotFound
 	StatusNotFound
 	StatusAlreadyExisted
+	StatusNotReady
 	StatusConflict = iota + 300
 	StatusPreconditionFailed
 	StatusReadOnly
@@ -66,6 +67,10 @@ func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err) }
 
+func (e *Error) IsStatusCode(sc StatusCode) bool {
+	return e.Code == sc
+}
+
 // statusText returns a text for the status code. It returns the empty
 // string if the code is unknown.
 func statusText(code StatusCode) string {
@@ -84,6 +89,8 @@ func statusText(code StatusCode) string {
 		return "precondition failed"
 	case StatusAlreadyExisted:
 		return "already existed"
+	case StatusNotReady:
+		return "local index not ready"
 	case StatusReadOnly:
 		return "read only"
 	default:
