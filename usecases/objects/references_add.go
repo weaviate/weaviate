@@ -76,7 +76,7 @@ func (m *Manager) AddObjectReference(
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, input.Class, input.ID); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

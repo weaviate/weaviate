@@ -26,6 +26,9 @@ type schemaManager interface {
 	GetSchema(principal *models.Principal) (schema.Schema, error)
 	AddClass(ctx context.Context, principal *models.Principal,
 		class *models.Class) error
+	GetClass(ctx context.Context, principal *models.Principal,
+		name string,
+	) (*models.Class, error)
 	AddClassProperty(ctx context.Context, principal *models.Principal,
 		class string, property *models.Property) error
 }
@@ -96,8 +99,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-
-	err = m.modulesProvider.UpdateVector(ctx, object, nil, m.findObject, m.logger)
+	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
+	err = m.modulesProvider.UpdateVector(ctx, object, class, nil, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}
