@@ -77,6 +77,8 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 	return nil
 }
 
+func (d *DB) StartupComplete() bool { return d.startupComplete.Load() }
+
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,

@@ -72,10 +72,13 @@ func (r *Replicator) PutObject(ctx context.Context, shard string,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject))
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj)
-		if err != nil {
-			return err
+		if err == nil {
+			err = resp.FirstError()
 		}
-		return resp.FirstError()
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
 	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
@@ -86,10 +89,13 @@ func (r *Replicator) PutObjects(ctx context.Context, shard string,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects))
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs)
-		if err != nil {
-			return err
+		if err == nil {
+			err = resp.FirstError()
 		}
-		return resp.FirstError()
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
 	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
 	return errorsFromSimpleResponses(len(objs), coord.responses, err)
@@ -101,10 +107,13 @@ func (r *Replicator) MergeObject(ctx context.Context, shard string,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject))
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, mergeDoc)
-		if err != nil {
-			return err
+		if err == nil {
+			err = resp.FirstError()
 		}
-		return resp.FirstError()
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
 	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
@@ -115,6 +124,9 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
+		}
+		if err != nil {
+			err = fmt.Errorf("%s: %w", host, err)
 		}
 		return resp, err
 	}
@@ -129,7 +141,10 @@ func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 		if err == nil {
 			err = resp.FirstError()
 		}
-		return err
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
 	return coord.Replicate(ctx, op, r.simpleCommit(shard))
 }
@@ -141,16 +156,22 @@ func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(
 			ctx, host, r.class, shard, requestID, docIDs, dryRun)
-		if err != nil {
-			return err
+		if err == nil {
+			err = resp.FirstError()
 		}
-		return resp.FirstError()
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
 	commit := func(ctx context.Context, host, requestID string) (DeleteBatchResponse, error) {
 		resp := DeleteBatchResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
+		}
+		if err != nil {
+			err = fmt.Errorf("%q: %w", host, err)
 		}
 		return resp, err
 	}
@@ -165,10 +186,13 @@ func (r *Replicator) AddReferences(ctx context.Context, shard string,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opAddReferences))
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs)
-		if err != nil {
-			return err
+		if err == nil {
+			err = resp.FirstError()
 		}
-		return resp.FirstError()
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
 	err := coord.Replicate(ctx, op, r.simpleCommit(shard))
 	return errorsFromSimpleResponses(len(refs), coord.responses, err)

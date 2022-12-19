@@ -55,7 +55,7 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*10, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
 	return resp, err
 }
 
@@ -68,7 +68,7 @@ func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.do(c.timeoutUnit*2, req, nil, &resp)
+	err = c.do(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
 }
 
@@ -86,7 +86,7 @@ func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*10, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
 	return resp, err
 }
 
@@ -106,7 +106,7 @@ func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard,
 	}
 
 	clusterapi.IndicesPayloads.MergeDoc.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*2, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
 	return resp, err
 }
 
@@ -125,7 +125,7 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ReferenceList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*10, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
 	return resp, err
 }
 
@@ -142,7 +142,7 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*10, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
 	return resp, err
 }
 
@@ -153,7 +153,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 		return fmt.Errorf("create http request: %w", err)
 	}
 
-	return c.do(c.timeoutUnit*64, req, nil, resp)
+	return c.do(c.timeoutUnit*90, req, nil, resp)
 }
 
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
@@ -164,7 +164,7 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.do(c.timeoutUnit, req, nil, &resp)
+	err = c.do(c.timeoutUnit*5, req, nil, &resp)
 	return resp, err
 }
 
@@ -204,20 +204,24 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			shouldRetry := code == http.StatusInternalServerError ||
-				code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable
-			return shouldRetry, fmt.Errorf("status code: %v", code)
+			return shouldRetry(code), fmt.Errorf("status code: %v", code)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 7, try)
+	return c.retry(ctx, 9, try)
 }
 
 // backOff return a new random duration in the interval [d, 3d].
 // It implements truncated exponential back-off with introduced jitter.
 func backOff(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
+}
+
+func shouldRetry(code int) bool {
+	return code == http.StatusInternalServerError ||
+		code == http.StatusTooManyRequests ||
+		code == http.StatusServiceUnavailable
 }

@@ -14,6 +14,7 @@ package state
 import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
+	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
@@ -52,6 +53,7 @@ type State struct {
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
 	BackupManager      *backup.Manager
+	DB                 *db.DB
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

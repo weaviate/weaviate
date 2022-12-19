@@ -114,14 +114,15 @@ func (c *coordinator[T]) commitAll(ctx context.Context, replicas []string, op co
 // Replicate writes on all replicas of specific shard
 func (c *coordinator[T]) Replicate(ctx context.Context, ask readyOp, com commitOp[T]) error {
 	c.nodes = c.FindReplicas(c.shard)
+	const msg = "replication with consistency level 'ALL'"
 	if len(c.nodes) == 0 {
-		return fmt.Errorf("%w : class %q shard %q", errReplicaNotFound, c.class, c.shard)
+		return fmt.Errorf("%s: %w : class %q shard %q", msg, errReplicaNotFound, c.class, c.shard)
 	}
 	if err := c.broadcast(ctx, c.nodes, ask); err != nil {
-		return fmt.Errorf("broadcast: %w", err)
+		return fmt.Errorf("%s: broadcast: %w", msg, err)
 	}
 	if err := c.commitAll(context.Background(), c.nodes, com); err != nil {
-		return fmt.Errorf("commit: %w", err)
+		return fmt.Errorf("%s commit: %w", msg, err)
 	}
 	return nil
 }

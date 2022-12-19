@@ -135,7 +135,7 @@ func (db *DB) AbortReplication(class,
 }
 
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
-	if !db.startupComplete.Load() {
+	if !db.StartupComplete() {
 		return nil, &replica.SimpleResponse{Errors: []replica.Error{
 			*replica.NewError(replica.StatusNotReady, name),
 		}}

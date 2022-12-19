@@ -179,6 +179,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
 		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
+	appState.DB = repo
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
