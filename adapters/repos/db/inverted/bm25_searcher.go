@@ -104,7 +104,7 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 		}
 		indexed := p.IndexInverted
 
-		if indexed != nil && *indexed {
+		if indexed == nil || *indexed {
 			ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
 				property, term)
 			if err != nil {
@@ -331,7 +331,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 		indexed := p.IndexInverted
 
 		// Properties don't have to be indexed, if they are not, they will error on search
-		if indexed != nil && *indexed {
+		if indexed == nil || *indexed {
 			if p.Tokenization == "word" {
 				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
 			} else {
