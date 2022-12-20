@@ -27,8 +27,10 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 		return schema.Schema{}, err
 	}
 
+	m.Lock()
+	defer m.Unlock()
 	return schema.Schema{
-		Objects: m.state.ObjectSchema,
+		Objects: m.state.ObjectSchema.Deepcopy(),
 	}, nil
 }
 
