@@ -141,7 +141,7 @@ func (m *HuggingFaceModule) AdditionalProperties() map[string]modulecapabilities
 func (m *HuggingFaceModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg)) // FIXME config?
+	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
 }
 
 // verify we implement the modules.Module interface

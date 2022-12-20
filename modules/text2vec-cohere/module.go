@@ -134,6 +134,12 @@ func (m *CohereModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
+func (m *CohereModule) VectorizeInput(ctx context.Context,
+	input string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+}
+
 func (m *CohereModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
@@ -145,4 +151,5 @@ var (
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 	_ = modulecapabilities.GraphQLArguments(New())
+	_ = modulecapabilities.InputVectorizer(New())
 )
