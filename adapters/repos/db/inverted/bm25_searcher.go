@@ -90,15 +90,31 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 	terms := strings.Split(keywordRanking.Query, " ")
 
 	idLists := make([]docPointersWithScore, len(terms))
-
+	c, err := schema.GetClassByName(b.schema.Objects, string(className))
+	if err != nil {
+		return nil, []float32{}, errors.Wrap(err,
+			"get class by name")
+	}
 	for i, term := range terms {
-		ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
-			keywordRanking.Properties[0], term)
+		property := keywordRanking.Properties[0]
+		p, err := schema.GetPropertyByName(c, property)
 		if err != nil {
-			return nil, nil, err
+			return nil, []float32{}, errors.Wrap(err,
+				"read property from class")
 		}
+		indexed := p.IndexInverted
 
-		idLists[i] = ids
+		if indexed != nil && *indexed {
+			ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
+				property, term)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			idLists[i] = ids
+		} else {
+			idLists[i] = docPointersWithScore{}
+		}
 	}
 
 	before := time.Now()
@@ -312,15 +328,19 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			return docPointersWithScore{}, errors.Wrap(err,
 				"read property from class")
 		}
+		indexed := p.IndexInverted
 
-		if p.Tokenization == "word" {
-			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
-		} else {
-			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
-		}
-		if err != nil {
-			return docPointersWithScore{}, errors.Wrap(err,
-				"read doc ids and their frequencies from inverted index")
+		// Properties don't have to be indexed, if they are not, they will error on search
+		if indexed != nil && *indexed {
+			if p.Tokenization == "word" {
+				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
+			} else {
+				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
+			}
+			if err != nil {
+				return docPointersWithScore{}, errors.Wrap(err,
+					"read doc ids and their frequencies from inverted index")
+			}
 		}
 
 		for i := range ids.docIDs {
