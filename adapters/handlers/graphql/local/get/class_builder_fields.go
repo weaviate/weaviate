@@ -438,12 +438,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 				args.Alpha = config.DefaultAlpha
 			}
 
-			if args.Alpha < 0.0 {
-				args.Alpha = 0.0
-			}
-
-			if args.Alpha > 1.0 {
-				args.Alpha = 1.0
+			if args.Alpha < 0 || args.Alpha > 1 {
+				return nil, fmt.Errorf("alpha should be between 0.0 and 1.0")
 			}
 
 			query, ok := source["query"]
