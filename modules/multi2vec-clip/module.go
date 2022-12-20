@@ -137,8 +137,15 @@ func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaClient.MetaInfo()
 }
 
+func (m *ClipModule) VectorizeInput(ctx context.Context,
+	input string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	return m.textVectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
+	_ = modulecapabilities.InputVectorizer(New())
 )
