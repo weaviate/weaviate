@@ -242,32 +242,36 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		// The searches can use all of the options normally available, allowing complete control over the subsearches.
 
 		if params.HybridSearch.Query != "" {
-			// Simple search interface
-			results = make([][]search.Result, 2)
-			weights = make([]float64, 2)
+			alpha := params.HybridSearch.Alpha
 
-			// Search inverted index by query
-			params.KeywordRanking = &searchparams.KeywordRanking{
-				Query: params.HybridSearch.Query,
-
-				Type: "bm25",
-			}
 			// Result 1 is the bm25 "sparse" search on the inverted index
-			sparseResults, err := e.search.ClassSearch(ctx, params)
-			if err != nil {
-				return nil, err
-			}
+			if alpha < 1 {
+				// Search inverted index by query
+				params.KeywordRanking = &searchparams.KeywordRanking{
+					Query: params.HybridSearch.Query,
+					Type:  "bm25",
+				}
+				sparseResults, err := e.search.ClassSearch(ctx, params)
+				if err != nil {
+					return nil, err
+				}
 
-			// Set the scoreexplain property to bm25 for every result
-			for i := range sparseResults {
-				sparseResults[i].SecondarySortValue = sparseResults[i].Score
-				sparseResults[i].ExplainScore = "(bm25)" + sparseResults[i].ExplainScore
+				// Set the scoreexplain property to bm25 for every result
+				for i := range sparseResults {
+					sparseResults[i].SecondarySortValue = sparseResults[i].Score
+					sparseResults[i].ExplainScore = "(bm25)" + sparseResults[i].ExplainScore
+				}
+
+				results = append(results, sparseResults)
+				weights = append(weights, 1-alpha)
 			}
 
 			// Result 2 is the vector search, either with a provided vector or with a vector calculated from the query
 			// i.e. nearVec or NearText
-			var vector []float32
-			if e.modulesProvider != nil {
+			if alpha > 0 {
+				var vector []float32
+				var err error
+
 				if params.HybridSearch.Vector != nil && len(params.HybridSearch.Vector) != 0 {
 					// NearVec search
 					vector = params.HybridSearch.Vector
@@ -279,7 +283,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					if err != nil {
 						return nil, err
 					}
-					fmt.Printf("found vector from query: %v\n", vector)
 				}
 				vectorResults, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
 				if err != nil {
@@ -292,10 +295,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 					vectorResults[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), vectorResults[i].ExplainScore)
 				}
 
-				alpha := params.HybridSearch.Alpha
-				results = [][]search.Result{sparseResults, vectorResults}
-				weights = []float64{1 - alpha, alpha}
-
+				results = append(results, vectorResults)
+				weights = append(weights, alpha)
 			}
 		} else {
 			// Complete hybrid search interface
