@@ -219,8 +219,7 @@ func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	icheck := localvectorizer.NewIndexChecker(cfg)
-	return m.vectorizer.VectorizeInput(ctx, input, icheck)
+	return m.vectorizer.Corpi(ctx, []string{input})
 }
 
 func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
