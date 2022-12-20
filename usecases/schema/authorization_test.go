@@ -106,7 +106,7 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		for _, method := range allExportedMethods(&Manager{}) {
 			switch method {
-			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback",
+			case "RegisterSchemaUpdateCallback",
 				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "Lock", "Unlock",
 				"TryLock", // introduced by sync.Mutex in go 1.18
 				"Nodes", "NodeName", "ClusterHealthScore",
