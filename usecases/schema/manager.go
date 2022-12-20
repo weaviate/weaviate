@@ -182,7 +182,7 @@ func (m *Manager) RegisterSchemaUpdateCallback(callback func(updatedSchema schem
 }
 
 func (m *Manager) triggerSchemaUpdateCallbacks() {
-	schema := m.GetSchemaSkipAuth()
+	schema := m.getSchema()
 
 	for _, cb := range m.callbacks {
 		cb(schema)

@@ -289,7 +289,7 @@ func (m *Manager) validateProperty(
 	}
 
 	// Validate data type of property.
-	sch := m.GetSchemaSkipAuth()
+	sch := m.getSchema()
 
 	propertyDataType, err := (&sch).FindPropertyDataTypeWithRefs(property.DataType,
 		relaxCrossRefValidation, schema.ClassName(className))

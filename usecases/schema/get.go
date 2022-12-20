@@ -38,8 +38,16 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 // could leak the schema to an unauthorized user, is intended to be used for
 // non-user triggered processes, such as regular updates / maintenance / etc
 func (m *Manager) GetSchemaSkipAuth() schema.Schema {
+	m.Lock()
+	defer m.Unlock()
 	return schema.Schema{
-		Objects: m.state.ObjectSchema,
+		Objects: m.state.ObjectSchema.Deepcopy(),
+	}
+}
+
+func (m *Manager) getSchema() schema.Schema {
+	return schema.Schema{
+		Objects: m.state.ObjectSchema.Deepcopy(),
 	}
 }
 
