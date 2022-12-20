@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/semi-technologies/weaviate/entities/moduletools"
-	convectoriser "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/additional"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/additional/projector"
 	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/clients"
@@ -53,7 +52,6 @@ type textVectorizer interface {
 	MoveTo(source, target []float32, weight float32) ([]float32, error)
 	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
 	CombineVectors([][]float32) []float32
-	VectorizeInput(ctx context.Context, input string, icheck convectoriser.ClassIndexCheck) ([]float32, error)
 }
 
 type metaProvider interface {
@@ -168,7 +166,7 @@ func (m *TransformersModule) AdditionalProperties() map[string]modulecapabilitie
 func (m *TransformersModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.VectorizeInput(ctx, input, vectorizer.NewClassSettings(cfg))
+	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
 }
 
 // verify we implement the modules.Module interface
