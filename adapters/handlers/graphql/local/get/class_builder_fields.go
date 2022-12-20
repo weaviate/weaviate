@@ -435,7 +435,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			if ok {
 				args.Alpha = alpha.(float64)
 			} else {
-				args.Alpha = float64(config.DefaultAlpha)
+				args.Alpha = config.DefaultAlpha
 			}
 
 			if args.Alpha < 0.0 {
