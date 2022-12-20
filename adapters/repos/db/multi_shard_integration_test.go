@@ -169,13 +169,15 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 			Properties: []*models.Property{
 				{
-					Name:         "contents",
-					DataType:     []string{string(schema.DataTypeText)},
-					Tokenization: "word",
+					Name:          "contents",
+					DataType:      []string{string(schema.DataTypeText)},
+					Tokenization:  "word",
+					IndexInverted: truePointer(),
 				},
 				{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:          "stringProp",
+					DataType:      []string{string(schema.DataTypeString)},
+					IndexInverted: truePointer(),
 				},
 				{
 					Name:     "textArrayProp",
@@ -863,8 +865,9 @@ func testClassesForImporting() []*models.Class {
 					DataType: []string{string(schema.DataTypeInt)},
 				},
 				{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
+					Name:          "stringProp",
+					DataType:      []string{string(schema.DataTypeString)},
+					IndexInverted: truePointer(),
 				},
 				{
 					Name:     "textArrayProp",

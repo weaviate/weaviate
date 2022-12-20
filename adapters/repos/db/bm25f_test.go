@@ -47,27 +47,36 @@ func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
 	}
 }
 
+func truePointer() *bool {
+	t := true
+	return &t
+}
+
 func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
 		Class:               "MyClass",
+
 		Properties: []*models.Property{
 			{
-				Name:         "title",
-				DataType:     []string{string(schema.DataTypeText)},
-				Tokenization: "word",
+				Name:          "title",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
 			},
 			{
-				Name:         "description",
-				DataType:     []string{string(schema.DataTypeText)},
-				Tokenization: "word",
+				Name:          "description",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
 			},
 			{
-				Name:         "stringField",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "field",
+				Name:          "stringField",
+				DataType:      []string{string(schema.DataTypeString)},
+				Tokenization:  "field",
+				IndexInverted: truePointer(),
 			},
 		},
 	}
