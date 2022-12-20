@@ -28,7 +28,7 @@ func TestState(t *testing.T) {
 	require.Nil(t, err)
 
 	nodes := fakeNodes{[]string{"node1", "node2"}}
-	state, err := InitState("my-index", cfg, nodes)
+	state, err := InitState("my-index", cfg, nodes, 1)
 	require.Nil(t, err)
 
 	physicalCount := map[string]int{}
@@ -139,7 +139,7 @@ func TestInitShardWithReplicas(t *testing.T) {
 				}, 3)
 				require.Nil(t, err)
 
-				state, err := InitState("my-index", cfg, nodes)
+				state, err := InitState("my-index", cfg, nodes, int64(test.replicationFactor))
 				require.Nil(t, err)
 
 				nodeCounter := map[string]int{}
@@ -224,7 +224,6 @@ func TestStateDeepCopy(t *testing.T) {
 			Key:                 "original",
 			Strategy:            "original",
 			Function:            "original",
-			Replicas:            6,
 		},
 		localNodeName: "original",
 		Physical: map[string]Physical{
@@ -256,7 +255,6 @@ func TestStateDeepCopy(t *testing.T) {
 			Key:                 "original",
 			Strategy:            "original",
 			Function:            "original",
-			Replicas:            6,
 		},
 		localNodeName: "original",
 		Physical: map[string]Physical{
@@ -293,7 +291,6 @@ func TestStateDeepCopy(t *testing.T) {
 	copied.Config.Key = "changed"
 	copied.Config.Strategy = "changed"
 	copied.Config.Function = "changed"
-	copied.Config.Replicas = 66
 	physical1 := copied.Physical["physical1"]
 	physical1.Name = "changed"
 	physical1.BelongsToNodes = append(physical1.BelongsToNodes, "changed")

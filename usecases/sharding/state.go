@@ -105,10 +105,10 @@ type nodes interface {
 	LocalName() string
 }
 
-func InitState(id string, config Config, nodes nodes) (*State, error) {
+func InitState(id string, config Config, nodes nodes, replFactor int64) (*State, error) {
 	out := &State{Config: config, IndexID: id, localNodeName: nodes.LocalName()}
 
-	if err := out.initPhysical(nodes); err != nil {
+	if err := out.initPhysical(nodes, replFactor); err != nil {
 		return nil, err
 	}
 
@@ -211,7 +211,7 @@ func (s *State) IsShardLocal(name string) bool {
 // Shard 1: Node7, Node8, Node9, Node10, Node 11
 // Shard 2: Node8, Node9, Node10, Node 11, Node 12
 // Shard 3: Node9, Node10, Node11, Node 12, Node 1
-func (s *State) initPhysical(nodes nodes) error {
+func (s *State) initPhysical(nodes nodes, replFactor int64) error {
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartRandom)
 	if err != nil {
 		return err
@@ -224,7 +224,7 @@ func (s *State) initPhysical(nodes nodes) error {
 		shard := Physical{Name: name}
 		node := it.Next()
 		shard.BelongsToNodes = []string{node}
-		if s.Config.Replicas > 1 {
+		if replFactor > 1 {
 			// create a second node iterator and start after the already assigned
 			// one, this way we can identify our next n right neighbors without
 			// affecting the root iterator which will determine the next shard
@@ -236,7 +236,7 @@ func (s *State) initPhysical(nodes nodes) error {
 			replicationIter.SetStartNode(node)
 			// the first node is already assigned, we only need to assign the
 			// additional nodes
-			for i := s.Config.Replicas; i > 1; i-- {
+			for i := replFactor; i > 1; i-- {
 				shard.BelongsToNodes = append(shard.BelongsToNodes, replicationIter.Next())
 			}
 		}
@@ -373,7 +373,6 @@ func (c Config) DeepCopy() Config {
 		Key:                 c.Key,
 		Strategy:            c.Strategy,
 		Function:            c.Function,
-		Replicas:            c.Replicas,
 	}
 }
 

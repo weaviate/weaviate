@@ -547,7 +547,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
-	className string, old, updated sharding.Config,
+	className string, updated sharding.Config, _, _ int64,
 ) (*sharding.State, error) {
 	return nil, nil
 }

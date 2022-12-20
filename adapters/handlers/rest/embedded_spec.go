@@ -3049,6 +3049,9 @@ func init() {
             "$ref": "#/definitions/Property"
           }
         },
+        "replicationConfig": {
+          "$ref": "#/definitions/ReplicationConfig"
+        },
         "shardingConfig": {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
@@ -3874,6 +3877,16 @@ func init() {
           "description": "deprecated - do not use, to be removed in 0.23.0",
           "type": "number",
           "format": "float32"
+        }
+      }
+    },
+    "ReplicationConfig": {
+      "description": "Configure how replication is executed in a cluster",
+      "type": "object",
+      "properties": {
+        "factor": {
+          "description": "Number of times a class is replicated",
+          "type": "integer"
         }
       }
     },
@@ -7380,6 +7393,9 @@ func init() {
             "$ref": "#/definitions/Property"
           }
         },
+        "replicationConfig": {
+          "$ref": "#/definitions/ReplicationConfig"
+        },
         "shardingConfig": {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
@@ -8249,6 +8265,16 @@ func init() {
           "description": "deprecated - do not use, to be removed in 0.23.0",
           "type": "number",
           "format": "float32"
+        }
+      }
+    },
+    "ReplicationConfig": {
+      "description": "Configure how replication is executed in a cluster",
+      "type": "object",
+      "properties": {
+        "factor": {
+          "description": "Number of times a class is replicated",
+          "type": "integer"
         }
       }
     },

@@ -32,13 +32,5 @@ func ValidateConfigUpdate(old, updated Config, nodeCounter nodeCounter) error {
 			updated.VirtualPerPhysical)
 	}
 
-	if old.Replicas != updated.Replicas {
-		nc := nodeCounter.NodeCount()
-		if updated.Replicas > nc {
-			return fmt.Errorf("cannot scale to %d replicas, cluster has only %d nodes",
-				updated.Replicas, nc)
-		}
-	}
-
 	return nil
 }

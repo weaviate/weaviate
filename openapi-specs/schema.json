@@ -361,6 +361,16 @@
       },
       "type": "object"
     },
+    "ReplicationConfig": {
+      "description": "Configure how replication is executed in a cluster",
+      "properties": {
+        "factor": {
+          "description": "Number of times a class is replicated",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "properties": {
@@ -586,7 +596,9 @@
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
-
+        "replicationConfig": {
+          "$ref": "#/definitions/ReplicationConfig"
+        },
         "invertedIndexConfig": {
           "$ref": "#/definitions/InvertedIndexConfig"
         },
