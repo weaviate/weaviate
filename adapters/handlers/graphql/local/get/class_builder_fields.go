@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -433,6 +434,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			alpha, ok := source["alpha"]
 			if ok {
 				args.Alpha = alpha.(float64)
+			} else {
+				args.Alpha = float64(config.DefaultAlpha)
 			}
 
 			query, ok := source["query"]
