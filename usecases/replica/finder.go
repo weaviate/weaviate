@@ -84,7 +84,7 @@ func (f *Finder) FindOne(ctx context.Context, level ConsistencyLevel, shard stri
 		for i, host := range replicas {
 			i, host := i, host
 			g.Go(func() error {
-				o, err := f.GetObject(ctx, host, f.class, shard, id, props, additional)
+				o, err := f.FindObject(ctx, host, f.class, shard, id, props, additional)
 				responses <- tuple{o, i, err}
 				return nil
 			})
@@ -105,7 +105,7 @@ func (f *Finder) NodeObject(ctx context.Context, nodeName, shard string,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	return f.RClient.GetObject(ctx, host, f.class, shard, id, props, additional)
+	return f.RClient.FindObject(ctx, host, f.class, shard, id, props, additional)
 }
 
 func readObject(responses <-chan tuple, cl int, replicas []string) (*storobj.Object, error) {

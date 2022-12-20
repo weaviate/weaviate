@@ -33,6 +33,7 @@ import (
 
 type indices struct {
 	shards                    shards
+	db                        db
 	regexpObjects             *regexp.Regexp
 	regexpObjectsSearch       *regexp.Regexp
 	regexpObjectsFind         *regexp.Regexp
@@ -107,7 +108,11 @@ type shards interface {
 	ReInitShard(ctx context.Context, indexName, shardName string) error
 }
 
-func NewIndices(shards shards) *indices {
+type db interface {
+	StartupComplete() bool
+}
+
+func NewIndices(shards shards, db db) *indices {
 	return &indices{
 		regexpObjects:             regexp.MustCompile(urlPatternObjects),
 		regexpObjectsSearch:       regexp.MustCompile(urlPatternObjectsSearch),
@@ -120,6 +125,7 @@ func NewIndices(shards shards) *indices {
 		regexpShard:               regexp.MustCompile(urlPatternShard),
 		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
 		shards:                    shards,
+		db:                        db,
 	}
 }
 
@@ -373,7 +379,10 @@ func (i *indices) getObject() http.Handler {
 				http.StatusBadRequest)
 			return
 		}
-
+		if !i.db.StartupComplete() {
+			http.Error(w, "startup is not complete", http.StatusServiceUnavailable)
+			return
+		}
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional)
 		if err != nil {

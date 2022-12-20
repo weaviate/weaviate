@@ -31,22 +31,10 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 200,
+		minBackOff:  time.Millisecond * 250,
 		maxBackOff:  time.Second * 30,
 		timeoutUnit: time.Second, // used by unit tests
 	}
-}
-
-// WithMin set minimum delay
-func (r *retryer) WithMin(d time.Duration) *retryer {
-	r.minBackOff = d
-	return r
-}
-
-// WithMax sets maximum delay
-func (r *retryer) WithMax(d time.Duration) *retryer {
-	r.maxBackOff = d
-	return r
 }
 
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
