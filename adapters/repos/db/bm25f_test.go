@@ -64,7 +64,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				Name:          "title",
 				DataType:      []string{string(schema.DataTypeText)},
 				Tokenization:  "word",
-				IndexInverted: truePointer(),
+				IndexInverted: nil,
 			},
 			{
 				Name:          "description",
