@@ -68,9 +68,10 @@ type Shard struct {
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
 
-	status      storagestate.Status
-	statusLock  sync.Mutex
-	stopMetrics chan struct{}
+	status              storagestate.Status
+	statusLock          sync.Mutex
+	propertyIndicesLock sync.RWMutex
+	stopMetrics         chan struct{}
 
 	docIdLock []sync.Mutex
 	// replication
@@ -338,8 +339,9 @@ func (s *Shard) drop(force bool) error {
 
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
-
+	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
+	s.propertyIndicesLock.Unlock()
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.DBPathLSM())
 	}
