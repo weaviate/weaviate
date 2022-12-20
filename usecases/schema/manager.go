@@ -170,7 +170,7 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 		return err
 	}
 
-	m.TriggerSchemaUpdateCallbacks()
+	m.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -181,7 +181,7 @@ func (m *Manager) RegisterSchemaUpdateCallback(callback func(updatedSchema schem
 	m.callbacks = append(m.callbacks, callback)
 }
 
-func (m *Manager) TriggerSchemaUpdateCallbacks() {
+func (m *Manager) triggerSchemaUpdateCallbacks() {
 	schema := m.GetSchemaSkipAuth()
 
 	for _, cb := range m.callbacks {
