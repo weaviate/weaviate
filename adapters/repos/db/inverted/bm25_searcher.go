@@ -98,14 +98,13 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 	for i, term := range terms {
 		property := keywordRanking.Properties[0]
 		p, err := schema.GetPropertyByName(c, property)
-
 		if err != nil {
 			return nil, []float32{}, errors.Wrap(err,
 				"read property from class")
 		}
 		indexed := p.IndexInverted
 
-		if indexed !=nil &&  *indexed {
+		if indexed != nil && *indexed {
 			ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
 				property, term)
 			if err != nil {
@@ -325,14 +324,13 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 				"get class by name")
 		}
 		p, err := schema.GetPropertyByName(c, property)
-
 		if err != nil {
 			return docPointersWithScore{}, errors.Wrap(err,
 				"read property from class")
 		}
 		indexed := p.IndexInverted
 
-		//Properties don't have to be indexed, if they are not, they will error on search
+		// Properties don't have to be indexed, if they are not, they will error on search
 		if indexed != nil && *indexed {
 			if p.Tokenization == "word" {
 				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)

@@ -132,14 +132,14 @@ func class() *models.Class {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{
 			{
-				Name:         "description",
-				DataType:     []string{string(schema.DataTypeText)},
-				Tokenization: "word",
+				Name:          "description",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
 				IndexInverted: truePointer(),
 			},
 			{
-				Name:     "other_property",
-				DataType: []string{string(schema.DataTypeText)},
+				Name:          "other_property",
+				DataType:      []string{string(schema.DataTypeText)},
 				IndexInverted: truePointer(),
 			},
 			{
