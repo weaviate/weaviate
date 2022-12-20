@@ -84,17 +84,12 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	vectorizerName, idxCfg, err := m.getClassVectorizer(object.Class)
-	if err != nil {
-		return err
-	}
-
-	hnswConfig, ok := idxCfg.(hnsw.UserConfig)
+	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
 	if !ok {
-		return fmt.Errorf(errorVectorIndexType, idxCfg)
+		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
 	}
 
-	if vectorizerName == config.VectorizerModuleNone {
+	if class.Vectorizer == config.VectorizerModuleNone {
 		if hnswConfig.Skip && len(object.Vector) > 0 {
 			logger.WithField("className", object.Class).
 				Warningf(warningSkipVectorProvided)
@@ -105,12 +100,16 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 
 	if hnswConfig.Skip {
 		logger.WithField("className", object.Class).
-			WithField("vectorizer", vectorizerName).
-			Warningf(warningSkipVectorGenerated, vectorizerName)
+			WithField("vectorizer", class.Vectorizer).
+			Warningf(warningSkipVectorGenerated, class.Vectorizer)
 	}
 
+	modConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("class %v not present", object.Class)
+	}
 	var found modulecapabilities.Module
-	for modName := range class.ModuleConfig.(map[string]interface{}) {
+	for modName := range modConfig {
 		if err := m.ValidateVectorizer(modName); err == nil {
 			found = m.GetByName(modName)
 			break
@@ -119,7 +118,7 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 
 	if found == nil {
 		return fmt.Errorf(
-			"no vectorizer found for class %q: %w", object.Class, err)
+			"no vectorizer found for class %q", object.Class)
 	}
 
 	cfg := NewClassBasedModuleConfig(class, found.Name())
