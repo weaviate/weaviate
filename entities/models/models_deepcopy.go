@@ -41,11 +41,16 @@ func (c *Class) Deepcopy() *Class {
 	if c == nil {
 		return nil
 	}
-	properties := []*Property{}
-	// properties := make([]*Property, len(c.Properties))
-	for _, prop := range c.Properties {
-		// properties[i] = prop.deepcopy()
-		properties = append(properties, prop.Deepcopy())
+
+	var properties []*Property
+	if c.Properties == nil {
+		properties = nil
+	} else {
+		properties = make([]*Property, len(c.Properties))
+		for i, prop := range c.Properties {
+			properties[i] = prop.Deepcopy()
+		}
+
 	}
 	return &Class{
 		Class:               c.Class,
