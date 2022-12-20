@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 )
@@ -21,8 +22,10 @@ import (
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params GetParams,
 ) (interface{}, error) {
+	before := time.Now()
 	t.metrics.QueriesGetInc(params.ClassName)
 	defer t.metrics.QueriesGetDec(params.ClassName)
+	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())
 
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
