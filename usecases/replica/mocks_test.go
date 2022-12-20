@@ -27,7 +27,7 @@ type fakeRClient struct {
 	mock.Mock
 }
 
-func (f *fakeRClient) GetObject(ctx context.Context, host, index, shard string,
+func (f *fakeRClient) FindObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
@@ -91,7 +91,7 @@ func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID st
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
-func (f *fakeClient) GetObject(ctx context.Context, host, index, shard string,
+func (f *fakeClient) FindObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {

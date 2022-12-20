@@ -157,7 +157,7 @@ type Client interface {
 
 // RClient is the client used to read from remote replicas
 type RClient interface {
-	GetObject(ctx context.Context, host, index, shard string,
+	FindObject(ctx context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
 }
