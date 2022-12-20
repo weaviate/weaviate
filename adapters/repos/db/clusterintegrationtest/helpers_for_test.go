@@ -118,6 +118,11 @@ func multiShardState(nodeCount int) *sharding.State {
 	return s
 }
 
+func truePointer() *bool {
+	b := true
+	return &b
+}
+
 func class() *models.Class {
 	cfg := enthnsw.NewDefaultUserConfig()
 	cfg.EF = 500
@@ -130,10 +135,12 @@ func class() *models.Class {
 				Name:         "description",
 				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: "word",
+				IndexInverted: truePointer(),
 			},
 			{
 				Name:     "other_property",
 				DataType: []string{string(schema.DataTypeText)},
+				IndexInverted: truePointer(),
 			},
 			{
 				Name:     "date_property",
