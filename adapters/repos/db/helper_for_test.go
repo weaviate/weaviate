@@ -204,9 +204,10 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	tmpDir := t.TempDir()
 
 	shardState := singleShardState()
+	class := models.Class{Class: className}
 	sch := schema.Schema{
 		Objects: &models.Schema{
-			Classes: []*models.Class{{Class: className}},
+			Classes: []*models.Class{&class},
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
@@ -226,7 +227,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx)
+	shd, err := NewShard(ctx, nil, shardName, idx, &class)
 	if err != nil {
 		panic(err)
 	}

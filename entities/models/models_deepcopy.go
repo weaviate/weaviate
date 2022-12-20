@@ -76,12 +76,23 @@ func (p *Property) Deepcopy() *Property {
 }
 
 func (i *InvertedIndexConfig) Deepcopy() *InvertedIndexConfig {
+	if i == nil {
+		return nil
+	}
+	bm25 := i.Bm25
+	if i.Bm25 != nil {
+		bm25 = &(*i.Bm25)
+	}
+	Stopwords := i.Stopwords
+	if i.Stopwords != nil {
+		Stopwords = &(*i.Stopwords)
+	}
 	return &InvertedIndexConfig{
-		Bm25:                   &(*i.Bm25),
+		Bm25:                   bm25,
 		CleanupIntervalSeconds: i.CleanupIntervalSeconds,
 		IndexNullState:         i.IndexNullState,
 		IndexPropertyLength:    i.IndexPropertyLength,
 		IndexTimestamps:        i.IndexTimestamps,
-		Stopwords:              &(*i.Stopwords),
+		Stopwords:              Stopwords,
 	}
 }
