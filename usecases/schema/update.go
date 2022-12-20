@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -70,14 +71,19 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "sharding config")
 	}
 
-	oldSharding := initial.ShardingConfig.(sharding.Config)
+	if err := replica.ValidateConfigUpdate(initial, updated, m.clusterState); err != nil {
+		return fmt.Errorf("replication config: %w", err)
+	}
+
 	updatedSharding := updated.ShardingConfig.(sharding.Config)
+	initialRF := initial.ReplicationConfig.Factor
+	updatedRF := updated.ReplicationConfig.Factor
 	var updatedState *sharding.State
-	if oldSharding.Replicas != updatedSharding.Replicas {
-		uss, err := m.scaleOut.Scale(ctx, className, oldSharding, updatedSharding)
+	if initialRF != updatedRF {
+		uss, err := m.scaleOut.Scale(ctx, className, updatedSharding, initialRF, updatedRF)
 		if err != nil {
 			return errors.Wrapf(err, "scale out from %d to %d replicas",
-				oldSharding.Replicas, updatedSharding.Replicas)
+				initialRF, updatedRF)
 		}
 		updatedState = uss
 	}

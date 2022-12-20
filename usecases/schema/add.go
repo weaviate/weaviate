@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 )
 
@@ -132,7 +133,8 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	}
 
 	shardState, err := sharding.InitState(class.Class,
-		class.ShardingConfig.(sharding.Config), m.clusterState)
+		class.ShardingConfig.(sharding.Config),
+		m.clusterState, class.ReplicationConfig.Factor)
 	if err != nil {
 		return errors.Wrap(err, "init sharding state")
 	}
@@ -259,6 +261,10 @@ func (m *Manager) validateCanAddClass(
 	}
 
 	if err := m.moduleConfig.ValidateClass(ctx, class); err != nil {
+		return err
+	}
+
+	if err := replica.ValidateConfig(class); err != nil {
 		return err
 	}
 

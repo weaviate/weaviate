@@ -41,7 +41,6 @@ func Test_Config(t *testing.T) {
 				Key:                 DefaultKey,
 				Strategy:            DefaultStrategy,
 				Function:            DefaultFunction,
-				Replicas:            1,
 			},
 		},
 
@@ -62,7 +61,6 @@ func Test_Config(t *testing.T) {
 				DesiredVirtualCount: 192,
 				ActualCount:         3,
 				ActualVirtualCount:  192,
-				Replicas:            3,
 				Key:                 "_id",
 				Strategy:            "hash",
 				Function:            "murmur3",
@@ -86,7 +84,6 @@ func Test_Config(t *testing.T) {
 				DesiredVirtualCount: 192,
 				ActualCount:         3,
 				ActualVirtualCount:  192,
-				Replicas:            4,
 				Key:                 "_id",
 				Strategy:            "hash",
 				Function:            "murmur3",

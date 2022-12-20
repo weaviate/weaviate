@@ -77,9 +77,13 @@ func immediateReplicaCRUD(t *testing.T) {
 	articleClass := articles.ArticlesClass()
 
 	t.Run("create schema", func(t *testing.T) {
-		paragraphClass.ShardingConfig = map[string]interface{}{"replicas": 2} //, "desiredCount": 1}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
+			Factor: 2,
+		}
 		helper.CreateClass(t, paragraphClass)
-		articleClass.ShardingConfig = map[string]interface{}{"replicas": 2} //, "desiredCount": 1}
+		articleClass.ReplicationConfig = &models.ReplicationConfig{
+			Factor: 2,
+		}
 		helper.CreateClass(t, articleClass)
 	})
 
@@ -318,11 +322,15 @@ func eventualReplicaCRUD(t *testing.T) {
 
 	t.Run("configure classes to replicate to node 2", func(t *testing.T) {
 		ac := helper.GetClass(t, "Article")
-		ac.ShardingConfig.(map[string]interface{})["replicas"] = 2
+		ac.ReplicationConfig = &models.ReplicationConfig{
+			Factor: 2,
+		}
 		helper.UpdateClass(t, ac)
 
 		pc := helper.GetClass(t, "Paragraph")
-		pc.ShardingConfig.(map[string]interface{})["replicas"] = 2
+		pc.ReplicationConfig = &models.ReplicationConfig{
+			Factor: 2,
+		}
 		helper.UpdateClass(t, pc)
 	})
 

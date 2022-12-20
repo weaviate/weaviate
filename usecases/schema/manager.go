@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 	"github.com/semi-technologies/weaviate/usecases/scaling"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -97,7 +98,7 @@ type clusterState interface {
 type scaleOut interface {
 	SetSchemaManager(sm scaling.SchemaManager)
 	Scale(ctx context.Context, className string,
-		old, updated sharding.Config) (*sharding.State, error)
+		updated sharding.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
 }
 
 // NewManager creates a new manager
@@ -263,8 +264,13 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			return err
 		}
 
+		if err := replica.ValidateConfig(c); err != nil {
+			return fmt.Errorf("validate replication config: %w", err)
+		}
+
 		shardState, err := sharding.InitState(c.Class,
-			c.ShardingConfig.(sharding.Config), m.clusterState)
+			c.ShardingConfig.(sharding.Config),
+			m.clusterState, c.ReplicationConfig.Factor)
 		if err != nil {
 			return errors.Wrap(err, "init sharding state")
 		}
@@ -307,6 +313,10 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 
 		if err := m.parseShardingConfig(ctx, class); err != nil {
 			return errors.Wrapf(err, "class %s: sharding config", class.Class)
+		}
+
+		if err := replica.ValidateConfig(class); err != nil {
+			return fmt.Errorf("replication config: %w", err)
 		}
 	}
 

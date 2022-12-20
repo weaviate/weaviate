@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/pkg/errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/replica"
 )
 
 // On init we get the current schema and create one index object per class.
@@ -48,6 +50,9 @@ func (d *DB) init(ctx context.Context) error {
 					},
 				}
 			}
+			if err := replica.ValidateConfig(class); err != nil {
+				return fmt.Errorf("replication config: %w", err)
+			}
 
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),
@@ -61,11 +66,12 @@ func (d *DB) init(ctx context.Context) error {
 				MemtablesMinActiveSeconds: d.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds: d.config.MemtablesMaxActiveSeconds,
 				TrackVectorDimensions:     d.config.TrackVectorDimensions,
+				ReplicationFactor:         class.ReplicationConfig.Factor,
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
-
-				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex, d.replicaClient, d.promMetrics)
+				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex,
+				d.replicaClient, d.promMetrics)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
