@@ -54,6 +54,8 @@ func (m *Manager) getSchema() schema.Schema {
 }
 
 func (m *Manager) IndexedInverted(className, propertyName string) bool {
+	m.Lock()
+	defer m.Unlock()
 	class := m.getClassByName(className)
 	if class == nil {
 		return false
