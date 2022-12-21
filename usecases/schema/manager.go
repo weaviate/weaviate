@@ -47,7 +47,7 @@ type Manager struct {
 	scaleOut                scaleOut
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
-	sync.Mutex
+	sync.RWMutex
 	ShardingStateLock sync.RWMutex
 }
 
