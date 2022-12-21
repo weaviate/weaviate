@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/deepcopy"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
@@ -30,7 +32,7 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 	m.Lock()
 	defer m.Unlock()
 	return schema.Schema{
-		Objects: m.state.ObjectSchema.Deepcopy(),
+		Objects: deepcopy.Schema(m.state.ObjectSchema),
 	}, nil
 }
 
@@ -41,13 +43,13 @@ func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 	m.Lock()
 	defer m.Unlock()
 	return schema.Schema{
-		Objects: m.state.ObjectSchema.Deepcopy(),
+		Objects: deepcopy.Schema(m.state.ObjectSchema),
 	}
 }
 
 func (m *Manager) getSchema() schema.Schema {
 	return schema.Schema{
-		Objects: m.state.ObjectSchema.Deepcopy(),
+		Objects: deepcopy.Schema(m.state.ObjectSchema),
 	}
 }
 
@@ -79,7 +81,7 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 	}
 	m.Lock()
 	defer m.Unlock()
-	return m.getClassByName(name).Deepcopy(), nil
+	return deepcopy.Class(m.getClassByName(name)), nil
 }
 
 func (m *Manager) getClassByName(name string) *models.Class {
