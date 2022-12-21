@@ -29,8 +29,8 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 		return schema.Schema{}, err
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 	return schema.Schema{
 		Objects: deepcopy.Schema(m.state.ObjectSchema),
 	}, nil
@@ -40,8 +40,8 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 // could leak the schema to an unauthorized user, is intended to be used for
 // non-user triggered processes, such as regular updates / maintenance / etc
 func (m *Manager) GetSchemaSkipAuth() schema.Schema {
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 	return schema.Schema{
 		Objects: deepcopy.Schema(m.state.ObjectSchema),
 	}
@@ -54,8 +54,8 @@ func (m *Manager) getSchema() schema.Schema {
 }
 
 func (m *Manager) IndexedInverted(className, propertyName string) bool {
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 	class := m.getClassByName(className)
 	if class == nil {
 		return false
@@ -81,8 +81,8 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 	return deepcopy.Class(m.getClassByName(name)), nil
 }
 
