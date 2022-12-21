@@ -38,7 +38,14 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	return m.addClass(ctx, class)
+	shardState, err := m.addClass(ctx, class)
+	if err != nil {
+		return err
+	}
+
+	// call to migrator needs to be outside the lock that is set in addClass
+	return m.migrator.AddClass(ctx, class, shardState)
+	// TODO gh-846: Rollback state upate if migration fails
 }
 
 func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
@@ -104,7 +111,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 }
 
 func (m *Manager) addClass(ctx context.Context, class *models.Class,
-) error {
+) (*sharding.State, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -114,29 +121,29 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	err := m.validateCanAddClass(ctx, class, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = m.parseShardingConfig(ctx, class)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = m.parseVectorIndexConfig(ctx, class)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = m.invertedConfigValidator(class.InvertedIndexConfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	shardState, err := sharding.InitState(class.Class,
 		class.ShardingConfig.(sharding.Config),
 		m.clusterState, class.ReplicationConfig.Factor)
 	if err != nil {
-		return errors.Wrap(err, "init sharding state")
+		return nil, errors.Wrap(err, "init sharding state")
 	}
 
 	tx, err := m.cluster.BeginTransaction(ctx, AddClass,
@@ -145,14 +152,16 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		// possible causes for errors could be nodes down (we expect every node to
 		// the up for a schema transaction) or concurrent transactions from other
 		// nodes
-		return errors.Wrap(err, "open cluster-wide transaction")
+		return nil, errors.Wrap(err, "open cluster-wide transaction")
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
-		return errors.Wrap(err, "commit cluster-wide transaction")
+		return nil, errors.Wrap(err, "commit cluster-wide transaction")
 	}
-
-	return m.addClassApplyChanges(ctx, class, shardState)
+	if err := m.addClassApplyChanges(ctx, class, shardState); err != nil {
+		return nil, err
+	}
+	return shardState, nil
 }
 
 func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
@@ -162,13 +171,7 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
 	m.state.ShardingState[class.Class] = shardState
-	err := m.saveSchema(ctx)
-	if err != nil {
-		return err
-	}
-
-	return m.migrator.AddClass(ctx, class, shardState)
-	// TODO gh-846: Rollback state upate if migration fails
+	return m.saveSchema(ctx)
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
