@@ -281,9 +281,11 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 func (d *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
+		// needs to happen before the index lock as they might deadlock each other
+		schema := d.schemaGetter.GetSchemaSkipAuth()
 		d.indexLock.RLock()
 		for _, index := range d.indices {
-			err := filters.ValidateSort(d.schemaGetter.GetSchemaSkipAuth(),
+			err := filters.ValidateSort(schema,
 				index.Config.ClassName, sort)
 			if err != nil {
 				errorMsg := errors.Wrapf(err, "search index %s", index.ID()).Error()
