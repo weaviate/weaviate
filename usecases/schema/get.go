@@ -95,7 +95,10 @@ func (m *Manager) getClassByName(name string) *models.Class {
 }
 
 func (m *Manager) ShardingState(className string) *sharding.State {
-	return m.state.ShardingState[className]
+	m.ShardingStateLock.RLock()
+	copiedState := m.state.ShardingState[className].DeepCopy()
+	m.ShardingStateLock.RUnlock()
+	return &copiedState
 }
 
 func (m *Manager) Nodes() []string {
