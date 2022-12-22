@@ -156,11 +156,6 @@ type State struct {
 	ShardingState map[string]*sharding.State
 }
 
-// SchemaFor a specific kind
-func (s *State) SchemaFor() *models.Schema {
-	return s.ObjectSchema
-}
-
 func (m *Manager) saveSchema(ctx context.Context) error {
 	m.logger.
 		WithField("action", "schema_update").
