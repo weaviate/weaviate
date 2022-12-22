@@ -37,20 +37,6 @@ services:
       - ./tools/dev/grafana/datasource.yml:/etc/grafana/provisioning/datasources/prometheus.yml
       - ./tools/dev/grafana/dashboard_provider.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
       - ./tools/dev/grafana/dashboards:/var/lib/grafana/dashboards
-  keycloak:
-    image: jboss/keycloak:5.0.0
-    environment:
-      KEYCLOAK_USER: admin
-      KEYCLOAK_PASSWORD: admin
-      KEYCLOAK_IMPORT: /tmp/weaviate-realm.json
-    volumes:
-      - ./tools/dev/keycloak/weaviate-realm.json:/tmp/weaviate-realm.json
-    ports:
-      - "9090:8080"
-  t2v-transformers:
-    image: semitechnologies/transformers-inference:distilbert-base-uncased-1.1.0
-    ports: 
-      - "8000:8080"
   qna-transformers:
     image: semitechnologies/qna-transformers:bert-large-uncased-whole-word-masking-finetuned-squad
     ports:
@@ -83,19 +69,3 @@ services:
     image: semitechnologies/transformers-inference:facebook-dpr-question_encoder-single-nq-base
     ports: 
       - "8007:8080"
-  backup-s3:
-    image: minio/minio
-    ports:
-      - "9000:9000"
-    volumes:
-      - ./backups-s3:/data
-    environment:
-      MINIO_ROOT_USER: aws_access_key
-      MINIO_ROOT_PASSWORD: aws_secret_key
-    command: server /data
-  backup-gcs:
-    image: oittaa/gcp-storage-emulator
-    ports:
-      - "9090:8080"
-    volumes:
-          - ./backups-gcs:/storage
