@@ -34,9 +34,9 @@ func Class(c *models.Class) *models.Class {
 			properties[i] = Prop(prop)
 		}
 	}
-	var ReplicationConf *models.ReplicationConfig = nil
+	var replicationConf *models.ReplicationConfig = nil
 	if c.ReplicationConfig != nil {
-		ReplicationConf = &models.ReplicationConfig{Factor: c.ReplicationConfig.Factor}
+		replicationConf = &models.ReplicationConfig{Factor: c.ReplicationConfig.Factor}
 	}
 
 	return &models.Class{
@@ -46,7 +46,7 @@ func Class(c *models.Class) *models.Class {
 		ShardingConfig:      c.ShardingConfig,
 		VectorIndexConfig:   c.VectorIndexConfig,
 		VectorIndexType:     c.VectorIndexType,
-		ReplicationConfig:   ReplicationConf,
+		ReplicationConfig:   replicationConf,
 		Vectorizer:          c.Vectorizer,
 		InvertedIndexConfig: InvertedIndexConfig(c.InvertedIndexConfig),
 		Properties:          properties,
@@ -54,10 +54,10 @@ func Class(c *models.Class) *models.Class {
 }
 
 func Prop(p *models.Property) *models.Property {
-	var IndexInverted *bool = nil
+	var indexInverted *bool = nil
 	if p.IndexInverted != nil {
 		b := *(p.IndexInverted)
-		IndexInverted = &b
+		indexInverted = &b
 	}
 
 	return &models.Property{
@@ -66,7 +66,7 @@ func Prop(p *models.Property) *models.Property {
 		ModuleConfig:  p.ModuleConfig,
 		Name:          p.Name,
 		Tokenization:  p.Tokenization,
-		IndexInverted: IndexInverted,
+		IndexInverted: indexInverted,
 	}
 }
 
@@ -75,9 +75,9 @@ func InvertedIndexConfig(i *models.InvertedIndexConfig) *models.InvertedIndexCon
 		return nil
 	}
 
-	var Bm25 *models.BM25Config = nil
+	var bm25 *models.BM25Config = nil
 	if i.Bm25 != nil {
-		Bm25 = &models.BM25Config{B: i.Bm25.B, K1: i.Bm25.K1}
+		bm25 = &models.BM25Config{B: i.Bm25.B, K1: i.Bm25.K1}
 	}
 
 	var stopwords *models.StopwordConfig = nil
@@ -86,7 +86,7 @@ func InvertedIndexConfig(i *models.InvertedIndexConfig) *models.InvertedIndexCon
 	}
 
 	return &models.InvertedIndexConfig{
-		Bm25:                   Bm25,
+		Bm25:                   bm25,
 		CleanupIntervalSeconds: i.CleanupIntervalSeconds,
 		IndexNullState:         i.IndexNullState,
 		IndexPropertyLength:    i.IndexPropertyLength,

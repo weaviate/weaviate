@@ -130,9 +130,9 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		// the sharding state caches the node name, we must therefore set this
 		// explicitly now.
 		updatedShardingState.SetLocalName(m.clusterState.LocalName())
-		m.ShardingStateLock.Lock()
+		m.shardingStateLock.Lock()
 		m.state.ShardingState[className] = updatedShardingState
-		m.ShardingStateLock.Unlock()
+		m.shardingStateLock.Unlock()
 	}
 
 	return m.saveSchema(ctx)

@@ -48,7 +48,7 @@ type Manager struct {
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
 	sync.RWMutex
-	ShardingStateLock sync.RWMutex
+	shardingStateLock sync.RWMutex
 }
 
 type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
@@ -244,9 +244,9 @@ func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
 
 func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 	for _, c := range m.state.ObjectSchema.Classes {
-		m.ShardingStateLock.RLock()
+		m.shardingStateLock.RLock()
 		_, ok := m.state.ShardingState[c.Class]
-		m.ShardingStateLock.RUnlock()
+		m.shardingStateLock.RUnlock()
 		if ok { // there is sharding state for this class. Nothing to do
 			continue
 		}
@@ -278,12 +278,12 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			return errors.Wrap(err, "init sharding state")
 		}
 
-		m.ShardingStateLock.Lock()
+		m.shardingStateLock.Lock()
 		if m.state.ShardingState == nil {
 			m.state.ShardingState = map[string]*sharding.State{}
 		}
 		m.state.ShardingState[c.Class] = shardState
-		m.ShardingStateLock.Unlock()
+		m.shardingStateLock.Unlock()
 
 	}
 
@@ -291,8 +291,8 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 }
 
 func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
-	m.ShardingStateLock.Lock()
-	defer m.ShardingStateLock.Unlock()
+	m.shardingStateLock.Lock()
+	defer m.shardingStateLock.Unlock()
 
 	for _, classState := range m.state.ShardingState {
 		classState.MigrateFromOldFormat()
@@ -328,11 +328,11 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 			return fmt.Errorf("replication config: %w", err)
 		}
 	}
-	m.ShardingStateLock.Lock()
+	m.shardingStateLock.Lock()
 	for _, shardState := range schema.ShardingState {
 		shardState.SetLocalName(m.clusterState.LocalName())
 	}
-	m.ShardingStateLock.Unlock()
+	m.shardingStateLock.Unlock()
 
 	return nil
 }
