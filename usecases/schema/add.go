@@ -100,10 +100,10 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 
 	shardingState.MigrateFromOldFormat()
 
-	m.ShardingStateLock.Lock()
+	m.shardingStateLock.Lock()
 	m.state.ShardingState[class.Class] = shardingState
 	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
-	m.ShardingStateLock.Unlock()
+	m.shardingStateLock.Unlock()
 
 	err = m.saveSchema(ctx)
 	if err != nil {
@@ -174,9 +174,9 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
-	m.ShardingStateLock.Lock()
+	m.shardingStateLock.Lock()
 	m.state.ShardingState[class.Class] = shardState
-	m.ShardingStateLock.Unlock()
+	m.shardingStateLock.Unlock()
 	return m.saveSchema(ctx)
 }
 
