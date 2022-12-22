@@ -233,10 +233,8 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 		newName = &n
 	}
 
-	semanticSchema := m.state.SchemaFor()
-
 	var err error
-	class, err = schema.GetClassByName(semanticSchema, className)
+	class, err = schema.GetClassByName(m.state.ObjectSchema, className)
 	if err != nil {
 		return err
 	}
