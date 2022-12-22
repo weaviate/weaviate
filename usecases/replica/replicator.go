@@ -198,30 +198,6 @@ func (r *Replicator) AddReferences(ctx context.Context, shard string,
 	return errorsFromSimpleResponses(len(refs), coord.responses, err)
 }
 
-// rFinder is just a place holder to find replicas of specific hard
-// TODO: the mapping between a shard and its replicas need to be implemented
-type rFinder struct {
-	schema   shardingState
-	resolver nodeResolver
-	class    string
-}
-
-func (r *rFinder) FindReplicas(shardName string) []string {
-	shard, ok := r.schema.ShardingState(r.class).Physical[shardName]
-	if !ok {
-		return nil
-	}
-	replicas := make([]string, 0, len(shard.BelongsToNodes))
-	for _, node := range shard.BelongsToNodes {
-		host, ok := r.resolver.NodeHostname(node)
-		if !ok || host == "" {
-			return nil
-		}
-		replicas = append(replicas, host)
-	}
-	return replicas
-}
-
 func errorsFromSimpleResponses(batchSize int, rs []SimpleResponse, defaultErr error) []error {
 	errs := make([]error, batchSize)
 	n := 0

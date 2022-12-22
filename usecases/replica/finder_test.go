@@ -32,7 +32,7 @@ func TestFinderReplicaNotFound(t *testing.T) {
 		f       = factory.newFinder()
 	)
 	_, err := f.FindOne(ctx, "ONE", "S", "id", nil, additional.Properties{})
-	assert.ErrorIs(t, err, errReplicaNotFound)
+	assert.ErrorIs(t, err, errNoReplicaFound)
 }
 
 func TestFinderNodeObject(t *testing.T) {
