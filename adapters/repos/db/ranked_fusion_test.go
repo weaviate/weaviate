@@ -424,7 +424,7 @@ func TestRFJourney(t *testing.T) {
 		},
 		Pagination: &filters.Pagination{
 			Offset: 0,
-			Limit:  -1,
+			Limit:  100,
 		},
 	}
 
