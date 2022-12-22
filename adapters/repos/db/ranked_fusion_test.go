@@ -414,36 +414,72 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, "00000000-0000-0000-0000-000000000000", string(res[0].ID))
 
 	*/
-	params := traverser.GetParams{
-		ClassName: "MyClass",
-		HybridSearch: &searchparams.HybridSearch{
-			Query:  "elephant",
-			Vector: elephantVector(),
-			Limit:  100,
-			Alpha:  0.5,
-		},
-		Pagination: &filters.Pagination{
-			Offset: 0,
-			Limit:  -1,
-		},
-	}
+	t.Run("Hybrid", func(t *testing.T) {
+		params := traverser.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "elephant",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  100,
+			},
+		}
 
-	prov := modules.NewProvider()
-	prov.SetClassDefaults(class)
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
 
-	metrics := &fakeMetrics{}
-	log, _ := test.NewNullLogger()
-	explorer := traverser.NewExplorer(repo, log, prov, metrics)
-	hybridResults, err := explorer.Hybrid(context.TODO(), params)
-	require.Nil(t, err)
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
 
-	fmt.Println("--- Start results for hybrid ---")
-	for _, r := range hybridResults {
-		schema := r.Schema.(map[string]interface{})
-		title := schema["title"].(string)
-		description := schema["description"].(string)
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
-	}
+		fmt.Println("--- Start results for hybrid ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+	})
+
+	t.Run("Hybrid with negative limit", func(t *testing.T) {
+		params := traverser.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "elephant",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  -1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+
+		fmt.Println("--- Start results for hybrid ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+	})
+
 }
 
 // "journey"

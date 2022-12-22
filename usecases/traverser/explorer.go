@@ -382,7 +382,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 	}
 	fused := FusionReciprocal(weights, results)
 
-	if len(fused) > hybridSearchLimit+1 {
+	if hybridSearchLimit >= 1 && (len(fused) > hybridSearchLimit) { //-1 is possible?
 		fmt.Printf("limiting results from %v to %v\n", len(fused), hybridSearchLimit)
 		fused = fused[:hybridSearchLimit]
 	}
