@@ -36,11 +36,13 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		return errors.Wrapf(err, "create geo index for prop %q", prop.Name)
 	}
 
+	s.propertyIndicesLock.Lock()
 	s.propertyIndices[prop.Name] = propertyspecific.Index{
 		Type:     schema.DataTypeGeoCoordinates,
 		GeoIndex: idx,
 		Name:     prop.Name,
 	}
+	s.propertyIndicesLock.Unlock()
 
 	idx.PostStartup()
 
@@ -85,6 +87,8 @@ func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
+	s.propertyIndicesLock.RLock()
+	defer s.propertyIndicesLock.RUnlock()
 
 	for propName, propIndex := range s.propertyIndices {
 		if err := s.updatePropertySpecificIndex(propName, propIndex,

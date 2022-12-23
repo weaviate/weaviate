@@ -19,16 +19,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-type schemaProperties struct {
-	Schema *models.Schema
-}
-
-// WeaviateSchema represents the used schema's
-type WeaviateSchema struct {
-	ActionSchema schemaProperties
-	ThingSchema  schemaProperties
-}
-
 // GetClassByName returns the class by its name
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	if s == nil {
