@@ -37,8 +37,14 @@ type State struct {
 // MigrateFromOldFormat checks if the old (pre-v1.17) format was used and
 // migrates it into the new format for backward-compatibility with all classes
 // created before v1.17
-func (s *State) MigrateFromOldFormat() {
+func (s *State) MigrateFromOldFormat(fallbackNode string, nodeCount int) {
 	for shardName, shard := range s.Physical {
+		if len(shard.LegacyBelongsToNodeForBackwardCompat) == 0 && len(shard.BelongsToNodes) == 0 && nodeCount == 1 {
+			// user tried to downgrade, then upgrade again
+			// set to fallback node
+			shard.BelongsToNodes = []string{fallbackNode}
+		}
+
 		if len(shard.LegacyBelongsToNodeForBackwardCompat) > 0 && len(shard.BelongsToNodes) == 0 {
 			shard.BelongsToNodes = []string{
 				shard.LegacyBelongsToNodeForBackwardCompat,

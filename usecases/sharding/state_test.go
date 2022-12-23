@@ -328,7 +328,7 @@ func TestBackwardCompatibilityBefore1_17(t *testing.T) {
 	err = json.Unmarshal(oldVersionJSON, &newVersion)
 	require.Nil(t, err)
 
-	newVersion.MigrateFromOldFormat()
+	newVersion.MigrateFromOldFormat("", 12)
 
 	assert.Equal(t, []string{"the-best-node"},
 		newVersion.Physical["hello-replication"].BelongsToNodes)

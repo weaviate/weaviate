@@ -91,7 +91,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	semanticSchema := m.state.ObjectSchema
 	semanticSchema.Classes = append(semanticSchema.Classes, class)
 
-	shardingState.MigrateFromOldFormat()
+	shardingState.MigrateFromOldFormat(m.clusterState.LocalName(), m.clusterState.NodeCount())
 	m.state.ShardingState[class.Class] = shardingState
 	m.state.ShardingState[class.Class].SetLocalName(m.clusterState.LocalName())
 	err = m.saveSchema(ctx)

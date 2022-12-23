@@ -285,8 +285,11 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 }
 
 func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
+	localNode := m.clusterState.LocalName()
+	clusterSize := m.clusterState.NodeCount()
+
 	for _, classState := range m.state.ShardingState {
-		classState.MigrateFromOldFormat()
+		classState.MigrateFromOldFormat(localNode, clusterSize)
 	}
 
 	return nil
