@@ -24,31 +24,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type ConsistencyLevel string
-
-const (
-	One    ConsistencyLevel = "ONE"
-	Quorum ConsistencyLevel = "QUORUM"
-	All    ConsistencyLevel = "ALL"
-)
-
-func cLevel(l ConsistencyLevel, n int) int {
-	switch l {
-	case All:
-		return n
-	case Quorum:
-		return n/2 + 1
-	default:
-		return 1
-	}
-}
-
 // Finder finds replicated objects
 type Finder struct {
-	RClient       // needed to commit and abort operation
-	replicaFinder // host names of replicas
-	resolver      nodeResolver
-	class         string
+	RClient            // needed to commit and abort operation
+	resolver *resolver // host names of replicas
+	class    string
 }
 
 func NewFinder(className string,
@@ -56,32 +36,36 @@ func NewFinder(className string,
 	client RClient,
 ) *Finder {
 	return &Finder{
-		class:    className,
-		resolver: nodeResolver,
-		replicaFinder: &rFinder{
-			schema:   stateGetter,
-			resolver: nodeResolver,
-			class:    className,
+		class: className,
+		resolver: &resolver{
+			schema:       stateGetter,
+			nodeResolver: nodeResolver,
+			class:        className,
 		},
 		RClient: client,
 	}
 }
 
 // FindOne finds one object which satisfies the giving consistency
-func (f *Finder) FindOne(ctx context.Context, level ConsistencyLevel, shard string,
+func (f *Finder) FindOne(ctx context.Context, l ConsistencyLevel, shard string,
 	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
 ) (*storobj.Object, error) {
-	replicas := f.replicaFinder.FindReplicas(shard)
-	if len(replicas) == 0 {
-		return nil, fmt.Errorf("%w : class %q shard %q", errReplicaNotFound, f.class, shard)
+	var level int
+	state, err := f.resolver.State(shard)
+	if err == nil {
+		level, err = state.ConsistencyLevel(l)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shard)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	writer := func() <-chan tuple {
-		responses := make(chan tuple, len(replicas))
+		responses := make(chan tuple, len(state.Hosts))
 		var g errgroup.Group
-		for i, host := range replicas {
+		for i, host := range state.Hosts {
 			i, host := i, host
 			g.Go(func() error {
 				o, err := f.FindObject(ctx, host, f.class, shard, id, props, additional)
@@ -93,7 +77,7 @@ func (f *Finder) FindOne(ctx context.Context, level ConsistencyLevel, shard stri
 		return responses
 	}
 
-	return readObject(writer(), cLevel(level, len(replicas)), replicas)
+	return readObject(writer(), level, state.Hosts, state.Len())
 }
 
 // NodeObject gets object from a specific node.
@@ -108,8 +92,8 @@ func (f *Finder) NodeObject(ctx context.Context, nodeName, shard string,
 	return f.RClient.FindObject(ctx, host, f.class, shard, id, props, additional)
 }
 
-func readObject(responses <-chan tuple, cl int, replicas []string) (*storobj.Object, error) {
-	counters := make([]tuple, len(replicas))
+func readObject(responses <-chan tuple, cl int, hosts []string, N int) (*storobj.Object, error) {
+	counters := make([]tuple, len(hosts))
 	nnf := 0
 	for r := range responses {
 		if r.err != nil {
@@ -133,7 +117,7 @@ func readObject(responses <-chan tuple, cl int, replicas []string) (*storobj.Obj
 			}
 		}
 	}
-	if nnf == len(replicas) { // object doesn't exist
+	if nnf == N { // object doesn't exist
 		return nil, nil
 	}
 
@@ -143,11 +127,11 @@ func readObject(responses <-chan tuple, cl int, replicas []string) (*storobj.Obj
 			sb.WriteString(", ")
 		}
 		if c.err != nil {
-			fmt.Fprintf(&sb, "%s: %s", replicas[i], c.err.Error())
+			fmt.Fprintf(&sb, "%s: %s", hosts[i], c.err.Error())
 		} else if c.o == nil {
-			fmt.Fprintf(&sb, "%s: 0", replicas[i])
+			fmt.Fprintf(&sb, "%s: 0", hosts[i])
 		} else {
-			fmt.Fprintf(&sb, "%s: %d", replicas[i], c.o.LastUpdateTimeUnix())
+			fmt.Fprintf(&sb, "%s: %d", hosts[i], c.o.LastUpdateTimeUnix())
 		}
 	}
 	return nil, errors.New(sb.String())
