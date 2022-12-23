@@ -32,7 +32,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	f := newFakeFactory("C1", "S", []string{})
 	rep := f.newReplicator()
 	err := rep.PutObject(context.Background(), "S", nil)
-	assert.ErrorIs(t, err, errReplicaNotFound)
+	assert.ErrorIs(t, err, errNoReplicaFound)
 }
 
 func TestReplicatorPutObject(t *testing.T) {
