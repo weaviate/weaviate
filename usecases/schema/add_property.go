@@ -14,9 +14,10 @@ package schema
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/entities/schema"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 // AddClassProperty to an existing Class
@@ -37,12 +38,10 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	m.Lock()
 	defer m.Unlock()
 
-	semanticSchema := m.state.SchemaFor()
-	class, err := schema.GetClassByName(semanticSchema, className)
+	class, err := schema.GetClassByName(m.state.ObjectSchema, className)
 	if err != nil {
 		return err
 	}
-
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
 	m.setNewPropDefaults(class, prop)
@@ -79,8 +78,7 @@ func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property)
 func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	className string, prop *models.Property,
 ) error {
-	semanticSchema := m.state.SchemaFor()
-	class, err := schema.GetClassByName(semanticSchema, className)
+	class, err := schema.GetClassByName(m.state.ObjectSchema, className)
 	if err != nil {
 		return err
 	}
@@ -88,7 +86,7 @@ func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
 	class.Properties = append(class.Properties, prop)
 	err = m.saveSchema(ctx)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	return m.migrator.AddProperty(ctx, className, prop)

@@ -66,6 +66,18 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, f.GetschemaErr
 }
 
+func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
+	name string,
+) (*models.Class, error) {
+	classes := f.GetSchemaResponse.Objects.Classes
+	for _, class := range classes {
+		if class.Class == name {
+			return class, f.GetschemaErr
+		}
+	}
+	return nil, f.GetschemaErr
+}
+
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) error {
@@ -300,7 +312,7 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 	return args.Bool(0)
 }
 
-func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object,
+func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 	objectDiff *moduletools.ObjectDiff, findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
 ) error {
 	args := p.Called(object, findObjFn)

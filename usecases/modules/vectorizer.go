@@ -80,26 +80,16 @@ func (m *Provider) UsingRef2Vec(className string) bool {
 	return false
 }
 
-func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
+func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	class, err := m.getClass(object.Class)
-	if err != nil {
-		return err
-	}
-
-	vectorizerName, idxCfg, err := m.getClassVectorizer(object.Class)
-	if err != nil {
-		return err
-	}
-
-	hnswConfig, ok := idxCfg.(hnsw.UserConfig)
+	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
 	if !ok {
-		return fmt.Errorf(errorVectorIndexType, idxCfg)
+		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
 	}
 
-	if vectorizerName == config.VectorizerModuleNone {
+	if class.Vectorizer == config.VectorizerModuleNone {
 		if hnswConfig.Skip && len(object.Vector) > 0 {
 			logger.WithField("className", object.Class).
 				Warningf(warningSkipVectorProvided)
@@ -110,12 +100,16 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
 
 	if hnswConfig.Skip {
 		logger.WithField("className", object.Class).
-			WithField("vectorizer", vectorizerName).
-			Warningf(warningSkipVectorGenerated, vectorizerName)
+			WithField("vectorizer", class.Vectorizer).
+			Warningf(warningSkipVectorGenerated, class.Vectorizer)
 	}
 
+	modConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("class %v not present", object.Class)
+	}
 	var found modulecapabilities.Module
-	for modName := range class.ModuleConfig.(map[string]interface{}) {
+	for modName := range modConfig {
 		if err := m.ValidateVectorizer(modName); err == nil {
 			found = m.GetByName(modName)
 			break
@@ -124,7 +118,7 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
 
 	if found == nil {
 		return fmt.Errorf(
-			"no vectorizer found for class %q: %w", object.Class, err)
+			"no vectorizer found for class %q", object.Class)
 	}
 
 	cfg := NewClassBasedModuleConfig(class, found.Name())

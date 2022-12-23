@@ -47,7 +47,8 @@ type Manager struct {
 	scaleOut                scaleOut
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
-	sync.Mutex
+	sync.RWMutex
+	shardingStateLock sync.RWMutex
 }
 
 type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
@@ -155,11 +156,6 @@ type State struct {
 	ShardingState map[string]*sharding.State
 }
 
-// SchemaFor a specific kind
-func (s *State) SchemaFor() *models.Schema {
-	return s.ObjectSchema
-}
-
 func (m *Manager) saveSchema(ctx context.Context) error {
 	m.logger.
 		WithField("action", "schema_update").
@@ -170,7 +166,7 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 		return err
 	}
 
-	m.TriggerSchemaUpdateCallbacks()
+	m.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -181,8 +177,8 @@ func (m *Manager) RegisterSchemaUpdateCallback(callback func(updatedSchema schem
 	m.callbacks = append(m.callbacks, callback)
 }
 
-func (m *Manager) TriggerSchemaUpdateCallbacks() {
-	schema := m.GetSchemaSkipAuth()
+func (m *Manager) triggerSchemaUpdateCallbacks() {
+	schema := m.getSchema()
 
 	for _, cb := range m.callbacks {
 		cb(schema)
@@ -243,8 +239,10 @@ func (m *Manager) migrateSchemaIfNecessary(ctx context.Context) error {
 
 func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 	for _, c := range m.state.ObjectSchema.Classes {
-		if _, ok := m.state.ShardingState[c.Class]; ok {
-			// there is sharding state for this class. Nothing to do
+		m.shardingStateLock.RLock()
+		_, ok := m.state.ShardingState[c.Class]
+		m.shardingStateLock.RUnlock()
+		if ok { // there is sharding state for this class. Nothing to do
 			continue
 		}
 
@@ -275,16 +273,22 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context) error {
 			return errors.Wrap(err, "init sharding state")
 		}
 
+		m.shardingStateLock.Lock()
 		if m.state.ShardingState == nil {
 			m.state.ShardingState = map[string]*sharding.State{}
 		}
 		m.state.ShardingState[c.Class] = shardState
+		m.shardingStateLock.Unlock()
+
 	}
 
 	return nil
 }
 
 func (m *Manager) checkShardingStateForReplication(ctx context.Context) error {
+	m.shardingStateLock.Lock()
+	defer m.shardingStateLock.Unlock()
+
 	for _, classState := range m.state.ShardingState {
 		classState.MigrateFromOldFormat()
 	}
@@ -319,10 +323,11 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 			return fmt.Errorf("replication config: %w", err)
 		}
 	}
-
+	m.shardingStateLock.Lock()
 	for _, shardState := range schema.ShardingState {
 		shardState.SetLocalName(m.clusterState.LocalName())
 	}
+	m.shardingStateLock.Unlock()
 
 	return nil
 }

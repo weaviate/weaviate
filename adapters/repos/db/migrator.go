@@ -60,7 +60,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics)
+		m.db.replicaClient, m.db.promMetrics, class)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -95,16 +95,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 
 		if class.InvertedIndexConfig.IndexPropertyLength {
-			dt := schema.DataType(prop.DataType[0])
-			// some datatypes are not added to the inverted index, so we can skip them here
-			switch dt {
-			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
-				schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-			default:
-				err = idx.addPropertyLength(ctx, prop)
-				if err != nil {
-					return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
-				}
+			err = idx.addPropertyLength(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
 			}
 		}
 	}

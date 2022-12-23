@@ -41,6 +41,12 @@ func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 	}
 }
 
+func (m *Manager) getSchema() schema.Schema {
+	return schema.Schema{
+		Objects: m.state.ObjectSchema,
+	}
+}
+
 func (m *Manager) IndexedInverted(className, propertyName string) bool {
 	class := m.getClassByName(className)
 	if class == nil {
@@ -67,7 +73,6 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
-
 	return m.getClassByName(name), nil
 }
 
@@ -80,7 +85,10 @@ func (m *Manager) getClassByName(name string) *models.Class {
 }
 
 func (m *Manager) ShardingState(className string) *sharding.State {
-	return m.state.ShardingState[className]
+	m.shardingStateLock.RLock()
+	copiedState := m.state.ShardingState[className].DeepCopy()
+	m.shardingStateLock.RUnlock()
+	return &copiedState
 }
 
 func (m *Manager) Nodes() []string {
