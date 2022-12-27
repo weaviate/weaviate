@@ -388,16 +388,23 @@ func TestValidateModelVersion(t *testing.T) {
 
 		// 002 models
 		{"ada", "text", "002", true},
+		{"davinci", "text", "002", true},
 		{"ada", "code", "002", false},
 		{"babbage", "text", "002", false},
 		{"babbage", "code", "002", false},
 		{"curie", "text", "002", false},
 		{"curie", "code", "002", false},
-		{"davinci", "text", "002", false},
 		{"davinci", "code", "002", false},
 
 		// 003
+		{"davinci", "text", "003", true},
 		{"ada", "text", "003", false},
+		{"babbage", "text", "003", false},
+
+		// 004
+		{"davinci", "text", "004", false},
+		{"ada", "text", "004", false},
+		{"babbage", "text", "004", false},
 	}
 
 	for _, test := range tests {
