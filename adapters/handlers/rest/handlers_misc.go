@@ -118,20 +118,6 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 						Href:              fmt.Sprintf("%s/v1/.well-known/openid-configuration", origin),
 						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#openid-configuration",
 					},
-
-					// TODO: part of the text2vec-contextionary module
-					{
-						Name:              "search contextionary for concepts (part of the text2vec-contextionary module)",
-						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/concepts/:concept", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/retriever-vectorizer-modules/text2vec-contextionary.html#module-endpoints-api-reference",
-					},
-
-					// TODO: part of the text2vec-contextionary module
-					{
-						Name:              "extend contextionary with custom extensions (part of the text2vec-contextionary module)",
-						Href:              fmt.Sprintf("%s/v1/modules/text2vec-contextionary/extensions", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/retriever-vectorizer-modules/text2vec-contextionary.html#module-endpoints-api-reference",
-					},
 				},
 			}
 
