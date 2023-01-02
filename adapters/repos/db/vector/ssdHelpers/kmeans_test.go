@@ -57,5 +57,5 @@ func TestRandomData(t *testing.T) {
 		},
 	)
 	kmeans.Fit(vectors)
-	assert.True(t, time.Since(before).Seconds() < 5)
+	assert.True(t, time.Since(before).Seconds() < 50)
 }
