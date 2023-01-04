@@ -36,18 +36,18 @@ func (s *setDecoder) Do(in []value) [][]byte {
 	// TODO: The logic below can be improved since don't care about the "latest"
 	// write on a set, as all writes are per definition identical. Any write that
 	// is not followed by a tombstone is fine
-	set := make(map[string][]byte, len(in))
+	set := make(map[string]struct{}, len(in))
 	for _, value := range in {
 		if value.tombstone {
 			delete(set, string(value.value))
 		} else {
-			set[string(value.value)] = value.value
+			set[string(value.value)] = struct{}{}
 		}
 	}
 	out := make([][]byte, len(set))
 	i := 0
-	for _, value := range set {
-		out[i] = value
+	for key := range set {
+		out[i] = []byte(key)
 		i++
 	}
 	return out
