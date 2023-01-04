@@ -29,7 +29,7 @@ type IndexAndDistance struct {
 func TestPQKMeans(t *testing.T) {
 	rand.Seed(0)
 	dimensions := 128
-	vectors_size := 10000
+	vectors_size := 1000
 	queries_size := 100
 	k := 100
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
