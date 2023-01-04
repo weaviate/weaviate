@@ -55,13 +55,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assertSameByteKeySet(t, res, orig1)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig2)
+			assertSameByteKeySet(t, res, orig2)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig3)
+			assertSameByteKeySet(t, res, orig3)
 		})
 
 		t.Run("replace some, keep one", func(t *testing.T) {
@@ -78,13 +78,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, orig1, res)
+			assertSameByteKeySet(t, orig1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig2, append2...), res)
+			assertSameByteKeySet(t, append(orig2, append2...), res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig3, append3...), res)
+			assertSameByteKeySet(t, append(orig3, append3...), res)
 		})
 	})
 
@@ -114,13 +114,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assertSameByteKeySet(t, res, orig1)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig2)
+			assertSameByteKeySet(t, res, orig2)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig3)
+			assertSameByteKeySet(t, res, orig3)
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -141,13 +141,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, orig1, res)
+			assertSameByteKeySet(t, orig1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig2, append2...), res)
+			assertSameByteKeySet(t, append(orig2, append2...), res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig3, append3...), res)
+			assertSameByteKeySet(t, append(orig3, append3...), res)
 		})
 	})
 
@@ -176,13 +176,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assertSameByteKeySet(t, res, orig1)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig2)
+			assertSameByteKeySet(t, res, orig2)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig3)
+			assertSameByteKeySet(t, res, orig3)
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -206,13 +206,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, orig1, res)
+			assertSameByteKeySet(t, orig1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig2, append2...), res)
+			assertSameByteKeySet(t, append(orig2, append2...), res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig3, append3...), res)
+			assertSameByteKeySet(t, append(orig3, append3...), res)
 		})
 	})
 
@@ -242,13 +242,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assertSameByteKeySet(t, res, orig1)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig2)
+			assertSameByteKeySet(t, res, orig2)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig3)
+			assertSameByteKeySet(t, res, orig3)
 		})
 
 		t.Run("replace some, keep one", func(t *testing.T) {
@@ -265,13 +265,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, orig1, res)
+			assertSameByteKeySet(t, orig1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig2, append2...), res)
+			assertSameByteKeySet(t, append(orig2, append2...), res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig3, append3...), res)
+			assertSameByteKeySet(t, append(orig3, append3...), res)
 		})
 
 		t.Run("orderly shutdown", func(t *testing.T) {
@@ -291,13 +291,13 @@ func TestSetCollectionStrategy_InsertAndSetAdd(t *testing.T) {
 
 			res, err := b2.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, orig1, res)
+			assertSameByteKeySet(t, orig1, res)
 			res, err = b2.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig2, append2...), res)
+			assertSameByteKeySet(t, append(orig2, append2...), res)
 			res, err = b2.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, append(orig3, append3...), res)
+			assertSameByteKeySet(t, append(orig3, append3...), res)
 		})
 	})
 }
@@ -332,13 +332,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, orig1, res)
+			assertSameByteKeySet(t, orig1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, orig2, res)
+			assertSameByteKeySet(t, orig2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, orig3, res)
+			assertSameByteKeySet(t, orig3, res)
 		})
 
 		t.Run("delete individual keys", func(t *testing.T) {
@@ -358,13 +358,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assertSameByteKeySet(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assertSameByteKeySet(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assertSameByteKeySet(t, expected3, res)
 		})
 
 		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
@@ -392,13 +392,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assertSameByteKeySet(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assertSameByteKeySet(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assertSameByteKeySet(t, expected3, res)
 		})
 	})
 
@@ -428,13 +428,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assertSameByteKeySet(t, res, orig1)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig2)
+			assertSameByteKeySet(t, res, orig2)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig3)
+			assertSameByteKeySet(t, res, orig3)
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -458,13 +458,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assertSameByteKeySet(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assertSameByteKeySet(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assertSameByteKeySet(t, expected3, res)
 		})
 
 		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
@@ -492,13 +492,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assertSameByteKeySet(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assertSameByteKeySet(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assertSameByteKeySet(t, expected3, res)
 		})
 	})
 
@@ -528,13 +528,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig1)
+			assertSameByteKeySet(t, res, orig1)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig2)
+			assertSameByteKeySet(t, res, orig2)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, res, orig3)
+			assertSameByteKeySet(t, res, orig3)
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -562,13 +562,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assertSameByteKeySet(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assertSameByteKeySet(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assertSameByteKeySet(t, expected3, res)
 		})
 
 		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
@@ -600,13 +600,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assertSameByteKeySet(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assertSameByteKeySet(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assertSameByteKeySet(t, expected3, res)
 		})
 	})
 
@@ -637,13 +637,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 				res, err := b.SetList(key1)
 				require.Nil(t, err)
-				assert.Equal(t, res, orig1)
+				assertSameByteKeySet(t, res, orig1)
 				res, err = b.SetList(key2)
 				require.Nil(t, err)
-				assert.Equal(t, res, orig2)
+				assertSameByteKeySet(t, res, orig2)
 				res, err = b.SetList(key3)
 				require.Nil(t, err)
-				assert.Equal(t, res, orig3)
+				assertSameByteKeySet(t, res, orig3)
 			})
 
 			t.Run("delete individual keys", func(t *testing.T) {
@@ -670,13 +670,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 				res, err := b2.SetList(key1)
 				require.Nil(t, err)
-				assert.Equal(t, expected1, res)
+				assertSameByteKeySet(t, expected1, res)
 				res, err = b2.SetList(key2)
 				require.Nil(t, err)
-				assert.Equal(t, expected2, res)
+				assertSameByteKeySet(t, expected2, res)
 				res, err = b2.SetList(key3)
 				require.Nil(t, err)
-				assert.Equal(t, expected3, res)
+				assertSameByteKeySet(t, expected3, res)
 			})
 		})
 }
@@ -744,7 +744,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i, v := range retrievedValues {
+				assertSameByteKeySet(t, expectedValues[i], v)
+			}
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
@@ -771,7 +774,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i, v := range retrievedValues {
+				assertSameByteKeySet(t, expectedValues[i], v)
+			}
 		})
 
 		t.Run("extend an existing key", func(t *testing.T) {
@@ -806,7 +812,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i, v := range retrievedValues {
+				assertSameByteKeySet(t, expectedValues[i], v)
+			}
 		})
 	})
 
@@ -948,7 +957,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i, v := range retrievedValues {
+				assertSameByteKeySet(t, expectedValues[i], v)
+			}
 		})
 
 		t.Run("start from the beginning", func(t *testing.T) {
@@ -975,7 +987,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i, v := range retrievedValues {
+				assertSameByteKeySet(t, expectedValues[i], v)
+			}
 		})
 
 		t.Run("delete & extend an existing key", func(t *testing.T) {
@@ -1018,7 +1033,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i, v := range retrievedValues {
+				assertSameByteKeySet(t, expectedValues[i], v)
+			}
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -1054,7 +1072,10 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i, v := range retrievedValues {
+				assertSameByteKeySet(t, expectedValues[i], v)
+			}
 		})
 	})
 }
