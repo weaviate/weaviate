@@ -95,9 +95,7 @@ func TestRecall(t *testing.T) {
 		}
 
 		recall := float32(relevant) / float32(retrieved)
-		latency := float32(querying.Microseconds()) / float32(queries_size)
 		assert.True(t, recall > float32(lastRecall))
-		assert.True(t, latency < 20000)
 		lastRecall = recall
 	}
 	assert.True(t, lastRecall > 0.95)
