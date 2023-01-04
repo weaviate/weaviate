@@ -11,10 +11,14 @@ const (
 	centroids = 256
 )
 
-func (h *hnsw) Compress() {
+func (h *hnsw) Compress(segments int) {
 	vec, _ := h.vectorForID(context.Background(), h.nodes[0].id)
 	dims := len(vec)
-	h.pq = ssdhelpers.NewProductQuantizer(dims, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseKMeansEncoder)
+	// segments == 0 (default value) means use as many sements as dimensions
+	if segments <= 0 {
+		segments = dims
+	}
+	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseKMeansEncoder)
 
 	data := h.cache.all()
 	h.compressedVectorsCache.grow(uint64(len(data)))
