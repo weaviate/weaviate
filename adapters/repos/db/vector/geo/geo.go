@@ -41,7 +41,7 @@ type Index struct {
 type vectorIndex interface {
 	Add(id uint64, vector []float32) error
 	KnnSearchByVectorMaxDist(query []float32, dist float32, ef int,
-		allowList helpers.AllowList) ([]uint64, error)
+		allowList *helpers.RoaringAllowList) ([]uint64, error)
 	Delete(id uint64) error
 	Dump(...string)
 	Drop(ctx context.Context) error

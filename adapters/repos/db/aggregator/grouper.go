@@ -87,7 +87,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	var (
 		schema    = g.getSchema.GetSchemaSkipAuth()
-		allowList helpers.AllowList
+		allowList *helpers.RoaringAllowList
 	)
 
 	if g.params.Filters != nil {

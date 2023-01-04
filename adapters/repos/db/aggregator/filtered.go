@@ -41,7 +41,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups = make([]aggregation.Group, 1)
 
 	var (
-		allowList helpers.AllowList
+		allowList *helpers.RoaringAllowList
 		foundIDs  []uint64
 		err       error
 	)

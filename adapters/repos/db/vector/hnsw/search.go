@@ -60,7 +60,7 @@ func (h *hnsw) autoEfFromK(k int) int {
 	return ef
 }
 
-func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByVector(vector []float32, k int, allowList *helpers.RoaringAllowList) ([]uint64, []float32, error) {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
@@ -68,7 +68,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	}
 
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
-	if allowList != nil && !h.forbidFlat && len(allowList) < flatSearchCutoff {
+	if allowList != nil && !h.forbidFlat && allowList.GetCardinality() < flatSearchCutoff {
 		return h.flatSearch(vector, k, allowList)
 	}
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
@@ -84,7 +84,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 // needs ids for sake of something like aggregation, a maxLimit of -1 can be
 // passed in to truly obtain all results from the vector index.
 func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
-	allowList helpers.AllowList,
+	allowList *helpers.RoaringAllowList,
 ) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
@@ -155,7 +155,7 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList) (*priorityqueue.Queue, error,
+	allowList *helpers.RoaringAllowList) (*priorityqueue.Queue, error,
 ) {
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
@@ -296,7 +296,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue, level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedList visited.ListSet, allowList *helpers.RoaringAllowList,
 ) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
@@ -385,7 +385,7 @@ func (h *hnsw) handleDeletedNode(docID uint64) {
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
-	ef int, allowList helpers.AllowList,
+	ef int, allowList *helpers.RoaringAllowList,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil

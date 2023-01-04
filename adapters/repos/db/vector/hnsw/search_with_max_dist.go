@@ -20,7 +20,7 @@ import (
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
-	ef int, allowList helpers.AllowList,
+	ef int, allowList *helpers.RoaringAllowList,
 ) ([]uint64, error) {
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)

@@ -37,7 +37,7 @@ type CacheEntry struct {
 	Type      CacheEntryType
 	Hash      []byte
 	Partial   *docPointers
-	AllowList helpers.AllowList
+	AllowList *helpers.RoaringAllowList
 }
 
 // Size cannot be determined accurately since a golang map does not have fixed
@@ -46,7 +46,7 @@ type CacheEntry struct {
 // as an estimate. In addition, we know that the partial content uses an array
 // where we can assume full efficiency, i.e. 8 bytes per entry.
 func (ce *CacheEntry) Size() uint64 {
-	return uint64(25*len(ce.AllowList) + 8*len(ce.Partial.docIDs))
+	return uint64(25*ce.AllowList.GetCardinality() + 8*len(ce.Partial.docIDs))
 }
 
 type CacheEntryType uint8

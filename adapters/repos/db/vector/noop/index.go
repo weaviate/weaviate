@@ -35,11 +35,11 @@ func (i *Index) Delete(id uint64) error {
 	return nil
 }
 
-func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (i *Index) SearchByVector(vector []float32, k int, allow *helpers.RoaringAllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow *helpers.RoaringAllowList) ([]uint64, []float32, error) {
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
