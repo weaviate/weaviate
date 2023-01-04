@@ -95,8 +95,8 @@ func Test_CachedFilters_String(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate func() helpers.AllowList
-		expectedListAfterUpdate  func() helpers.AllowList
+		expectedListBeforeUpdate func() *helpers.RoaringAllowList
+		expectedListAfterUpdate  func() *helpers.RoaringAllowList
 	}
 
 	tests := []test{
@@ -115,10 +115,10 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 14)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 14, 21)
 			},
 		},
@@ -137,10 +137,10 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(10, 11, 12, 13, 14, 15, 16)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(10, 11, 12, 13, 14, 15, 16, 17)
 			},
 		},
@@ -175,10 +175,10 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 8, 14, 16)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 8, 14, 16, 21)
 			},
 		},
@@ -213,10 +213,10 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(14)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(14)
 			},
 		},
@@ -275,10 +275,10 @@ func Test_CachedFilters_String(t *testing.T) {
 			// prior to the fix of gh-1770 the second AND operand was ignored due to
 			// a  missing hash in the merge and we would get results here, when we
 			// shouldn't
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList()
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList()
 			},
 		},
@@ -440,8 +440,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate func() helpers.AllowList
-		expectedListAfterUpdate  func() helpers.AllowList
+		expectedListBeforeUpdate func() *helpers.RoaringAllowList
+		expectedListAfterUpdate  func() *helpers.RoaringAllowList
 	}
 
 	tests := []test{
@@ -460,10 +460,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 14)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 14, 21)
 			},
 		},
@@ -482,10 +482,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15, 21)
 			},
 		},
@@ -504,10 +504,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15, 21)
 			},
 		},
@@ -526,10 +526,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21)
 			},
 		},
@@ -548,10 +548,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21)
 			},
 		},
@@ -570,10 +570,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21)
 			},
 		},
@@ -608,10 +608,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 8, 14, 16)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(7, 8, 14, 16, 21)
 			},
 		},
@@ -646,10 +646,10 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(14)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(14)
 			},
 		},
@@ -790,11 +790,12 @@ func (s *rowCacherSpy) reset() {
 	s.cacher = NewRowCacher(1e6)
 }
 
-func allowList(in ...uint64) helpers.AllowList {
-	list := helpers.AllowList{}
-	for _, elem := range in {
-		list.Insert(elem)
-	}
+func allowList(in ...uint64) *helpers.RoaringAllowList {
+	list := helpers.NewRoaringAllowList()
+	list.InsertAll(in)
+	// for _, elem := range in {
+	// 	list.Insert(elem)
+	// }
 
 	return list
 }
@@ -848,8 +849,8 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate func() helpers.AllowList
-		expectedListAfterUpdate  func() helpers.AllowList
+		expectedListBeforeUpdate func() *helpers.RoaringAllowList
+		expectedListAfterUpdate  func() *helpers.RoaringAllowList
 	}
 
 	tests := []test{
@@ -884,10 +885,10 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
+			expectedListBeforeUpdate: func() *helpers.RoaringAllowList {
 				return allowList(1)
 			},
-			expectedListAfterUpdate: func() helpers.AllowList {
+			expectedListAfterUpdate: func() *helpers.RoaringAllowList {
 				return allowList(1, 3)
 			},
 		},
