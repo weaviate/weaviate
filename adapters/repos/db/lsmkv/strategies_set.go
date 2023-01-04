@@ -17,17 +17,18 @@ func newSetDecoder() *setDecoder {
 	return &setDecoder{}
 }
 
+// Do returns a set of values without tombstones
+// The order of returned values is not specified
 func (s *setDecoder) Do(in []value) [][]byte {
-	// check if there are tombstones, if not, we can simply take the list without
-	// further processing
-	var tombstones int
+	var hasTombstones bool
 	for _, value := range in {
 		if value.tombstone {
-			tombstones++
+			hasTombstones = true
+			break
 		}
 	}
 
-	if tombstones == 0 {
+	if !hasTombstones {
 		return s.doWithoutTombstones(in)
 	}
 
@@ -35,28 +36,21 @@ func (s *setDecoder) Do(in []value) [][]byte {
 	// TODO: The logic below can be improved since don't care about the "latest"
 	// write on a set, as all writes are per definition identical. Any write that
 	// is not followed by a tombstone is fine
-	count := make(map[string]uint, len(in))
+	set := make(map[string][]byte, len(in))
 	for _, value := range in {
-		count[string(value.value)] = count[string(value.value)] + 1
-	}
-	out := make([][]byte, len(in))
-
-	i := 0
-	for _, value := range in {
-		if count[string(value.value)] != 1 {
-			count[string(value.value)] = count[string(value.value)] - 1
-			continue
-		}
-
 		if value.tombstone {
-			continue
+			delete(set, string(value.value))
+		} else {
+			set[string(value.value)] = value.value
 		}
-
-		out[i] = value.value
+	}
+	out := make([][]byte, len(set))
+	i := 0
+	for _, value := range set {
+		out[i] = value
 		i++
 	}
-
-	return out[:i]
+	return out
 }
 
 func (s *setDecoder) doWithoutTombstones(in []value) [][]byte {
