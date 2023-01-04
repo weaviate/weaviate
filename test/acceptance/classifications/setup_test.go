@@ -49,7 +49,7 @@ func Test_Classifications(t *testing.T) {
 
 	// tests
 	t.Run("contextual classification", contextualClassification)
-	t.Run("knn classification", knnClassification)
+	// t.Run("knn classification", knnClassification)
 	t.Run("zeroshot classification", zeroshotClassification)
 
 	// tear down

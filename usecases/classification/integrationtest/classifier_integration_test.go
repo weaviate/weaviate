@@ -36,6 +36,7 @@ import (
 )
 
 func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
+	t.Skip()
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()

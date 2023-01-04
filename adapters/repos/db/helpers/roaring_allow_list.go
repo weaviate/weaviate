@@ -42,16 +42,16 @@ func (al RoaringAllowList) InsertAll(ids []uint64) {
 // // Contains is not thread-safe if the list is still being filled. However, if
 // // you can guarantee that the list is no longer being inserted into and it
 // // effectively becomes read-only, you can safely read concurrently
-func (al RoaringAllowList) Contains(id uint64) bool {
-	return al.Contains(id)
-}
+// func (al RoaringAllowList) Contains(id uint64) bool {
+// 	return al.Contains(id)
+// }
 
 func (al RoaringAllowList) DeepCopy() RoaringAllowList {
 	return RoaringAllowList{al.Clone()}
 }
 
 func (al RoaringAllowList) Slice() []uint64 {
-	return al.Slice()
+	return al.ToArray()
 }
 
 func (al RoaringAllowList) Size() int {
