@@ -42,6 +42,7 @@ const (
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine
 	DefaultCompressed             = false
+	DefaultPQSegments             = 0
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -58,6 +59,7 @@ type UserConfig struct {
 	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
 	Distance               string `json:"distance"`
 	Compressed             bool   `json:"compressed"`
+	PQSegments             int    `json:"pqSegments"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -80,6 +82,7 @@ func (c *UserConfig) SetDefaults() {
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
 	c.Distance = DefaultDistanceMetric
 	c.Compressed = DefaultCompressed
+	c.PQSegments = DefaultPQSegments
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
@@ -165,6 +168,12 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 
 	if err := optionalBoolFromMap(asMap, "compressed", func(v bool) {
 		uc.Compressed = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "pqSegments", func(v int) {
+		uc.PQSegments = v
 	}); err != nil {
 		return uc, err
 	}

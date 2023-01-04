@@ -97,7 +97,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	}
 	//ToDo: check atomic operation
 	if !h.compressed && parsed.Compressed {
-		h.Compress()
+		h.Compress(parsed.PQSegments)
 	}
 
 	return nil
