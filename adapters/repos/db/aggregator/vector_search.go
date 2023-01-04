@@ -16,7 +16,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
-func (a *Aggregator) vectorSearch(allow helpers.AllowList) (ids []uint64, err error) {
+func (a *Aggregator) vectorSearch(allow *helpers.RoaringAllowList) (ids []uint64, err error) {
 	if a.params.ObjectLimit != nil {
 		ids, err = a.searchByVector(a.params.SearchVector, a.params.ObjectLimit, allow)
 		return
@@ -26,7 +26,7 @@ func (a *Aggregator) vectorSearch(allow helpers.AllowList) (ids []uint64, err er
 	return
 }
 
-func (a *Aggregator) searchByVector(searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, error) {
+func (a *Aggregator) searchByVector(searchVector []float32, limit *int, ids *helpers.RoaringAllowList) ([]uint64, error) {
 	idsFound, dists, err := a.vectorIndex.SearchByVector(searchVector, *limit, ids)
 	if err != nil {
 		return idsFound, err
@@ -49,7 +49,7 @@ func (a *Aggregator) searchByVector(searchVector []float32, limit *int, ids help
 	return idsFound, nil
 }
 
-func (a *Aggregator) searchByVectorDistance(searchVector []float32, ids helpers.AllowList) ([]uint64, error) {
+func (a *Aggregator) searchByVectorDistance(searchVector []float32, ids *helpers.RoaringAllowList) ([]uint64, error) {
 	if a.params.Certainty <= 0 {
 		return nil, errors.New("must provide certainty or objectLimit with vector search")
 	}

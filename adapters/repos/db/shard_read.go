@@ -207,7 +207,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		ids       []uint64
 		dists     []float32
 		err       error
-		allowList helpers.AllowList
+		allowList *helpers.RoaringAllowList
 	)
 
 	beforeAll := time.Now()
@@ -377,7 +377,7 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,
 	addl additional.Properties,
-) (helpers.AllowList, error) {
+) (*helpers.RoaringAllowList, error) {
 	list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
 		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).

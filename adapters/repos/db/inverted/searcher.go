@@ -183,7 +183,7 @@ func (f *Searcher) objectsByDocID(ids []uint64,
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
-) (helpers.AllowList, error) {
+) (*helpers.RoaringAllowList, error) {
 	return f.docIDs(ctx, filter, additional, className, true)
 }
 
@@ -194,14 +194,14 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 // anyway, so we don't need to unnecessarily populate the cache with an entry.
 func (f *Searcher) DocIDsPreventCaching(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
-) (helpers.AllowList, error) {
+) (*helpers.RoaringAllowList, error) {
 	return f.docIDs(ctx, filter, additional, className, false)
 }
 
 func (f *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 	allowCaching bool,
-) (helpers.AllowList, error) {
+) (*helpers.RoaringAllowList, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -230,10 +230,12 @@ func (f *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	out := make(helpers.AllowList, len(pointers.docIDs))
-	for _, p := range pointers.docIDs {
-		out.Insert(p)
-	}
+	// out := make(helpers.AllowList, len(pointers.docIDs))
+	// for _, p := range pointers.docIDs {
+	// 	out.Insert(p)
+	// }
+	out := helpers.NewRoaringAllowList()
+	out.InsertAll(pointers.docIDs)
 
 	if cacheable && allowCaching {
 		f.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
