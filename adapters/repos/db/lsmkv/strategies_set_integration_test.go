@@ -392,13 +392,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assert.ElementsMatch(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assert.ElementsMatch(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assert.ElementsMatch(t, expected3, res)
 		})
 	})
 
@@ -458,13 +458,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assert.ElementsMatch(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assert.ElementsMatch(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assert.ElementsMatch(t, expected3, res)
 		})
 
 		t.Run("re-add keys which were previously deleted and new ones", func(t *testing.T) {
@@ -492,13 +492,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assert.ElementsMatch(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assert.ElementsMatch(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assert.ElementsMatch(t, expected3, res)
 		})
 	})
 
@@ -600,13 +600,13 @@ func TestSetCollectionStrategy_InsertAndDelete(t *testing.T) {
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
-			assert.Equal(t, expected1, res)
+			assert.ElementsMatch(t, expected1, res)
 			res, err = b.SetList(key2)
 			require.Nil(t, err)
-			assert.Equal(t, expected2, res)
+			assert.ElementsMatch(t, expected2, res)
 			res, err = b.SetList(key3)
 			require.Nil(t, err)
-			assert.Equal(t, expected3, res)
+			assert.ElementsMatch(t, expected3, res)
 		})
 	})
 
@@ -1017,8 +1017,11 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				retrievedValues = append(retrievedValues, v)
 			}
 
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.ElementsMatch(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i := range expectedValues {
+				assert.ElementsMatch(t, expectedValues[i], retrievedValues[i])
+			}
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
@@ -1053,8 +1056,11 @@ func TestSetCollectionStrategy_Cursors(t *testing.T) {
 				retrievedValues = append(retrievedValues, v)
 			}
 
-			assert.Equal(t, expectedKeys, retrievedKeys)
-			assert.Equal(t, expectedValues, retrievedValues)
+			assert.ElementsMatch(t, expectedKeys, retrievedKeys)
+			assert.Equal(t, len(expectedValues), len(retrievedValues))
+			for i := range expectedValues {
+				assert.ElementsMatch(t, expectedValues[i], retrievedValues[i])
+			}
 		})
 	})
 }

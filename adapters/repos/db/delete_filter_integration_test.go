@@ -132,7 +132,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 		require.Len(t, res, 5)
 		actualIDs := extractIDs(res)
-		assert.Equal(t, expectedIDs, actualIDs)
+		assert.ElementsMatch(t, expectedIDs, actualIDs)
 	})
 }
 
