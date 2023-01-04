@@ -184,7 +184,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 				return v
 			})
 		} else {
-			return searcher.Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			return searcher.Objects(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
 		}
 	}
 
@@ -195,7 +195,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
 		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
-		Object(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
 

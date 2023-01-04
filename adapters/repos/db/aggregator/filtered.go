@@ -15,15 +15,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type filteredAggregator struct {
@@ -35,6 +37,110 @@ func newFilteredAggregator(agg *Aggregator) *filteredAggregator {
 }
 
 func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, error) {
+	if fa.params.Hybrid != nil {
+		return fa.hybrid(ctx)
+	}
+
+	return fa.filtered(ctx)
+}
+
+func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, error) {
+	var (
+		foundIDs [][]uint64
+		weights  []float64
+		out      aggregation.Result
+	)
+
+	// without grouping there is always exactly one group
+	out.Groups = make([]aggregation.Group, 1)
+
+	if fa.params.Hybrid.Query != "" {
+		alpha := fa.params.Hybrid.Alpha
+
+		// bm25 "sparse" search on the inverted index
+		if alpha < 1 {
+			kw := &searchparams.KeywordRanking{
+				Type:  "bm25",
+				Query: fa.params.Hybrid.Query,
+			}
+
+			cl, err := schema.GetClassByName(
+				fa.getSchema.GetSchemaSkipAuth().Objects,
+				fa.params.ClassName.String())
+			if err != nil {
+				return nil, err
+			}
+
+			for _, v := range cl.Properties {
+				if v.DataType[0] == "text" || v.DataType[0] == "string" { // TODO: Also the array types?
+					kw.Properties = append(kw.Properties, v.Name)
+				}
+			}
+
+			s := fa.getSchema.GetSchemaSkipAuth()
+			class := s.GetClass(fa.params.ClassName)
+			cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
+			sparse, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
+				fa.invertedRowCache, propertyspecific.Indices{}, fa.classSearcher,
+				nil, fa.propLengths, fa.logger, fa.shardVersion,
+			).DocIDs(ctx, fa.params.ObjectLimit, fa.params.ClassName, kw)
+			if err != nil {
+				return nil, fmt.Errorf("aggregate sparse search: %w", err)
+			}
+			if len(sparse) > 0 {
+				foundIDs = append(foundIDs, sparse.Slice())
+				weights = append(weights, 1-alpha)
+			}
+		}
+
+		if alpha > 0 {
+			if fa.params.Hybrid.Vector == nil {
+				// TODO: support nearText, etc
+				return nil, fmt.Errorf("must provide hybrid search vector if alpha > 0")
+			}
+
+			var (
+				allowList helpers.AllowList
+				err       error
+			)
+
+			if fa.params.Filters != nil {
+				s := fa.getSchema.GetSchemaSkipAuth()
+				allowList, err = inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
+					fa.classSearcher, fa.deletedDocIDs, fa.stopwords, fa.shardVersion).
+					DocIDs(ctx, fa.params.Filters, additional.Properties{},
+						fa.params.ClassName)
+				if err != nil {
+					return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+				}
+			}
+
+			dense, err := fa.vectorSearch(allowList, fa.params.Hybrid.Vector)
+			if err != nil {
+				return nil, err
+			}
+			foundIDs = append(foundIDs, dense)
+			weights = append(weights, alpha)
+		}
+	}
+
+	fused := traverser.FusionReciprocalDocIDs(weights, foundIDs)
+
+	if fa.params.IncludeMetaCount {
+		out.Groups[0].Count = len(fused)
+	}
+
+	props, err := fa.properties(ctx, fused)
+	if err != nil {
+		return nil, errors.Wrap(err, "aggregate properties")
+	}
+
+	out.Groups[0].Properties = props
+
+	return &out, nil
+}
+
+func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result, error) {
 	out := aggregation.Result{}
 
 	// without grouping there is always exactly one group
@@ -49,7 +155,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	if fa.params.Filters != nil {
 		s := fa.getSchema.GetSchemaSkipAuth()
 		allowList, err = inverted.NewSearcher(fa.store, s, fa.invertedRowCache, nil,
-			fa.Aggregator.classSearcher, fa.deletedDocIDs, fa.stopwords, fa.shardVersion).
+			fa.classSearcher, fa.deletedDocIDs, fa.stopwords, fa.shardVersion).
 			DocIDs(ctx, fa.params.Filters, additional.Properties{},
 				fa.params.ClassName)
 		if err != nil {
@@ -58,7 +164,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	}
 
 	if len(fa.params.SearchVector) > 0 {
-		foundIDs, err = fa.vectorSearch(allowList)
+		foundIDs, err = fa.vectorSearch(allowList, fa.params.SearchVector)
 		if err != nil {
 			return nil, err
 		}

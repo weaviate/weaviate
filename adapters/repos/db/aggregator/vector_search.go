@@ -16,13 +16,13 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
-func (a *Aggregator) vectorSearch(allow helpers.AllowList) (ids []uint64, err error) {
+func (a *Aggregator) vectorSearch(allow helpers.AllowList, vec []float32) (ids []uint64, err error) {
 	if a.params.ObjectLimit != nil {
-		ids, err = a.searchByVector(a.params.SearchVector, a.params.ObjectLimit, allow)
+		ids, err = a.searchByVector(vec, a.params.ObjectLimit, allow)
 		return
 	}
 
-	ids, err = a.searchByVectorDistance(a.params.SearchVector, allow)
+	ids, err = a.searchByVectorDistance(vec, allow)
 	return
 }
 

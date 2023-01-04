@@ -50,6 +50,53 @@ func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 	return out
 }
 
+func FusionReciprocalDocIDs(weights []float64, results [][]uint64) []uint64 {
+	docIDScores := map[uint64]float64{}
+
+	for resultSetIdx, docIDs := range results {
+		for i, docID := range docIDs {
+			score := weights[resultSetIdx] / float64(i+60+1) // TODO replace 60 with a class configured variable
+
+			prevScore, ok := docIDScores[docID]
+			if ok {
+				score += prevScore
+			}
+
+			docIDScores[docID] = score
+		}
+	}
+
+	type resultScore struct {
+		docID uint64
+		score float64
+	}
+
+	// Sort the results
+	var (
+		fused = make([]resultScore, len(docIDScores))
+		i     = 0
+	)
+	for docID, score := range docIDScores {
+		fused[i] = resultScore{docID, score}
+		i++
+	}
+
+	sort.Slice(fused, func(i, j int) bool {
+		// TODO: support SecondarySortValue
+		//a_b := fused[j].score - fused[i].score
+		//if a_b*a_b < 1e-14 {
+		//	return fused[i].SecondarySortValue > fused[j].SecondarySortValue
+		//}
+		return fused[i].score > fused[j].score
+	})
+
+	ids := make([]uint64, len(fused))
+	for i := range ids {
+		ids[i] = fused[i].docID
+	}
+	return ids
+}
+
 func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
 	mapResults := map[strfmt.UUID]search.Result{}
 	for resultSetIndex, result := range results {
@@ -58,18 +105,21 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 			docId := tempResult.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // TODO replace 60 with a class configured variable
 
-			// Get previous results from the map, if any
-			previousResult, ok := mapResults[docId]
-
 			if tempResult.AdditionalProperties == nil {
 				tempResult.AdditionalProperties = map[string]interface{}{}
 			}
-			if ok {
 
-				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
-				score = score + float64(previousResult.Score)
+			// Get previous results from the map, if any
+			previousResult, ok := mapResults[docId]
+			if ok {
+				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
+					"%v\n(hybrid) Document %v contributed %v to the score",
+					previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
+				score += float64(previousResult.Score)
 			} else {
-				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", tempResult.ExplainScore, tempResult.ID, score)
+				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
+					"%v\n(hybrid) Document %v contributed %v to the score",
+					tempResult.ExplainScore, tempResult.ID, score)
 			}
 			tempResult.AdditionalProperties["rank_score"] = score
 			tempResult.AdditionalProperties["score"] = score
@@ -80,10 +130,14 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	}
 
 	// Sort the results
-	concatenatedResults := []search.Result{}
+	var (
+		concatenatedResults = make([]search.Result, len(mapResults))
+		i                   = 0
+	)
 	for _, res := range mapResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
-		concatenatedResults = append(concatenatedResults, res)
+		concatenatedResults[i] = res
+		i++
 	}
 
 	sort.Slice(concatenatedResults, func(i, j int) bool {

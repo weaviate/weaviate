@@ -772,7 +772,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
-
 			// If the request is a BM25F with no properties selected, use all possible properties
 			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 
@@ -784,11 +783,10 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					if v.DataType[0] == "text" || v.DataType[0] == "string" { // Also the array types?
+					if v.DataType[0] == "text" || v.DataType[0] == "string" { // TODO: Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
 				}
-
 			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)

@@ -15,10 +15,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/tailor-inc/graphql"
-
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/tailor-inc/graphql"
 )
 
 func hybridArgument(classObject *graphql.Object,
@@ -28,7 +27,7 @@ func hybridArgument(classObject *graphql.Object,
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("%shybridInpObj", prefix),
+				Name:        fmt.Sprintf("%sHybridInpObj", prefix),
 				Fields:      hybridOperands(classObject, class, modulesProvider),
 				Description: "Hybrid search",
 			},

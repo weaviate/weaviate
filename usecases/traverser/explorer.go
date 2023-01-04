@@ -226,12 +226,14 @@ func shortenVectorString(maxLength int, vector []float32) string {
 }
 
 func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Result, error) {
-	results := [][]search.Result{}
-	weights := []float64{}
+	var (
+		results [][]search.Result
+		weights []float64
+	)
 
 	hybridSearchLimit := params.Pagination.Limit
 	if hybridSearchLimit == 0 {
-		hybridSearchLimit = 100 // FIXME use global limit config, where 	ever it is
+		hybridSearchLimit = 100 // FIXME use global limit config, wherever it is
 	}
 
 	if params.HybridSearch != nil {
@@ -239,7 +241,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		// a few parameters, like "query", "vector", and "alpha".  It only does two searches and combines them.
 
 		// The other is a more complex, complete interface that allows any number of searches to be combined.
-		// The searches can use all of the options normally available, allowing complete control over the subsearches.
+		// The searches can use all the options normally available, allowing complete control over the subsearches.
 
 		if params.HybridSearch.Query != "" {
 			alpha := params.HybridSearch.Alpha
@@ -284,7 +286,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 						return nil, err
 					}
 				}
-				vectorResults, err := e.search.ClassVectorSearch(ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
+				vectorResults, err := e.search.ClassVectorSearch(
+					ctx, params.ClassName, vector, 0, hybridSearchLimit, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -292,7 +295,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 				// Set the scoreexplain property to vector for every result
 				for i := range vectorResults {
 					vectorResults[i].SecondarySortValue = 1 - vectorResults[i].Dist
-					vectorResults[i].ExplainScore = fmt.Sprintf("(vector) %v %v ", shortenVectorString(10, vector), vectorResults[i].ExplainScore)
+					vectorResults[i].ExplainScore = fmt.Sprintf(
+						"(vector) %v %v ", shortenVectorString(10, vector),
+						vectorResults[i].ExplainScore)
 				}
 
 				results = append(results, vectorResults)
@@ -383,7 +388,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 	fused := FusionReciprocal(weights, results)
 
 	if hybridSearchLimit >= 1 && (len(fused) > hybridSearchLimit) { //-1 is possible?
-		fmt.Printf("limiting results from %v to %v\n", len(fused), hybridSearchLimit)
+		e.logger.Debugf("found more hybrid search results than limit, "+
+			"limiting %v results to %v\n",
+			len(fused), hybridSearchLimit)
 		fused = fused[:hybridSearchLimit]
 	}
 
@@ -393,9 +400,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams,
 ) ([]interface{}, error) {
-	// we will modiry the params because of the workaround outlined below,
+	// we will modify the params because of the workaround outlined below,
 	// however, we only want to track what the user actually set for the usage
-	// metrics, not our own workaround, so hwere's a copy of the original user
+	// metrics, not our own workaround, so here's a copy of the original user
 	// input
 	userSetAdditionalVector := params.AdditionalProperties.Vector
 
@@ -418,7 +425,6 @@ func (e *Explorer) getClassList(ctx context.Context,
 			return nil, err
 		}
 	} else {
-
 		res, err = e.search.ClassSearch(ctx, params)
 		if err != nil {
 			return nil, errors.Errorf("explorer: list class: search: %v", err)
