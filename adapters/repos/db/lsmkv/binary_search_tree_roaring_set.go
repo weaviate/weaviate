@@ -27,6 +27,13 @@ type roaringSet struct {
 	deletions *sroar.Bitmap
 }
 
+func newRoaringSet() roaringSet {
+	return roaringSet{
+		additions: sroar.NewBitmap(),
+		deletions: sroar.NewBitmap(),
+	}
+}
+
 func (t *binarySearchTreeRoaringSet) insert(key []byte, values roaringSet) {
 	if t.root == nil {
 		t.root = &binarySearchNodeRoaringSet{

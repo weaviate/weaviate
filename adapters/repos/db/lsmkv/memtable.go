@@ -25,6 +25,7 @@ type Memtable struct {
 	keyMulti           *binarySearchTreeMulti
 	keyMap             *binarySearchTreeMap
 	primaryIndex       *binarySearchTree
+	roaringSet         *binarySearchTreeRoaringSet
 	commitlog          *commitLogger
 	size               uint64
 	path               string
@@ -49,6 +50,7 @@ func newMemtable(path string, strategy string,
 		keyMulti:         &binarySearchTreeMulti{},
 		keyMap:           &binarySearchTreeMap{},
 		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
+		roaringSet:       &binarySearchTreeRoaringSet{},
 		commitlog:        cl,
 		path:             path,
 		strategy:         strategy,
