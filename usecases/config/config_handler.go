@@ -91,6 +91,7 @@ type Config struct {
 	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	CORS                             CORS           `json:"cors" yaml:"cors"`
 }
 
 type moduleProvider interface {
@@ -223,6 +224,18 @@ type ResourceUsage struct {
 	DiskUse DiskUse
 	MemUse  MemUse
 }
+
+type CORS struct {
+	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
+	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
+	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+const (
+	DefaultCORSAllowOrigin  = "*"
+	DefaultCORSAllowMethods = "*"
+	DefaultCORSAllowHeaders = "Content-Type,Authorization,Batch"
+)
 
 func (r ResourceUsage) Validate() error {
 	if err := r.DiskUse.Validate(); err != nil {

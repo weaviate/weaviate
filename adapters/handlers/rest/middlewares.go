@@ -22,6 +22,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
@@ -87,7 +88,9 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
-			AllowedMethods:     []string{"POST", "PUT", "DELETE", "GET", "PATCH"},
+			AllowedMethods:     strings.Split(appState.ServerConfig.Config.CORS.AllowMethods, ","),
+			AllowedHeaders:     strings.Split(appState.ServerConfig.Config.CORS.AllowHeaders, ","),
+			AllowedOrigins:     strings.Split(appState.ServerConfig.Config.CORS.AllowOrigin, ","),
 		}).Handler
 		handler = handleCORS(handler)
 		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
@@ -95,7 +98,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
-		handler = addPreflight(handler)
+		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
@@ -139,12 +142,12 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 	}
 }
 
-func addPreflight(next http.Handler) http.Handler {
+func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "OPTIONS" {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Batch")
+			w.Header().Set("Access-Control-Allow-Origin", cfg.AllowOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", cfg.AllowMethods)
+			w.Header().Set("Access-Control-Allow-Headers", cfg.AllowHeaders)
 			return
 		}
 
