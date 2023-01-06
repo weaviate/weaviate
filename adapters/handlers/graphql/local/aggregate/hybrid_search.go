@@ -86,17 +86,5 @@ func hybridSubSearch(classObject *graphql.Object,
 				},
 			),
 		},
-
-		//"nearText": &graphql.InputObjectFieldConfig{
-		//	Description: "nearText element",
-		//
-		//	Type: graphql.NewInputObject(
-		//		graphql.InputObjectConfig{
-		//			Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
-		//			Fields:      nearTextFields(prefixName),
-		//			Description: descriptions.GetWhereInpObj,
-		//		},
-		//	),
-		//},
 	}
 }
