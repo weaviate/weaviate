@@ -3,7 +3,6 @@ package lsmkv
 import (
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -13,13 +12,8 @@ func TestBSTRoaringSet(t *testing.T) {
 		bst := &binarySearchTreeRoaringSet{}
 		key := []byte("my-key")
 
-		set := roaringSet{
-			additions: sroar.NewBitmap(),
-			deletions: sroar.NewBitmap(),
-		}
-
+		set := newRoaringSet()
 		set.additions.Set(7)
-
 		bst.insert(key, set)
 
 		res, err := bst.get(key)
@@ -34,11 +28,7 @@ func TestBSTRoaringSet(t *testing.T) {
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 14; i++ {
-			set := roaringSet{
-				additions: sroar.NewBitmap(),
-				deletions: sroar.NewBitmap(),
-			}
-
+			set := newRoaringSet()
 			set.additions.Set(i)
 			bst.insert(key, set)
 		}
@@ -58,19 +48,12 @@ func TestBSTRoaringSet(t *testing.T) {
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 11; i++ {
-			set := roaringSet{
-				additions: sroar.NewBitmap(),
-				deletions: sroar.NewBitmap(),
-			}
-
+			set := newRoaringSet()
 			set.additions.Set(i)
 			bst.insert(key, set)
 		}
 
-		set := roaringSet{
-			additions: sroar.NewBitmap(),
-			deletions: sroar.NewBitmap(),
-		}
+		set := newRoaringSet()
 		set.deletions.Set(9)
 		bst.insert(key, set)
 
@@ -92,26 +75,16 @@ func TestBSTRoaringSet(t *testing.T) {
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 11; i++ {
-			set := roaringSet{
-				additions: sroar.NewBitmap(),
-				deletions: sroar.NewBitmap(),
-			}
-
+			set := newRoaringSet()
 			set.additions.Set(i)
 			bst.insert(key, set)
 		}
 
-		set := roaringSet{
-			additions: sroar.NewBitmap(),
-			deletions: sroar.NewBitmap(),
-		}
+		set := newRoaringSet()
 		set.deletions.Set(9)
 		bst.insert(key, set)
 
-		set2 := roaringSet{
-			additions: sroar.NewBitmap(),
-			deletions: sroar.NewBitmap(),
-		}
+		set2 := newRoaringSet()
 		set2.additions.Set(9)
 		bst.insert(key, set2)
 
