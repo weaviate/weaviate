@@ -72,61 +72,6 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 	}
 }
 
-func (b *BM25Searcher) DocIDs(ctx context.Context, limit *int,
-	className schema.ClassName, keywordRanking *searchparams.KeywordRanking,
-) (helpers.AllowList, error) {
-	// TODO: more complex pre-processing with proper split function
-	terms := strings.Split(keywordRanking.Query, " ")
-
-	idLists := make([]docPointersWithScore, len(terms))
-	c, err := schema.GetClassByName(b.schema.Objects, string(className))
-	if err != nil {
-		return nil, fmt.Errorf("get class by name: %w", err)
-	}
-
-	for i, term := range terms {
-		property := keywordRanking.Properties[0]
-		p, err := schema.GetPropertyByName(c, property)
-		if err != nil {
-			return nil, fmt.Errorf("read property from class: %w", err)
-		}
-		indexed := p.IndexInverted
-
-		if indexed == nil || *indexed {
-			ids, err := b.retrieveScoreAndSortForSingleTerm(
-				ctx, property, term)
-			if err != nil {
-				return nil, fmt.Errorf("retrieve score and sort: %w", err)
-			}
-			idLists[i] = ids
-		} else {
-			idLists[i] = docPointersWithScore{}
-		}
-	}
-
-	before := time.Now()
-	ids := newScoreMerger(idLists).do()
-	took := time.Since(before)
-	b.logger.WithField("took", took).
-		WithField("event", "merge_scores_of_terms").
-		Debugf("merge score of all terms took %s", took)
-
-	ids = b.sort(ids)
-
-	if limit != nil {
-		if len(ids.docIDs) > *limit {
-			ids.docIDs = ids.docIDs[:*limit]
-		}
-	}
-
-	out := make(helpers.AllowList, len(ids.docIDs))
-	for _, d := range ids.docIDs {
-		out.Insert(d.id)
-	}
-
-	return out, nil
-}
-
 // Objects returns a list of full objects
 func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,

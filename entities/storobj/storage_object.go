@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 
@@ -165,6 +166,47 @@ func FromBinaryOptional(data []byte,
 	}
 
 	return ko, nil
+}
+
+type bucket interface {
+	GetBySecondary(int, []byte) ([]byte, error)
+}
+
+func ObjectsByDocID(bucket bucket, ids []uint64,
+	additional additional.Properties,
+) ([]*Object, error) {
+	if bucket == nil {
+		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	var (
+		out = make([]*Object, len(ids))
+		i   = 0
+	)
+
+	for _, id := range ids {
+		keyBuf := bytes.NewBuffer(nil)
+		binary.Write(keyBuf, binary.LittleEndian, &id)
+		docIDBytes := keyBuf.Bytes()
+		res, err := bucket.GetBySecondary(0, docIDBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if res == nil {
+			continue
+		}
+
+		unmarshalled, err := FromBinaryOptional(res, additional)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		out[i] = unmarshalled
+		i++
+	}
+
+	return out[:i], nil
 }
 
 func (ko *Object) Class() schema.ClassName {
@@ -325,14 +367,15 @@ func SearchResults(in []*Object, additional additional.Properties) search.Result
 	return out
 }
 
-func SearchResultsWithDists(in []*Object, additional additional.Properties,
+func SearchResultsWithDists(in []*Object, addl additional.Properties,
 	dists []float32,
 ) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional))
+		out[i] = *(elem.SearchResult(addl))
 		out[i].Dist = dists[i]
+		out[i].Certainty = float32(additional.DistToCertainty(float64(dists[i])))
 	}
 
 	return out

@@ -18,9 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/storobj"
@@ -85,23 +83,13 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
-	var (
-		schema    = g.getSchema.GetSchemaSkipAuth()
-		allowList helpers.AllowList
-	)
-
-	if g.params.Filters != nil {
-		allowList, err = inverted.NewSearcher(g.store, schema, g.invertedRowCache, nil,
-			g.classSearcher, g.deletedDocIDs, g.stopwords, g.shardVersion).
-			DocIDs(ctx, g.params.Filters, additional.Properties{},
-				g.params.ClassName)
-		if err != nil {
-			return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
-		}
+	allowList, err := g.buildAllowList(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(g.params.SearchVector) > 0 {
-		ids, err = g.vectorSearch(allowList, g.params.SearchVector)
+		ids, _, err = g.vectorSearch(allowList, g.params.SearchVector)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to perform vector search")
 		}

@@ -23,25 +23,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/mock"
-
-	//"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
-
-	//"github.com/semi-technologies/weaviate/entities/storobj"
 	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/usecases/traverser/hybrid"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -320,7 +316,7 @@ func TestRFJourney(t *testing.T) {
 	result_set_2 := []search.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{0.4, 0.6}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{0.4, 0.6}, [][]search.Result{result_set_1, result_set_2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -335,7 +331,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{0.8, 0.2}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{0.8, 0.2}, [][]search.Result{result_set_1, result_set_2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -350,7 +346,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("Vector Only", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{0.0, 1.0}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{0.0, 1.0}, [][]search.Result{result_set_1, result_set_2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -365,7 +361,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("BM25 only", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{1.0, 0.0}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{1.0, 0.0}, [][]search.Result{result_set_1, result_set_2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})

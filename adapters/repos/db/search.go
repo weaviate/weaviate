@@ -133,7 +133,7 @@ func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []floa
 		return []search.Result{}, errors.Wrapf(err, "search index %s", index.ID())
 	}
 
-	found := hydrateObjectsIntoSearchResults(objs, dist)
+	found := storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)
 
 	if len(searchErrors) > 0 {
 		var msg strings.Builder
@@ -180,7 +180,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			}
 
 			mutex.Lock()
-			found = append(found, hydrateObjectsIntoSearchResults(objs, dist)...)
+			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
 			mutex.Unlock()
 		}(index, wg)
 	}
@@ -206,15 +206,6 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	// not enriching by refs, as a vector search result cannot provide
 	// SelectProperties
 	return db.getSearchResults(found, offset, limit), nil
-}
-
-func hydrateObjectsIntoSearchResults(objs []*storobj.Object, dists []float32) search.Results {
-	res := storobj.SearchResults(objs, additional.Properties{})
-	for i := range res {
-		res[i].Dist = dists[i]
-		res[i].Certainty = float32(additional.DistToCertainty(float64(dists[i])))
-	}
-	return res
 }
 
 // Query a specific class
