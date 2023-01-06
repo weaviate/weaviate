@@ -11,7 +11,7 @@ const (
 	centroids = 256
 )
 
-func (h *hnsw) Compress(segments int) {
+func (h *hnsw) Compress(segments int) error {
 	vec, _ := h.vectorForID(context.Background(), h.nodes[0].id)
 	dims := len(vec)
 	// segments == 0 (default value) means use as many sements as dimensions
@@ -38,10 +38,14 @@ func (h *hnsw) Compress(segments int) {
 		h.Unlock()
 		h.compressedVectorsCache.preload(index, h.pq.Encode(data[index]))
 	})
+	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
+		return err
+	}
 
 	h.compressed = true
 	h.cache = nil
 	//ToDo: clear cache
+	return nil
 }
 
 func (i *hnsw) encodedVector(id uint64) ([]byte, error) {

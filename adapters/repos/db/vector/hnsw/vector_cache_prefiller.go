@@ -18,8 +18,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type vectorCachePrefiller struct {
-	cache  cache[float32]
+type vectorCachePrefiller[T any] struct {
+	cache  cache[T]
 	index  *hnsw
 	logger logrus.FieldLogger
 }
@@ -38,17 +38,17 @@ type cache[T any] interface {
 	all() [][]T
 }
 
-func newVectorCachePrefiller(cache cache[float32], index *hnsw,
+func newVectorCachePrefiller[T any](cache cache[T], index *hnsw,
 	logger logrus.FieldLogger,
-) *vectorCachePrefiller {
-	return &vectorCachePrefiller{
+) *vectorCachePrefiller[T] {
+	return &vectorCachePrefiller[T]{
 		cache:  cache,
 		index:  index,
 		logger: logger,
 	}
 }
 
-func (pf *vectorCachePrefiller) Prefill(ctx context.Context, limit int) error {
+func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error {
 	before := time.Now()
 	for level := pf.maxLevel(); level >= 0; level-- {
 		ok, err := pf.prefillLevel(ctx, level, limit)
@@ -66,7 +66,7 @@ func (pf *vectorCachePrefiller) Prefill(ctx context.Context, limit int) error {
 }
 
 // returns false if the max has been reached, true otherwise
-func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
+func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	level, limit int,
 ) (bool, error) {
 	// TODO: this makes zero sense, just copy the lists, don't actually block
@@ -112,7 +112,7 @@ func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
 	return true, nil
 }
 
-func (pf *vectorCachePrefiller) logLevel(level, count int, before time.Time) {
+func (pf *vectorCachePrefiller[T]) logLevel(level, count int, before time.Time) {
 	pf.logger.WithFields(logrus.Fields{
 		"action":     "hnsw_vector_cache_prefill_level",
 		"hnsw_level": level,
@@ -122,7 +122,7 @@ func (pf *vectorCachePrefiller) logLevel(level, count int, before time.Time) {
 	}).Debug("prefilled level in vector cache")
 }
 
-func (pf *vectorCachePrefiller) logTotal(count, limit int, before time.Time) {
+func (pf *vectorCachePrefiller[T]) logTotal(count, limit int, before time.Time) {
 	pf.logger.WithFields(logrus.Fields{
 		"action":   "hnsw_vector_cache_prefill",
 		"limit":    limit,
@@ -139,7 +139,7 @@ func levelOfNode(node *vertex) int {
 	return node.level
 }
 
-func (pf *vectorCachePrefiller) maxLevel() int {
+func (pf *vectorCachePrefiller[T]) maxLevel() int {
 	pf.index.Lock()
 	defer pf.index.Unlock()
 

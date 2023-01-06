@@ -32,7 +32,7 @@ func TestPQKMeans(t *testing.T) {
 	vectors_size := 1000
 	queries_size := 100
 	k := 100
-	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
 	distanceProvider := ssdhelpers.NewDistanceProvider(distancer.NewL2SquaredProvider())
 
 	pq := ssdhelpers.NewProductQuantizer(
