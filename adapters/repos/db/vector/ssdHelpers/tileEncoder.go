@@ -1,12 +1,8 @@
 package ssdhelpers
 
 import (
-	"encoding/gob"
-	"fmt"
 	"math"
-	"os"
 
-	"github.com/pkg/errors"
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
@@ -40,57 +36,6 @@ func NewTileEncoder(bits int, segment int) *TileEncoder {
 		s2:      0,
 		segment: segment,
 	}
-}
-
-const TileDataFileName = "tile.gob"
-
-func (m *TileEncoder) ToDisk(path string, id int) {
-	if m == nil {
-		return
-	}
-	fData, err := os.Create(fmt.Sprintf("%s/%d.%s", path, id, TileDataFileName))
-	if err != nil {
-		panic(errors.Wrap(err, "Could not create tiles encoder file"))
-	}
-	defer fData.Close()
-
-	dEnc := gob.NewEncoder(fData)
-	err = dEnc.Encode(TileEncoderData{
-		Bins:    m.bins,
-		Mean:    m.mean,
-		StdDev:  m.stdDev,
-		Size:    m.size,
-		S1:      m.s1,
-		S2:      m.s2,
-		Segment: m.segment,
-	})
-	if err != nil {
-		panic(errors.Wrap(err, "Could not encode tile"))
-	}
-}
-
-func TileEncoderFromDisk(path string, id int) *TileEncoder {
-	fData, err := os.Open(fmt.Sprintf("%s/%d.%s", path, id, TileDataFileName))
-	if err != nil {
-		return nil
-	}
-	defer fData.Close()
-
-	data := TileEncoderData{}
-	dDec := gob.NewDecoder(fData)
-	err = dDec.Decode(&data)
-	if err != nil {
-		panic(errors.Wrap(err, "Could not decode data"))
-	}
-	tile := NewTileEncoder(1, id)
-	tile.bins = data.Bins
-	tile.mean = data.Mean
-	tile.s1 = data.S1
-	tile.s2 = data.S2
-	tile.size = data.Size
-	tile.stdDev = data.StdDev
-	tile.segment = data.Segment
-	return tile
 }
 
 func (te *TileEncoder) Fit(data [][]float32) error {

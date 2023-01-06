@@ -1,13 +1,9 @@
 package ssdhelpers
 
 import (
-	"encoding/gob"
-	"fmt"
 	"math"
 	"math/rand"
-	"os"
 
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -38,8 +34,6 @@ type KMeansData struct {
 	Centers [][]float32
 }
 
-const DataFileName = "kmeans.gob"
-
 func NewKMeans(k int, distance distancer.Provider, dimensions int) *KMeans {
 	kMeans := &KMeans{
 		K:                  k,
@@ -58,50 +52,6 @@ func NewKMeansWithFilter(k int, distance distancer.Provider, dimensions int, fil
 	kMeans := NewKMeans(k, distance, dimensions)
 	kMeans.filter = filter
 	return kMeans
-}
-
-func (m *KMeans) ToDisk(path string, id int) {
-	if m == nil {
-		return
-	}
-	fData, err := os.Create(fmt.Sprintf("%s/%d.%s", path, id, DataFileName))
-	if err != nil {
-		panic(errors.Wrap(err, "Could not create kmeans file"))
-	}
-	defer fData.Close()
-
-	dEnc := gob.NewEncoder(fData)
-	err = dEnc.Encode(KMeansData{
-		K:       m.K,
-		Centers: m.centers,
-	})
-	if err != nil {
-		panic(errors.Wrap(err, "Could not encode kmeans"))
-	}
-}
-
-func KMeansFromDisk(path string, id int, distance distancer.Provider) *KMeans {
-	fData, err := os.Open(fmt.Sprintf("%s/%d.%s", path, id, DataFileName))
-	if err != nil {
-		return nil
-	}
-	defer fData.Close()
-
-	data := KMeansData{}
-	dDec := gob.NewDecoder(fData)
-	err = dDec.Decode(&data)
-	if err != nil {
-		panic(errors.Wrap(err, "Could not decode data"))
-	}
-	kmeans := NewKMeans(data.K, distance, 0)
-	kmeans.centers = data.Centers
-	return kmeans
-}
-
-func KMeansFromDiskWithFilter(path string, id int, distance distancer.Provider, filter FilterFunc) *KMeans {
-	kmeans := KMeansFromDisk(path, id, distance)
-	kmeans.filter = filter
-	return kmeans
 }
 
 func (m *KMeans) Add(x []float32) {

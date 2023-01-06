@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/diskio"
 )
@@ -117,9 +118,15 @@ func (h *hnsw) restoreFromDisk() error {
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
 	h.tombstones = state.Tombstones
+	h.compressed = state.Compressed
 
-	// make sure the cache fits the current size
-	h.cache.grow(uint64(len(h.nodes)))
+	if state.Compressed {
+		h.cache = nil
+		h.pq = ssdhelpers.NewProductQuantizer(int(state.PQData.M), int(state.PQData.Ks), ssdhelpers.NewDistanceProvider(h.distancerProvider), int(state.PQData.Dimensions), state.PQData.EncoderType)
+	} else {
+		// make sure the cache fits the current size
+		h.cache.grow(uint64(len(h.nodes)))
+	}
 
 	// make sure the visited list pool fits the current size
 	h.pools.visitedLists.Destroy()
@@ -147,13 +154,24 @@ func (h *hnsw) PostStartup() {
 }
 
 func (h *hnsw) prefillCache() {
-	limit := int(h.cache.copyMaxSize())
+	limit := 0
+	if h.compressed {
+		limit = int(h.compressedVectorsCache.copyMaxSize())
+	} else {
+		limit = int(h.cache.copyMaxSize())
+	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
-		err := newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+		var err error
+		if h.compressed {
+			err = newVectorCachePrefiller(h.compressedVectorsCache, h, h.logger).Prefill(ctx, limit)
+		} else {
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+		}
+
 		if err != nil {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}

@@ -17,6 +17,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
 	"github.com/sirupsen/logrus"
 )
 
@@ -32,6 +33,8 @@ type DeserializationResult struct {
 	Level             uint16
 	Tombstones        map[uint64]struct{}
 	EntrypointChanged bool
+	PQData            ssdhelpers.PQData
+	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
 	// assume that all links were appended and prior state must exist
@@ -136,6 +139,9 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 			out.Entrypoint = 0
 			out.Level = 0
 			out.Nodes = make([]*vertex, initialSize)
+		case AddPQ:
+			err = c.ReadPQ(fd, out)
+			readThisRound = 7
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -441,6 +447,34 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
+func (c *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
+	dims, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+	enc, err := c.readByte(r)
+	if err != nil {
+		return err
+	}
+	ks, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+	m, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+	res.PQData = ssdhelpers.PQData{
+		Dimensions:  dims,
+		EncoderType: ssdhelpers.Encoder(enc),
+		Ks:          ks,
+		M:           m,
+	}
+	res.Compressed = true
+
+	return nil
+}
+
 func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	c.resetResusableBuffer(8)
@@ -465,6 +499,16 @@ func (c *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	value = binary.LittleEndian.Uint16(c.reusableBuffer)
 
 	return value, nil
+}
+
+func (c *Deserializer) readByte(r io.Reader) (byte, error) {
+	c.resetResusableBuffer(1)
+	_, err := io.ReadFull(r, c.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read byte")
+	}
+
+	return c.reusableBuffer[0], nil
 }
 
 func (c *Deserializer) ReadCommitType(r io.Reader) (HnswCommitType, error) {

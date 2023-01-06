@@ -28,7 +28,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	pf := newVectorCachePrefiller(cache, index, logger)
+	pf := newVectorCachePrefiller[float32](cache, index, logger)
 
 	t.Run("prefill with limit >= graph size", func(t *testing.T) {
 		cache.reset()

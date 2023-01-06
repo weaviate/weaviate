@@ -167,6 +167,7 @@ type CommitLogger interface {
 	RootPath() string
 	SwitchCommitLogs(bool) error
 	MaintenanceInProgress() bool
+	AddPQ(ssdhelpers.PQData) error
 }
 
 type BufferedLinksLogger interface {

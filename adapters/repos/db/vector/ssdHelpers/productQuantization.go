@@ -1,17 +1,13 @@
 package ssdhelpers
 
 import (
-	"encoding/gob"
-	"fmt"
 	"math"
-	"os"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-type Encoder int
+type Encoder byte
 
 const (
 	UseTileEncoder   Encoder = 0
@@ -100,28 +96,17 @@ type ProductQuantizer struct {
 }
 
 type PQData struct {
-	Ks          int
-	M           int
-	Dimensions  int
+	Ks          uint16
+	M           uint16
+	Dimensions  uint16
 	EncoderType Encoder
 }
 
 type NoopEncoder interface {
-	ToDisk(path string, id int)
 	Encode(x []float32) byte
 	Centroid(b byte) []float32
 	Add(x []float32)
 	Fit(data [][]float32) error
-}
-
-const PQDataFileName = "pq.gob"
-
-type PQConfig struct {
-	Segments    int
-	Centroids   int
-	Distance    DistanceProvider
-	Dimensions  int
-	EncoderType Encoder
 }
 
 func NewProductQuantizer(segments int, centroids int, distance *DistanceProvider, dimensions int, encoderType Encoder) *ProductQuantizer {
@@ -131,12 +116,21 @@ func NewProductQuantizer(segments int, centroids int, distance *DistanceProvider
 	pq := &ProductQuantizer{
 		ks:          centroids,
 		m:           segments,
-		ds:          dimensions / segments,
+		ds:          int(dimensions / segments),
 		distance:    distance,
 		dimensions:  dimensions,
 		encoderType: encoderType,
 	}
 	return pq
+}
+
+func (pq *ProductQuantizer) ExposeFields() PQData {
+	return PQData{
+		Dimensions:  uint16(pq.dimensions),
+		EncoderType: pq.encoderType,
+		Ks:          uint16(pq.ks),
+		M:           uint16(pq.m),
+	}
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float32 {
@@ -176,60 +170,6 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	return d.pq.Distance(x, d.lut), true, nil
 }
 
-func (pq *ProductQuantizer) ToDisk(path string) {
-	if pq == nil {
-		return
-	}
-	fData, err := os.Create(fmt.Sprintf("%s/%s", path, PQDataFileName))
-	if err != nil {
-		panic(errors.Wrap(err, "Could not create kmeans file"))
-	}
-	defer fData.Close()
-
-	dEnc := gob.NewEncoder(fData)
-	err = dEnc.Encode(PQData{
-		Ks:          pq.ks,
-		M:           pq.m,
-		Dimensions:  pq.dimensions,
-		EncoderType: pq.encoderType,
-	})
-	if err != nil {
-		panic(errors.Wrap(err, "Could not encode pq"))
-	}
-	for id, km := range pq.kms {
-		km.ToDisk(path, id)
-	}
-}
-
-func PQFromDisk(path string, distance *DistanceProvider) *ProductQuantizer {
-	fData, err := os.Open(fmt.Sprintf("%s/%s", path, PQDataFileName))
-	if err != nil {
-		return nil
-	}
-	defer fData.Close()
-
-	data := PQData{}
-	dDec := gob.NewDecoder(fData)
-	err = dDec.Decode(&data)
-	if err != nil {
-		panic(errors.Wrap(err, "Could not decode data"))
-	}
-	pq := NewProductQuantizer(data.M, data.Ks, distance, data.Dimensions, data.EncoderType)
-	switch data.EncoderType {
-	case UseKMeansEncoder:
-		pq.kms = make([]NoopEncoder, pq.m)
-		for id := range pq.kms {
-			pq.kms[id] = KMeansFromDiskWithFilter(path, id, distance.Provider, pq.filterSegment(id))
-		}
-	case UseTileEncoder:
-		pq.kms = make([]NoopEncoder, pq.m)
-		for id := range pq.kms {
-			pq.kms[id] = TileEncoderFromDisk(path, id)
-		}
-	}
-	return pq
-}
-
 func (pq *ProductQuantizer) extractSegment(i int, v []float32) []float32 {
 	return v[i*pq.ds : (i+1)*pq.ds]
 }
@@ -255,7 +195,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 		pq.kms = make([]NoopEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
 			pq.kms[i] = NewKMeansWithFilter(
-				pq.ks,
+				int(pq.ks),
 				pq.distance.Provider,
 				pq.ds,
 				pq.filterSegment(int(i)),
@@ -294,7 +234,7 @@ func (pq *ProductQuantizer) Decode(code []byte) []float32 {
 }
 
 func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
-	return NewDistanceLookUpTable(pq.m, pq.ks, vec)
+	return NewDistanceLookUpTable(int(pq.m), int(pq.ks), vec)
 }
 
 func (pq *ProductQuantizer) DistanceBetweenNodes(x, y []byte) float32 {
