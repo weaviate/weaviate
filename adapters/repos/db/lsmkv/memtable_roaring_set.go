@@ -66,12 +66,17 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return nil
 }
 
-func (m *Memtable) roaringSetGet(key []byte) (*roaringSet, error) {
+func (m *Memtable) roaringSetGet(key []byte) (roaringSet, error) {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
-		return nil, err
+		return roaringSet{}, err
 	}
 
-	return m.roaringSet.get(key)
+	s, err := m.roaringSet.get(key)
+	if err != nil {
+		return roaringSet{}, err
+	}
+
+	return *s, nil
 }
 
 func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
