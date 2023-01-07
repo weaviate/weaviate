@@ -12,9 +12,7 @@ func TestBSTRoaringSet(t *testing.T) {
 		bst := &binarySearchTreeRoaringSet{}
 		key := []byte("my-key")
 
-		set := newRoaringSet()
-		set.additions.Set(7)
-		bst.insert(key, set)
+		bst.insert(key, roaringSetInsert{additions: []uint64{7}})
 
 		res, err := bst.get(key)
 		require.Nil(t, err)
@@ -28,9 +26,7 @@ func TestBSTRoaringSet(t *testing.T) {
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 14; i++ {
-			set := newRoaringSet()
-			set.additions.Set(i)
-			bst.insert(key, set)
+			bst.insert(key, roaringSetInsert{additions: []uint64{i}})
 		}
 
 		res, err := bst.get(key)
@@ -48,14 +44,10 @@ func TestBSTRoaringSet(t *testing.T) {
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 11; i++ {
-			set := newRoaringSet()
-			set.additions.Set(i)
-			bst.insert(key, set)
+			bst.insert(key, roaringSetInsert{additions: []uint64{i}})
 		}
 
-		set := newRoaringSet()
-		set.deletions.Set(9)
-		bst.insert(key, set)
+		bst.insert(key, roaringSetInsert{deletions: []uint64{9}})
 
 		res, err := bst.get(key)
 		require.Nil(t, err)
@@ -75,18 +67,12 @@ func TestBSTRoaringSet(t *testing.T) {
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 11; i++ {
-			set := newRoaringSet()
-			set.additions.Set(i)
-			bst.insert(key, set)
+			bst.insert(key, roaringSetInsert{additions: []uint64{i}})
 		}
 
-		set := newRoaringSet()
-		set.deletions.Set(9)
-		bst.insert(key, set)
+		bst.insert(key, roaringSetInsert{deletions: []uint64{9}})
 
-		set2 := newRoaringSet()
-		set2.additions.Set(9)
-		bst.insert(key, set2)
+		bst.insert(key, roaringSetInsert{additions: []uint64{9}})
 
 		res, err := bst.get(key)
 		require.Nil(t, err)
