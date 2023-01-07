@@ -3,9 +3,11 @@ package roaringset
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 
 	"github.com/dgraph-io/sroar"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 // A RoaringSet Segment Node stores one Key-Value pair (without its index) in
@@ -37,7 +39,8 @@ import (
 //	(x+y+16)-(x+y+20)   | uint32 length indicator for primary key length -> z
 //	(x+y+20)-(x+y+z+20) | primary key
 type SegmentNode struct {
-	// Offset is not persisted, it can be used to cache the offset when reading
+	// Offset is not persisted in the node itself, but it is respected when
+	// building a [segmentindex.Key] using [*SegmentNode.KeyIndexAndWriteTo].
 	// multiple nodes
 	Offset int
 
@@ -104,7 +107,7 @@ func NewSegmentNode(
 	key []byte, additions, deletions *sroar.Bitmap,
 ) (*SegmentNode, error) {
 	if len(key) > math.MaxUint32 {
-		return nil, fmt.Errorf("cannot store keys longer than %d", math.MaxUint32)
+		return nil, fmt.Errorf("key too long, max length is %d", math.MaxUint32)
 	}
 
 	additionsBuf := additions.ToBuffer()
@@ -145,4 +148,27 @@ func (sn *SegmentNode) ToBuffer() []byte {
 // safe to share the data or create your own copy.
 func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
 	return &SegmentNode{data: buf}
+}
+
+// KeyIndexAndWriteTo is a helper to flush a memtables full of SegmentNodes. It
+// writes itself into the given writer and returns a [segmentindex.Key] with
+// start and end indicators (respecting SegmentNode.Offset). Those keys can
+// then be used to build an index for the nodes. The combination of index and
+// node make up an LSM segment.
+//
+// RoaringSets do not support secondary keys, thus the segmentindex.Key will
+// only ever contain a primary key.
+func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	out := segmentindex.Key{}
+
+	n, err := w.Write(sn.data)
+	if err != nil {
+		return out, err
+	}
+
+	out.ValueStart = sn.Offset
+	out.ValueEnd = sn.Offset + n
+	out.Key = sn.PrimaryKey()
+
+	return out, nil
 }
