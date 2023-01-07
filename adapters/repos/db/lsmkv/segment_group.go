@@ -284,6 +284,29 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	return out[:i], nil
 }
 
+func (sg *SegmentGroup) roaringSetGet(key []byte) ([]roaringSet, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	var out []roaringSet
+
+	// start with first and do not exit
+	for _, segment := range sg.segments {
+		rs, err := segment.roaringSetGet(key)
+		if err != nil {
+			if err == NotFound {
+				continue
+			}
+
+			return nil, err
+		}
+
+		out = append(out, rs)
+	}
+
+	return out, nil
+}
+
 func (sg *SegmentGroup) count() int {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()

@@ -58,9 +58,21 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	var segments []*roaringSet
+	segments, err := b.disk.roaringSetGet(key)
+	if err != nil {
+		return nil, err
+	}
 
-	// TODO: check segments other than memtable
+	if b.flushing != nil {
+		flushing, err := b.flushing.roaringSetGet(key)
+		if err != nil {
+			if err != NotFound {
+				return nil, err
+			}
+		} else {
+			segments = append(segments, flushing)
+		}
+	}
 
 	memtable, err := b.active.roaringSetGet(key)
 	if err != nil {
@@ -74,17 +86,20 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	return flattenRoaringSegments(segments)
 }
 
-func flattenRoaringSegments(segments []*roaringSet) (*sroar.Bitmap, error) {
+func flattenRoaringSegments(segments []roaringSet) (*sroar.Bitmap, error) {
 	if len(segments) == 0 {
 		return sroar.NewBitmap(), nil
 	}
 
-	if len(segments) > 1 {
-		return nil, fmt.Errorf("merging multiple segments not implemented yet")
-	}
-
 	cur := segments[0]
+	// TODO: is this copy really needed? aren't we already operating on copied
+	// bms?
 	merged := cur.additions.Clone()
+
+	for i := 1; i < len(segments); i++ {
+		merged.AndNot(segments[i].deletions)
+		merged.Or(segments[i].additions)
+	}
 
 	return merged, nil
 }

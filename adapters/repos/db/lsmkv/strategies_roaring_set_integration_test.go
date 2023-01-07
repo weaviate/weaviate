@@ -149,36 +149,35 @@ func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
 			require.Nil(t, b.FlushAndSwitch())
 		})
 
-		// TODO: enable when reading supports disk segments
-		// t.Run("extend some, delete some, keep some", func(t *testing.T) {
-		// 	additions2 := []uint64{5}
-		// 	removal3 := uint64(5)
+		t.Run("extend some, delete some, keep some", func(t *testing.T) {
+			additions2 := []uint64{5}
+			removal3 := uint64(5)
 
-		// 	err = b.RoaringSetAddList(key2, additions2)
-		// 	require.Nil(t, err)
-		// 	err = b.RoaringSetRemoveOne(key3, removal3)
-		// 	require.Nil(t, err)
+			err = b.RoaringSetAddList(key2, additions2)
+			require.Nil(t, err)
+			err = b.RoaringSetRemoveOne(key3, removal3)
+			require.Nil(t, err)
 
-		// 	res, err := b.RoaringSetGet(key1)
-		// 	require.Nil(t, err)
-		// 	for _, testVal := range []uint64{1, 2} { // unchanged values
-		// 		assert.True(t, res.Contains(testVal))
-		// 	}
+			res, err := b.RoaringSetGet(key1)
+			require.Nil(t, err)
+			for _, testVal := range []uint64{1, 2} { // unchanged values
+				assert.True(t, res.Contains(testVal))
+			}
 
-		// 	res, err = b.RoaringSetGet(key2)
-		// 	require.Nil(t, err)
-		// 	for _, testVal := range []uint64{3, 4, 5} { // ectended with 5
-		// 		assert.True(t, res.Contains(testVal))
-		// 	}
+			res, err = b.RoaringSetGet(key2)
+			require.Nil(t, err)
+			for _, testVal := range []uint64{3, 4, 5} { // ectended with 5
+				assert.True(t, res.Contains(testVal))
+			}
 
-		// 	res, err = b.RoaringSetGet(key3)
-		// 	require.Nil(t, err)
-		// 	for _, testVal := range []uint64{6} { // fewer remain
-		// 		assert.True(t, res.Contains(testVal))
-		// 	}
-		// 	for _, testVal := range []uint64{5} { // no longer contained
-		// 		assert.False(t, res.Contains(testVal))
-		// 	}
-		// })
+			res, err = b.RoaringSetGet(key3)
+			require.Nil(t, err)
+			for _, testVal := range []uint64{6} { // fewer remain
+				assert.True(t, res.Contains(testVal))
+			}
+			for _, testVal := range []uint64{5} { // no longer contained
+				assert.False(t, res.Contains(testVal))
+			}
+		})
 	})
 }
