@@ -27,6 +27,11 @@ type roaringSet struct {
 	deletions *sroar.Bitmap
 }
 
+type roaringSetInsert struct {
+	additions []uint64
+	deletions []uint64
+}
+
 func newRoaringSet() roaringSet {
 	return roaringSet{
 		additions: sroar.NewBitmap(),
@@ -34,13 +39,19 @@ func newRoaringSet() roaringSet {
 	}
 }
 
-func (t *binarySearchTreeRoaringSet) insert(key []byte, values roaringSet) {
+func newSroarFromList(list []uint64) *sroar.Bitmap {
+	bm := sroar.NewBitmap()
+	bm.SetMany(list)
+	return bm
+}
+
+func (t *binarySearchTreeRoaringSet) insert(key []byte, values roaringSetInsert) {
 	if t.root == nil {
 		t.root = &binarySearchNodeRoaringSet{
 			key: key,
 			value: roaringSet{
-				additions: values.additions.Clone(),
-				deletions: values.deletions.Clone(),
+				additions: newSroarFromList(values.additions),
+				deletions: newSroarFromList(values.deletions),
 			},
 			colourIsRed: false, // root node is always black
 		}
@@ -157,7 +168,7 @@ func addNewSearchNodeRoaringSetReceiver(nodePtr **binarySearchNodeRoaringSet) {
 	*nodePtr = &binarySearchNodeRoaringSet{}
 }
 
-func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSet) *binarySearchNodeRoaringSet {
+func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSetInsert) *binarySearchNodeRoaringSet {
 	if bytes.Equal(key, n.key) {
 		// Merging the new additions and deletions into the existing ones is a
 		// four-step process:
@@ -170,15 +181,16 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSet) *bina
 		// 4. actually add the new entries to deletions (this step is vital in case
 		//    a delete points to an entry of a previous segment that's not added in
 		//    this memtable)
-		if !values.additions.IsEmpty() && !n.value.deletions.IsEmpty() {
-			n.value.deletions.AndNot(values.additions)
+		for _, x := range values.additions {
+			n.value.deletions.Remove(x)
+			n.value.additions.Set(x)
 		}
-		n.value.additions.Or(values.additions)
 
-		if !values.deletions.IsEmpty() && !n.value.additions.IsEmpty() {
-			n.value.additions.AndNot(values.deletions)
+		for _, x := range values.deletions {
+			n.value.additions.Remove(x)
+			n.value.deletions.Set(x)
 		}
-		n.value.deletions.Or(values.deletions)
+
 		return nil
 	}
 
@@ -189,8 +201,8 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSet) *bina
 			n.left = &binarySearchNodeRoaringSet{
 				key: key,
 				value: roaringSet{
-					additions: values.additions.Clone(),
-					deletions: values.deletions.Clone(),
+					additions: newSroarFromList(values.additions),
+					deletions: newSroarFromList(values.deletions),
 				},
 				parent:      n,
 				colourIsRed: true,
@@ -204,8 +216,8 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSet) *bina
 			n.right = &binarySearchNodeRoaringSet{
 				key: key,
 				value: roaringSet{
-					additions: values.additions.Clone(),
-					deletions: values.deletions.Clone(),
+					additions: newSroarFromList(values.additions),
+					deletions: newSroarFromList(values.deletions),
 				},
 				parent:      n,
 				colourIsRed: true,
