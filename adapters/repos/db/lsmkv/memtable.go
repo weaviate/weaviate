@@ -72,13 +72,6 @@ func newMemtable(path string, strategy string,
 	return m, nil
 }
 
-type keyIndex struct {
-	key           []byte
-	secondaryKeys [][]byte
-	valueStart    int
-	valueEnd      int
-}
-
 func (l *Memtable) get(key []byte) ([]byte, error) {
 	start := time.Now()
 	defer l.metrics.get(start.UnixNano())
