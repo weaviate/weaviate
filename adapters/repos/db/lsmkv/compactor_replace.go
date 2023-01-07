@@ -17,6 +17,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type compactorReplace struct {
@@ -69,7 +70,7 @@ func (c *compactorReplace) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	dataEnd := uint64(kis[len(kis)-1].valueEnd)
+	dataEnd := uint64(kis[len(kis)-1].ValueEnd)
 
 	if err := c.writeHeader(c.currentLevel+1, 0, c.secondaryIndexCount, dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
@@ -90,14 +91,14 @@ func (c *compactorReplace) init() error {
 	return nil
 }
 
-func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
+func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 	res1, err1 := c.c1.firstWithAllKeys()
 	res2, err2 := c.c2.firstWithAllKeys()
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := SegmentHeaderSize
 
-	var kis []keyIndex
+	var kis []segmentindex.Key
 
 	for {
 		if res1.primaryKey == nil && res2.primaryKey == nil {
@@ -110,7 +111,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 				return nil, errors.Wrap(err, "write individual node (equal keys)")
 			}
 
-			offset = ki.valueEnd
+			offset = ki.ValueEnd
 			kis = append(kis, ki)
 
 			// advance both!
@@ -127,7 +128,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 				return nil, errors.Wrap(err, "write individual node (res1.primaryKey smaller)")
 			}
 
-			offset = ki.valueEnd
+			offset = ki.ValueEnd
 			kis = append(kis, ki)
 			res1, err1 = c.c1.nextWithAllKeys()
 		} else {
@@ -138,7 +139,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 				return nil, errors.Wrap(err, "write individual node (res2.primaryKey smaller)")
 			}
 
-			offset = ki.valueEnd
+			offset = ki.ValueEnd
 			kis = append(kis, ki)
 
 			res2, err2 = c.c2.nextWithAllKeys()
@@ -150,7 +151,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 
 func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 	secondaryKeys [][]byte, tombstone bool,
-) (keyIndex, error) {
+) (segmentindex.Key, error) {
 	segNode := segmentReplaceNode{
 		offset:              offset,
 		tombstone:           tombstone,
@@ -163,7 +164,7 @@ func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 	return segNode.KeyIndexAndWriteTo(c.bufw)
 }
 
-func (c *compactorReplace) writeIndices(keys []keyIndex) error {
+func (c *compactorReplace) writeIndices(keys []segmentindex.Key) error {
 	indices := &segmentIndices{
 		keys:                keys,
 		secondaryIndexCount: c.secondaryIndexCount,

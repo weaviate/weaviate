@@ -18,6 +18,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type compactorMap struct {
@@ -75,7 +76,7 @@ func (c *compactorMap) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	dataEnd := uint64(kis[len(kis)-1].valueEnd)
+	dataEnd := uint64(kis[len(kis)-1].ValueEnd)
 
 	if err := c.writeHeader(c.currentLevel+1, 0, c.secondaryIndexCount,
 		dataEnd); err != nil {
@@ -97,14 +98,14 @@ func (c *compactorMap) init() error {
 	return nil
 }
 
-func (c *compactorMap) writeKeys() ([]keyIndex, error) {
+func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 	offset := SegmentHeaderSize
 
-	var kis []keyIndex
+	var kis []segmentindex.Key
 	pairs := newReusableMapPairs()
 	me := newMapEncoder()
 	ssm := newSortedMapMerger()
@@ -157,7 +158,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 				return nil, errors.Wrap(err, "write individual node (equal keys)")
 			}
 
-			offset = ki.valueEnd
+			offset = ki.ValueEnd
 			kis = append(kis, ki)
 
 			// advance both!
@@ -173,7 +174,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 				return nil, errors.Wrap(err, "write individual node (key1 smaller)")
 			}
 
-			offset = ki.valueEnd
+			offset = ki.ValueEnd
 			kis = append(kis, ki)
 			key1, value1, _ = c.c1.next()
 		} else {
@@ -183,7 +184,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 				return nil, errors.Wrap(err, "write individual node (key2 smaller)")
 			}
 
-			offset = ki.valueEnd
+			offset = ki.ValueEnd
 			kis = append(kis, ki)
 
 			key2, value2, _ = c.c2.next()
@@ -195,7 +196,7 @@ func (c *compactorMap) writeKeys() ([]keyIndex, error) {
 
 func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 	values []value,
-) (keyIndex, error) {
+) (segmentindex.Key, error) {
 	return segmentCollectionNode{
 		values:     values,
 		primaryKey: key,
@@ -203,7 +204,7 @@ func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 	}.KeyIndexAndWriteTo(c.bufw)
 }
 
-func (c *compactorMap) writeIndices(keys []keyIndex) error {
+func (c *compactorMap) writeIndices(keys []segmentindex.Key) error {
 	indices := segmentIndices{
 		keys:                keys,
 		secondaryIndexCount: c.secondaryIndexCount,

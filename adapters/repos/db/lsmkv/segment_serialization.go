@@ -136,13 +136,13 @@ func parseSegmentHeader(r io.Reader) (*segmentHeader, error) {
 }
 
 type segmentIndices struct {
-	keys                []keyIndex
+	keys                []segmentindex.Key
 	secondaryIndexCount uint16
 	scratchSpacePath    string
 }
 
 func (s segmentIndices) WriteTo(w io.Writer) (int64, error) {
-	currentOffset := uint64(s.keys[len(s.keys)-1].valueEnd)
+	currentOffset := uint64(s.keys[len(s.keys)-1].ValueEnd)
 	var written int64
 
 	if _, err := os.Stat(s.scratchSpacePath); err == nil {
@@ -254,21 +254,21 @@ func (s segmentIndices) WriteTo(w io.Writer) (int64, error) {
 // pos indicates the position of a secondary index, assumes unsorted keys and
 // sorts them
 func (s *segmentIndices) buildAndMarshalSecondary(w io.Writer, pos int,
-	keys []keyIndex,
+	keys []segmentindex.Key,
 ) (int64, error) {
 	keyNodes := make([]segmentindex.Node, len(keys))
 	i := 0
 	for _, key := range keys {
-		if pos >= len(key.secondaryKeys) {
+		if pos >= len(key.SecondaryKeys) {
 			// a secondary key is not guaranteed to be present. For example, a delete
 			// operation could pe performed using only the primary key
 			continue
 		}
 
 		keyNodes[i] = segmentindex.Node{
-			Key:   key.secondaryKeys[pos],
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
+			Key:   key.SecondaryKeys[pos],
+			Start: uint64(key.ValueStart),
+			End:   uint64(key.ValueEnd),
 		}
 		i++
 	}
@@ -289,13 +289,13 @@ func (s *segmentIndices) buildAndMarshalSecondary(w io.Writer, pos int,
 }
 
 // assumes sorted keys and does NOT sort them again
-func (s *segmentIndices) buildAndMarshalPrimary(w io.Writer, keys []keyIndex) (int64, error) {
+func (s *segmentIndices) buildAndMarshalPrimary(w io.Writer, keys []segmentindex.Key) (int64, error) {
 	keyNodes := make([]segmentindex.Node, len(keys))
 	for i, key := range keys {
 		keyNodes[i] = segmentindex.Node{
-			Key:   key.key,
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
+			Key:   key.Key,
+			Start: uint64(key.ValueStart),
+			End:   uint64(key.ValueEnd),
 		}
 	}
 	index := segmentindex.NewBalanced(keyNodes)
@@ -318,8 +318,8 @@ type segmentReplaceNode struct {
 	offset              int
 }
 
-func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
-	out := keyIndex{}
+func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	out := segmentindex.Key{}
 	written := 0
 
 	buf := make([]byte, 9)
@@ -382,11 +382,11 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 		written += n
 	}
 
-	return keyIndex{
-		valueStart:    s.offset,
-		valueEnd:      s.offset + written,
-		key:           s.primaryKey,
-		secondaryKeys: s.secondaryKeys,
+	return segmentindex.Key{
+		ValueStart:    s.offset,
+		ValueEnd:      s.offset + written,
+		Key:           s.primaryKey,
+		SecondaryKeys: s.secondaryKeys,
 	}, nil
 }
 
@@ -523,8 +523,8 @@ type segmentCollectionNode struct {
 	offset     int
 }
 
-func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
-	out := keyIndex{}
+func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	out := segmentindex.Key{}
 	written := 0
 	valueLen := uint64(len(s.values))
 	buf := make([]byte, 9)
@@ -568,10 +568,10 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 	}
 	written += n
 
-	out = keyIndex{
-		valueStart: s.offset,
-		valueEnd:   s.offset + written,
-		key:        s.primaryKey,
+	out = segmentindex.Key{
+		ValueStart: s.offset,
+		ValueEnd:   s.offset + written,
+		Key:        s.primaryKey,
 	}
 
 	return out, nil
