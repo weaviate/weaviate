@@ -170,9 +170,14 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSet) *bina
 		// 4. actually add the new entries to deletions (this step is vital in case
 		//    a delete points to an entry of a previous segment that's not added in
 		//    this memtable)
-		n.value.deletions.AndNot(values.additions)
+		if !values.additions.IsEmpty() && !n.value.deletions.IsEmpty() {
+			n.value.deletions.AndNot(values.additions)
+		}
 		n.value.additions.Or(values.additions)
-		n.value.additions.AndNot(values.deletions)
+
+		if !values.deletions.IsEmpty() && !n.value.additions.IsEmpty() {
+			n.value.additions.AndNot(values.deletions)
+		}
 		n.value.deletions.Or(values.deletions)
 		return nil
 	}
