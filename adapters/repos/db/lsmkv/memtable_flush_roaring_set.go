@@ -51,6 +51,7 @@ func (l *Memtable) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) 
 func totalPayloadSizeRoaringSet(in []*roaringset.BinarySearchNode) int {
 	var sum int
 	for _, n := range in {
+		sum += 8 // uint64 to segment length
 		sum += 8 // uint64 to indicate length of additions bitmap
 		sum += len(n.Value.Additions.ToBuffer())
 		sum += 8 // uint64 to indicate length of deletions bitmap
