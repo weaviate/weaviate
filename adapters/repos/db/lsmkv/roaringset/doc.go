@@ -10,7 +10,8 @@
 // persistent Roaring Bitmap that can be built up and updated incrementally
 // (without write amplificiation) while being extremly fast to query.
 //
-// Without this specfic strategy, it would not be efficient to use roaring maps in an LSM store. For example:
+// Without this specfic strategy, it would not be efficient to use roaring
+// bitmaps in an LSM store. For example:
 //
 //   - Lucene uses posting lists in the inverted index on disk and supports
 //     converting them to a Roaring Bitmap at query time. This resulting bitmap
