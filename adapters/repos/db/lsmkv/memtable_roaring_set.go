@@ -14,7 +14,7 @@ func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {
 
 	// TODO: write into commit log
 
-	m.roaringSet.insert(key, roaringSetInsert{additions: []uint64{value}})
+	m.roaringSet.Insert(key, roaringset.Insert{Additions: []uint64{value}})
 
 	m.roaringSetAdjustMeta(1)
 	return nil
@@ -27,7 +27,7 @@ func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
 
 	// TODO: write into commit log
 
-	m.roaringSet.insert(key, roaringSetInsert{deletions: []uint64{value}})
+	m.roaringSet.Insert(key, roaringset.Insert{Deletions: []uint64{value}})
 
 	m.roaringSetAdjustMeta(1)
 	return nil
@@ -40,7 +40,7 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 
 	// TODO: write into commit log
 
-	m.roaringSet.insert(key, roaringSetInsert{additions: values})
+	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
 
 	m.roaringSetAdjustMeta(len(values))
 	return nil
@@ -53,7 +53,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 
 	// TODO: write into commit log
 
-	m.roaringSet.insert(key, roaringSetInsert{additions: bm.ToArray()})
+	m.roaringSet.Insert(key, roaringset.Insert{Additions: bm.ToArray()})
 	m.roaringSetAdjustMeta(bm.GetCardinality())
 	return nil
 }
@@ -63,7 +63,7 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return roaringset.BitmapLayer{}, err
 	}
 
-	s, err := m.roaringSet.get(key)
+	s, err := m.roaringSet.Get(key)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
 	}

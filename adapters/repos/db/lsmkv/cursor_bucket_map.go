@@ -16,6 +16,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
 )
 
 type CursorMap struct {
@@ -101,7 +102,7 @@ func (c *CursorMap) seekAll(target []byte) {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if err == NotFound {
+		if err == ent.NotFound {
 			state[i].err = err
 			continue
 		}
@@ -123,7 +124,7 @@ func (c *CursorMap) firstAll() {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if err == NotFound {
+		if err == ent.NotFound {
 			state[i].err = err
 			continue
 		}
@@ -144,13 +145,13 @@ func (c *CursorMap) firstAll() {
 func (c *CursorMap) serveCurrentStateAndAdvance() ([]byte, []MapPair) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
-		if err == NotFound {
+		if err == ent.NotFound {
 			return nil, nil
 		}
 	}
 
 	// check if this is a duplicate key before checking for the remaining errors,
-	// as cases such as 'Deleted' can be better handled inside
+	// as cases such as 'ent.Deleted' can be better handled inside
 	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
 	// segments in the correct order
 	if ids, ok := c.haveDuplicatesInState(id); ok {
@@ -161,12 +162,12 @@ func (c *CursorMap) serveCurrentStateAndAdvance() ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) cursorWithLowestKey() (int, error) {
-	err := NotFound
+	err := ent.NotFound
 	pos := -1
 	var lowest []byte
 
 	for i, res := range c.state {
-		if res.err == NotFound {
+		if res.err == ent.NotFound {
 			continue
 		}
 
@@ -249,14 +250,14 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 
 func (c *CursorMap) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if err == NotFound {
+	if err == ent.NotFound {
 		c.state[id].err = err
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
 	}
 
-	if err == Deleted {
+	if err == ent.Deleted {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil

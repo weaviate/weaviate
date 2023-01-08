@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/ent"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -188,11 +189,11 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	for i := topMostSegment; i >= 0; i-- {
 		v, err := sg.segments[i].get(key)
 		if err != nil {
-			if err == NotFound {
+			if err == ent.NotFound {
 				continue
 			}
 
-			if err == Deleted {
+			if err == ent.Deleted {
 				return nil, nil
 			}
 
@@ -216,11 +217,11 @@ func (sg *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
 	for i := len(sg.segments) - 1; i >= 0; i-- {
 		v, err := sg.segments[i].getBySecondary(pos, key)
 		if err != nil {
-			if err == NotFound {
+			if err == ent.NotFound {
 				continue
 			}
 
-			if err == Deleted {
+			if err == ent.Deleted {
 				return nil, nil
 			}
 
@@ -243,7 +244,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == NotFound {
+			if err == ent.NotFound {
 				continue
 			}
 
@@ -271,7 +272,7 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == NotFound {
+			if err == ent.NotFound {
 				continue
 			}
 
@@ -295,7 +296,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, erro
 	for _, segment := range sg.segments {
 		rs, err := segment.roaringSetGet(key)
 		if err != nil {
-			if err == NotFound {
+			if err == ent.NotFound {
 				continue
 			}
 

@@ -17,6 +17,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -106,7 +107,7 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 		}
 		if bytes.Equal(res1.primaryKey, res2.primaryKey) {
 			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-				res2.secondaryKeys, err2 == Deleted)
+				res2.secondaryKeys, err2 == ent.Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (equal keys)")
 			}
@@ -123,7 +124,7 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 		if (res1.primaryKey != nil && bytes.Compare(res1.primaryKey, res2.primaryKey) == -1) || res2.primaryKey == nil {
 			// key 1 is smaller
 			ki, err := c.writeIndividualNode(offset, res1.primaryKey, res1.value,
-				res1.secondaryKeys, err1 == Deleted)
+				res1.secondaryKeys, err1 == ent.Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (res1.primaryKey smaller)")
 			}
@@ -134,7 +135,7 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 		} else {
 			// key 2 is smaller
 			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-				res2.secondaryKeys, err2 == Deleted)
+				res2.secondaryKeys, err2 == ent.Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (res2.primaryKey smaller)")
 			}

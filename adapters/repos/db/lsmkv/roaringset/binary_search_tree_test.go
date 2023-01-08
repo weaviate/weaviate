@@ -1,4 +1,4 @@
-package lsmkv
+package roaringset
 
 import (
 	"testing"
@@ -9,12 +9,12 @@ import (
 
 func TestBSTRoaringSet(t *testing.T) {
 	t.Run("single key, single set entry", func(t *testing.T) {
-		bst := &binarySearchTreeRoaringSet{}
+		bst := &BinarySearchTree{}
 		key := []byte("my-key")
 
-		bst.insert(key, roaringSetInsert{additions: []uint64{7}})
+		bst.Insert(key, Insert{Additions: []uint64{7}})
 
-		res, err := bst.get(key)
+		res, err := bst.Get(key)
 		require.Nil(t, err)
 
 		assert.False(t, res.Additions.Contains(6))
@@ -22,14 +22,14 @@ func TestBSTRoaringSet(t *testing.T) {
 	})
 
 	t.Run("single key, set updated multiple times", func(t *testing.T) {
-		bst := &binarySearchTreeRoaringSet{}
+		bst := &BinarySearchTree{}
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 14; i++ {
-			bst.insert(key, roaringSetInsert{additions: []uint64{i}})
+			bst.Insert(key, Insert{Additions: []uint64{i}})
 		}
 
-		res, err := bst.get(key)
+		res, err := bst.Get(key)
 		require.Nil(t, err)
 
 		assert.False(t, res.Additions.Contains(6))
@@ -40,50 +40,50 @@ func TestBSTRoaringSet(t *testing.T) {
 	})
 
 	t.Run("single key, entry added, then deleted", func(t *testing.T) {
-		bst := &binarySearchTreeRoaringSet{}
+		bst := &BinarySearchTree{}
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 11; i++ {
-			bst.insert(key, roaringSetInsert{additions: []uint64{i}})
+			bst.Insert(key, Insert{Additions: []uint64{i}})
 		}
 
-		bst.insert(key, roaringSetInsert{deletions: []uint64{9}})
+		bst.Insert(key, Insert{Deletions: []uint64{9}})
 
-		res, err := bst.get(key)
+		res, err := bst.Get(key)
 		require.Nil(t, err)
 
-		// check additions
+		// check Additions
 		assert.True(t, res.Additions.Contains(7))
 		assert.True(t, res.Additions.Contains(8))
 		assert.False(t, res.Additions.Contains(9))
 		assert.True(t, res.Additions.Contains(10))
 
-		// check deletions
+		// check Deletions
 		assert.True(t, res.Deletions.Contains(9))
 	})
 
 	t.Run("single key, entry added, then deleted, then re-added", func(t *testing.T) {
-		bst := &binarySearchTreeRoaringSet{}
+		bst := &BinarySearchTree{}
 		key := []byte("my-key")
 
 		for i := uint64(7); i < 11; i++ {
-			bst.insert(key, roaringSetInsert{additions: []uint64{i}})
+			bst.Insert(key, Insert{Additions: []uint64{i}})
 		}
 
-		bst.insert(key, roaringSetInsert{deletions: []uint64{9}})
+		bst.Insert(key, Insert{Deletions: []uint64{9}})
 
-		bst.insert(key, roaringSetInsert{additions: []uint64{9}})
+		bst.Insert(key, Insert{Additions: []uint64{9}})
 
-		res, err := bst.get(key)
+		res, err := bst.Get(key)
 		require.Nil(t, err)
 
-		// check additions
+		// check Additions
 		assert.True(t, res.Additions.Contains(7))
 		assert.True(t, res.Additions.Contains(8))
 		assert.True(t, res.Additions.Contains(9))
 		assert.True(t, res.Additions.Contains(10))
 
-		// check deletions
+		// check Deletions
 		assert.False(t, res.Deletions.Contains(9))
 	})
 }
