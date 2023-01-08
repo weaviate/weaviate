@@ -21,8 +21,10 @@ func TestSerialization_HappyPath(t *testing.T) {
 	require.Nil(t, err)
 
 	buf := sn.ToBuffer()
+	assert.Equal(t, sn.Len(), uint64(len(buf)))
 
 	newSN := NewSegmentNodeFromBuffer(buf)
+	assert.Equal(t, newSN.Len(), uint64(len(buf)))
 
 	// without copying
 	newAdditions := newSN.Additions()
@@ -40,6 +42,31 @@ func TestSerialization_HappyPath(t *testing.T) {
 	newDeletions = newSN.DeletionsWithCopy()
 	assert.False(t, newDeletions.Contains(4))
 	assert.True(t, newDeletions.Contains(5))
+}
+
+func TestSerialization_InitializingFromBufferTooLarge(t *testing.T) {
+	additions := sroar.NewBitmap()
+	additions.SetMany([]uint64{1, 2, 3, 4, 6})
+	deletions := sroar.NewBitmap()
+	deletions.SetMany([]uint64{5, 7})
+	key := []byte("my-key")
+
+	sn, err := NewSegmentNode(key, additions, deletions)
+	require.Nil(t, err)
+
+	buf := sn.ToBuffer()
+	assert.Equal(t, sn.Len(), uint64(len(buf)))
+
+	bufTooLarge := make([]byte, 3*len(buf))
+	copy(bufTooLarge, buf)
+
+	newSN := NewSegmentNodeFromBuffer(buf)
+	// assert that the buffer self reports the useful length, not the length of
+	// the initialization buffer
+	assert.Equal(t, newSN.Len(), uint64(len(buf)))
+	// assert that ToBuffer() returns a buffer that is no longer than the useful
+	// length
+	assert.Equal(t, len(buf), len(newSN.ToBuffer()))
 }
 
 func TestSerialization_UnhappyPath(t *testing.T) {

@@ -32,12 +32,14 @@ import (
 //
 //	byte begin-start    | description
 //	--------------------|-----------------------------------------------------
-//	0-8                 | uint64 length indicator for additions sraor bm -> x
-//	8-(x+8)             | additions bitmap
-//	(x+8)-(x+16         | uint64 length indicator for deletions sroar bm -> y
-//	(x+16)-(x+y+16)     | deletions bitmap
-//	(x+y+16)-(x+y+20)   | uint32 length indicator for primary key length -> z
-//	(x+y+20)-(x+y+z+20) | primary key
+//	0-8                 | uint64 indicating the total length of the node,
+//	                    | this is used in cursors to identify the next node.
+//	8-16                | uint64 length indicator for additions sraor bm -> x
+//	16-(x+16)           | additions bitmap
+//	(x+16)-(x+24)       | uint64 length indicator for deletions sroar bm -> y
+//	(x+24)-(x+y+24)     | deletions bitmap
+//	(x+y+24)-(x+y+28)   | uint32 length indicator for primary key length -> z
+//	(x+y+28)-(x+y+z+28) | primary key
 type SegmentNode struct {
 	// Offset is not persisted in the node itself, but it is respected when
 	// building a [segmentindex.Key] using [*SegmentNode.KeyIndexAndWriteTo].
@@ -47,13 +49,20 @@ type SegmentNode struct {
 	data []byte
 }
 
+// Len indicates the total length of the [SegmentNode]. When reading multiple
+// segments back-2-back, such as in a cursor situation, the offset of element
+// (n+1) is the offset of element n + Len()
+func (sn *SegmentNode) Len() uint64 {
+	return binary.LittleEndian.Uint64(sn.data[0:8])
+}
+
 // Additions returns the additions roaring bitmap with shared state. Only use
 // this method if you can garantuee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[0:8])
-	return sroar.FromBuffer(sn.data[8 : 8+additionsLength])
+	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
+	return sroar.FromBuffer(sn.data[16 : 16+additionsLength])
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -63,8 +72,8 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[0:8])
-	return sroar.FromBufferWithCopy(sn.data[8 : 8+additionsLength])
+	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
+	return sroar.FromBufferWithCopy(sn.data[16 : 16+additionsLength])
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
@@ -72,8 +81,8 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[0:8])
-	offset := additionsLength + 8
+	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
+	offset := additionsLength + 16
 	deletionsLength := binary.LittleEndian.Uint64(sn.data[offset : offset+8])
 	offset += 8
 	return sroar.FromBuffer(sn.data[offset : offset+deletionsLength])
@@ -86,16 +95,16 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Deletions].
 func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[0:8])
-	offset := additionsLength + 8
+	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
+	offset := additionsLength + 16
 	deletionsLength := binary.LittleEndian.Uint64(sn.data[offset : offset+8])
 	offset += 8
 	return sroar.FromBufferWithCopy(sn.data[offset : offset+deletionsLength])
 }
 
 func (sn *SegmentNode) PrimaryKey() []byte {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[0:8])
-	offset := additionsLength + 8
+	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
+	offset := additionsLength + 16
 	deletionsLength := binary.LittleEndian.Uint64(sn.data[offset : offset+8])
 	offset += 8 + deletionsLength
 	keyLen := binary.LittleEndian.Uint32(sn.data[offset : offset+4])
@@ -113,12 +122,12 @@ func NewSegmentNode(
 	additionsBuf := additions.ToBuffer()
 	deletionsBuf := deletions.ToBuffer()
 
-	expectedSize := 8 + 8 + 4 + len(additionsBuf) + len(deletionsBuf) + len(key)
+	expectedSize := 8 + 8 + 8 + 4 + len(additionsBuf) + len(deletionsBuf) + len(key)
 	sn := SegmentNode{
 		data: make([]byte, expectedSize),
 	}
 
-	offset := uint64(0)
+	offset := uint64(8)
 	binary.LittleEndian.PutUint64(sn.data[offset:offset+8], uint64(len(additionsBuf)))
 	offset += 8
 	copy(sn.data[offset:offset+uint64(len(additionsBuf))], additionsBuf)
@@ -134,13 +143,24 @@ func NewSegmentNode(
 	copy(sn.data[offset:offset+uint64(len(key))], key)
 	offset += uint64(len(key))
 
+	// finally write the offset itself at the beginning
+	binary.LittleEndian.PutUint64(sn.data[:8], offset)
+
 	return &sn, nil
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
-// when you can be sure that it's safe to share the data, or create your own copy.
+// when you can be sure that it's safe to share the data, or create your own
+// copy.
+//
+// It truncates the buffer at is own length, in case it was initialized with a
+// long buffer that only had a beginning offset, but no end. Such a situation
+// may occur with cursors. If we then returned the whole buffer and don't know
+// what the caller plans on doing with the data, we risk passing around too
+// much memory. Truncating at the length prevents this and has no other
+// negative effects.
 func (sn *SegmentNode) ToBuffer() []byte {
-	return sn.data
+	return sn.data[:sn.Len()]
 }
 
 // NewSegmentNodeFromBuffer creates a new segment node by using the underlying
