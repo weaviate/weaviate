@@ -1,6 +1,10 @@
 package roaringset
 
-import "github.com/dgraph-io/sroar"
+import (
+	"fmt"
+
+	"github.com/dgraph-io/sroar"
+)
 
 // A BitmapLayer contains all the bitmap related delta-information stored for a
 // specific key in one layer. A layer typically corresponds to one disk segment
@@ -74,6 +78,28 @@ func (bml BitmapLayers) Flatten() *sroar.Bitmap {
 	return merged
 }
 
-func (bml BitmapLayers) Merge() BitmapLayer {
-	panic("not implemented")
+// Merge turns two successive layers into one. It does not flatten the segment,
+// but keeps additions and deletions separate. This is because there are no
+// guarantees that the first segment was the root segment. A merge could run on
+// segments 3+4 and they could contain deletions of elements that were added in
+// segments 1 or 2.
+//
+// Merge is intended to be used as part of compactions.
+func (bml BitmapLayers) Merge() (BitmapLayer, error) {
+	out := BitmapLayer{}
+	if len(bml) != 2 {
+		return out, fmt.Errorf("merge requires exactly two input segments")
+	}
+
+	left, right := bml[0], bml[1]
+
+	out.Additions = left.Additions.Clone()
+	out.Additions.Or(right.Additions)
+	out.Additions.AndNot(right.Deletions)
+
+	out.Deletions = left.Deletions.Clone()
+	out.Deletions.AndNot(right.Additions)
+	out.Deletions.Or(right.Deletions)
+
+	return out, nil
 }
