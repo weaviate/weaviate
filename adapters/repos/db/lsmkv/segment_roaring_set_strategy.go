@@ -7,8 +7,8 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (i *segment) roaringSetGet(key []byte) (roaringSet, error) {
-	out := roaringSet{}
+func (i *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+	out := roaringset.BitmapLayer{}
 
 	if i.strategy != SegmentStrategyRoaringSet {
 		return out, fmt.Errorf("need strategy %s", StrategyRoaringSet)
@@ -32,7 +32,7 @@ func (i *segment) roaringSetGet(key []byte) (roaringSet, error) {
 	// make sure that any data is copied before exiting this method, otherwise we
 	// risk a SEGFAULT as described in
 	// https://github.com/semi-technologies/weaviate/issues/1837
-	out.additions = sn.AdditionsWithCopy()
-	out.deletions = sn.DeletionsWithCopy()
+	out.Additions = sn.AdditionsWithCopy()
+	out.Deletions = sn.DeletionsWithCopy()
 	return out, nil
 }

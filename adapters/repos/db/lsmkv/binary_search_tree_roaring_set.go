@@ -16,6 +16,7 @@ import (
 
 	"github.com/dgraph-io/sroar"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 type binarySearchTreeRoaringSet struct {
@@ -49,9 +50,9 @@ func (t *binarySearchTreeRoaringSet) insert(key []byte, values roaringSetInsert)
 	if t.root == nil {
 		t.root = &binarySearchNodeRoaringSet{
 			key: key,
-			value: roaringSet{
-				additions: newSroarFromList(values.additions),
-				deletions: newSroarFromList(values.deletions),
+			value: roaringset.BitmapLayer{
+				Additions: newSroarFromList(values.additions),
+				Deletions: newSroarFromList(values.deletions),
 			},
 			colourIsRed: false, // root node is always black
 		}
@@ -64,7 +65,7 @@ func (t *binarySearchTreeRoaringSet) insert(key []byte, values roaringSetInsert)
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 }
 
-func (t *binarySearchTreeRoaringSet) get(key []byte) (*roaringSet, error) {
+func (t *binarySearchTreeRoaringSet) get(key []byte) (*roaringset.BitmapLayer, error) {
 	if t.root == nil {
 		return nil, NotFound
 	}
@@ -82,7 +83,7 @@ func (t *binarySearchTreeRoaringSet) flattenInOrder() []*binarySearchNodeRoaring
 
 type binarySearchNodeRoaringSet struct {
 	key         []byte
-	value       roaringSet
+	value       roaringset.BitmapLayer
 	left        *binarySearchNodeRoaringSet
 	right       *binarySearchNodeRoaringSet
 	parent      *binarySearchNodeRoaringSet
@@ -182,13 +183,13 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSetInsert)
 		//    a delete points to an entry of a previous segment that's not added in
 		//    this memtable)
 		for _, x := range values.additions {
-			n.value.deletions.Remove(x)
-			n.value.additions.Set(x)
+			n.value.Deletions.Remove(x)
+			n.value.Additions.Set(x)
 		}
 
 		for _, x := range values.deletions {
-			n.value.additions.Remove(x)
-			n.value.deletions.Set(x)
+			n.value.Additions.Remove(x)
+			n.value.Deletions.Set(x)
 		}
 
 		return nil
@@ -200,9 +201,9 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSetInsert)
 		} else {
 			n.left = &binarySearchNodeRoaringSet{
 				key: key,
-				value: roaringSet{
-					additions: newSroarFromList(values.additions),
-					deletions: newSroarFromList(values.deletions),
+				value: roaringset.BitmapLayer{
+					Additions: newSroarFromList(values.additions),
+					Deletions: newSroarFromList(values.deletions),
 				},
 				parent:      n,
 				colourIsRed: true,
@@ -215,9 +216,9 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSetInsert)
 		} else {
 			n.right = &binarySearchNodeRoaringSet{
 				key: key,
-				value: roaringSet{
-					additions: newSroarFromList(values.additions),
-					deletions: newSroarFromList(values.deletions),
+				value: roaringset.BitmapLayer{
+					Additions: newSroarFromList(values.additions),
+					Deletions: newSroarFromList(values.deletions),
 				},
 				parent:      n,
 				colourIsRed: true,
@@ -227,7 +228,7 @@ func (n *binarySearchNodeRoaringSet) insert(key []byte, values roaringSetInsert)
 	}
 }
 
-func (n *binarySearchNodeRoaringSet) get(key []byte) (*roaringSet, error) {
+func (n *binarySearchNodeRoaringSet) get(key []byte) (*roaringset.BitmapLayer, error) {
 	if bytes.Equal(n.key, key) {
 		return &n.value, nil
 	}

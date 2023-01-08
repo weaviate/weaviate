@@ -1,14 +1,13 @@
-package lsmkv
+package roaringset
 
 import (
 	"testing"
 
 	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func Test_flattenRoaringSegments(t *testing.T) {
+func Test_BitmapLayers_Flatten(t *testing.T) {
 	type inputSegment struct {
 		additions []uint64
 		deletions []uint64
@@ -89,17 +88,15 @@ func Test_flattenRoaringSegments(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input := make([]roaringSet, len(test.inputs))
+			input := make(BitmapLayers, len(test.inputs))
 			for i, inp := range test.inputs {
-				input[i].additions = sroar.NewBitmap()
-				input[i].additions.SetMany(inp.additions)
-				input[i].deletions = sroar.NewBitmap()
-				input[i].deletions.SetMany(inp.deletions)
+				input[i].Additions = sroar.NewBitmap()
+				input[i].Additions.SetMany(inp.additions)
+				input[i].Deletions = sroar.NewBitmap()
+				input[i].Deletions.SetMany(inp.deletions)
 			}
 
-			res, err := flattenRoaringSegments(input)
-			require.Nil(t, err)
-
+			res := input.Flatten()
 			for _, x := range test.expectedContained {
 				assert.True(t, res.Contains(x))
 			}
