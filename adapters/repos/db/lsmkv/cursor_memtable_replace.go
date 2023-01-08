@@ -13,6 +13,8 @@ package lsmkv
 
 import (
 	"bytes"
+
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
 )
 
 type memtableCursor struct {
@@ -47,13 +49,13 @@ func (c *memtableCursor) first() ([]byte, []byte, error) {
 	defer c.unlock()
 
 	if len(c.data) == 0 {
-		return nil, nil, NotFound
+		return nil, nil, ent.NotFound
 	}
 
 	c.current = 0
 
 	if c.data[c.current].tombstone {
-		return c.data[c.current].key, nil, Deleted
+		return c.data[c.current].key, nil, ent.Deleted
 	}
 	return c.data[c.current].key, c.data[c.current].value, nil
 }
@@ -64,12 +66,12 @@ func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
 
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
-		return nil, nil, NotFound
+		return nil, nil, ent.NotFound
 	}
 
 	c.current = pos
 	if c.data[c.current].tombstone {
-		return c.data[c.current].key, nil, Deleted
+		return c.data[c.current].key, nil, ent.Deleted
 	}
 	return c.data[pos].key, c.data[pos].value, nil
 }
@@ -90,11 +92,11 @@ func (c *memtableCursor) next() ([]byte, []byte, error) {
 
 	c.current++
 	if c.current >= len(c.data) {
-		return nil, nil, NotFound
+		return nil, nil, ent.NotFound
 	}
 
 	if c.data[c.current].tombstone {
-		return c.data[c.current].key, nil, Deleted
+		return c.data[c.current].key, nil, ent.Deleted
 	}
 	return c.data[c.current].key, c.data[c.current].value, nil
 }

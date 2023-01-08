@@ -15,6 +15,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +65,7 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 
 	t.Run("retrieve by initial secondary - should not find anything", func(t *testing.T) {
 		val, err := m.getBySecondary(0, []byte("secondary-key-initial"))
-		assert.Equal(t, NotFound, err)
+		assert.Equal(t, ent.NotFound, err)
 		assert.Nil(t, val)
 	})
 }

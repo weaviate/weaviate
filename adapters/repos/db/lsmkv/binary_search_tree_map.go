@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"sort"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/ent"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
 
@@ -40,7 +41,7 @@ func (t *binarySearchTreeMap) insert(key []byte, pair MapPair) {
 
 func (t *binarySearchTreeMap) get(key []byte) ([]MapPair, error) {
 	if t.root == nil {
-		return nil, NotFound
+		return nil, ent.NotFound
 	}
 
 	return t.root.get(key)
@@ -182,13 +183,13 @@ func (n *binarySearchNodeMap) get(key []byte) ([]MapPair, error) {
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left == nil {
-			return nil, NotFound
+			return nil, ent.NotFound
 		}
 
 		return n.left.get(key)
 	} else {
 		if n.right == nil {
-			return nil, NotFound
+			return nil, ent.NotFound
 		}
 
 		return n.right.get(key)

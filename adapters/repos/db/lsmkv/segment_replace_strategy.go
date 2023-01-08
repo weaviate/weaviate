@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/ent"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -29,14 +30,14 @@ func (i *segment) get(key []byte) ([]byte, error) {
 
 	if !i.bloomFilter.Test(key) {
 		i.bloomFilterMetrics.trueNegative(before)
-		return nil, NotFound
+		return nil, ent.NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
 			i.bloomFilterMetrics.falsePositive(before)
-			return nil, NotFound
+			return nil, ent.NotFound
 		} else {
 			return nil, err
 		}
@@ -71,13 +72,13 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 	}
 
 	if !i.secondaryBloomFilters[pos].Test(key) {
-		return nil, NotFound
+		return nil, ent.NotFound
 	}
 
 	node, err := i.secondaryIndices[pos].Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
-			return nil, NotFound
+			return nil, ent.NotFound
 		} else {
 			return nil, err
 		}
@@ -102,7 +103,7 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	if len(in) == 0 {
-		return nil, NotFound
+		return nil, ent.NotFound
 	}
 
 	// byte         meaning
@@ -112,7 +113,7 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 
 	// check the tombstone byte
 	if in[0] == 0x01 {
-		return nil, Deleted
+		return nil, ent.Deleted
 	}
 
 	valueLength := binary.LittleEndian.Uint64(in[1:9])
@@ -122,7 +123,7 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 
 func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
 	if len(in) == 0 {
-		return segmentReplaceNode{}, NotFound
+		return segmentReplaceNode{}, ent.NotFound
 	}
 
 	r := bytes.NewReader(in)
@@ -133,7 +134,7 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, e
 	}
 
 	if out.tombstone {
-		return out, Deleted
+		return out, ent.Deleted
 	}
 
 	return out, nil
@@ -143,7 +144,7 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 	node *segmentReplaceNode,
 ) error {
 	if len(in) == 0 {
-		return NotFound
+		return ent.NotFound
 	}
 
 	r := bytes.NewReader(in)
@@ -154,7 +155,7 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 	}
 
 	if node.tombstone {
-		return Deleted
+		return ent.Deleted
 	}
 
 	return nil

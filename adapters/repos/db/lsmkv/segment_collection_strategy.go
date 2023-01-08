@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/ent"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -27,13 +28,13 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 	}
 
 	if !i.bloomFilter.Test(key) {
-		return nil, NotFound
+		return nil, ent.NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
-			return nil, NotFound
+			return nil, ent.NotFound
 		} else {
 			return nil, err
 		}
@@ -60,7 +61,7 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 
 func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
 	if len(in) == 0 {
-		return nil, NotFound
+		return nil, ent.NotFound
 	}
 
 	offset := 0
@@ -90,7 +91,7 @@ func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionN
 	r := bytes.NewReader(in)
 
 	if len(in) == 0 {
-		return segmentCollectionNode{}, NotFound
+		return segmentCollectionNode{}, ent.NotFound
 	}
 
 	return ParseCollectionNode(r)
@@ -98,7 +99,7 @@ func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionN
 
 func (i *segment) collectionStratParseDataWithKeyInto(in []byte, node *segmentCollectionNode) error {
 	if len(in) == 0 {
-		return NotFound
+		return ent.NotFound
 	}
 
 	return ParseCollectionNodeInto(in, node)

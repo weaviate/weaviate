@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 type Memtable struct {
@@ -25,7 +27,7 @@ type Memtable struct {
 	keyMulti           *binarySearchTreeMulti
 	keyMap             *binarySearchTreeMap
 	primaryIndex       *binarySearchTree
-	roaringSet         *binarySearchTreeRoaringSet
+	roaringSet         *roaringset.BinarySearchTree
 	commitlog          *commitLogger
 	size               uint64
 	path               string
@@ -50,7 +52,7 @@ func newMemtable(path string, strategy string,
 		keyMulti:         &binarySearchTreeMulti{},
 		keyMap:           &binarySearchTreeMap{},
 		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
-		roaringSet:       &binarySearchTreeRoaringSet{},
+		roaringSet:       &roaringset.BinarySearchTree{},
 		commitlog:        cl,
 		path:             path,
 		strategy:         strategy,
@@ -104,7 +106,7 @@ func (l *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 	primary := l.secondaryToPrimary[pos][string(key)]
 	if primary == nil {
-		return nil, NotFound
+		return nil, ent.NotFound
 	}
 
 	v, err := l.key.get(primary)

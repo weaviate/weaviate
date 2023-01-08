@@ -23,11 +23,6 @@ import (
 	"github.com/willf/bloom"
 )
 
-var (
-	NotFound = errors.Errorf("not found")
-	Deleted  = errors.Errorf("deleted")
-)
-
 type segment struct {
 	path                  string
 	level                 uint16
