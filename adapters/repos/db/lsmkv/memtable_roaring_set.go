@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/sroar"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {
@@ -57,14 +58,14 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return nil
 }
 
-func (m *Memtable) roaringSetGet(key []byte) (roaringSet, error) {
+func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
-		return roaringSet{}, err
+		return roaringset.BitmapLayer{}, err
 	}
 
 	s, err := m.roaringSet.get(key)
 	if err != nil {
-		return roaringSet{}, err
+		return roaringset.BitmapLayer{}, err
 	}
 
 	return *s, nil

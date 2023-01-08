@@ -29,8 +29,8 @@ func (l *Memtable) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) 
 
 	totalWritten := headerSize
 	for i, node := range flat {
-		sn, err := roaringset.NewSegmentNode(node.key, node.value.additions,
-			node.value.deletions)
+		sn, err := roaringset.NewSegmentNode(node.key, node.value.Additions,
+			node.value.Deletions)
 		if err != nil {
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
@@ -52,9 +52,9 @@ func totalPayloadSizeRoaringSet(in []*binarySearchNodeRoaringSet) int {
 	var sum int
 	for _, n := range in {
 		sum += 8 // uint64 to indicate length of additions bitmap
-		sum += len(n.value.additions.ToBuffer())
+		sum += len(n.value.Additions.ToBuffer())
 		sum += 8 // uint64 to indicate length of deletions bitmap
-		sum += len(n.value.deletions.ToBuffer())
+		sum += len(n.value.Deletions.ToBuffer())
 		sum += 4 // uint32 to indicate key size
 		sum += len(n.key)
 	}

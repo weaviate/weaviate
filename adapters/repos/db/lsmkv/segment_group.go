@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
@@ -284,11 +285,11 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	return out[:i], nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) ([]roaringSet, error) {
+func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
-	var out []roaringSet
+	var out roaringset.BitmapLayers
 
 	// start with first and do not exit
 	for _, segment := range sg.segments {

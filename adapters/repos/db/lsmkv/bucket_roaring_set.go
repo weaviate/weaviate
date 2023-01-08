@@ -83,25 +83,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 		segments = append(segments, memtable)
 	}
 
-	return flattenRoaringSegments(segments)
-}
-
-func flattenRoaringSegments(segments []roaringSet) (*sroar.Bitmap, error) {
-	if len(segments) == 0 {
-		return sroar.NewBitmap(), nil
-	}
-
-	cur := segments[0]
-	// TODO: is this copy really needed? aren't we already operating on copied
-	// bms?
-	merged := cur.additions.Clone()
-
-	for i := 1; i < len(segments); i++ {
-		merged.AndNot(segments[i].deletions)
-		merged.Or(segments[i].additions)
-	}
-
-	return merged, nil
+	return segments.Flatten(), nil
 }
 
 func checkStrategyRoaringSet(bucketStrat string) error {

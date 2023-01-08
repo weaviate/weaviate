@@ -23,17 +23,17 @@ func TestMemtableRoaringSet(t *testing.T) {
 
 		setKey1, err := m.roaringSetGet(key1)
 		require.Nil(t, err)
-		assert.True(t, setKey1.additions.Contains(1))
-		assert.True(t, setKey1.additions.Contains(2))
-		assert.False(t, setKey1.additions.Contains(3))
-		assert.False(t, setKey1.additions.Contains(4))
+		assert.True(t, setKey1.Additions.Contains(1))
+		assert.True(t, setKey1.Additions.Contains(2))
+		assert.False(t, setKey1.Additions.Contains(3))
+		assert.False(t, setKey1.Additions.Contains(4))
 
 		setKey2, err := m.roaringSetGet(key2)
 		require.Nil(t, err)
-		assert.False(t, setKey2.additions.Contains(1))
-		assert.False(t, setKey2.additions.Contains(2))
-		assert.True(t, setKey2.additions.Contains(3))
-		assert.True(t, setKey2.additions.Contains(4))
+		assert.False(t, setKey2.Additions.Contains(1))
+		assert.False(t, setKey2.Additions.Contains(2))
+		assert.True(t, setKey2.Additions.Contains(3))
+		assert.True(t, setKey2.Additions.Contains(4))
 	})
 
 	t.Run("inserting lists", func(t *testing.T) {
@@ -48,17 +48,17 @@ func TestMemtableRoaringSet(t *testing.T) {
 
 		setKey1, err := m.roaringSetGet(key1)
 		require.Nil(t, err)
-		assert.True(t, setKey1.additions.Contains(1))
-		assert.True(t, setKey1.additions.Contains(2))
-		assert.False(t, setKey1.additions.Contains(3))
-		assert.False(t, setKey1.additions.Contains(4))
+		assert.True(t, setKey1.Additions.Contains(1))
+		assert.True(t, setKey1.Additions.Contains(2))
+		assert.False(t, setKey1.Additions.Contains(3))
+		assert.False(t, setKey1.Additions.Contains(4))
 
 		setKey2, err := m.roaringSetGet(key2)
 		require.Nil(t, err)
-		assert.False(t, setKey2.additions.Contains(1))
-		assert.False(t, setKey2.additions.Contains(2))
-		assert.True(t, setKey2.additions.Contains(3))
-		assert.True(t, setKey2.additions.Contains(4))
+		assert.False(t, setKey2.Additions.Contains(1))
+		assert.False(t, setKey2.Additions.Contains(2))
+		assert.True(t, setKey2.Additions.Contains(3))
+		assert.True(t, setKey2.Additions.Contains(4))
 	})
 
 	t.Run("inserting bitmaps", func(t *testing.T) {
@@ -77,17 +77,17 @@ func TestMemtableRoaringSet(t *testing.T) {
 
 		setKey1, err := m.roaringSetGet(key1)
 		require.Nil(t, err)
-		assert.True(t, setKey1.additions.Contains(1))
-		assert.True(t, setKey1.additions.Contains(2))
-		assert.False(t, setKey1.additions.Contains(3))
-		assert.False(t, setKey1.additions.Contains(4))
+		assert.True(t, setKey1.Additions.Contains(1))
+		assert.True(t, setKey1.Additions.Contains(2))
+		assert.False(t, setKey1.Additions.Contains(3))
+		assert.False(t, setKey1.Additions.Contains(4))
 
 		setKey2, err := m.roaringSetGet(key2)
 		require.Nil(t, err)
-		assert.False(t, setKey2.additions.Contains(1))
-		assert.False(t, setKey2.additions.Contains(2))
-		assert.True(t, setKey2.additions.Contains(3))
-		assert.True(t, setKey2.additions.Contains(4))
+		assert.False(t, setKey2.Additions.Contains(1))
+		assert.False(t, setKey2.Additions.Contains(2))
+		assert.True(t, setKey2.Additions.Contains(3))
+		assert.True(t, setKey2.Additions.Contains(4))
 	})
 
 	t.Run("deleting entries", func(t *testing.T) {
@@ -102,12 +102,12 @@ func TestMemtableRoaringSet(t *testing.T) {
 
 		setKey1, err := m.roaringSetGet(key1)
 		require.Nil(t, err)
-		assert.False(t, setKey1.additions.Contains(7))
-		assert.True(t, setKey1.deletions.Contains(7))
+		assert.False(t, setKey1.Additions.Contains(7))
+		assert.True(t, setKey1.Deletions.Contains(7))
 
 		setKey2, err := m.roaringSetGet(key2)
 		require.Nil(t, err)
-		assert.False(t, setKey2.additions.Contains(8))
-		assert.True(t, setKey2.deletions.Contains(8))
+		assert.False(t, setKey2.Additions.Contains(8))
+		assert.True(t, setKey2.Deletions.Contains(8))
 	})
 }
