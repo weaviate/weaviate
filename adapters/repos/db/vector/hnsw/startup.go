@@ -122,7 +122,13 @@ func (h *hnsw) restoreFromDisk() error {
 
 	if state.Compressed {
 		h.cache = nil
-		h.pq = ssdhelpers.NewProductQuantizer(int(state.PQData.M), int(state.PQData.Ks), ssdhelpers.NewDistanceProvider(h.distancerProvider), int(state.PQData.Dimensions), state.PQData.EncoderType)
+		h.pq = ssdhelpers.NewProductQuantizerWithEncoders(
+			int(state.PQData.M),
+			int(state.PQData.Ks),
+			ssdhelpers.NewDistanceProvider(h.distancerProvider),
+			int(state.PQData.Dimensions), state.PQData.EncoderType,
+			state.PQData.Encoders,
+		)
 	} else {
 		// make sure the cache fits the current size
 		h.cache.grow(uint64(len(h.nodes)))

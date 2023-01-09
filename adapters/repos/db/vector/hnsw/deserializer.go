@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
+	"math"
 
 	"github.com/pkg/errors"
 	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
@@ -447,6 +448,62 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
+func (c *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
+	bins, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	mean, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	stdDev, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	size, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	s1, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	s2, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	segment, err := c.readUint16(r)
+	if err != nil {
+		return nil, err
+	}
+	return ssdhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment), nil
+}
+
+func (c *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
+	ds := int(res.PQData.Dimensions / res.PQData.M)
+	kms := ssdhelpers.NewKMeansWithFilter(
+		int(res.PQData.Ks),
+		nil,
+		ds,
+		ssdhelpers.FilterSegment(int(i), ds),
+	)
+	centers := make([][]float32, 0, res.PQData.Ks)
+	for k := uint16(0); k < res.PQData.Ks; k++ {
+		center := make([]float32, 0, ds)
+		for d := 0; d < ds; d++ {
+			c, err := c.readFloat32(r)
+			if err != nil {
+				return nil, err
+			}
+			center = append(center, c)
+		}
+		centers = append(centers, center)
+	}
+	kms.SetCenters(centers)
+	return kms, nil
+}
+
 func (c *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 	dims, err := c.readUint16(r)
 	if err != nil {
@@ -464,11 +521,28 @@ func (c *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 	if err != nil {
 		return err
 	}
+	encoder := ssdhelpers.Encoder(enc)
 	res.PQData = ssdhelpers.PQData{
 		Dimensions:  dims,
-		EncoderType: ssdhelpers.Encoder(enc),
+		EncoderType: encoder,
 		Ks:          ks,
 		M:           m,
+	}
+	var encoderReader func(io.Reader, *DeserializationResult, uint16) (ssdhelpers.PQEncoder, error)
+	switch encoder {
+	case ssdhelpers.UseTileEncoder:
+		encoderReader = c.ReadTileEncoder
+	case ssdhelpers.UseKMeansEncoder:
+		encoderReader = c.ReadKMeansEncoder
+	default:
+		return errors.New("Unsuported encoder type")
+	}
+	for i := uint16(0); i < m; i++ {
+		encoder, err := encoderReader(r, res, i)
+		if err != nil {
+			return err
+		}
+		res.PQData.Encoders = append(res.PQData.Encoders, encoder)
 	}
 	res.Compressed = true
 
@@ -484,6 +558,34 @@ func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	}
 
 	value = binary.LittleEndian.Uint64(c.reusableBuffer)
+
+	return value, nil
+}
+
+func (c *Deserializer) readFloat64(r io.Reader) (float64, error) {
+	var value float64
+	c.resetResusableBuffer(8)
+	_, err := io.ReadFull(r, c.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read float64")
+	}
+
+	bits := binary.LittleEndian.Uint64(c.reusableBuffer)
+	value = math.Float64frombits(bits)
+
+	return value, nil
+}
+
+func (c *Deserializer) readFloat32(r io.Reader) (float32, error) {
+	var value float32
+	c.resetResusableBuffer(4)
+	_, err := io.ReadFull(r, c.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read float32")
+	}
+
+	bits := binary.LittleEndian.Uint32(c.reusableBuffer)
+	value = math.Float32frombits(bits)
 
 	return value, nil
 }
