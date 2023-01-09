@@ -151,11 +151,20 @@ func (ic *classSettings) validateModelVersion(version, model, docType string) er
 		return nil
 	}
 
-	if version != "002" {
+	if version == "002" {
+		// only ada/davinci 002
+		if model != "ada" && model != "davinci" {
+			return fmt.Errorf("unsupported version %s", version)
+		}
+	}
+
+	if version == "003" && model != "davinci" {
+		// only davinci 003
 		return fmt.Errorf("unsupported version %s", version)
 	}
 
-	if model != "ada" {
+	if version != "002" && version != "003" {
+		// all other fallback
 		return fmt.Errorf("model %s is only available in version 001", model)
 	}
 

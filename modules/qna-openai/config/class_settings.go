@@ -42,8 +42,16 @@ var maxTokensForModel = map[string]float64{
 	"text-babbage-001": 2048,
 	"text-curie-001":   2048,
 	"text-davinci-002": 4000,
+	"text-davinci-003": 4000,
 }
-var availableOpenAIModels = []string{"text-ada-001", "text-babbage-001", "text-curie-001", "text-davinci-002"}
+
+var availableOpenAIModels = []string{
+	"text-ada-001",
+	"text-babbage-001",
+	"text-curie-001",
+	"text-davinci-002",
+	"text-davinci-003",
+}
 
 type classSettings struct {
 	cfg moduletools.ClassConfig
