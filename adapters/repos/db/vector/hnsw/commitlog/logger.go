@@ -81,6 +81,10 @@ func (l *Logger) AddPQ(data ssdhelpers.PQData) error {
 	toWrite[3] = byte(data.EncoderType)
 	binary.LittleEndian.PutUint16(toWrite[4:6], data.Ks)
 	binary.LittleEndian.PutUint16(toWrite[6:8], data.M)
+
+	for _, encoder := range data.Encoders {
+		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
+	}
 	_, err := l.bufw.Write(toWrite)
 	return err
 }

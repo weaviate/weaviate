@@ -2,6 +2,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
@@ -39,6 +40,7 @@ func (h *hnsw) Compress(segments int) error {
 		h.compressedVectorsCache.preload(index, h.pq.Encode(data[index]))
 	})
 	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
+		fmt.Println(err)
 		return err
 	}
 

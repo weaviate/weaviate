@@ -1,6 +1,7 @@
 package ssdhelpers
 
 import (
+	"encoding/binary"
 	"math"
 	"math/rand"
 
@@ -29,11 +30,6 @@ type KMeansPartitionData struct {
 	maxPoints    [][]float32
 }
 
-type KMeansData struct {
-	K       int
-	Centers [][]float32
-}
-
 func NewKMeans(k int, distance distancer.Provider, dimensions int) *KMeans {
 	kMeans := &KMeans{
 		K:                  k,
@@ -52,6 +48,20 @@ func NewKMeansWithFilter(k int, distance distancer.Provider, dimensions int, fil
 	kMeans := NewKMeans(k, distance, dimensions)
 	kMeans.filter = filter
 	return kMeans
+}
+
+func (m *KMeans) ExposeDataForRestore() []byte {
+	ds := len(m.centers[0])
+	len := 4 * m.K * ds
+	buffer := make([]byte, len)
+	for i := 0; i < len/4; i++ {
+		binary.LittleEndian.PutUint32(buffer[i*4:(i+1)*4], math.Float32bits(m.centers[i/ds][i%ds]))
+	}
+	return buffer
+}
+
+func (m *KMeans) SetDistance(d distancer.Provider) {
+	m.Distance = d
 }
 
 func (m *KMeans) Add(x []float32) {
@@ -100,7 +110,7 @@ func (m *KMeans) NNearest(point []float32, n int) []uint64 {
 	return nearest
 }
 
-func (m *KMeans) setCenters(centers [][]float32) {
+func (m *KMeans) SetCenters(centers [][]float32) {
 	// ToDo: check size
 	m.centers = centers
 }

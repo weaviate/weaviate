@@ -25,3 +25,14 @@ func Concurrently(n uint64, action Action) {
 	}
 	wg.Wait()
 }
+
+func FilterSegment(i int, ds int) FilterFunc {
+	segment := int(i)
+	return func(x []float32) []float32 {
+		return extractSegment(segment, x, ds)
+	}
+}
+
+func extractSegment(i int, v []float32, ds int) []float32 {
+	return v[i*ds : (i+1)*ds]
+}
