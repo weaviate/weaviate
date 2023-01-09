@@ -99,7 +99,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s := &Shard{
 		index:            index,
 		name:             shardName,
-		invertedRowCache: inverted.NewRowCacher(500 * 1024 * 1024),
+		invertedRowCache: inverted.NewRowCacher(8000 * 1024 * 1024),
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
