@@ -1,20 +1,12 @@
 package ssdhelpers
 
 import (
+	"encoding/binary"
 	"math"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"gonum.org/v1/gonum/stat/distuv"
 )
-
-type TileEncoderData struct {
-	Bins    float64
-	Mean    float64
-	StdDev  float64
-	Size    float64
-	S1      float64
-	S2      float64
-	Segment int
-}
 
 type TileEncoder struct {
 	bins    float64
@@ -36,6 +28,33 @@ func NewTileEncoder(bits int, segment int) *TileEncoder {
 		s2:      0,
 		segment: segment,
 	}
+}
+
+func RestoreTileEncoder(bins float64, mean float64, stdDev float64, size float64, s1 float64, s2 float64, segment uint16) *TileEncoder {
+	return &TileEncoder{
+		bins:    bins,
+		mean:    mean,
+		stdDev:  stdDev,
+		size:    size,
+		s1:      s1,
+		s2:      s2,
+		segment: int(segment),
+	}
+}
+
+func (te *TileEncoder) SetDistance(d distancer.Provider) {
+}
+
+func (te *TileEncoder) ExposeDataForRestore() []byte {
+	buffer := make([]byte, 50)
+	binary.LittleEndian.PutUint64(buffer[0:8], math.Float64bits(te.bins))
+	binary.LittleEndian.PutUint64(buffer[8:16], math.Float64bits(te.mean))
+	binary.LittleEndian.PutUint64(buffer[16:24], math.Float64bits(te.stdDev))
+	binary.LittleEndian.PutUint64(buffer[24:32], math.Float64bits(te.size))
+	binary.LittleEndian.PutUint64(buffer[32:40], math.Float64bits(te.s1))
+	binary.LittleEndian.PutUint64(buffer[40:48], math.Float64bits(te.s2))
+	binary.LittleEndian.PutUint16(buffer[48:], uint16(te.segment))
+	return buffer
 }
 
 func (te *TileEncoder) Fit(data [][]float32) error {

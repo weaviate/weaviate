@@ -91,7 +91,7 @@ type ProductQuantizer struct {
 	ds          int
 	distance    *DistanceProvider
 	dimensions  int
-	kms         []NoopEncoder
+	kms         []PQEncoder
 	encoderType Encoder
 }
 
@@ -100,13 +100,16 @@ type PQData struct {
 	M           uint16
 	Dimensions  uint16
 	EncoderType Encoder
+	Encoders    []PQEncoder
 }
 
-type NoopEncoder interface {
+type PQEncoder interface {
 	Encode(x []float32) byte
 	Centroid(b byte) []float32
 	Add(x []float32)
 	Fit(data [][]float32) error
+	SetDistance(d distancer.Provider)
+	ExposeDataForRestore() []byte
 }
 
 func NewProductQuantizer(segments int, centroids int, distance *DistanceProvider, dimensions int, encoderType Encoder) *ProductQuantizer {
@@ -124,12 +127,32 @@ func NewProductQuantizer(segments int, centroids int, distance *DistanceProvider
 	return pq
 }
 
+func NewProductQuantizerWithEncoders(segments int, centroids int, distance *DistanceProvider, dimensions int, encoderType Encoder, encoders []PQEncoder) *ProductQuantizer {
+	if dimensions%segments != 0 {
+		panic("dimension must be a multiple of m")
+	}
+	for _, encoder := range encoders {
+		encoder.SetDistance(distance.Provider)
+	}
+	pq := &ProductQuantizer{
+		ks:          centroids,
+		m:           segments,
+		ds:          int(dimensions / segments),
+		distance:    distance,
+		dimensions:  dimensions,
+		encoderType: encoderType,
+		kms:         encoders,
+	}
+	return pq
+}
+
 func (pq *ProductQuantizer) ExposeFields() PQData {
 	return PQData{
 		Dimensions:  uint16(pq.dimensions),
 		EncoderType: pq.encoderType,
 		Ks:          uint16(pq.ks),
 		M:           uint16(pq.m),
+		Encoders:    pq.kms,
 	}
 }
 
@@ -142,10 +165,10 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float3
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) float32 {
-	dist := pq.distance.Distance(pq.extractSegment(0, x), pq.kms[0].Centroid(encoded[0]))
+	dist := pq.distance.Distance(extractSegment(0, x, pq.ds), pq.kms[0].Centroid(encoded[0]))
 	for i := 1; i < len(encoded); i++ {
 		b := encoded[i]
-		dist = pq.distance.Aggregate(dist, pq.distance.Distance(pq.extractSegment(i, x), pq.kms[i].Centroid(b)))
+		dist = pq.distance.Aggregate(dist, pq.distance.Distance(extractSegment(i, x, pq.ds), pq.kms[i].Centroid(b)))
 	}
 	return dist
 }
@@ -170,21 +193,10 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	return d.pq.Distance(x, d.lut), true, nil
 }
 
-func (pq *ProductQuantizer) extractSegment(i int, v []float32) []float32 {
-	return v[i*pq.ds : (i+1)*pq.ds]
-}
-
-func (pq *ProductQuantizer) filterSegment(i int) FilterFunc {
-	segment := int(i)
-	return func(x []float32) []float32 {
-		return pq.extractSegment(segment, x)
-	}
-}
-
 func (pq *ProductQuantizer) Fit(data [][]float32) {
 	switch pq.encoderType {
 	case UseTileEncoder:
-		pq.kms = make([]NoopEncoder, pq.m)
+		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
 			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i))
 			for j := 0; j < len(data); j++ {
@@ -192,13 +204,13 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 			}
 		})
 	case UseKMeansEncoder:
-		pq.kms = make([]NoopEncoder, pq.m)
+		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
 			pq.kms[i] = NewKMeansWithFilter(
 				int(pq.ks),
 				pq.distance.Provider,
 				pq.ds,
-				pq.filterSegment(int(i)),
+				FilterSegment(int(i), pq.ds),
 			)
 			err := pq.kms[i].Fit(data)
 			if err != nil {
@@ -246,16 +258,16 @@ func (pq *ProductQuantizer) DistanceBetweenNodes(x, y []byte) float32 {
 }
 
 func (pq *ProductQuantizer) DistanceBetweenNodeAndVector(x []float32, encoded []byte) float32 {
-	dist := pq.distance.Distance(pq.extractSegment(0, x), pq.kms[0].Centroid(encoded[0]))
+	dist := pq.distance.Distance(extractSegment(0, x, pq.ds), pq.kms[0].Centroid(encoded[0]))
 	for i := 1; i < len(encoded); i++ {
 		b := encoded[i]
-		dist = pq.distance.Aggregate(dist, pq.distance.Distance(pq.extractSegment(i, x), pq.kms[i].Centroid(b)))
+		dist = pq.distance.Aggregate(dist, pq.distance.Distance(extractSegment(i, x, pq.ds), pq.kms[i].Centroid(b)))
 	}
 	return dist
 }
 
 func (pq *ProductQuantizer) distanceForSegment(segment int, b byte, center []float32) float32 {
-	return pq.distance.Distance(pq.extractSegment(segment, center), pq.kms[segment].Centroid(b))
+	return pq.distance.Distance(extractSegment(segment, center, pq.ds), pq.kms[segment].Centroid(b))
 }
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
