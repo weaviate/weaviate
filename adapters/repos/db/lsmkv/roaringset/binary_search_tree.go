@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package roaringset
 
 import (
@@ -12,21 +23,9 @@ type BinarySearchTree struct {
 	root *BinarySearchNode
 }
 
-type roaringSet struct {
-	additions *sroar.Bitmap
-	deletions *sroar.Bitmap
-}
-
 type Insert struct {
 	Additions []uint64
 	Deletions []uint64
-}
-
-func newRoaringSet() roaringSet {
-	return roaringSet{
-		additions: sroar.NewBitmap(),
-		deletions: sroar.NewBitmap(),
-	}
 }
 
 func newSroarFromList(list []uint64) *sroar.Bitmap {

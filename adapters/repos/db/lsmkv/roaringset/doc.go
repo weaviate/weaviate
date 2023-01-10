@@ -1,4 +1,15 @@
-// The "roaringset" package contains all the LSM buisness logic that is unique
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
+// The "roaringset" package contains all the LSM business logic that is unique
 // to the "RoaringSet" strategy
 //
 // This package alone does not contain an entire LSM store. It's indended to be
@@ -8,14 +19,14 @@
 //
 // What makes the RoaringSet strategy unique is that it's essentially a fully
 // persistent Roaring Bitmap that can be built up and updated incrementally
-// (without write amplificiation) while being extremly fast to query.
+// (without write amplificiation) while being extremely fast to query.
 //
-// Without this specfic strategy, it would not be efficient to use roaring
+// Without this specific strategy, it would not be efficient to use roaring
 // bitmaps in an LSM store. For example:
 //
 //   - Lucene uses posting lists in the inverted index on disk and supports
 //     converting them to a Roaring Bitmap at query time. This resulting bitmap
-//     can then be cached. However, the cost to initally convert a posting list
+//     can then be cached. However, the cost to initially convert a posting list
 //     to a roaring bitmap is quite huge. In our own tests, inserting 90M out of
 //     100M possible ids into a [github.com/dgraph-io/sroar.Bitmap] takes about
 //     3.5s.

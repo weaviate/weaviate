@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package roaringset
 
 import (
@@ -20,10 +31,10 @@ type SegmentCursor struct {
 // NewSegmentCursor creates a cursor for a single disk segment. Make sure that
 // the data buf is already sliced correctly to start at the payload, as calling
 // [*SegmentCursor.First] will start reading at offset 0 relative to the passed
-// in buffer. Similary, the buffer may only contain payloads, as the buffer end
+// in buffer. Similarly, the buffer may only contain payloads, as the buffer end
 // is used to determine if more keys can be found.
 //
-// Therefore if the payload is part of a longer continous buffer, the cursor
+// Therefore if the payload is part of a longer continuous buffer, the cursor
 // should be initialized with data[payloadStartPos:payloadEndPos]
 func NewSegmentCursor(data []byte, index Seeker) *SegmentCursor {
 	return &SegmentCursor{index: index, data: data, nextOffset: 0}
