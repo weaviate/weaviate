@@ -23,7 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
 	"github.com/semi-technologies/weaviate/usecases/replica"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/semi-technologies/weaviate/usecases/scaler"
 )
 
 type replicator interface {
@@ -45,14 +45,14 @@ type replicator interface {
 		shardName, requestID string) interface{}
 }
 
-type scaler interface {
+type localScaler interface {
 	LocalScaleOut(ctx context.Context, className string,
-		ssBefore, ssAfter *sharding.State) error
+		dist scaler.ShardDist) error
 }
 
 type replicatedIndices struct {
 	shards replicator
-	scaler scaler
+	scaler localScaler
 }
 
 var (
@@ -68,7 +68,7 @@ var (
 		`\/shards\/([A-Za-z0-9]+):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler scaler) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler) *replicatedIndices {
 	return &replicatedIndices{
 		shards: shards,
 		scaler: scaler,
@@ -197,13 +197,13 @@ func (i *replicatedIndices) increaseReplicationFactor() http.Handler {
 			return
 		}
 
-		ssBefore, ssAfter, err := IndicesPayloads.IncreaseReplicationFactor.Unmarshal(bodyBytes)
+		dist, err := IndicesPayloads.IncreaseReplicationFactor.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if err := i.scaler.LocalScaleOut(r.Context(), index, ssBefore, ssAfter); err != nil {
+		if err := i.scaler.LocalScaleOut(r.Context(), index, dist); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
