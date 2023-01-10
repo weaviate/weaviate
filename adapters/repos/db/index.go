@@ -756,7 +756,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties,
-) ([]*storobj.Object, error) {
+) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -777,7 +777,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 
 				propHash := cl.Properties
@@ -791,14 +791,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
-				return nil, errors.Wrapf(err, "shard %s", shard.ID())
+				return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
 
 		} else {
 			objs, scores, err = i.remote.SearchShard(
 				ctx, shardName, nil, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
-				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+				return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
 		}
 		outObjects = append(outObjects, objs...)
@@ -833,11 +833,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if len(shardNames) > 1 {
 			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)
 			if err != nil {
-				return nil, errors.Wrap(err, "sort")
+				return nil, nil, errors.Wrap(err, "sort")
 			}
-			return sortedObjs, nil
+			return sortedObjs, nil, nil
 		}
-		return outObjects, nil
+		return outObjects, nil, nil
 	}
 
 	if keywordRanking != nil {
@@ -857,7 +857,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	return outObjects, nil
+	return outObjects, outScores, nil
 }
 
 func (i *Index) sortKeywordRanking(objects []*storobj.Object,

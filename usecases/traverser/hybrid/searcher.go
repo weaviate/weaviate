@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,9 +31,24 @@ type Params struct {
 	Class   string
 }
 
-type sparseFunc func() ([]search.Result, error)
+type Result struct {
+	DocID uint64
+	*search.Result
+}
 
-type denseFunc func([]float32) ([]search.Result, error)
+type Results []*Result
+
+func (res Results) SearchResults() []search.Result {
+	out := make([]search.Result, len(res))
+	for i, r := range res {
+		out[i] = *r.Result
+	}
+	return out
+}
+
+type sparseFunc func() ([]*storobj.Object, []float32, error)
+
+type denseFunc func([]float32) ([]*storobj.Object, []float32, error)
 
 type modulesProvider interface {
 	VectorFromInput(ctx context.Context,
@@ -59,9 +76,9 @@ func NewSearcher(params *Params, logger logrus.FieldLogger,
 	}
 }
 
-func (s *Searcher) Search(ctx context.Context) ([]search.Result, error) {
+func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	var (
-		found   [][]search.Result
+		found   [][]*Result
 		weights []float64
 	)
 
@@ -116,42 +133,48 @@ func (s *Searcher) Search(ctx context.Context) ([]search.Result, error) {
 	return fused, nil
 }
 
-func (s *Searcher) sparseSearch() ([]search.Result, error) {
-	res, err := s.sparseFunc()
+func (s *Searcher) sparseSearch() ([]*Result, error) {
+	res, dists, err := s.sparseFunc()
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
 	}
 
-	for i := range res {
-		res[i].SecondarySortValue = res[i].Score
-		res[i].ExplainScore = "(bm25)" + res[i].ExplainScore
+	out := make([]*Result, len(res))
+	for i, obj := range res {
+		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr.SecondarySortValue = sr.Score
+		sr.ExplainScore = "(bm25)" + sr.ExplainScore
+		out[i] = &Result{obj.DocID(), &sr}
 	}
-	return res, nil
+	return out, nil
 }
 
-func (s *Searcher) denseSearch(ctx context.Context) ([]search.Result, error) {
+func (s *Searcher) denseSearch(ctx context.Context) ([]*Result, error) {
 	vector, err := s.decideSearchVector(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := s.denseFunc(vector)
+	res, dists, err := s.denseFunc(vector)
 	if err != nil {
 		return nil, fmt.Errorf("dense search: %w", err)
 	}
 
-	for i := range res {
-		res[i].SecondarySortValue = 1 - res[i].Dist
-		res[i].ExplainScore = fmt.Sprintf(
+	out := make([]*Result, len(res))
+	for i, obj := range res {
+		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr.SecondarySortValue = 1 - sr.Dist
+		sr.ExplainScore = fmt.Sprintf(
 			"(vector) %v %v ", truncateVectorString(10, vector),
-			res[i].ExplainScore)
+			res[i].ExplainScore())
+		out[i] = &Result{obj.DocID(), &sr}
 	}
-	return res, nil
+	return out, nil
 }
 
 func (s *Searcher) handleSubSearch(ctx context.Context,
 	subsearch *searchparams.WeightedSearchResult,
-) ([]search.Result, float64, error) {
+) ([]*Result, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
@@ -168,28 +191,31 @@ func (s *Searcher) handleSubSearch(ctx context.Context,
 
 func (s *Searcher) sparseSubSearch(
 	subsearch *searchparams.WeightedSearchResult,
-) ([]search.Result, float64, error) {
+) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.KeywordRanking)
 	s.params.Keyword = &sp
 
-	res, err := s.sparseFunc()
+	res, dists, err := s.sparseFunc()
 	if err != nil {
 		return nil, 0, fmt.Errorf("sparse subsearch: %w", err)
 	}
 
-	for i := range res {
-		scStr := res[i].AdditionalProperties["score"].(string)
+	out := make([]*Result, len(res))
+	for i, obj := range res {
+		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		scStr := sr.AdditionalProperties["score"].(string)
 		sc, _ := strconv.ParseFloat(scStr, 64)
-		res[i].Score = float32(sc)
-		res[i].ExplainScore = "(bm25)" + res[i].ExplainScore
+		sr.Score = float32(sc)
+		sr.ExplainScore = "(bm25)" + out[i].ExplainScore
+		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return res, subsearch.Weight, nil
+	return out, subsearch.Weight, nil
 }
 
 func (s *Searcher) nearTextSubSearch(ctx context.Context,
 	subsearch *searchparams.WeightedSearchResult,
-) ([]search.Result, float64, error) {
+) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
 	if s.modulesProvider == nil {
 		return nil, 0, nil
@@ -200,35 +226,41 @@ func (s *Searcher) nearTextSubSearch(ctx context.Context,
 		return nil, 0, err
 	}
 
-	res, err := s.denseFunc(vector)
+	res, dists, err := s.denseFunc(vector)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	for i := range res {
-		res[i].ExplainScore = fmt.Sprintf("(vector) %v %v ",
-			truncateVectorString(10, vector), res[i].ExplainScore)
+	out := make([]*Result, len(res))
+	for i, obj := range res {
+		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr.ExplainScore = fmt.Sprintf("(vector) %v %v ",
+			truncateVectorString(10, vector), res[i].ExplainScore())
+		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return res, subsearch.Weight, nil
+	return out, subsearch.Weight, nil
 }
 
 func (s *Searcher) nearVectorSubSearch(
 	subsearch *searchparams.WeightedSearchResult,
-) ([]search.Result, float64, error) {
+) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearVector)
 
-	res, err := s.denseFunc(sp.Vector)
+	res, dists, err := s.denseFunc(sp.Vector)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	for i := range res {
-		res[i].ExplainScore = fmt.Sprintf("(vector) %v %v ",
-			truncateVectorString(10, sp.Vector), res[i].ExplainScore)
+	out := make([]*Result, len(res))
+	for i, obj := range res {
+		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr.ExplainScore = fmt.Sprintf("(vector) %v %v ",
+			truncateVectorString(10, sp.Vector), res[i].ExplainScore())
+		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return res, subsearch.Weight, nil
+	return out, subsearch.Weight, nil
 }
 
 func (s *Searcher) decideSearchVector(ctx context.Context) ([]float32, error) {

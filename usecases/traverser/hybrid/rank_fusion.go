@@ -50,8 +50,8 @@ func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 	return out
 }
 
-func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
-	mapResults := map[strfmt.UUID]search.Result{}
+func FusionReciprocal(weights []float64, results [][]*Result) []*Result {
+	mapResults := map[strfmt.UUID]*Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
 			tempResult := res
@@ -84,23 +84,23 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 
 	// Sort the results
 	var (
-		concatenatedResults = make([]search.Result, len(mapResults))
-		i                   = 0
+		concat = make([]*Result, len(mapResults))
+		i      = 0
 	)
 	for _, res := range mapResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
-		concatenatedResults[i] = res
+		concat[i] = res
 		i++
 	}
 
-	sort.Slice(concatenatedResults, func(i, j int) bool {
-		a_b := float64(concatenatedResults[j].Score - concatenatedResults[i].Score)
+	sort.Slice(concat, func(i, j int) bool {
+		a_b := float64(concat[j].Score - concat[i].Score)
 		if a_b*a_b < 1e-14 {
-			return concatenatedResults[i].SecondarySortValue > concatenatedResults[j].SecondarySortValue
+			return concat[i].SecondarySortValue > concat[j].SecondarySortValue
 		}
-		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)
+		return float64(concat[i].Score) > float64(concat[j].Score)
 	})
-	return concatenatedResults
+	return concat
 }
 
 func FusionScoreConcatenate(results [][]*search.Result) []*search.Result {

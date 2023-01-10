@@ -352,6 +352,13 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 	}
 }
 
+func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
+	res := ko.SearchResult(addl)
+	res.Dist = dist
+	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
+	return *res
+}
+
 func (ko *Object) Valid() bool {
 	return ko.ID() != "" &&
 		ko.Class().String() != ""
@@ -373,9 +380,7 @@ func SearchResultsWithDists(in []*Object, addl additional.Properties,
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(addl))
-		out[i].Dist = dists[i]
-		out[i].Certainty = float32(additional.DistToCertainty(float64(dists[i])))
+		out[i] = elem.SearchResultWithDist(addl, dists[i])
 	}
 
 	return out
@@ -745,6 +750,23 @@ func (ko *Object) DeepCopyDangerous() *Object {
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
 	}
+}
+
+func DocIDsFromSearchResults(sr []search.Result) ([]uint64, error) {
+	ids := make([]uint64, len(sr))
+	for i, res := range sr {
+		obj := FromObject(res.Object(), res.Vector)
+		b, err := obj.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		id, err := DocIDFromBinary(b)
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+	return ids, nil
 }
 
 func deepCopyVector(orig []float32) []float32 {

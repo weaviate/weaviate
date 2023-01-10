@@ -18,7 +18,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 )
 
@@ -67,20 +66,20 @@ func (a *Aggregator) searchByVectorDistance(searchVector []float32, ids helpers.
 	return idsFound, dists, nil
 }
 
-func (a *Aggregator) objectVectorSearch(searchVector []float32, allowList helpers.AllowList) ([]search.Result, error) {
+func (a *Aggregator) objectVectorSearch(searchVector []float32,
+	allowList helpers.AllowList,
+) ([]*storobj.Object, []float32, error) {
 	ids, dists, err := a.vectorSearch(allowList, searchVector)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	bucket := a.store.Bucket(helpers.ObjectsBucketLSM)
 	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{})
 	if err != nil {
-		return nil, fmt.Errorf("get objects by doc id: %w", err)
+		return nil, nil, fmt.Errorf("get objects by doc id: %w", err)
 	}
-
-	res := storobj.SearchResultsWithDists(objs, additional.Properties{}, dists)
-	return res, nil
+	return objs, dists, nil
 }
 
 func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, error) {

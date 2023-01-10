@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/traverser/hybrid"
@@ -46,10 +45,10 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 }
 
 func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, error) {
-	sparseSearch := func() ([]search.Result, error) {
+	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		kw, err := fa.buildHybridKeywordRanking()
 		if err != nil {
-			return nil, fmt.Errorf("build hybrid keyword ranking: %w", err)
+			return nil, nil, fmt.Errorf("build hybrid keyword ranking: %w", err)
 		}
 
 		if fa.params.ObjectLimit == nil {
@@ -59,29 +58,28 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 
 		sparse, dists, err := fa.bm25Objects(ctx, kw)
 		if err != nil {
-			return nil, fmt.Errorf("aggregate sparse search: %w", err)
+			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
 		}
 
-		res := storobj.SearchResultsWithDists(sparse, additional.Properties{}, dists)
-		return res, nil
+		return sparse, dists, nil
 	}
 
-	denseSearch := func(vec []float32) ([]search.Result, error) {
+	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
 		if vec == nil {
-			return nil, fmt.Errorf("must provide hybrid search vector if alpha > 0")
+			return nil, nil, fmt.Errorf("must provide hybrid search vector if alpha > 0")
 		}
 
 		allowList, err := fa.buildAllowList(ctx)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		res, err := fa.objectVectorSearch(vec, allowList)
+		res, dists, err := fa.objectVectorSearch(vec, allowList)
 		if err != nil {
-			return nil, fmt.Errorf("aggregate dense search: %w", err)
+			return nil, nil, fmt.Errorf("aggregate dense search: %w", err)
 		}
 
-		return res, nil
+		return res, dists, nil
 	}
 
 	h := hybrid.NewSearcher(&hybrid.Params{
@@ -94,9 +92,9 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		return nil, err
 	}
 
-	ids, err := fa.docIDsFromSearchResults(res)
-	if err != nil {
-		return nil, err
+	ids := make([]uint64, len(res))
+	for i, r := range res {
+		ids[i] = r.DocID
 	}
 
 	return fa.prepareResult(ctx, ids)
@@ -122,28 +120,6 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 	return fa.prepareResult(ctx, foundIDs)
 }
 
-func (fa *filteredAggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, error) {
-	kw := &searchparams.KeywordRanking{
-		Type:  "bm25",
-		Query: fa.params.Hybrid.Query,
-	}
-
-	cl, err := schema.GetClassByName(
-		fa.getSchema.GetSchemaSkipAuth().Objects,
-		fa.params.ClassName.String())
-	if err != nil {
-		return nil, err
-	}
-
-	for _, v := range cl.Properties {
-		if v.DataType[0] == "text" || v.DataType[0] == "string" { // TODO: Also the array types?
-			kw.Properties = append(kw.Properties, v.Name)
-		}
-	}
-
-	return kw, nil
-}
-
 func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
 	var (
 		s     = fa.getSchema.GetSchemaSkipAuth()
@@ -160,23 +136,6 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}
 	return objs, dists, nil
-}
-
-func (fa *filteredAggregator) docIDsFromSearchResults(sr []search.Result) ([]uint64, error) {
-	ids := make([]uint64, len(sr))
-	for i, res := range sr {
-		obj := storobj.FromObject(res.Object(), res.Vector)
-		b, err := obj.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		id, err := storobj.DocIDFromBinary(b)
-		if err != nil {
-			return nil, err
-		}
-		ids[i] = id
-	}
-	return ids, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,

@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/floatcomp"
 	uc "github.com/semi-technologies/weaviate/usecases/schema"
@@ -64,6 +65,9 @@ type ModulesProvider interface {
 }
 
 type vectorClassSearch interface {
+	ClassObjectSearch(ctx context.Context, params GetParams) ([]*storobj.Object, []float32, error)
+	ClassObjectVectorSearch(context.Context, string, []float32,
+		int, int, *filters.LocalFilter) ([]*storobj.Object, []float32, error)
 	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, offset, limit int,
@@ -218,31 +222,32 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 }
 
 func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Result, error) {
-	sparseSearch := func() ([]search.Result, error) {
+	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		params.KeywordRanking = &searchparams.KeywordRanking{
 			Query: params.HybridSearch.Query,
 			Type:  "bm25",
 		}
-		res, err := e.search.ClassSearch(ctx, params)
+
+		res, dists, err := e.search.ClassObjectSearch(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		return res, nil
+		return res, dists, nil
 	}
 
-	denseSearch := func(vec []float32) ([]search.Result, error) {
+	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
 		hybridSearchLimit := params.Pagination.Limit
 		if hybridSearchLimit == 0 {
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
-		res, err := e.search.ClassVectorSearch(
+		res, dists, err := e.search.ClassObjectVectorSearch(
 			ctx, params.ClassName, vec, 0, hybridSearchLimit, nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
-		return res, nil
+		return res, dists, nil
 	}
 
 	h := hybrid.NewSearcher(&hybrid.Params{
@@ -251,7 +256,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		Class:        params.ClassName,
 	}, e.logger, sparseSearch, denseSearch, e.modulesProvider)
 
-	return h.Search(ctx)
+	res, err := h.Search(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return res.SearchResults(), nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
