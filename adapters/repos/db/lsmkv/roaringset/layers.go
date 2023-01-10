@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package roaringset
 
 import (
@@ -30,7 +41,7 @@ type BitmapLayer struct {
 	Deletions *sroar.Bitmap
 }
 
-// BitmapLayers are a helper type to perform operations on mulitple layers,
+// BitmapLayers are a helper type to perform operations on multiple layers,
 // such as [BitmapLayers.Flatten] or [BitmapLayers.Merge].
 type BitmapLayers []BitmapLayer
 
