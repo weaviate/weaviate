@@ -55,6 +55,12 @@ func (bo *ByteOperations) CopyBytesFromBuffer(length uint64, out []byte) ([]byte
 	return out, nil
 }
 
+func (bo *ByteOperations) ReadBytesFromBuffer(length uint64) []byte {
+	subslice := bo.Buffer[bo.Position : bo.Position+length]
+	bo.Position += length
+	return subslice
+}
+
 func (bo *ByteOperations) WriteUint64(value uint64) {
 	bo.Position += uint64Len
 	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], value)
@@ -82,6 +88,10 @@ func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
 
 func (bo *ByteOperations) MoveBufferPositionForward(length uint64) {
 	bo.Position += length
+}
+
+func (bo *ByteOperations) MoveBufferToAbsolutePosition(pos uint64) {
+	bo.Position = pos
 }
 
 func (bo *ByteOperations) WriteByte(b byte) {

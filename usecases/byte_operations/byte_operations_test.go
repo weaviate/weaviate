@@ -44,9 +44,23 @@ func TestReadAnWrite(t *testing.T) {
 	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[0])
 	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[1]))
 	require.Equal(t, byteOpsRead.ReadUint32(), uint32(valuesNumbers[2]))
+
+	// we are going to do the next op twice (once with copying, once without)
+	// to be able to rewind the buffer, let's cache the current position
+	posBeforeByteArray := byteOpsRead.Position
+
 	returnBuf, err := byteOpsRead.CopyBytesFromBuffer(uint64(len(valuesByteArray)), nil)
 	assert.Equal(t, returnBuf, valuesByteArray)
 	assert.Equal(t, err, nil)
+
+	// rewind the buffer to where it was before the read
+	byteOpsRead.MoveBufferToAbsolutePosition(posBeforeByteArray)
+
+	subSlice := byteOpsRead.ReadBytesFromBuffer(uint64(len(valuesByteArray)))
+	assert.Equal(t, subSlice, valuesByteArray)
+
+	// now read again using the other method
+
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(valuesNumbers[3]))
 	require.Equal(t, byteOpsRead.ReadUint64(), valuesNumbers[4])
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(valuesNumbers[5]))

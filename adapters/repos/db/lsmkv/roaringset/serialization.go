@@ -19,6 +19,7 @@ import (
 
 	"github.com/dgraph-io/sroar"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/semi-technologies/weaviate/usecases/byte_operations"
 )
 
 // A RoaringSet Segment Node stores one Key-Value pair (without its index) in
@@ -67,8 +68,10 @@ func (sn *SegmentNode) Len() uint64 {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
-	return sroar.FromBuffer(sn.data[16 : 16+additionsLength])
+	bo := byte_operations.ByteOperations{Buffer: sn.data}
+	bo.MoveBufferToAbsolutePosition(8)
+	additionsLength := bo.ReadUint64()
+	return sroar.FromBuffer(bo.ReadBytesFromBuffer(additionsLength))
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -78,8 +81,10 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
-	return sroar.FromBufferWithCopy(sn.data[16 : 16+additionsLength])
+	bo := byte_operations.ByteOperations{Buffer: sn.data}
+	bo.MoveBufferToAbsolutePosition(8)
+	additionsLength := bo.ReadUint64()
+	return sroar.FromBufferWithCopy(bo.ReadBytesFromBuffer(additionsLength))
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
@@ -87,11 +92,12 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
-	offset := additionsLength + 16
-	deletionsLength := binary.LittleEndian.Uint64(sn.data[offset : offset+8])
-	offset += 8
-	return sroar.FromBuffer(sn.data[offset : offset+deletionsLength])
+	bo := byte_operations.ByteOperations{Buffer: sn.data}
+	bo.MoveBufferToAbsolutePosition(8)
+	additionsLength := bo.ReadUint64()
+	bo.MoveBufferPositionForward(additionsLength)
+	deletionsLength := bo.ReadUint64()
+	return sroar.FromBuffer(bo.ReadBytesFromBuffer(deletionsLength))
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
@@ -101,21 +107,23 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Deletions].
 func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
-	offset := additionsLength + 16
-	deletionsLength := binary.LittleEndian.Uint64(sn.data[offset : offset+8])
-	offset += 8
-	return sroar.FromBufferWithCopy(sn.data[offset : offset+deletionsLength])
+	bo := byte_operations.ByteOperations{Buffer: sn.data}
+	bo.MoveBufferToAbsolutePosition(8)
+	additionsLength := bo.ReadUint64()
+	bo.MoveBufferPositionForward(additionsLength)
+	deletionsLength := bo.ReadUint64()
+	return sroar.FromBufferWithCopy(bo.ReadBytesFromBuffer(deletionsLength))
 }
 
 func (sn *SegmentNode) PrimaryKey() []byte {
-	additionsLength := binary.LittleEndian.Uint64(sn.data[8:16])
-	offset := additionsLength + 16
-	deletionsLength := binary.LittleEndian.Uint64(sn.data[offset : offset+8])
-	offset += 8 + deletionsLength
-	keyLen := binary.LittleEndian.Uint32(sn.data[offset : offset+4])
-	offset += 4
-	return sn.data[offset : offset+uint64(keyLen)]
+	bo := byte_operations.ByteOperations{Buffer: sn.data}
+	bo.MoveBufferToAbsolutePosition(8)
+	additionsLength := bo.ReadUint64()
+	bo.MoveBufferPositionForward(additionsLength)
+	deletionsLength := bo.ReadUint64()
+	bo.MoveBufferPositionForward(deletionsLength)
+	keyLength := bo.ReadUint32()
+	return bo.ReadBytesFromBuffer(uint64(keyLength))
 }
 
 func NewSegmentNode(
@@ -133,24 +141,27 @@ func NewSegmentNode(
 		data: make([]byte, expectedSize),
 	}
 
-	offset := uint64(8)
-	binary.LittleEndian.PutUint64(sn.data[offset:offset+8], uint64(len(additionsBuf)))
-	offset += 8
-	copy(sn.data[offset:offset+uint64(len(additionsBuf))], additionsBuf)
-	offset += uint64(len(additionsBuf))
+	bo := byte_operations.ByteOperations{Buffer: sn.data}
 
-	binary.LittleEndian.PutUint64(sn.data[offset:offset+8], uint64(len(deletionsBuf)))
-	offset += 8
-	copy(sn.data[offset:offset+uint64(len(deletionsBuf))], deletionsBuf)
-	offset += uint64(len(deletionsBuf))
+	bo.MoveBufferPositionForward(8)
+	bo.WriteUint64(uint64(len(additionsBuf)))
+	if err := bo.CopyBytesToBuffer(additionsBuf); err != nil {
+		return nil, err
+	}
 
-	binary.LittleEndian.PutUint32(sn.data[offset:offset+4], uint32(len(key)))
-	offset += 4
-	copy(sn.data[offset:offset+uint64(len(key))], key)
-	offset += uint64(len(key))
+	bo.WriteUint64(uint64(len(deletionsBuf)))
+	if err := bo.CopyBytesToBuffer(deletionsBuf); err != nil {
+		return nil, err
+	}
 
-	// finally write the offset itself at the beginning
-	binary.LittleEndian.PutUint64(sn.data[:8], offset)
+	bo.WriteUint32(uint32(len(key)))
+	if err := bo.CopyBytesToBuffer(key); err != nil {
+		return nil, err
+	}
+
+	offset := bo.Position
+	bo.MoveBufferToAbsolutePosition(0)
+	bo.WriteUint64(uint64(offset))
 
 	return &sn, nil
 }
