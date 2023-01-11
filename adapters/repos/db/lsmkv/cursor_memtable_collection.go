@@ -14,7 +14,7 @@ package lsmkv
 import (
 	"bytes"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/entities"
 )
 
 type memtableCursorCollection struct {
@@ -49,7 +49,7 @@ func (c *memtableCursorCollection) first() ([]byte, []value, error) {
 	defer c.unlock()
 
 	if len(c.data) == 0 {
-		return nil, nil, ent.NotFound
+		return nil, nil, entities.NotFound
 	}
 
 	c.current = 0
@@ -65,7 +65,7 @@ func (c *memtableCursorCollection) seek(key []byte) ([]byte, []value, error) {
 
 	pos := c.posLargerThanEqual(key)
 	if pos == -1 {
-		return nil, nil, ent.NotFound
+		return nil, nil, entities.NotFound
 	}
 
 	c.current = pos
@@ -90,7 +90,7 @@ func (c *memtableCursorCollection) next() ([]byte, []value, error) {
 
 	c.current++
 	if c.current >= len(c.data) {
-		return nil, nil, ent.NotFound
+		return nil, nil, entities.NotFound
 	}
 
 	// there is no key-level tombstone, only individual values can have

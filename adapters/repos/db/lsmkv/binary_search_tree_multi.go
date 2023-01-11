@@ -14,7 +14,7 @@ package lsmkv
 import (
 	"bytes"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/ent"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
 
@@ -45,7 +45,7 @@ func (t *binarySearchTreeMulti) insert(key []byte, values []value) {
 
 func (t *binarySearchTreeMulti) get(key []byte) ([]value, error) {
 	if t.root == nil {
-		return nil, ent.NotFound
+		return nil, entities.NotFound
 	}
 
 	return t.root.get(key)
@@ -204,13 +204,13 @@ func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left == nil {
-			return nil, ent.NotFound
+			return nil, entities.NotFound
 		}
 
 		return n.left.get(key)
 	} else {
 		if n.right == nil {
-			return nil, ent.NotFound
+			return nil, entities.NotFound
 		}
 
 		return n.right.get(key)

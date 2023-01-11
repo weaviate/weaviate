@@ -14,7 +14,7 @@ package lsmkv
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
@@ -27,13 +27,13 @@ func (i *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	}
 
 	if !i.bloomFilter.Test(key) {
-		return out, ent.NotFound
+		return out, entities.NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
-			return out, ent.NotFound
+			return out, entities.NotFound
 		} else {
 			return out, err
 		}
