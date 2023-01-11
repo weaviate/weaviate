@@ -95,9 +95,11 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	} else {
 		h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
 	}
-	//ToDo: check atomic operation
+	// ToDo: check atomic operation
 	if !h.compressed && parsed.Compressed {
+		h.logger.WithField("action", "compress").Info("switching to compressed vectors")
 		h.Compress(parsed.PQSegments)
+		h.logger.WithField("action", "compress").Info("vector compression complete")
 	}
 
 	return nil
