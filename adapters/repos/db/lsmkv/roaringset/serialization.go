@@ -52,11 +52,6 @@ import (
 //	(x+y+24)-(x+y+28)   | uint32 length indicator for primary key length -> z
 //	(x+y+28)-(x+y+z+28) | primary key
 type SegmentNode struct {
-	// Offset is not persisted in the node itself, but it is respected when
-	// building a [segmentindex.Key] using [*SegmentNode.KeyIndexAndWriteTo].
-	// multiple nodes
-	Offset int
-
 	data []byte
 }
 
@@ -189,7 +184,7 @@ func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
 //
 // RoaringSets do not support secondary keys, thus the segmentindex.Key will
 // only ever contain a primary key.
-func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
 
 	n, err := w.Write(sn.data)
@@ -197,8 +192,8 @@ func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error)
 		return out, err
 	}
 
-	out.ValueStart = sn.Offset
-	out.ValueEnd = sn.Offset + n
+	out.ValueStart = offset
+	out.ValueEnd = offset + n
 	out.Key = sn.PrimaryKey()
 
 	return out, nil
