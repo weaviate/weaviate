@@ -21,8 +21,8 @@ import (
 )
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
-	if i.strategy != SegmentStrategySetCollection &&
-		i.strategy != SegmentStrategyMapCollection {
+	if i.strategy != segmentindex.StrategySetCollection &&
+		i.strategy != segmentindex.StrategyMapCollection {
 		return nil, errors.Errorf("get only possible for strategies %q, %q",
 			StrategySetCollection, StrategyMapCollection)
 	}

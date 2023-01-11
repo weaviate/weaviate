@@ -23,12 +23,12 @@ func (l *Memtable) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) 
 	flat := l.roaringSet.FlattenInOrder()
 
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
-	header := segmentHeader{
-		indexStart:       uint64(totalDataLength + SegmentHeaderSize),
-		level:            0, // always level zero on a new one
-		version:          0, // always version 0 for now
-		secondaryIndices: 0,
-		strategy:         SegmentStrategyRoaringSet,
+	header := segmentindex.Header{
+		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
+		Level:            0, // always level zero on a new one
+		Version:          0, // always version 0 for now
+		SecondaryIndices: 0,
+		Strategy:         segmentindex.StrategyRoaringSet,
 	}
 
 	n, err := header.WriteTo(f)

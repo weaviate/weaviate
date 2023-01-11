@@ -96,24 +96,18 @@ func (l *Memtable) flush() error {
 	return l.commitlog.delete()
 }
 
-// SegmentOffset describes the general offset in a segment until the data
-// starts, it is comprised of 2 bytes for level, 2 bytes for version,
-// 2 bytes for secondary index count, 2 bytes for strategy, 8 bytes
-// for the pointer to the index part
-const SegmentHeaderSize = 16
-
 func (l *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 	flat := l.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
 	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(l.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
-	headerSize := SegmentHeaderSize
-	header := segmentHeader{
-		indexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
-		level:            0, // always level zero on a new one
-		version:          0, // always version 0 for now
-		secondaryIndices: l.secondaryIndices,
-		strategy:         SegmentStrategyFromString(l.strategy),
+	headerSize := segmentindex.HeaderSize
+	header := segmentindex.Header{
+		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
+		Level:            0, // always level zero on a new one
+		Version:          0, // always version 0 for now
+		SecondaryIndices: l.secondaryIndices,
+		Strategy:         SegmentStrategyFromString(l.strategy),
 	}
 
 	n, err := header.WriteTo(f)
@@ -185,12 +179,12 @@ func (l *Memtable) flushDataCollection(f io.Writer,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
 	totalDataLength := totalValueSizeCollection(flat)
-	header := segmentHeader{
-		indexStart:       uint64(totalDataLength + SegmentHeaderSize),
-		level:            0, // always level zero on a new one
-		version:          0, // always version 0 for now
-		secondaryIndices: l.secondaryIndices,
-		strategy:         SegmentStrategyFromString(l.strategy),
+	header := segmentindex.Header{
+		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
+		Level:            0, // always level zero on a new one
+		Version:          0, // always version 0 for now
+		SecondaryIndices: l.secondaryIndices,
+		Strategy:         SegmentStrategyFromString(l.strategy),
 	}
 
 	n, err := header.WriteTo(f)

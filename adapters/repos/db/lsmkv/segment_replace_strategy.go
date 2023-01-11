@@ -22,7 +22,7 @@ import (
 )
 
 func (i *segment) get(key []byte) ([]byte, error) {
-	if i.strategy != SegmentStrategyReplace {
+	if i.strategy != segmentindex.StrategyReplace {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
@@ -63,7 +63,7 @@ func (i *segment) get(key []byte) ([]byte, error) {
 }
 
 func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
-	if i.strategy != SegmentStrategyReplace {
+	if i.strategy != segmentindex.StrategyReplace {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 

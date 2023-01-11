@@ -35,7 +35,7 @@ type segment struct {
 	contents              []byte
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
-	strategy              SegmentStrategy
+	strategy              segmentindex.Strategy
 	index                 diskIndex
 	secondaryIndices      []diskIndex
 	logger                logrus.FieldLogger
@@ -80,14 +80,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, errors.Wrap(err, "mmap file")
 	}
 
-	header, err := parseSegmentHeader(bytes.NewReader(content[:SegmentHeaderSize]))
+	header, err := segmentindex.ParseHeader(bytes.NewReader(content[:segmentindex.HeaderSize]))
 	if err != nil {
 		return nil, errors.Wrap(err, "parse header")
 	}
 
-	switch header.strategy {
-	case SegmentStrategyReplace, SegmentStrategySetCollection,
-		SegmentStrategyMapCollection, SegmentStrategyRoaringSet:
+	switch header.Strategy {
+	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
+		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
 	default:
 		return nil, errors.Errorf("unsupported strategy in segment")
 	}
@@ -100,16 +100,16 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	ind := &segment{
-		level:               header.level,
+		level:               header.Level,
 		path:                path,
 		contents:            content,
-		version:             header.version,
-		secondaryIndexCount: header.secondaryIndices,
-		segmentStartPos:     header.indexStart,
+		version:             header.Version,
+		secondaryIndexCount: header.SecondaryIndices,
+		segmentStartPos:     header.IndexStart,
 		segmentEndPos:       uint64(len(content)),
-		strategy:            header.strategy,
-		dataStartPos:        SegmentHeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:          header.indexStart,
+		strategy:            header.Strategy,
+		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
+		dataEndPos:          header.IndexStart,
 		index:               primaryDiskIndex,
 		logger:              logger,
 		metrics:             metrics,
