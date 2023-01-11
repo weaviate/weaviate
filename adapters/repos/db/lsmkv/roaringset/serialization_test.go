@@ -104,9 +104,8 @@ func TestSerialization_KeyIndexAndWriteTo(t *testing.T) {
 
 	sn, err := NewSegmentNode(key, additions, deletions)
 	require.Nil(t, err)
-	sn.Offset = offset
 
-	keyIndex, err := sn.KeyIndexAndWriteTo(buf)
+	keyIndex, err := sn.KeyIndexAndWriteTo(buf, offset)
 	require.Nil(t, err)
 
 	res := buf.Bytes()
