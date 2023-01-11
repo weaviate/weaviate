@@ -14,7 +14,6 @@ package hybrid
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -203,10 +202,7 @@ func (s *Searcher) sparseSubSearch(
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		scStr := sr.AdditionalProperties["score"].(string)
-		sc, _ := strconv.ParseFloat(scStr, 64)
-		sr.Score = float32(sc)
-		sr.ExplainScore = "(bm25)" + out[i].ExplainScore
+		sr.ExplainScore = "(bm25)" + sr.ExplainScore
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
