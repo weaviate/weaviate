@@ -264,11 +264,6 @@ func extractLimit(args map[string]interface{}) (*int, error) {
 		// not set means the user is not interested and the UC should use a reasonable default
 		return nil, nil
 	}
-	//if !ok {
-	//	limit := 20
-	//	// not set means the user is not interested and the UC should use a reasonable default
-	//	return &limit, nil
-	//}
 
 	limitInt, ok := limit.(int)
 	if !ok {
