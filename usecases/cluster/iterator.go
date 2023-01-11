@@ -58,6 +58,7 @@ func (n *NodeIterator) SetStartNode(startNode string) {
 			if n.state == len(n.hostnames) {
 				n.state = 0
 			}
+			break
 		}
 	}
 }

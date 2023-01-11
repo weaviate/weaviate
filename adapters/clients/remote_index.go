@@ -31,7 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/semi-technologies/weaviate/usecases/scaler"
 )
 
 type RemoteIndex retryClient
@@ -719,7 +719,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, 12, try)
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
@@ -782,14 +782,14 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 }
 
 func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
-	hostName, indexName string, ssBefore, ssAfter *sharding.State,
+	hostName, indexName string, dist scaler.ShardDist,
 ) error {
 	path := fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
-	body, err := clusterapi.IndicesPayloads.IncreaseReplicationFactor.Marshall(ssBefore, ssAfter)
+	body, err := clusterapi.IndicesPayloads.IncreaseReplicationFactor.Marshall(dist)
 	if err != nil {
 		return err
 	}
@@ -811,7 +811,7 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, 34, try)
 }
 
 // FindObject extends GetObject with retries
