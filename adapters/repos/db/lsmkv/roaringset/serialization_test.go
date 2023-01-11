@@ -71,7 +71,7 @@ func TestSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 	bufTooLarge := make([]byte, 3*len(buf))
 	copy(bufTooLarge, buf)
 
-	newSN := NewSegmentNodeFromBuffer(buf)
+	newSN := NewSegmentNodeFromBuffer(bufTooLarge)
 	// assert that the buffer self reports the useful length, not the length of
 	// the initialization buffer
 	assert.Equal(t, newSN.Len(), uint64(len(buf)))
