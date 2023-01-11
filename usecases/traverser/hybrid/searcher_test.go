@@ -358,6 +358,7 @@ func TestSearcher(t *testing.T) {
 									Vector:    []float32{1, 2, 3},
 									Certainty: 0.8,
 								},
+								Weight: 100,
 							},
 							{
 								Type: "nearText",
@@ -365,6 +366,7 @@ func TestSearcher(t *testing.T) {
 									Values:    []string{"some query"},
 									Certainty: 0.8,
 								},
+								Weight: 2,
 							},
 							{
 								Type: "sparseSearch",
@@ -373,6 +375,7 @@ func TestSearcher(t *testing.T) {
 									Properties: []string{"propA", "propB"},
 									Query:      "some query",
 								},
+								Weight: 3,
 							},
 						},
 					},
@@ -400,7 +403,7 @@ func TestSearcher(t *testing.T) {
 								ID:         "79a636c2-3314-442e-a4d1-e94d7c0afc3a",
 								Properties: map[string]any{"prop": "val"},
 								Vector:     []float32{4, 5, 6},
-								Additional: map[string]interface{}{"score": float32(0.008)},
+								Additional: map[string]interface{}{"score": float32(0.8)},
 							},
 							Vector: []float32{4, 5, 6},
 						},
