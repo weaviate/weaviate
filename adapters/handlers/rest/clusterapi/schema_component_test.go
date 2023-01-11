@@ -23,7 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/scaling"
+	"github.com/semi-technologies/weaviate/usecases/scaler"
 	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -34,7 +34,7 @@ import (
 // This is a cross-package test that tests the schema manager in a distributed
 // settings including some of its dependencies, such as the REST API and
 // clients. This setup pretends that replication was one-way for simplicity
-// sake, but uses the same compoenents on either side to make sure that it
+// sake, but uses the same components on either side to make sure that it
 // would work in both directions.
 func TestComponentCluster(t *testing.T) {
 	t.Run("add class", func(t *testing.T) {
@@ -182,5 +182,5 @@ func (f *fakeScaleOutManager) Scale(ctx context.Context,
 	return nil, nil
 }
 
-func (f *fakeScaleOutManager) SetSchemaManager(sm scaling.SchemaManager) {
+func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
 }
