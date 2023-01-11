@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/replica"
-	"github.com/semi-technologies/weaviate/usecases/scaling"
+	"github.com/semi-technologies/weaviate/usecases/scaler"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
@@ -96,7 +96,7 @@ type clusterState interface {
 }
 
 type scaleOut interface {
-	SetSchemaManager(sm scaling.SchemaManager)
+	SetSchemaManager(sm scaler.SchemaManager)
 	Scale(ctx context.Context, className string,
 		updated sharding.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
 }
