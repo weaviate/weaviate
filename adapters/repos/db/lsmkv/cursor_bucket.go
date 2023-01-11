@@ -15,7 +15,7 @@ import (
 	"bytes"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/entities"
 )
 
 type CursorReplace struct {
@@ -76,12 +76,12 @@ func (c *CursorReplace) seekAll(target []byte) {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if err == ent.NotFound {
+		if err == entities.NotFound {
 			state[i].err = err
 			continue
 		}
 
-		if err == ent.Deleted {
+		if err == entities.Deleted {
 			state[i].err = err
 			state[i].key = key
 			continue
@@ -101,13 +101,13 @@ func (c *CursorReplace) seekAll(target []byte) {
 func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
-		if err == ent.NotFound {
+		if err == entities.NotFound {
 			return nil, nil
 		}
 	}
 
 	// check if this is a duplicate key before checking for the remaining errors,
-	// as cases such as 'ent.Deleted' can be better handled inside
+	// as cases such as 'entities.Deleted' can be better handled inside
 	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
 	// segments in the correct order
 	if ids, ok := c.haveDuplicatesInState(id); ok {
@@ -148,7 +148,7 @@ func (c *CursorReplace) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]by
 		c.advanceInner(id)
 	}
 
-	if c.serveCache.err == ent.Deleted {
+	if c.serveCache.err == entities.Deleted {
 		// element was deleted, proceed with next round
 		return c.Next()
 	}
@@ -181,12 +181,12 @@ func (c *CursorReplace) Seek(key []byte) ([]byte, []byte) {
 }
 
 func (c *CursorReplace) cursorWithLowestKey() (int, error) {
-	err := ent.NotFound
+	err := entities.NotFound
 	pos := -1
 	var lowest []byte
 
 	for i, res := range c.state {
-		if res.err == ent.NotFound {
+		if res.err == entities.NotFound {
 			continue
 		}
 
@@ -206,14 +206,14 @@ func (c *CursorReplace) cursorWithLowestKey() (int, error) {
 
 func (c *CursorReplace) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if err == ent.NotFound {
+	if err == entities.NotFound {
 		c.state[id].err = err
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
 	}
 
-	if err == ent.Deleted {
+	if err == entities.Deleted {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil
@@ -237,11 +237,11 @@ func (c *CursorReplace) firstAll() {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if err == ent.NotFound {
+		if err == entities.NotFound {
 			state[i].err = err
 			continue
 		}
-		if err == ent.Deleted {
+		if err == entities.Deleted {
 			state[i].err = err
 			state[i].key = key
 			continue

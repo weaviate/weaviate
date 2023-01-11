@@ -15,7 +15,7 @@ import (
 	"bytes"
 
 	"github.com/dgraph-io/sroar"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
 
@@ -55,7 +55,7 @@ func (t *BinarySearchTree) Insert(key []byte, values Insert) {
 
 func (t *BinarySearchTree) Get(key []byte) (*BitmapLayer, error) {
 	if t.root == nil {
-		return nil, ent.NotFound
+		return nil, entities.NotFound
 	}
 
 	return t.root.get(key)
@@ -223,13 +223,13 @@ func (n *BinarySearchNode) get(key []byte) (*BitmapLayer, error) {
 
 	if bytes.Compare(key, n.Key) < 0 {
 		if n.left == nil {
-			return nil, ent.NotFound
+			return nil, entities.NotFound
 		}
 
 		return n.left.get(key)
 	} else {
 		if n.right == nil {
-			return nil, ent.NotFound
+			return nil, entities.NotFound
 		}
 
 		return n.right.get(key)

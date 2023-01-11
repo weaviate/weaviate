@@ -9,11 +9,5 @@
 //  CONTACT: hello@semi.technology
 //
 
-package ent
-
-import "fmt"
-
-var (
-	NotFound = fmt.Errorf("not found")
-	Deleted  = fmt.Errorf("deleted")
-)
+// ent contains common types used throughout various lsmkv (sub-)packages
+package entities

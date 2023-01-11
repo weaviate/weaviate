@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/ent"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
@@ -106,7 +106,7 @@ func (l *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 	primary := l.secondaryToPrimary[pos][string(key)]
 	if primary == nil {
-		return nil, ent.NotFound
+		return nil, entities.NotFound
 	}
 
 	v, err := l.key.get(primary)
