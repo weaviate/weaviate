@@ -59,14 +59,14 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	defer syscall.Munmap(content)
 
-	header, err := parseSegmentHeader(bytes.NewReader(content[:SegmentHeaderSize]))
+	header, err := segmentindex.ParseHeader(bytes.NewReader(content[:segmentindex.HeaderSize]))
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
-	switch header.strategy {
-	case SegmentStrategyReplace, SegmentStrategySetCollection,
-		SegmentStrategyMapCollection:
+	switch header.Strategy {
+	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
+		segmentindex.StrategyMapCollection:
 	default:
 		return nil, fmt.Errorf("unsupported strategy in segment")
 	}
@@ -79,7 +79,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	ind := &segment{
-		level: header.level,
+		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we
 		// pre-compute later on still apply they will in turn be suffixed with
 		// .tmp, but that is supposed to be the end of the file. if we didn't trim
@@ -87,13 +87,13 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		// segment.tmp.bloom.tmp, whereas we want to end up with segment.bloom.tmp
 		path:                strings.TrimSuffix(path, ".tmp"),
 		contents:            content,
-		version:             header.version,
-		secondaryIndexCount: header.secondaryIndices,
-		segmentStartPos:     header.indexStart,
+		version:             header.Version,
+		secondaryIndexCount: header.SecondaryIndices,
+		segmentStartPos:     header.IndexStart,
 		segmentEndPos:       uint64(len(content)),
-		strategy:            header.strategy,
-		dataStartPos:        SegmentHeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:          header.indexStart,
+		strategy:            header.Strategy,
+		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
+		dataEndPos:          header.IndexStart,
 		index:               primaryDiskIndex,
 		logger:              logger,
 	}
@@ -122,7 +122,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	out = append(out, fmt.Sprintf("%s.tmp", ind.bloomFilterPath()))
 
-	if ind.strategy != SegmentStrategyReplace {
+	if ind.strategy != segmentindex.StrategyReplace {
 		// only "replace" has count net additions, so we are done
 		return out, nil
 	}

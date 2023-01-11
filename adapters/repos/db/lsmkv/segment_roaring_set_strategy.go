@@ -22,7 +22,7 @@ import (
 func (i *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	out := roaringset.BitmapLayer{}
 
-	if i.strategy != SegmentStrategyRoaringSet {
+	if i.strategy != segmentindex.StrategyRoaringSet {
 		return out, fmt.Errorf("need strategy %s", StrategyRoaringSet)
 	}
 

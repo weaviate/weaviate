@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -134,7 +135,7 @@ func (sg *SegmentGroup) compactOnce() error {
 
 	// TODO: call metrics just once with variable strategy label
 
-	case SegmentStrategyReplace:
+	case segmentindex.StrategyReplace:
 		c := newCompactorReplace(f, sg.segmentAtPos(pair[0]).newCursor(),
 			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
 
@@ -146,7 +147,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		if err := c.do(); err != nil {
 			return err
 		}
-	case SegmentStrategySetCollection:
+	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
 			sg.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath)
@@ -159,7 +160,7 @@ func (sg *SegmentGroup) compactOnce() error {
 		if err := c.do(); err != nil {
 			return err
 		}
-	case SegmentStrategyMapCollection:
+	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f,
 			sg.segmentAtPos(pair[0]).newCollectionCursorReusable(),
 			sg.segmentAtPos(pair[1]).newCollectionCursorReusable(),

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,8 +162,8 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		dirName := t.TempDir()
 		segmentName := path.Join(dirName, "my-segment.tmp")
 
-		header := &segmentHeader{
-			version: 100, // only supported version as of writing this test is 0
+		header := &segmentindex.Header{
+			Version: 100, // only supported version as of writing this test is 0
 		}
 
 		f, err := os.Create(segmentName)
@@ -184,9 +185,9 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		dirName := t.TempDir()
 		segmentName := path.Join(dirName, "my-segment.tmp")
 
-		header := &segmentHeader{
-			version:  0,
-			strategy: SegmentStrategy(100), // this strategy doesn't exist
+		header := &segmentindex.Header{
+			Version:  0,
+			Strategy: segmentindex.Strategy(100), // this strategy doesn't exist
 		}
 
 		f, err := os.Create(segmentName)

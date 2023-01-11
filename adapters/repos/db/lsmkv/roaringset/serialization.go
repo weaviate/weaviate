@@ -127,6 +127,7 @@ func NewSegmentNode(
 	additionsBuf := additions.ToBuffer()
 	deletionsBuf := deletions.ToBuffer()
 
+	// offset + 2*uint64 length indicators + uint32 length indicator + payloads
 	expectedSize := 8 + 8 + 8 + 4 + len(additionsBuf) + len(deletionsBuf) + len(key)
 	sn := SegmentNode{
 		data: make([]byte, expectedSize),

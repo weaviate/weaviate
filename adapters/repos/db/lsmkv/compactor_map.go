@@ -91,7 +91,7 @@ func (c *compactorMap) init() error {
 	// we will seek to the beginning and overwrite the actual header at the very
 	// end
 
-	if _, err := c.bufw.Write(make([]byte, SegmentHeaderSize)); err != nil {
+	if _, err := c.bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
 		return errors.Wrap(err, "write empty header")
 	}
 
@@ -103,7 +103,7 @@ func (c *compactorMap) writeKeys() ([]segmentindex.Key, error) {
 	key2, value2, _ := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
-	offset := SegmentHeaderSize
+	offset := segmentindex.HeaderSize
 
 	var kis []segmentindex.Key
 	pairs := newReusableMapPairs()
@@ -225,12 +225,12 @@ func (c *compactorMap) writeHeader(level, version, secondaryIndices uint16,
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
 
-	h := &segmentHeader{
-		level:            level,
-		version:          version,
-		secondaryIndices: secondaryIndices,
-		strategy:         SegmentStrategyMapCollection,
-		indexStart:       startOfIndex,
+	h := &segmentindex.Header{
+		Level:            level,
+		Version:          version,
+		SecondaryIndices: secondaryIndices,
+		Strategy:         segmentindex.StrategyMapCollection,
+		IndexStart:       startOfIndex,
 	}
 
 	if _, err := h.WriteTo(c.w); err != nil {
