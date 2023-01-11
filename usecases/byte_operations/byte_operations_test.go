@@ -77,3 +77,57 @@ func TestReadAnWriteLargeBuffer(t *testing.T) {
 	byteOpsRead.MoveBufferPositionForward(uint64(MaxUint32))
 	require.Equal(t, byteOpsRead.ReadUint16(), uint16(10))
 }
+
+func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
+	t.Run("uint64 length indicator", func(t *testing.T) {
+		bufLen := uint64(rand.Intn(1024))
+		buf := make([]byte, bufLen)
+		rand.Read(buf)
+
+		// uint64 length indicator + buffer + unrelated data at end of buffer
+		totalBuf := make([]byte, bufLen+16)
+		bo := ByteOperations{Buffer: totalBuf}
+
+		assert.Nil(t, bo.CopyBytesToBufferWithUint64LengthIndicator(buf))
+		bo.WriteUint64(17)
+		assert.Equal(t, buf, totalBuf[8:8+bufLen])
+
+		// read
+		bo = ByteOperations{Buffer: totalBuf}
+		bufRead := bo.ReadBytesFromBufferWithUint64LengthIndicator()
+		assert.Len(t, bufRead, int(bufLen))
+		assert.Equal(t, uint64(17), bo.ReadUint64())
+
+		// discard
+		bo = ByteOperations{Buffer: totalBuf}
+		discarded := bo.DiscardBytesFromBufferWithUint64LengthIndicator()
+		assert.Equal(t, bufLen, discarded)
+		assert.Equal(t, uint64(17), bo.ReadUint64())
+	})
+
+	t.Run("uint32 length indicator", func(t *testing.T) {
+		bufLen := uint32(rand.Intn(1024))
+		buf := make([]byte, bufLen)
+		rand.Read(buf)
+
+		// uint32 length indicator + buffer + unrelated data at end of buffer
+		totalBuf := make([]byte, bufLen+8)
+		bo := ByteOperations{Buffer: totalBuf}
+
+		assert.Nil(t, bo.CopyBytesToBufferWithUint32LengthIndicator(buf))
+		bo.WriteUint32(17)
+		assert.Equal(t, buf, totalBuf[4:4+bufLen])
+
+		// read
+		bo = ByteOperations{Buffer: totalBuf}
+		bufRead := bo.ReadBytesFromBufferWithUint32LengthIndicator()
+		assert.Len(t, bufRead, int(bufLen))
+		assert.Equal(t, uint32(17), bo.ReadUint32())
+
+		// discard
+		bo = ByteOperations{Buffer: totalBuf}
+		discarded := bo.DiscardBytesFromBufferWithUint32LengthIndicator()
+		assert.Equal(t, bufLen, discarded)
+		assert.Equal(t, uint32(17), bo.ReadUint32())
+	})
+}

@@ -61,6 +61,40 @@ func (bo *ByteOperations) ReadBytesFromBuffer(length uint64) []byte {
 	return subslice
 }
 
+func (bo *ByteOperations) ReadBytesFromBufferWithUint64LengthIndicator() []byte {
+	bo.Position += uint64Len
+	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
+
+	bo.Position += bufLen
+	subslice := bo.Buffer[bo.Position-bufLen : bo.Position]
+	return subslice
+}
+
+func (bo *ByteOperations) DiscardBytesFromBufferWithUint64LengthIndicator() uint64 {
+	bo.Position += uint64Len
+	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
+
+	bo.Position += bufLen
+	return bufLen
+}
+
+func (bo *ByteOperations) ReadBytesFromBufferWithUint32LengthIndicator() []byte {
+	bo.Position += uint32Len
+	bufLen := uint64(binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position]))
+
+	bo.Position += bufLen
+	subslice := bo.Buffer[bo.Position-bufLen : bo.Position]
+	return subslice
+}
+
+func (bo *ByteOperations) DiscardBytesFromBufferWithUint32LengthIndicator() uint32 {
+	bo.Position += uint32Len
+	bufLen := binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
+
+	bo.Position += uint64(bufLen)
+	return bufLen
+}
+
 func (bo *ByteOperations) WriteUint64(value uint64) {
 	bo.Position += uint64Len
 	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], value)
@@ -80,6 +114,34 @@ func (bo *ByteOperations) CopyBytesToBuffer(copyBytes []byte) error {
 	lenCopyBytes := uint64(len(copyBytes))
 	bo.Position += lenCopyBytes
 	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], copyBytes)
+	if numCopiedBytes != int(lenCopyBytes) {
+		return errors.New("could not copy data into buffer")
+	}
+	return nil
+}
+
+// Writes a uint64 length indicator about the buffer that's about to follow,
+// then writes the buffer itself
+func (bo *ByteOperations) CopyBytesToBufferWithUint64LengthIndicator(copyBytes []byte) error {
+	lenCopyBytes := uint64(len(copyBytes))
+	bo.Position += uint64Len
+	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], lenCopyBytes)
+	bo.Position += lenCopyBytes
+	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], copyBytes)
+	if numCopiedBytes != int(lenCopyBytes) {
+		return errors.New("could not copy data into buffer")
+	}
+	return nil
+}
+
+// Writes a uint32 length indicator about the buffer that's about to follow,
+// then writes the buffer itself
+func (bo *ByteOperations) CopyBytesToBufferWithUint32LengthIndicator(copyBytes []byte) error {
+	lenCopyBytes := uint32(len(copyBytes))
+	bo.Position += uint32Len
+	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-uint32Len:bo.Position], lenCopyBytes)
+	bo.Position += uint64(lenCopyBytes)
+	numCopiedBytes := copy(bo.Buffer[bo.Position-uint64(lenCopyBytes):bo.Position], copyBytes)
 	if numCopiedBytes != int(lenCopyBytes) {
 		return errors.New("could not copy data into buffer")
 	}
