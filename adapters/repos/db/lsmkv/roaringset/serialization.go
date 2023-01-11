@@ -70,8 +70,7 @@ func (sn *SegmentNode) Len() uint64 {
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
 	bo := byte_operations.ByteOperations{Buffer: sn.data}
 	bo.MoveBufferToAbsolutePosition(8)
-	additionsLength := bo.ReadUint64()
-	return sroar.FromBuffer(bo.ReadBytesFromBuffer(additionsLength))
+	return sroar.FromBuffer(bo.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -83,8 +82,7 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 	bo := byte_operations.ByteOperations{Buffer: sn.data}
 	bo.MoveBufferToAbsolutePosition(8)
-	additionsLength := bo.ReadUint64()
-	return sroar.FromBufferWithCopy(bo.ReadBytesFromBuffer(additionsLength))
+	return sroar.FromBufferWithCopy(bo.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
@@ -94,10 +92,8 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 	bo := byte_operations.ByteOperations{Buffer: sn.data}
 	bo.MoveBufferToAbsolutePosition(8)
-	additionsLength := bo.ReadUint64()
-	bo.MoveBufferPositionForward(additionsLength)
-	deletionsLength := bo.ReadUint64()
-	return sroar.FromBuffer(bo.ReadBytesFromBuffer(deletionsLength))
+	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return sroar.FromBuffer(bo.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
@@ -109,21 +105,16 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
 	bo := byte_operations.ByteOperations{Buffer: sn.data}
 	bo.MoveBufferToAbsolutePosition(8)
-	additionsLength := bo.ReadUint64()
-	bo.MoveBufferPositionForward(additionsLength)
-	deletionsLength := bo.ReadUint64()
-	return sroar.FromBufferWithCopy(bo.ReadBytesFromBuffer(deletionsLength))
+	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return sroar.FromBufferWithCopy(bo.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 func (sn *SegmentNode) PrimaryKey() []byte {
 	bo := byte_operations.ByteOperations{Buffer: sn.data}
 	bo.MoveBufferToAbsolutePosition(8)
-	additionsLength := bo.ReadUint64()
-	bo.MoveBufferPositionForward(additionsLength)
-	deletionsLength := bo.ReadUint64()
-	bo.MoveBufferPositionForward(deletionsLength)
-	keyLength := bo.ReadUint32()
-	return bo.ReadBytesFromBuffer(uint64(keyLength))
+	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
+	bo.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return bo.ReadBytesFromBufferWithUint32LengthIndicator()
 }
 
 func NewSegmentNode(
@@ -143,19 +134,18 @@ func NewSegmentNode(
 
 	bo := byte_operations.ByteOperations{Buffer: sn.data}
 
+	// reserve the first 8 bytes for the offset, which we will write at the very
+	// end
 	bo.MoveBufferPositionForward(8)
-	bo.WriteUint64(uint64(len(additionsBuf)))
-	if err := bo.CopyBytesToBuffer(additionsBuf); err != nil {
+	if err := bo.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
 		return nil, err
 	}
 
-	bo.WriteUint64(uint64(len(deletionsBuf)))
-	if err := bo.CopyBytesToBuffer(deletionsBuf); err != nil {
+	if err := bo.CopyBytesToBufferWithUint64LengthIndicator(deletionsBuf); err != nil {
 		return nil, err
 	}
 
-	bo.WriteUint32(uint32(len(key)))
-	if err := bo.CopyBytesToBuffer(key); err != nil {
+	if err := bo.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
 		return nil, err
 	}
 
