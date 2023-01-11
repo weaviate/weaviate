@@ -205,10 +205,10 @@ func (c *compactorMap) writeIndividualNode(offset int, key []byte,
 }
 
 func (c *compactorMap) writeIndices(keys []segmentindex.Key) error {
-	indices := segmentIndices{
-		keys:                keys,
-		secondaryIndexCount: c.secondaryIndexCount,
-		scratchSpacePath:    c.scratchSpacePath,
+	indices := segmentindex.Indexes{
+		Keys:                keys,
+		SecondaryIndexCount: c.secondaryIndexCount,
+		ScratchSpacePath:    c.scratchSpacePath,
 	}
 
 	_, err := indices.WriteTo(c.bufw)

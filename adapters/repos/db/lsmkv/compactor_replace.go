@@ -166,10 +166,10 @@ func (c *compactorReplace) writeIndividualNode(offset int, key, value []byte,
 }
 
 func (c *compactorReplace) writeIndices(keys []segmentindex.Key) error {
-	indices := &segmentIndices{
-		keys:                keys,
-		secondaryIndexCount: c.secondaryIndexCount,
-		scratchSpacePath:    c.scratchSpacePath,
+	indices := &segmentindex.Indexes{
+		Keys:                keys,
+		SecondaryIndexCount: c.secondaryIndexCount,
+		ScratchSpacePath:    c.scratchSpacePath,
 	}
 
 	_, err := indices.WriteTo(c.bufw)
