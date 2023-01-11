@@ -72,10 +72,10 @@ func (l *Memtable) flush() error {
 		return fmt.Errorf("cannot flush strategy %s", l.strategy)
 	}
 
-	indices := &segmentIndices{
-		keys:                keys,
-		secondaryIndexCount: l.secondaryIndices,
-		scratchSpacePath:    l.path + ".scratch.d",
+	indices := &segmentindex.Indexes{
+		Keys:                keys,
+		SecondaryIndexCount: l.secondaryIndices,
+		ScratchSpacePath:    l.path + ".scratch.d",
 	}
 
 	if _, err := indices.WriteTo(w); err != nil {
