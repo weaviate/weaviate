@@ -66,7 +66,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	switch header.Strategy {
 	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
-		segmentindex.StrategyMapCollection:
+		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
 	default:
 		return nil, fmt.Errorf("unsupported strategy in segment")
 	}
