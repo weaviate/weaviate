@@ -98,7 +98,12 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	// ToDo: check atomic operation
 	if !h.compressed && parsed.Compressed {
 		h.logger.WithField("action", "compress").Info("switching to compressed vectors")
-		h.compressActionLock.InvokeBlockingTask(func() { h.Compress(parsed.PQSegments) })
+		var err error
+		h.compressActionLock.InvokeBlockingTask(func() { err = h.Compress(parsed.PQSegments) })
+		if err != nil {
+			h.logger.Error(err)
+			return err
+		}
 		h.logger.WithField("action", "compress").Info("vector compression complete")
 	}
 

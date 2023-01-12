@@ -3,6 +3,7 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -15,6 +16,9 @@ const (
 )
 
 func (h *hnsw) Compress(segments int) error {
+	if h.nodes[0] == nil {
+		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
+	}
 	vec, _ := h.vectorForID(context.Background(), h.nodes[0].id)
 	dims := len(vec)
 	// segments == 0 (default value) means use as many sements as dimensions
