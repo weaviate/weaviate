@@ -18,12 +18,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/semi-technologies/weaviate/usecases/traverser/hybrid"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -50,7 +49,7 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 		return nil, fmt.Errorf("grouping by cross-refs not supported")
 	}
 
-	if g.params.Filters == nil && len(g.params.SearchVector) == 0 {
+	if g.params.Filters == nil && len(g.params.SearchVector) == 0 && g.params.Hybrid == nil {
 		return g.groupAll(ctx)
 	} else {
 		return g.groupFiltered(ctx)
@@ -85,31 +84,78 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
-	var (
-		schema    = g.getSchema.GetSchemaSkipAuth()
-		allowList helpers.AllowList
-	)
-
-	if g.params.Filters != nil {
-		allowList, err = inverted.NewSearcher(g.store, schema, g.invertedRowCache, nil,
-			g.classSearcher, g.deletedDocIDs, g.stopwords, g.shardVersion).
-			DocIDs(ctx, g.params.Filters, additional.Properties{},
-				g.params.ClassName)
-		if err != nil {
-			return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
-		}
+	allowList, err := g.buildAllowList(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(g.params.SearchVector) > 0 {
-		ids, err = g.vectorSearch(allowList)
+		ids, _, err = g.vectorSearch(allowList, g.params.SearchVector)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to perform vector search")
+			return nil, fmt.Errorf("failed to perform vector search: %w", err)
+		}
+	} else if g.params.Hybrid != nil {
+		ids, err = g.hybrid(ctx, allowList)
+		if err != nil {
+			return nil, fmt.Errorf("hybrid search: %w", err)
 		}
 	} else {
 		ids = allowList.Slice()
 	}
 
 	return
+}
+
+func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]uint64, error) {
+	sparseSearch := func() ([]*storobj.Object, []float32, error) {
+		kw, err := g.buildHybridKeywordRanking()
+		if err != nil {
+			return nil, nil, fmt.Errorf("build hybrid keyword ranking: %w", err)
+		}
+
+		if g.params.ObjectLimit == nil {
+			limit := hybrid.DefaultLimit
+			g.params.ObjectLimit = &limit
+		}
+
+		sparse, dists, err := g.bm25Objects(ctx, kw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
+		}
+
+		return sparse, dists, nil
+	}
+
+	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
+		if vec == nil {
+			return nil, nil, fmt.Errorf("must provide hybrid search vector if alpha > 0")
+		}
+
+		res, dists, err := g.objectVectorSearch(vec, allowList)
+		if err != nil {
+			return nil, nil, fmt.Errorf("aggregate grouped dense search: %w", err)
+		}
+
+		return res, dists, nil
+	}
+
+	h := hybrid.NewSearcher(&hybrid.Params{
+		HybridSearch: g.params.Hybrid,
+		Keyword:      nil,
+		Class:        g.params.ClassName.String(),
+	}, g.logger, sparseSearch, denseSearch, nil)
+
+	res, err := h.Search(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]uint64, len(res))
+	for i, r := range res {
+		ids[i] = r.DocID
+	}
+
+	return ids, nil
 }
 
 func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {

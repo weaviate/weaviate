@@ -67,17 +67,17 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 		selections := p.Info.FieldASTs[0].SelectionSet
 		properties, includeMeta, err := extractProperties(selections)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract properties for class '%s': %s", className, err)
+			return nil, fmt.Errorf("could not extract properties for class '%s': %w", className, err)
 		}
 
 		groupBy, err := extractGroupBy(p.Args, p.Info.FieldName)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract groupBy path: %s", err)
+			return nil, fmt.Errorf("could not extract groupBy path: %w", err)
 		}
 
 		limit, err := extractLimit(p.Args)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract limit: %s", err)
+			return nil, fmt.Errorf("could not extract limit: %w", err)
 		}
 
 		objectLimit, err := extractObjectLimit(p.Args)
@@ -85,19 +85,19 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 			return nil, fmt.Errorf("objectLimit must be a positive integer")
 		}
 		if err != nil {
-			return nil, fmt.Errorf("could not extract objectLimit: %s", err)
+			return nil, fmt.Errorf("could not extract objectLimit: %w", err)
 		}
 
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
-			return nil, fmt.Errorf("could not extract filters: %s", err)
+			return nil, fmt.Errorf("could not extract filters: %w", err)
 		}
 
 		var nearVectorParams *searchparams.NearVector
 		if nearVector, ok := p.Args["nearVector"]; ok {
 			p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 			if err != nil {
-				return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
+				return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 			}
 			nearVectorParams = &p
 		}
@@ -106,7 +106,7 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 		if nearObject, ok := p.Args["nearObject"]; ok {
 			p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 			if err != nil {
-				return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
+				return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
 			}
 			nearObjectParams = &p
 		}
@@ -117,6 +117,18 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 			if len(extractedParams) > 0 {
 				moduleParams = extractedParams
 			}
+		}
+
+		// Extract hybrid search params from the processed query
+		// Everything hybrid can go in another namespace AFTER modulesprovider is
+		// refactored
+		var hybridParams *searchparams.HybridSearch
+		if hybrid, ok := p.Args["hybrid"]; ok {
+			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}))
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
+			}
+			hybridParams = p
 		}
 
 		params := &aggregation.Params{
@@ -130,11 +142,12 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 			NearVector:       nearVectorParams,
 			NearObject:       nearObjectParams,
 			ModuleParams:     moduleParams,
+			Hybrid:           hybridParams,
 		}
 
 		// we might support objectLimit without nearMedia filters later, e.g. with sort
-		if params.ObjectLimit != nil && !areNearMediaFiltersIncluded(params) {
-			return nil, fmt.Errorf("objectLimit can only be used with a near<Media> filter")
+		if params.ObjectLimit != nil && !validateObjectLimitUsage(params) {
+			return nil, fmt.Errorf("objectLimit can only be used with a near<Media> or hybrid filter")
 		}
 
 		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
@@ -248,7 +261,7 @@ func principalFromContext(ctx context.Context) *models.Principal {
 func extractLimit(args map[string]interface{}) (*int, error) {
 	limit, ok := args["limit"]
 	if !ok {
-		// not set means the user is not intersted and the UC should use a reasonable default
+		// not set means the user is not interested and the UC should use a reasonable default
 		return nil, nil
 	}
 
@@ -290,8 +303,9 @@ func extractLimitFromArgs(args []*ast.Argument) *int {
 	return nil
 }
 
-func areNearMediaFiltersIncluded(params *aggregation.Params) bool {
+func validateObjectLimitUsage(params *aggregation.Params) bool {
 	return params.NearObject != nil ||
 		params.NearVector != nil ||
-		len(params.ModuleParams) > 0
+		len(params.ModuleParams) > 0 ||
+		params.Hybrid != nil
 }
