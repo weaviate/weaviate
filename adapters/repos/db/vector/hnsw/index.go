@@ -149,6 +149,7 @@ type hnsw struct {
 	pq                     *ssdhelpers.ProductQuantizer
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
+	compressActionLock     *helpers.OneBlockingMultipleConcurrently
 }
 
 type CommitLogger interface {
@@ -258,8 +259,9 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 
-		randFunc:        rand.Float64,
-		compressedStore: store,
+		randFunc:           rand.Float64,
+		compressedStore:    store,
+		compressActionLock: helpers.NewOneBlockingMultipleConcurrently(context.Background()),
 	}
 
 	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)

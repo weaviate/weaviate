@@ -27,6 +27,14 @@ type breakCleanUpTombstonedNodesFunc func() bool
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
 func (h *hnsw) Delete(id uint64) error {
+	var error error
+	h.compressActionLock.InvokeConcurrentTask(func() {
+		error = h.delete(id)
+	})
+	return error
+}
+
+func (h *hnsw) delete(id uint64) error {
 	h.deleteVsInsertLock.Lock()
 	defer h.deleteVsInsertLock.Unlock()
 
