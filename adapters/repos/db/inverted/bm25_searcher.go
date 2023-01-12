@@ -29,11 +29,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
-	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type BM25Searcher struct {
@@ -300,8 +300,8 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 	return res
 }
 
-//Todo:  deduplicate
-func propertyIsIndexed(schemaDefinition *models.Schema, className, propertyName string) bool{
+// Todo:  deduplicate
+func propertyIsIndexed(schemaDefinition *models.Schema, className, propertyName string) bool {
 	c, err := schema.GetClassByName(schemaDefinition, string(className))
 	if err != nil {
 		return false
@@ -312,9 +312,9 @@ func propertyIsIndexed(schemaDefinition *models.Schema, className, propertyName 
 	}
 	indexed := p.IndexInverted
 	if indexed != nil {
-	 return true
+		return true
 	}
-return false
+	return false
 }
 
 // BM25F search each given property for a single term.  Results will be combined later
@@ -325,14 +325,13 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 
 	propNames := []string{}
 
-	//WEAVIATE-471 - If there are no searchable properties, return an error
+	// WEAVIATE-471 - If there are no searchable properties, return an error
 	for _, rawProperty := range properties {
 		property := strings.Split(rawProperty, "^")[0]
 		if !propertyIsIndexed(b.schema.Objects, string(className), property) {
 			return docPointersWithScore{}, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
 		}
 	}
-
 
 	for _, propertyWithBoost := range properties {
 		boost := 1

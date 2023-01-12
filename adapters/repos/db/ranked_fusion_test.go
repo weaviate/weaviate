@@ -234,15 +234,15 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 		Class:               "MyClass",
 		Properties: []*models.Property{
 			{
-				Name:         "title",
-				DataType:     []string{string(schema.DataTypeText)},
-				Tokenization: "word",
+				Name:          "title",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
 				IndexInverted: truePointer(),
 			},
 			{
-				Name:         "description",
-				DataType:     []string{string(schema.DataTypeText)},
-				Tokenization: "word",
+				Name:          "description",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
 				IndexInverted: truePointer(),
 			},
 		},
@@ -481,7 +481,6 @@ func TestRFJourney(t *testing.T) {
 			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
 		}
 	})
-
 }
 
 // "journey"

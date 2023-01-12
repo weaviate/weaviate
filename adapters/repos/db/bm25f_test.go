@@ -343,11 +343,10 @@ func TestBM25FCompare(t *testing.T) {
 	}
 }
 
-
 func Test_propertyIsIndexed(t *testing.T) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(1,1),
+		InvertedIndexConfig: BM25FinvertedConfig(1, 1),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -373,17 +372,15 @@ func Test_propertyIsIndexed(t *testing.T) {
 	}
 
 	schema := &models.Schema{
-		
-			Classes: []*models.Class{class},
-		
+		Classes: []*models.Class{class},
 	}
-		t.Run("Property index", func(t *testing.T) {
-			if got := propertyIsIndexed(schema,"MyClass", "description",); got != true {
-				t.Errorf("propertyIsIndexed() = %v, want %v", got,true)
-			}
+	t.Run("Property index", func(t *testing.T) {
+		if got := propertyIsIndexed(schema, "MyClass", "description"); got != true {
+			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		}
 
-			if got := propertyIsIndexed(schema,"MyClass", "title",); got != false {
-				t.Errorf("propertyIsIndexed() = %v, want %v", got,false)
-			}
-		})
+		if got := propertyIsIndexed(schema, "MyClass", "title"); got != false {
+			t.Errorf("propertyIsIndexed() = %v, want %v", got, false)
+		}
+	})
 }
