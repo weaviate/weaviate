@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -172,6 +173,29 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 
 		if err := c.do(); err != nil {
+			return err
+		}
+	case segmentindex.StrategyRoaringSet:
+		leftSegment := sg.segmentAtPos(pair[0])
+		rightSegment := sg.segmentAtPos(pair[1])
+
+		leftCursor := roaringset.NewSegmentCursor(
+			leftSegment.contents[leftSegment.dataStartPos:leftSegment.dataEndPos],
+			leftSegment.index)
+
+		rightCursor := roaringset.NewSegmentCursor(
+			rightSegment.contents[rightSegment.dataStartPos:rightSegment.dataEndPos],
+			rightSegment.index)
+
+		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
+			level, scratchSpacePath)
+
+		if sg.metrics != nil {
+			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(1)
+			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(0)
+		}
+
+		if err := c.Do(); err != nil {
 			return err
 		}
 

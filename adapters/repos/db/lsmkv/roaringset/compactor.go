@@ -281,7 +281,7 @@ func (c *Compactor) writeHeader(level, version, secondaryIndices uint16,
 		Level:            level,
 		Version:          version,
 		SecondaryIndices: secondaryIndices,
-		Strategy:         segmentindex.StrategySetCollection,
+		Strategy:         segmentindex.StrategyRoaringSet,
 		IndexStart:       startOfIndex,
 	}
 
