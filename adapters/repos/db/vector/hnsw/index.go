@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
@@ -146,6 +148,7 @@ type hnsw struct {
 	compressed             bool
 	pq                     *ssdhelpers.ProductQuantizer
 	compressedVectorsCache cache[byte]
+	compressedStore        *lsmkv.Store
 }
 
 type CommitLogger interface {
@@ -207,8 +210,17 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead)
-	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
 
+	store, err := lsmkv.New(fmt.Sprintf("./data/%s", cfg.ClassName), "", cfg.Logger, nil)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init hnsw")
+	}
+	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init hnsw")
+	}
+
+	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
@@ -245,7 +257,8 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 
-		randFunc: rand.Float64,
+		randFunc:        rand.Float64,
+		compressedStore: store,
 	}
 
 	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
@@ -620,7 +633,14 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 
-	h.cache.drop()
+	if err := h.compressedStore.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
+	}
+	if h.compressed {
+		h.compressedVectorsCache.drop()
+	} else {
+		h.cache.drop()
+	}
 
 	return nil
 }

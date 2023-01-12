@@ -2,9 +2,11 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
 )
 
@@ -37,7 +39,9 @@ func (h *hnsw) Compress(segments int) error {
 			return
 		}
 		h.Unlock()
-		h.compressedVectorsCache.preload(index, h.pq.Encode(data[index]))
+		encoded := h.pq.Encode(data[index])
+		h.storeCompressedVector(index, encoded)
+		h.compressedVectorsCache.preload(index, encoded)
 	})
 	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
 		fmt.Println(err)
@@ -45,11 +49,17 @@ func (h *hnsw) Compress(segments int) error {
 	}
 
 	h.compressed = true
-	h.cache = nil
+	h.cache.drop()
 	//ToDo: clear cache
 	return nil
 }
 
-func (i *hnsw) encodedVector(id uint64) ([]byte, error) {
-	return i.compressedVectorsCache.get(context.Background(), id)
+func (h *hnsw) encodedVector(id uint64) ([]byte, error) {
+	return h.compressedVectorsCache.get(context.Background(), id)
+}
+
+func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
+	Id := make([]byte, 8)
+	binary.LittleEndian.PutUint64(Id, index)
+	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
 }
