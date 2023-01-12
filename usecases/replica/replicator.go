@@ -212,7 +212,7 @@ func errorsFromSimpleResponses(batchSize int, rs []SimpleResponse, defaultErr er
 			}
 		}
 	}
-	if n != batchSize {
+	if n == 0 || n != len(rs) {
 		for i := range errs {
 			if errs[i] == nil {
 				errs[i] = defaultErr
@@ -222,11 +222,11 @@ func errorsFromSimpleResponses(batchSize int, rs []SimpleResponse, defaultErr er
 	return errs
 }
 
-func resultsFromDeletionResponses(size int, rs []DeleteBatchResponse, defaultErr error) []objects.BatchSimpleObject {
-	ret := make([]objects.BatchSimpleObject, size)
+func resultsFromDeletionResponses(batchSize int, rs []DeleteBatchResponse, defaultErr error) []objects.BatchSimpleObject {
+	ret := make([]objects.BatchSimpleObject, batchSize)
 	n := 0
 	for _, resp := range rs {
-		if len(resp.Batch) != size {
+		if len(resp.Batch) != batchSize {
 			continue
 		}
 		n++
@@ -239,7 +239,7 @@ func resultsFromDeletionResponses(size int, rs []DeleteBatchResponse, defaultErr
 			}
 		}
 	}
-	if n != size {
+	if n == 0 || n != len(rs) {
 		for i := range ret {
 			if ret[i].Err == nil {
 				ret[i].Err = defaultErr
