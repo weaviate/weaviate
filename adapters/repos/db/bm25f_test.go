@@ -342,3 +342,48 @@ func TestBM25FCompare(t *testing.T) {
 		require.Equal(t, withBM25Fobjs[5].DocID(), objs[5].DocID())
 	}
 }
+
+
+func Test_propertyIsIndexed(t *testing.T) {
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(1,1),
+		Class:               "MyClass",
+
+		Properties: []*models.Property{
+			{
+				Name:          "title",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: nil,
+			},
+			{
+				Name:          "description",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "stringField",
+				DataType:      []string{string(schema.DataTypeString)},
+				Tokenization:  "field",
+				IndexInverted: truePointer(),
+			},
+		},
+	}
+
+	schema := &models.Schema{
+		
+			Classes: []*models.Class{class},
+		
+	}
+		t.Run("Property index", func(t *testing.T) {
+			if got := propertyIsIndexed(schema,"MyClass", "description",); got != true {
+				t.Errorf("propertyIsIndexed() = %v, want %v", got,true)
+			}
+
+			if got := propertyIsIndexed(schema,"MyClass", "title",); got != false {
+				t.Errorf("propertyIsIndexed() = %v, want %v", got,false)
+			}
+		})
+}

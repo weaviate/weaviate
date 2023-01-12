@@ -753,10 +753,27 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	return ok, nil
 }
 
+func propertyIsIndexed(schemaDefinition *models.Schema, className, propertyName string) bool{
+			c, err := schema.GetClassByName(schemaDefinition, string(className))
+			if err != nil {
+				return false
+			}
+			p, err := schema.GetPropertyByName(c, propertyName)
+			if err != nil {
+				return false
+			}
+			indexed := p.IndexInverted
+			if indexed != nil {
+			 return true
+			}
+		return false
+}
+
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties,
 ) ([]*storobj.Object, error) {
+	
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -784,9 +801,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					if v.DataType[0] == "text" || v.DataType[0] == "string" { // Also the array types?
+					if (v.DataType[0] == "text" || v.DataType[0] == "string") && propertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
+				}
+
+				//WEAVIATE-471 - error if we can't find a property to search
+				if len(keywordRanking.Properties) == 0 {
+					return nil, errors.New("No properties provided, and no indexed properties found in class")
 				}
 
 			}
