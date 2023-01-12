@@ -31,6 +31,7 @@ type Params struct {
 	Certainty        float64
 	NearVector       *searchparams.NearVector
 	NearObject       *searchparams.NearObject
+	Hybrid           *searchparams.HybridSearch
 	ModuleParams     map[string]interface{}
 }
 
