@@ -326,7 +326,8 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 	propNames := []string{}
 
 	//WEAVIATE-471 - If there are no searchable properties, return an error
-	for _, property := range properties {
+	for _, rawProperty := range properties {
+		property := strings.Split(rawProperty, "^")[0]
 		if !propertyIsIndexed(b.schema.Objects, string(className), property) {
 			return docPointersWithScore{}, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
 		}

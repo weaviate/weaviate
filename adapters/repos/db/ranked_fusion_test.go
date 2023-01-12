@@ -237,11 +237,13 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 				Name:         "title",
 				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: "word",
+				IndexInverted: truePointer(),
 			},
 			{
 				Name:         "description",
 				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: "word",
+				IndexInverted: truePointer(),
 			},
 		},
 	}
