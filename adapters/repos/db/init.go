@@ -48,6 +48,7 @@ func (d *DB) init(ctx context.Context) error {
 						K1: config.DefaultBM25k1,
 						B:  config.DefaultBM25b,
 					},
+					FilterCacheSize: config.DefaultFilterCacheSize,
 				}
 			}
 			if err := replica.ValidateConfig(class); err != nil {

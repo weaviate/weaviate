@@ -48,6 +48,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			IndexTimestamps:     true,
 			IndexNullState:      true,
 			IndexPropertyLength: true,
+			FilterCacheSize:     100,
 		},
 		Properties: []*models.Property{
 			{
@@ -164,6 +165,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			IndexTimestamps:        true,
 			IndexNullState:         true,
 			IndexPropertyLength:    true,
+			FilterCacheSize:        100,
 		},
 		Properties: []*models.Property{
 			{
@@ -285,6 +287,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				Preset: "none",
 			},
 			IndexTimestamps: true,
+			FilterCacheSize: 100,
 		},
 		Properties: []*models.Property{
 			{

@@ -157,6 +157,8 @@ func testAddObjectClass(t *testing.T, lsm *Manager) {
 	}, objectClasses[0].VectorIndexConfig)
 	assert.Equal(t, int64(60), objectClasses[0].InvertedIndexConfig.CleanupIntervalSeconds,
 		"the default was set")
+	assert.Equal(t, int64(500), objectClasses[0].InvertedIndexConfig.FilterCacheSize,
+		"the default filter cache size was set")
 }
 
 func testAddObjectClassExplicitVectorizer(t *testing.T, lsm *Manager) {

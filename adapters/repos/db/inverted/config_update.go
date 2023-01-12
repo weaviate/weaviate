@@ -21,6 +21,10 @@ func ValidateUserConfigUpdate(initial, updated *models.InvertedIndexConfig) erro
 		return errors.Errorf("cleanup interval seconds must be > 0")
 	}
 
+	if updated.FilterCacheSize < 0 {
+		return errors.Errorf("filter cache size must be > 0")
+	}
+
 	err := validateBM25ConfigUpdate(initial, updated)
 	if err != nil {
 		return err

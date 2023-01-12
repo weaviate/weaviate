@@ -92,5 +92,6 @@ func InvertedIndexConfig(i *models.InvertedIndexConfig) *models.InvertedIndexCon
 		IndexPropertyLength:    i.IndexPropertyLength,
 		IndexTimestamps:        i.IndexTimestamps,
 		Stopwords:              stopwords,
+		FilterCacheSize:        i.FilterCacheSize,
 	}
 }

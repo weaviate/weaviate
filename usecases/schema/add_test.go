@@ -112,6 +112,24 @@ func TestAddClass(t *testing.T) {
 		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 
+	t.Run("with customized filter cache size", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{
+				Class: "NewClass",
+				InvertedIndexConfig: &models.InvertedIndexConfig{
+					FilterCacheSize: 400,
+				},
+			})
+		require.Nil(t, err)
+
+		require.NotNil(t, mgr.state.ObjectSchema)
+		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
+		require.Equal(t, int64(400), mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.FilterCacheSize)
+	})
+
 	t.Run("with valid property tokenization", func(t *testing.T) {
 		mgr := newSchemaManager()
 

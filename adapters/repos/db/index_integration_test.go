@@ -239,5 +239,6 @@ func invertedConfig() *models.InvertedIndexConfig {
 		},
 		IndexNullState:      true,
 		IndexPropertyLength: true,
+		FilterCacheSize:     100,
 	}
 }

@@ -42,6 +42,9 @@ const DefaultConfigFile string = "./weaviate.conf.json"
 // DefaultCleanupIntervalSeconds can be overwritten on a per-class basis
 const DefaultCleanupIntervalSeconds = int64(60)
 
+// DefaultFilterCacheSize in MB can be overwritten on a per-class basis
+const DefaultFilterCacheSize = int64(500)
+
 const (
 	// These BM25 tuning params can be overwritten on a per-class basis
 	DefaultBM25k1 = float32(1.2)

@@ -33,6 +33,9 @@ type InvertedIndexConfig struct {
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
 
+	// Size of the filter cache in MB
+	FilterCacheSize int64 `json:"filterCacheSize,omitempty"`
+
 	// Index each object with the null state
 	IndexNullState bool `json:"indexNullState,omitempty"`
 

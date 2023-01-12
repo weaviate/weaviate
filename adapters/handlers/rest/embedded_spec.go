@@ -3372,6 +3372,11 @@ func init() {
           "type": "number",
           "format": "int"
         },
+        "filterCacheSize": {
+          "description": "Size of the filter cache in MB",
+          "type": "number",
+          "format": "int"
+        },
         "indexNullState": {
           "description": "Index each object with the null state",
           "type": "boolean"
@@ -7739,6 +7744,11 @@ func init() {
         },
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
+          "type": "number",
+          "format": "int"
+        },
+        "filterCacheSize": {
+          "description": "Size of the filter cache in MB",
           "type": "number",
           "format": "int"
         },

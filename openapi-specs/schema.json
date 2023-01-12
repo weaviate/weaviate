@@ -357,6 +357,11 @@
         "indexPropertyLength": {
           "description": "Index length of properties",
           "type": "boolean"
+        },
+        "filterCacheSize": {
+          "description": "Size of the filter cache in MB",
+          "format": "int",
+          "type": "number"
         }
       },
       "type": "object"

@@ -17,6 +17,7 @@ type InvertedIndexConfig struct {
 	IndexTimestamps     bool
 	IndexNullState      bool
 	IndexPropertyLength bool
+	FilterCacheSize     int64
 }
 
 type BM25Config struct {
