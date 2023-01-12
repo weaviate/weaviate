@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+
 package roaringset
 
 import (
@@ -114,6 +125,138 @@ func Test_Compactor(t *testing.T) {
 					key:       []byte("zzz"),
 					additions: []uint64{6},
 					deletions: []uint64{7},
+				},
+			},
+		},
+
+		// the key loop is essentiall a state machine. The next tests try to cover
+		// all possible states:
+		//
+		// 1. only the left key is set -> take left key
+		// 2. both left key and right key are set, but left is smaller -> take left
+		//    key
+		// 3. only the right key is set -> take right key
+		// 4. both right and left keys are set, but right key is smaller -> take
+		//    the right key
+		// 5. both keys are identical -> merge them
+		//
+		// Note: There is also an implicit 6th case: both keys are not set, this is
+		// the exit condition which is part of every test.
+		{
+			name: "state 1 - only left key is set",
+			left: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+					deletions: []uint64{1},
+				},
+			}),
+			right: createSegmentsFromKeys(t, []keyWithBML{}),
+			expected: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+					deletions: []uint64{1},
+				},
+			},
+		},
+		{
+			name: "state 2 - left+right, left is smaller",
+			left: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+					deletions: []uint64{1},
+				},
+			}),
+			right: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+					deletions: []uint64{3},
+				},
+			}),
+			expected: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+					deletions: []uint64{1},
+				},
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+					deletions: []uint64{3},
+				},
+			},
+		},
+		{
+			name: "state 3 - only the right key is set",
+			left: createSegmentsFromKeys(t, []keyWithBML{}),
+			right: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+					deletions: []uint64{3},
+				},
+			}),
+			expected: []keyWithBML{
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+					deletions: []uint64{3},
+				},
+			},
+		},
+		{
+			name: "state 4 - left+right, right is smaller",
+			left: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("ccc"),
+					additions: []uint64{0},
+					deletions: []uint64{1},
+				},
+			}),
+			right: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+					deletions: []uint64{3},
+				},
+			}),
+			expected: []keyWithBML{
+				{
+					key:       []byte("bbb"),
+					additions: []uint64{2},
+					deletions: []uint64{3},
+				},
+				{
+					key:       []byte("ccc"),
+					additions: []uint64{0},
+					deletions: []uint64{1},
+				},
+			},
+		},
+		{
+			name: "state 5 - left+right are identical",
+			left: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0},
+					deletions: []uint64{1},
+				},
+			}),
+			right: createSegmentsFromKeys(t, []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{2},
+					deletions: []uint64{3},
+				},
+			}),
+			expected: []keyWithBML{
+				{
+					key:       []byte("aaa"),
+					additions: []uint64{0, 2},
+					deletions: []uint64{1, 3},
 				},
 			},
 		},

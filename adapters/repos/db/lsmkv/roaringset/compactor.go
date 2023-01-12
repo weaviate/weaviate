@@ -128,83 +128,132 @@ func (c *Compactor) init() error {
 	return nil
 }
 
+// nodeCompactor is a helper type to improve the code structure of merging
+// nodes in a compaction
+type nodeCompactor struct {
+	left, right           *SegmentCursor
+	keyLeft, keyRight     []byte
+	valueLeft, valueRight BitmapLayer
+	output                []segmentindex.Key
+	offset                int
+	bufw                  *bufio.Writer
+}
+
 func (c *Compactor) writeNodes() ([]segmentindex.Key, error) {
-	keyL, valueL, _ := c.left.First()
-	keyR, valueR, _ := c.right.First()
-
-	// the (dummy) header was already written, this is our initial offset
-	offset := segmentindex.HeaderSize
-
-	var kis []segmentindex.Key
-
-	for {
-		if keyL == nil && keyR == nil {
-			break
-		}
-
-		if bytes.Equal(keyL, keyR) {
-			layers := BitmapLayers{
-				{Additions: valueL.Additions, Deletions: valueL.Deletions},
-				{Additions: valueR.Additions, Deletions: valueR.Deletions},
-			}
-			merged, err := layers.Merge()
-			if err != nil {
-				return nil, fmt.Errorf("merge bitmap layers for identical keys: %w", err)
-			}
-
-			sn, err := NewSegmentNode(keyR, merged.Additions, merged.Deletions)
-			if err != nil {
-				return nil, fmt.Errorf("new segment node for merged key: %w", err)
-			}
-
-			ki, err := sn.KeyIndexAndWriteTo(c.bufw, offset)
-			if err != nil {
-				return nil, fmt.Errorf("write individual node (merged key): %w", err)
-			}
-
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
-
-			// advance both!
-			keyL, valueL, _ = c.left.Next()
-			keyR, valueR, _ = c.right.Next()
-			continue
-		}
-
-		if (keyL != nil && bytes.Compare(keyL, keyR) == -1) || keyR == nil {
-			// left key is smaller
-			sn, err := NewSegmentNode(keyL, valueL.Additions, valueL.Deletions)
-			if err != nil {
-				return nil, fmt.Errorf("new segment node for left key: %w", err)
-			}
-
-			ki, err := sn.KeyIndexAndWriteTo(c.bufw, offset)
-			if err != nil {
-				return nil, fmt.Errorf("write individual node (left key): %w", err)
-			}
-
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
-			keyL, valueL, _ = c.left.Next()
-		} else {
-			// right key is smaller
-			sn, err := NewSegmentNode(keyR, valueR.Additions, valueR.Deletions)
-			if err != nil {
-				return nil, fmt.Errorf("new segment node for right key: %w", err)
-			}
-
-			ki, err := sn.KeyIndexAndWriteTo(c.bufw, offset)
-			if err != nil {
-				return nil, fmt.Errorf("write individual node (right key): %w", err)
-			}
-
-			offset = ki.ValueEnd
-			kis = append(kis, ki)
-			keyR, valueR, _ = c.right.Next()
-		}
+	nc := &nodeCompactor{
+		left:  c.left,
+		right: c.right,
+		bufw:  c.bufw,
 	}
 
-	return kis, nil
+	nc.init()
+
+	if err := nc.loopThroughKeys(); err != nil {
+		return nil, err
+	}
+
+	return nc.output, nil
+}
+
+func (c *nodeCompactor) init() {
+	c.keyLeft, c.valueLeft, _ = c.left.First()
+	c.keyRight, c.valueRight, _ = c.right.First()
+
+	// the (dummy) header was already written, this is our initial offset
+	c.offset = segmentindex.HeaderSize
+}
+
+func (c *nodeCompactor) loopThroughKeys() error {
+	for {
+		if c.keyLeft == nil && c.keyRight == nil {
+			return nil
+		}
+
+		if c.keysEqual() {
+			if err := c.mergeIdenticalKeys(); err != nil {
+				return err
+			}
+		} else if c.leftKeySmallerOrRightNotSet() {
+			if err := c.takeLeftKey(); err != nil {
+				return err
+			}
+		} else {
+			if err := c.takeRightKey(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (c *nodeCompactor) keysEqual() bool {
+	return bytes.Equal(c.keyLeft, c.keyRight)
+}
+
+func (c *nodeCompactor) leftKeySmallerOrRightNotSet() bool {
+	return (c.keyLeft != nil && bytes.Compare(c.keyLeft, c.keyRight) == -1) || c.keyRight == nil
+}
+
+func (c *nodeCompactor) mergeIdenticalKeys() error {
+	layers := BitmapLayers{
+		{Additions: c.valueLeft.Additions, Deletions: c.valueLeft.Deletions},
+		{Additions: c.valueRight.Additions, Deletions: c.valueRight.Deletions},
+	}
+	merged, err := layers.Merge()
+	if err != nil {
+		return fmt.Errorf("merge bitmap layers for identical keys: %w", err)
+	}
+
+	sn, err := NewSegmentNode(c.keyRight, merged.Additions, merged.Deletions)
+	if err != nil {
+		return fmt.Errorf("new segment node for merged key: %w", err)
+	}
+
+	ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
+	if err != nil {
+		return fmt.Errorf("write individual node (merged key): %w", err)
+	}
+
+	c.offset = ki.ValueEnd
+	c.output = append(c.output, ki)
+
+	// advance both!
+	c.keyLeft, c.valueLeft, _ = c.left.Next()
+	c.keyRight, c.valueRight, _ = c.right.Next()
+	return nil
+}
+
+func (c *nodeCompactor) takeLeftKey() error {
+	sn, err := NewSegmentNode(c.keyLeft, c.valueLeft.Additions, c.valueLeft.Deletions)
+	if err != nil {
+		return fmt.Errorf("new segment node for left key: %w", err)
+	}
+
+	ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
+	if err != nil {
+		return fmt.Errorf("write individual node (left key): %w", err)
+	}
+
+	c.offset = ki.ValueEnd
+	c.output = append(c.output, ki)
+	c.keyLeft, c.valueLeft, _ = c.left.Next()
+	return nil
+}
+
+func (c *nodeCompactor) takeRightKey() error {
+	sn, err := NewSegmentNode(c.keyRight, c.valueRight.Additions, c.valueRight.Deletions)
+	if err != nil {
+		return fmt.Errorf("new segment node for right key: %w", err)
+	}
+
+	ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
+	if err != nil {
+		return fmt.Errorf("write individual node (right key): %w", err)
+	}
+
+	c.offset = ki.ValueEnd
+	c.output = append(c.output, ki)
+	c.keyRight, c.valueRight, _ = c.right.Next()
+	return nil
 }
 
 func (c *Compactor) writeIndexes(keys []segmentindex.Key) error {
