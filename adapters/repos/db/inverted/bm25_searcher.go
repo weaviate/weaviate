@@ -72,8 +72,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 	}
 }
 
-// Object returns a list of full objects
-func (b *BM25Searcher) Object(ctx context.Context, limit int,
+// Objects returns a list of full objects
+func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,

@@ -184,7 +184,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 				return v
 			})
 		} else {
-			return searcher.Object(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			return searcher.Objects(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
 		}
 	}
 
@@ -195,7 +195,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
 		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
-		Object(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
 
@@ -255,7 +255,8 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 
 	beforeObjects := time.Now()
 
-	objs, err := s.objectsByDocID(ids, additional)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	objs, err := storobj.ObjectsByDocID(bucket, ids, additional)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -272,43 +273,6 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	return objs, dists, nil
 }
 
-func (s *Shard) objectsByDocID(ids []uint64,
-	additional additional.Properties,
-) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, len(ids))
-
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return nil, errors.Errorf("objects bucket not found")
-	}
-
-	i := 0
-
-	for _, id := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
-		res, err := bucket.GetBySecondary(0, docIDBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		if res == nil {
-			continue
-		}
-
-		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
-		if err != nil {
-			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
-		}
-
-		out[i] = unmarshalled
-		i++
-	}
-
-	return out[:i], nil
-}
-
 func (s *Shard) objectList(ctx context.Context, limit int,
 	sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
@@ -318,7 +282,8 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		if err != nil {
 			return nil, err
 		}
-		return s.objectsByDocID(docIDs, additional)
+		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+		return storobj.ObjectsByDocID(bucket, docIDs, additional)
 	}
 
 	return s.allObjectList(ctx, limit, additional, className)

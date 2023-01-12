@@ -18,30 +18,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/mock"
-
-	//"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/entities/additional"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/entities/searchparams"
-
-	//"github.com/semi-technologies/weaviate/entities/storobj"
 	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/usecases/traverser/hybrid"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,7 +100,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 	// This is a list of 1000 documents from the MEDLINE database
 	// Each document is a medical abstract
 
-	data, _ := ioutil.ReadFile("NFCorpus-Corpus.json")
+	data, _ := os.ReadFile("NFCorpus-Corpus.json")
 	var docs []TestDoc
 	json.Unmarshal(data, &docs)
 
@@ -141,13 +137,13 @@ func TestHybrid(t *testing.T) {
 	// Load queries from file standard_test_queries.json
 	// This is a list of 100 queries from the MEDLINE database
 
-	data, _ := ioutil.ReadFile("NFCorpus-Query.json")
+	data, _ := os.ReadFile("NFCorpus-Query.json")
 	var queries []TestQuery
 	json.Unmarshal(data, &queries)
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -178,13 +174,13 @@ func TestBIER(t *testing.T) {
 	// Load queries from file standard_test_queries.json
 	// This is a list of 100 queries from the MEDLINE database
 
-	data, _ := ioutil.ReadFile("NFCorpus-Query.json")
+	data, _ := os.ReadFile("NFCorpus-Query.json")
 	var queries []TestQuery
 	json.Unmarshal(data, &queries)
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -288,93 +284,102 @@ func TestRFJourney(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	doc1 := search.Result{
-		ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
-		Schema: map[string]interface{}{
-			"title": "peanuts",
+	doc1 := &hybrid.Result{
+		Result: &search.Result{
+			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
+			Schema: map[string]interface{}{
+				"title": "peanuts",
+			},
+			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+			Score:  0.1,
 		},
-		Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-		Score:  0.1,
 	}
 
-	doc2 := search.Result{
-		ID: strfmt.UUID("2b7a8bc9-29d9-4cc8-b145-a0baf5fc231d"),
-		Schema: map[string]interface{}{
-			"title": "journey",
+	doc2 := &hybrid.Result{
+		Result: &search.Result{
+			ID: strfmt.UUID("2b7a8bc9-29d9-4cc8-b145-a0baf5fc231d"),
+			Schema: map[string]interface{}{
+				"title": "journey",
+			},
+			Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
+			Score:  0.2,
 		},
-		Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
-		Score:  0.2,
 	}
 
-	doc3 := search.Result{
-		ID: strfmt.UUID("dddddddd-29d9-4cc8-b145-a0baf5fc231d"),
-		Schema: map[string]interface{}{
-			"title": "alalala",
+	doc3 := &hybrid.Result{
+		Result: &search.Result{
+			ID: strfmt.UUID("dddddddd-29d9-4cc8-b145-a0baf5fc231d"),
+			Schema: map[string]interface{}{
+				"title": "alalala",
+			},
+			Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
+			Score:  0.2,
 		},
-		Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
-		Score:  0.2,
 	}
 
-	result_set_1 := []search.Result{doc1, doc2, doc3}
-
-	result_set_2 := []search.Result{doc2, doc1, doc3}
+	resultSet1 := []*hybrid.Result{doc1, doc2, doc3}
+	resultSet2 := []*hybrid.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{0.4, 0.6}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{0.4, 0.6},
+			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
 			fmt.Println(schema["title"], result.ID, result.Score)
 		}
 		require.Equal(t, 3, len(results))
-		require.Equal(t, result_set_2[0].ID, results[0].ID)
-		require.Equal(t, result_set_2[1].ID, results[1].ID)
-		require.Equal(t, result_set_2[2].ID, results[2].ID)
+		require.Equal(t, resultSet2[0].ID, results[0].ID)
+		require.Equal(t, resultSet2[1].ID, results[1].ID)
+		require.Equal(t, resultSet2[2].ID, results[2].ID)
 		require.Equal(t, float32(0.016287679), results[0].Score)
 		require.Equal(t, float32(0.016234796), results[1].Score)
 	})
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{0.8, 0.2}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{0.8, 0.2},
+			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
 			fmt.Println(schema["title"], result.ID, result.Score)
 		}
 		require.Equal(t, 3, len(results))
-		require.Equal(t, result_set_2[0].ID, results[1].ID)
-		require.Equal(t, result_set_2[1].ID, results[0].ID)
-		require.Equal(t, result_set_2[2].ID, results[2].ID)
+		require.Equal(t, resultSet2[0].ID, results[1].ID)
+		require.Equal(t, resultSet2[1].ID, results[0].ID)
+		require.Equal(t, resultSet2[2].ID, results[2].ID)
 		require.Equal(t, float32(0.016340561), results[0].Score)
 		require.Equal(t, float32(0.016181914), results[1].Score)
 	})
 
 	t.Run("Vector Only", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{0.0, 1.0}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{0.0, 1.0},
+			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
 			fmt.Println(schema["title"], result.ID, result.Score)
 		}
 		require.Equal(t, 3, len(results))
-		require.Equal(t, result_set_2[0].ID, results[0].ID)
-		require.Equal(t, result_set_2[1].ID, results[1].ID)
-		require.Equal(t, result_set_2[2].ID, results[2].ID)
+		require.Equal(t, resultSet2[0].ID, results[0].ID)
+		require.Equal(t, resultSet2[1].ID, results[1].ID)
+		require.Equal(t, resultSet2[2].ID, results[2].ID)
 		require.Equal(t, float32(0.016393442), results[0].Score)
 		require.Equal(t, float32(0.016129032), results[1].Score)
 	})
 
 	t.Run("BM25 only", func(t *testing.T) {
-		results := traverser.FusionReciprocal([]float64{1.0, 0.0}, [][]search.Result{result_set_1, result_set_2})
+		results := hybrid.FusionReciprocal([]float64{1.0, 0.0},
+			[][]*hybrid.Result{resultSet1, resultSet2})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
 			fmt.Println(schema["title"], result.ID, result.Score)
 		}
 		require.Equal(t, 3, len(results))
-		require.Equal(t, result_set_1[0].ID, results[0].ID)
-		require.Equal(t, result_set_1[1].ID, results[1].ID)
-		require.Equal(t, result_set_1[2].ID, results[2].ID)
+		require.Equal(t, resultSet1[0].ID, results[0].ID)
+		require.Equal(t, resultSet1[1].ID, results[1].ID)
+		require.Equal(t, resultSet1[2].ID, results[2].ID)
 		require.Equal(t, float32(0.016393442), results[0].Score)
 		require.Equal(t, float32(0.016129032), results[1].Score)
 	})

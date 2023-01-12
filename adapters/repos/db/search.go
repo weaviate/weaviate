@@ -45,27 +45,38 @@ func (db *DB) GetQueryMaximumResults() int {
 	return int(db.config.QueryMaximumResults)
 }
 
-func (db *DB) ClassSearch(ctx context.Context,
+func (db *DB) ClassObjectSearch(ctx context.Context,
 	params traverser.GetParams,
-) ([]search.Result, error) {
+) ([]*storobj.Object, []float32, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
+		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
 	if params.Pagination == nil {
-		return nil, fmt.Errorf("invalid params, pagination object is nil")
+		return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
 	if err != nil {
-		return nil, errors.Wrapf(err, "invalid pagination params")
+		return nil, nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	res, err := idx.objectSearch(ctx, totalLimit, params.Filters,
+	res, dist, err := idx.objectSearch(ctx, totalLimit, params.Filters,
 		params.KeywordRanking, params.Sort, params.AdditionalProperties)
 	if err != nil {
-		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
+		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
+	}
+
+	return res, dist, nil
+}
+
+func (db *DB) ClassSearch(ctx context.Context,
+	params traverser.GetParams,
+) ([]search.Result, error) {
+	res, _, err := db.ClassObjectSearch(ctx, params)
+	if err != nil {
+		return nil, err
 	}
 
 	return db.enrichRefsForList(ctx,
@@ -116,24 +127,35 @@ func extractDistanceFromParams(params traverser.GetParams) float32 {
 	return float32(dist)
 }
 
-func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
+func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
-) ([]search.Result, error) {
-	var searchErrors []error
+) ([]*storobj.Object, []float32, error) {
 	totalLimit := offset + limit
 
 	index := db.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return []search.Result{}, fmt.Errorf("tried to browse non-existing index for %s", class)
+		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", class)
 	}
 
 	objs, dist, err := index.objectVectorSearch(
 		ctx, vector, 0, totalLimit, filters, nil, additional.Properties{})
 	if err != nil {
-		return []search.Result{}, errors.Wrapf(err, "search index %s", index.ID())
+		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
 
-	found := hydrateObjectsIntoSearchResults(objs, dist)
+	return objs, dist, nil
+}
+
+func (db *DB) ClassVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
+	filters *filters.LocalFilter,
+) ([]search.Result, error) {
+	objs, dist, err := db.ClassObjectVectorSearch(ctx, class, vector, offset, limit, filters)
+	if err != nil {
+		return nil, err
+	}
+
+	var searchErrors []error
+	found := storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)
 
 	if len(searchErrors) > 0 {
 		var msg strings.Builder
@@ -180,7 +202,7 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 			}
 
 			mutex.Lock()
-			found = append(found, hydrateObjectsIntoSearchResults(objs, dist)...)
+			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
 			mutex.Unlock()
 		}(index, wg)
 	}
@@ -208,15 +230,6 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, offset, limit 
 	return db.getSearchResults(found, offset, limit), nil
 }
 
-func hydrateObjectsIntoSearchResults(objs []*storobj.Object, dists []float32) search.Results {
-	res := storobj.SearchResults(objs, additional.Properties{})
-	for i := range res {
-		res[i].Dist = dists[i]
-		res[i].Certainty = float32(additional.DistToCertainty(float64(dists[i])))
-	}
-	return res
-}
-
 // Query a specific class
 func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, *objects.Error) {
 	totalLimit := q.Offset + q.Limit
@@ -230,7 +243,7 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 	if idx == nil {
 		return nil, &objects.Error{Msg: "class not found " + q.Class, Code: objects.StatusNotFound}
 	}
-	res, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Additional)
+	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Additional)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
@@ -238,7 +251,7 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 }
 
 // ObjectSearch search each index.
-// Deprecated by Query which seacrhces a specific index
+// Deprecated by Query which searches a specific index
 func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 ) (search.Results, error) {
@@ -261,7 +274,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	d.indexLock.RLock()
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
+		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
 		if err != nil {
 			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())

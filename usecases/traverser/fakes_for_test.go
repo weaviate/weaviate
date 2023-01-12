@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/stretchr/testify/mock"
@@ -134,6 +135,18 @@ func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 ) (search.Results, error) {
 	args := f.Called(id)
 	return args.Get(0).(search.Results), args.Error(1)
+}
+
+func (f *fakeVectorSearcher) ClassObjectSearch(ctx context.Context,
+	params GetParams,
+) ([]*storobj.Object, []float32, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context,
+	string, []float32, int, int, *filters.LocalFilter,
+) ([]*storobj.Object, []float32, error) {
+	return nil, nil, nil
 }
 
 type fakeAuthorizer struct{}
