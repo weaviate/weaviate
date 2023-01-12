@@ -87,21 +87,6 @@ func (n *compressedShardedLockCache) delete(ctx context.Context, id uint64) {
 
 func (n *compressedShardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte, error) {
 	return nil, errors.New("Not implemented")
-	/*vec, err := n.vectorForID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	n.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&n.dims, int32(len(vec)))
-	})
-
-	atomic.AddInt64(&n.count, 1)
-	n.shardedLocks[id%shardFactor].Lock()
-	n.cache[id] = vec
-	n.shardedLocks[id%shardFactor].Unlock()
-
-	return vec, nil*/
 }
 
 func (n *compressedShardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]byte, []error) {

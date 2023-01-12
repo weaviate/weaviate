@@ -14,11 +14,13 @@ package hnsw
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"io"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdHelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -121,7 +123,7 @@ func (h *hnsw) restoreFromDisk() error {
 	h.compressed = state.Compressed
 
 	if state.Compressed {
-		h.cache = nil
+		h.cache.drop()
 		h.pq = ssdhelpers.NewProductQuantizerWithEncoders(
 			int(state.PQData.M),
 			int(state.PQData.Ks),
@@ -173,7 +175,11 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed {
-			err = newVectorCachePrefiller(h.compressedVectorsCache, h, h.logger).Prefill(ctx, limit)
+			cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
+			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+				h.compressedVectorsCache.preload(binary.LittleEndian.Uint64(k), v)
+			}
+			cursor.Close()
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}
