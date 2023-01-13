@@ -799,7 +799,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-
 					if (v.DataType[0] == "text" || v.DataType[0] == "string") && propertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
@@ -809,7 +808,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				if len(keywordRanking.Properties) == 0 {
 					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
 				}
-
 
 			}
 			shard := i.Shards[shardName]
