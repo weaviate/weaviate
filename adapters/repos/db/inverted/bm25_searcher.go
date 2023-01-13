@@ -311,10 +311,7 @@ func propertyIsIndexed(schemaDefinition *models.Schema, className, propertyName 
 		return false
 	}
 	indexed := p.IndexInverted
-	if indexed != nil {
-		return true
-	}
-	return false
+	return indexed != nil
 }
 
 // BM25F search each given property for a single term.  Results will be combined later

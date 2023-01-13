@@ -763,10 +763,7 @@ func propertyIsIndexed(schemaDefinition *models.Schema, className, propertyName 
 		return false
 	}
 	indexed := p.IndexInverted
-	if indexed != nil {
-		return true
-	}
-	return false
+	return indexed != nil
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
