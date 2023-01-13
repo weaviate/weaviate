@@ -30,6 +30,11 @@ type Params struct {
 	Class   string
 }
 
+// Result facilitates the pairing of a search result with its internal doc id.
+//
+// This type is key in generalising hybrid search across different use cases.
+// Some use cases require a full search result (Get{} queries) and others need
+// only a doc id (Aggregate{}) which the search.Result type does not contain.
 type Result struct {
 	DocID uint64
 	*search.Result
@@ -45,9 +50,22 @@ func (res Results) SearchResults() []search.Result {
 	return out
 }
 
-type sparseFunc func() ([]*storobj.Object, []float32, error)
+// sparseSearchFunc is the signature of a closure which performs sparse search.
+// Any package which wishes use hybrid search must provide this. The weights are
+// used in calculating the final scores of the result set.
+type sparseSearchFunc func() (results []*storobj.Object, weights []float32, err error)
 
-type denseFunc func([]float32) ([]*storobj.Object, []float32, error)
+// denseSearchFunc is the signature of a closure which performs dense search.
+// A search vector argument is required to pass along to the vector index.
+// Any package which wishes use hybrid search must provide this The weights are
+// used in calculating the final scores of the result set.
+type denseSearchFunc func(searchVector []float32) (results []*storobj.Object, weights []float32, err error)
+
+// postProcFunc takes the results of the hybrid search and applies some transformation.
+// This is optionally provided, and allows the caller to somehow change the nature of
+// the result set. For example, Get{} queries sometimes require resolving references,
+// which is implemented by doing the reference resolution within a postProcFunc closure.
+type postProcFunc func(hybridResults Results) (postProcResults []search.Result, err error)
 
 type modulesProvider interface {
 	VectorFromInput(ctx context.Context,
@@ -55,26 +73,29 @@ type modulesProvider interface {
 }
 
 type Searcher struct {
-	params          *Params
-	logger          logrus.FieldLogger
-	sparseFunc      sparseFunc
-	denseFunc       denseFunc
-	modulesProvider modulesProvider
+	params           *Params
+	logger           logrus.FieldLogger
+	sparseSearchFunc sparseSearchFunc
+	denseSearchFunc  denseSearchFunc
+	postProcFunc     postProcFunc
+	modulesProvider  modulesProvider
 }
 
 func NewSearcher(params *Params, logger logrus.FieldLogger,
-	sparse sparseFunc, dense denseFunc,
-	modulesProvider modulesProvider,
+	sparse sparseSearchFunc, dense denseSearchFunc,
+	postProc postProcFunc, modulesProvider modulesProvider,
 ) *Searcher {
 	return &Searcher{
-		logger:          logger,
-		params:          params,
-		sparseFunc:      sparse,
-		denseFunc:       dense,
-		modulesProvider: modulesProvider,
+		logger:           logger,
+		params:           params,
+		sparseSearchFunc: sparse,
+		denseSearchFunc:  dense,
+		postProcFunc:     postProc,
+		modulesProvider:  modulesProvider,
 	}
 }
 
+// Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
 func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	var (
 		found   [][]*Result
@@ -129,11 +150,21 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 		fused = fused[:s.params.Limit]
 	}
 
+	if s.postProcFunc != nil {
+		sr, err := s.postProcFunc(fused)
+		if err != nil {
+			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
+		}
+		for i := range fused {
+			fused[i].Result = &(sr[i])
+		}
+	}
+
 	return fused, nil
 }
 
 func (s *Searcher) sparseSearch() ([]*Result, error) {
-	res, dists, err := s.sparseFunc()
+	res, dists, err := s.sparseSearchFunc()
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
 	}
@@ -154,7 +185,7 @@ func (s *Searcher) denseSearch(ctx context.Context) ([]*Result, error) {
 		return nil, err
 	}
 
-	res, dists, err := s.denseFunc(vector)
+	res, dists, err := s.denseSearchFunc(vector)
 	if err != nil {
 		return nil, fmt.Errorf("dense search: %w", err)
 	}
@@ -194,7 +225,7 @@ func (s *Searcher) sparseSubSearch(
 	sp := subsearch.SearchParams.(searchparams.KeywordRanking)
 	s.params.Keyword = &sp
 
-	res, dists, err := s.sparseFunc()
+	res, dists, err := s.sparseSearchFunc()
 	if err != nil {
 		return nil, 0, fmt.Errorf("sparse subsearch: %w", err)
 	}
@@ -222,7 +253,7 @@ func (s *Searcher) nearTextSubSearch(ctx context.Context,
 		return nil, 0, err
 	}
 
-	res, dists, err := s.denseFunc(vector)
+	res, dists, err := s.denseSearchFunc(vector)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -243,7 +274,7 @@ func (s *Searcher) nearVectorSubSearch(
 ) ([]*Result, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearVector)
 
-	res, dists, err := s.denseFunc(sp.Vector)
+	res, dists, err := s.denseSearchFunc(sp.Vector)
 	if err != nil {
 		return nil, 0, err
 	}

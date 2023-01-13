@@ -148,7 +148,7 @@ func (d *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 		return nil, nil
 	}
 
-	return d.enrichRefsForList(ctx,
+	return d.ResolveReferences(ctx,
 		storobj.SearchResults(result, additional), props, additional)
 }
 

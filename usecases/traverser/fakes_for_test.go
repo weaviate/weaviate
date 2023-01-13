@@ -149,6 +149,12 @@ func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context,
 	return nil, nil, nil
 }
 
+func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,
+	props search.SelectProperties, additional additional.Properties,
+) (search.Results, error) {
+	return nil, nil
+}
+
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
