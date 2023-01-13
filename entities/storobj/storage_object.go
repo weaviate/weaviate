@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 
@@ -167,6 +168,47 @@ func FromBinaryOptional(data []byte,
 	return ko, nil
 }
 
+type bucket interface {
+	GetBySecondary(int, []byte) ([]byte, error)
+}
+
+func ObjectsByDocID(bucket bucket, ids []uint64,
+	additional additional.Properties,
+) ([]*Object, error) {
+	if bucket == nil {
+		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	var (
+		out = make([]*Object, len(ids))
+		i   = 0
+	)
+
+	for _, id := range ids {
+		keyBuf := bytes.NewBuffer(nil)
+		binary.Write(keyBuf, binary.LittleEndian, &id)
+		docIDBytes := keyBuf.Bytes()
+		res, err := bucket.GetBySecondary(0, docIDBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if res == nil {
+			continue
+		}
+
+		unmarshalled, err := FromBinaryOptional(res, additional)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+		}
+
+		out[i] = unmarshalled
+		i++
+	}
+
+	return out[:i], nil
+}
+
 func (ko *Object) Class() schema.ClassName {
 	return schema.ClassName(ko.Object.Class)
 }
@@ -310,6 +352,13 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 	}
 }
 
+func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
+	res := ko.SearchResult(addl)
+	res.Dist = dist
+	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
+	return *res
+}
+
 func (ko *Object) Valid() bool {
 	return ko.ID() != "" &&
 		ko.Class().String() != ""
@@ -325,14 +374,13 @@ func SearchResults(in []*Object, additional additional.Properties) search.Result
 	return out
 }
 
-func SearchResultsWithDists(in []*Object, additional additional.Properties,
+func SearchResultsWithDists(in []*Object, addl additional.Properties,
 	dists []float32,
 ) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional))
-		out[i].Dist = dists[i]
+		out[i] = elem.SearchResultWithDist(addl, dists[i])
 	}
 
 	return out
@@ -702,6 +750,23 @@ func (ko *Object) DeepCopyDangerous() *Object {
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
 	}
+}
+
+func DocIDsFromSearchResults(sr []search.Result) ([]uint64, error) {
+	ids := make([]uint64, len(sr))
+	for i, res := range sr {
+		obj := FromObject(res.Object(), res.Vector)
+		b, err := obj.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+		id, err := DocIDFromBinary(b)
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+	return ids, nil
 }
 
 func deepCopyVector(orig []float32) []float32 {

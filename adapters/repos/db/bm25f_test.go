@@ -138,7 +138,7 @@ func TestBM25FJourney(t *testing.T) {
 	// Check basic search with one property
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
 	// Print results
@@ -157,7 +157,7 @@ func TestBM25FJourney(t *testing.T) {
 	// Check basic search WITH CAPS
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
 	addit = additional.Properties{}
-	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	// Print results
 	fmt.Println("--- Start results for search with caps ---")
 	for _, r := range res {
@@ -173,7 +173,7 @@ func TestBM25FJourney(t *testing.T) {
 	// Check boosted
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
 	addit = additional.Properties{}
-	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 	require.Nil(t, err)
 	// Print results
@@ -191,7 +191,7 @@ func TestBM25FJourney(t *testing.T) {
 	})
 	// Check search with two terms
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
-	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
 	t.Run("bm25f journey somewhere", func(t *testing.T) {
@@ -205,7 +205,7 @@ func TestBM25FJourney(t *testing.T) {
 	fmt.Println("Search with no properties")
 	// Check search with no properties (should include all properties)
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
-	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
 	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
@@ -219,7 +219,7 @@ func TestBM25FJourney(t *testing.T) {
 	fmt.Println("Search with non alphanums")
 	// Check search with no properties (should include all properties)
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(offtopic!!!!"}
-	res, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
 	t.Run("bm25f non alphanums", func(t *testing.T) {
@@ -252,7 +252,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 	// Print results
 	fmt.Println("--- Start results for boosted search ---")

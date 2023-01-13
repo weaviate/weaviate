@@ -772,7 +772,7 @@ func propertyIsIndexed(schemaDefinition *models.Schema, className, propertyName 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties,
-) ([]*storobj.Object, error) {
+) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -788,18 +788,18 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
-
 			// If the request is a BM25F with no properties selected, use all possible properties
 			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 
 				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
+
 					if (v.DataType[0] == "text" || v.DataType[0] == "string") && propertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
@@ -810,18 +810,19 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 					return nil, errors.New("No properties provided, and no indexed properties found in class")
 				}
 
+
 			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
-				return nil, errors.Wrapf(err, "shard %s", shard.ID())
+				return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
 
 		} else {
 			objs, scores, err = i.remote.SearchShard(
 				ctx, shardName, nil, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
-				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+				return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
 		}
 		outObjects = append(outObjects, objs...)
@@ -856,11 +857,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if len(shardNames) > 1 {
 			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)
 			if err != nil {
-				return nil, errors.Wrap(err, "sort")
+				return nil, nil, errors.Wrap(err, "sort")
 			}
-			return sortedObjs, nil
+			return sortedObjs, nil, nil
 		}
-		return outObjects, nil
+		return outObjects, nil, nil
 	}
 
 	if keywordRanking != nil {
@@ -880,7 +881,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	return outObjects, nil
+	return outObjects, outScores, nil
 }
 
 func (i *Index) sortKeywordRanking(objects []*storobj.Object,

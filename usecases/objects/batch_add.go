@@ -159,7 +159,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 
 		err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)
 		ec.Add(err)
-
 	}
 
 	*resultsC <- BatchObject{
