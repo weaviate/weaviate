@@ -379,6 +379,10 @@ func Test_propertyIsIndexed(t *testing.T) {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
 		}
 
+		if got := propertyIsIndexed(schema, "MyClass", "description^2"); got != true {
+			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		}
+
 		if got := propertyIsIndexed(schema, "MyClass", "title"); got != false {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, false)
 		}
