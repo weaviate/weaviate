@@ -300,7 +300,7 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 	return res
 }
 
-// Todo:  deduplicate
+
 func propertyIsIndexed(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
 	propertyName := strings.Split(tentativePropertyName, "^")[0]
 	c, err := schema.GetClassByName(schemaDefinition, string(className))
