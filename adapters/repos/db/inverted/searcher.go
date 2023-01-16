@@ -70,19 +70,19 @@ func NewSearcher(store *lsmkv.Store, schema schema.Schema,
 	}
 }
 
-// Object returns a list of full objects
-func (f *Searcher) Object(ctx context.Context, limit int,
+// Objects returns a list of full objects
+func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	pv, err := f.extractPropValuePair(filter.Root, className)
+	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
 
 	// we assume that when retrieving objects, we can not tolerate duplicates as
 	// they would have a direct impact on the user
-	if err := pv.fetchDocIDs(f, limit, false); err != nil {
+	if err := pv.fetchDocIDs(s, limit, false); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
@@ -92,13 +92,13 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	}
 
 	if len(sort) > 0 {
-		return f.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
+		return s.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
 	}
 
-	return f.allObjectsByDocID(pointers.IDs(), limit, additional)
+	return s.allObjectsByDocID(pointers.IDs(), limit, additional)
 }
 
-func (f *Searcher) allObjectsByDocID(ids []uint64, limit int,
+func (s *Searcher) allObjectsByDocID(ids []uint64, limit int,
 	additional additional.Properties,
 ) ([]*storobj.Object, error) {
 	// cutoff if required, e.g. after merging unlimted filters
@@ -107,39 +107,39 @@ func (f *Searcher) allObjectsByDocID(ids []uint64, limit int,
 		docIDs = docIDs[:limit]
 	}
 
-	res, err := f.objectsByDocID(docIDs, additional)
+	res, err := s.objectsByDocID(docIDs, additional)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve doc ids to objects")
 	}
 	return res, nil
 }
 
-func (f *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
+func (s *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
 	additional additional.Properties, className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	docIDs, err := f.sort(ctx, limit, sort, ids, additional, className)
+	docIDs, err := s.sort(ctx, limit, sort, ids, additional, className)
 	if err != nil {
 		return nil, errors.Wrap(err, "sort doc ids")
 	}
-	return f.objectsByDocID(docIDs, additional)
+	return s.objectsByDocID(docIDs, additional)
 }
 
-func (f *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
 	additional additional.Properties, className schema.ClassName,
 ) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(f.store, f.schema, className)
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
 	if err != nil {
 		return nil, err
 	}
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (f *Searcher) objectsByDocID(ids []uint64,
+func (s *Searcher) objectsByDocID(ids []uint64,
 	additional additional.Properties,
 ) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, len(ids))
 
-	bucket := f.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
 	}
@@ -181,10 +181,10 @@ func (f *Searcher) objectsByDocID(ids []uint64,
 // If we already limited the allowList to 1, the vector search would be
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
-func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
+func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	return f.docIDs(ctx, filter, additional, className, true)
+	return s.docIDs(ctx, filter, additional, className, true)
 }
 
 // DocIDsPreventCaching is the same as DocIDs, but makes sure that no filter
@@ -192,28 +192,28 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 // filter is part of an operation that will lead to a state change, such as
 // batch delete. The state change would make the cached filter unusable
 // anyway, so we don't need to unnecessarily populate the cache with an entry.
-func (f *Searcher) DocIDsPreventCaching(ctx context.Context, filter *filters.LocalFilter,
+func (s *Searcher) DocIDsPreventCaching(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	return f.docIDs(ctx, filter, additional, className, false)
+	return s.docIDs(ctx, filter, additional, className, false)
 }
 
-func (f *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
+func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 	allowCaching bool,
 ) (helpers.AllowList, error) {
-	pv, err := f.extractPropValuePair(filter.Root, className)
+	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
 
 	cacheable := pv.cacheable()
 	if cacheable && allowCaching {
-		if err := pv.fetchHashes(f); err != nil {
+		if err := pv.fetchHashes(s); err != nil {
 			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
 		}
 
-		res, ok := f.rowCache.Load(pv.docIDs.checksum)
+		res, ok := s.rowCache.Load(pv.docIDs.checksum)
 		if ok && res.Type == CacheTypeAllowList {
 			return res.AllowList, nil
 		}
@@ -221,7 +221,7 @@ func (f *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 
 	// when building an allow list (which is a set anyway) we can skip the costly
 	// deduplication, as it doesn't matter
-	if err := pv.fetchDocIDs(f, -1, true); err != nil {
+	if err := pv.fetchDocIDs(s, -1, true); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
@@ -236,7 +236,7 @@ func (f *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	if cacheable && allowCaching {
-		f.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
+		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
 			Type:      CacheTypeAllowList,
 			AllowList: out,
 			Partial:   &pv.docIDs,
@@ -247,7 +247,7 @@ func (f *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return out, nil
 }
 
-func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
+func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
 	var out propValuePair
@@ -256,7 +256,7 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 		out.children = make([]*propValuePair, len(filter.Operands))
 
 		for i, clause := range filter.Operands {
-			child, err := fs.extractPropValuePair(&clause, className)
+			child, err := s.extractPropValuePair(&clause, className)
 			if err != nil {
 				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
 			}
@@ -269,63 +269,63 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 	// on value or non-nested filter
 	props := filter.On.Slice()
 	if len(props) != 1 {
-		return fs.extractReferenceFilter(filter, className)
+		return s.extractReferenceFilter(filter, className)
 	}
 	// we are on a value element
 
-	if fs.onInternalProp(props[0]) {
-		return fs.extractInternalProp(props[0], filter.Value.Type, filter.Value.Value, filter.Operator)
+	if s.onInternalProp(props[0]) {
+		return s.extractInternalProp(props[0], filter.Value.Type, filter.Value.Value, filter.Operator)
 	}
 
-	if fs.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
+	if s.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
-		return fs.extractReferenceCount(props[0], filter.Value.Value, filter.Operator)
+		return s.extractReferenceCount(props[0], filter.Value.Value, filter.Operator)
 	}
 
-	if fs.onGeoProp(className, props[0]) {
-		return fs.extractGeoFilter(props[0], filter.Value.Value, filter.Value.Type,
+	if s.onGeoProp(className, props[0]) {
+		return s.extractGeoFilter(props[0], filter.Value.Value, filter.Value.Type,
 			filter.Operator)
 	}
 
-	if fs.onTokenizablePropValue(filter.Value.Type) {
-		property, err := fs.schema.GetProperty(className, schema.PropertyName(props[0]))
+	if s.onTokenizablePropValue(filter.Value.Type) {
+		property, err := s.schema.GetProperty(className, schema.PropertyName(props[0]))
 		if err != nil {
 			return nil, err
 		}
 
-		return fs.extractTokenizableProp(props[0], filter.Value.Type, filter.Value.Value,
+		return s.extractTokenizableProp(props[0], filter.Value.Type, filter.Value.Value,
 			filter.Operator, property.Tokenization)
 	}
 
-	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
+	return s.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
 		filter.Operator)
 }
 
-func (fs *Searcher) extractReferenceFilter(filter *filters.Clause,
+func (s *Searcher) extractReferenceFilter(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
 	ctx := context.TODO()
-	return newRefFilterExtractor(fs.classSearcher, filter, className, fs.schema).Do(ctx)
+	return newRefFilterExtractor(s.classSearcher, filter, className, s.schema).Do(ctx)
 }
 
-func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
+func (s *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 	value interface{}, operator filters.Operator,
 ) (*propValuePair, error) {
 	var extractValueFn func(in interface{}) ([]byte, error)
 	var hasFrequency bool
 	switch dt {
 	case schema.DataTypeBoolean:
-		extractValueFn = fs.extractBoolValue
+		extractValueFn = s.extractBoolValue
 		hasFrequency = false
 	case schema.DataTypeInt:
-		extractValueFn = fs.extractIntValue
+		extractValueFn = s.extractIntValue
 		hasFrequency = false
 	case schema.DataTypeNumber:
-		extractValueFn = fs.extractNumberValue
+		extractValueFn = s.extractNumberValue
 		hasFrequency = false
 	case schema.DataTypeDate:
-		extractValueFn = fs.extractDateValue
+		extractValueFn = s.extractDateValue
 		hasFrequency = false
 	case "":
 		return nil, fmt.Errorf("data type cannot be empty")
@@ -347,10 +347,10 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 	}, nil
 }
 
-func (fs *Searcher) extractReferenceCount(propName string, value interface{},
+func (s *Searcher) extractReferenceCount(propName string, value interface{},
 	operator filters.Operator,
 ) (*propValuePair, error) {
-	byteValue, err := fs.extractIntCountValue(value)
+	byteValue, err := s.extractIntCountValue(value)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +363,7 @@ func (fs *Searcher) extractReferenceCount(propName string, value interface{},
 	}, nil
 }
 
-func (fs *Searcher) extractGeoFilter(propName string, value interface{},
+func (s *Searcher) extractGeoFilter(propName string, value interface{},
 	valueType schema.DataType, operator filters.Operator,
 ) (*propValuePair, error) {
 	if valueType != schema.DataTypeGeoCoordinates {
@@ -382,12 +382,12 @@ func (fs *Searcher) extractGeoFilter(propName string, value interface{},
 	}, nil
 }
 
-func (fs *Searcher) extractInternalProp(propName string, propType schema.DataType, value interface{},
+func (s *Searcher) extractInternalProp(propName string, propType schema.DataType, value interface{},
 	operator filters.Operator,
 ) (*propValuePair, error) {
 	switch propName {
 	case filters.InternalPropBackwardsCompatID, filters.InternalPropID:
-		return fs.extractIDProp(value, operator)
+		return s.extractIDProp(value, operator)
 	case filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix:
 		return extractTimestampProp(propName, propType, value, operator)
 	default:
@@ -396,7 +396,7 @@ func (fs *Searcher) extractInternalProp(propName string, propType schema.DataTyp
 	}
 }
 
-func (fs *Searcher) extractIDProp(value interface{},
+func (s *Searcher) extractIDProp(value interface{},
 	operator filters.Operator,
 ) (*propValuePair, error) {
 	v, ok := value.(string)
@@ -451,7 +451,7 @@ func extractTimestampProp(propName string, propType schema.DataType, value inter
 	}, nil
 }
 
-func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, value interface{},
+func (s *Searcher) extractTokenizableProp(propName string, dt schema.DataType, value interface{},
 	operator filters.Operator, tokenization string,
 ) (*propValuePair, error) {
 	var parts []string
@@ -485,7 +485,7 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 
 	propValuePairs := make([]*propValuePair, 0, len(parts))
 	for _, part := range parts {
-		if fs.stopwords.IsStopword(part) {
+		if s.stopwords.IsStopword(part) {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
@@ -509,8 +509,8 @@ func (fs *Searcher) extractTokenizableProp(propName string, dt schema.DataType, 
 // the schema each time, might be smarter to have a single method that
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
-func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool {
-	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+func (s *Searcher) onRefProp(className schema.ClassName, propName string) bool {
+	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
 	if err != nil {
 		return false
 	}
@@ -522,8 +522,8 @@ func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool 
 // the schema each time, might be smarter to have a single method that
 // determines the type and then we switch based on the result. However, the
 // effect of that should be very small unless the schema is absolutely massive.
-func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
-	property, err := fs.schema.GetProperty(className, schema.PropertyName(propName))
+func (s *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
+	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
 	if err != nil {
 		return false
 	}
@@ -531,11 +531,11 @@ func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool 
 	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
 }
 
-func (fs *Searcher) onInternalProp(propName string) bool {
+func (s *Searcher) onInternalProp(propName string) bool {
 	return filters.IsInternalProperty(schema.PropertyName(propName))
 }
 
-func (fs *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
+func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	switch valueType {
 	case schema.DataTypeString, schema.DataTypeText:
 		return true

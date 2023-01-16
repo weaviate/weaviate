@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/sirupsen/logrus"
 )
 
 type vectorIndex interface {
@@ -32,6 +33,7 @@ type vectorIndex interface {
 }
 
 type Aggregator struct {
+	logger           logrus.FieldLogger
 	store            *lsmkv.Store
 	params           aggregation.Params
 	getSchema        schemaUC.SchemaGetter
@@ -41,15 +43,18 @@ type Aggregator struct {
 	vectorIndex      vectorIndex
 	stopwords        stopwords.StopwordDetector
 	shardVersion     uint16
+	propLengths      *inverted.PropertyLengthTracker
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
-	shardVersion uint16, vectorIndex vectorIndex,
+	shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger,
+	propLengths *inverted.PropertyLengthTracker,
 ) *Aggregator {
 	return &Aggregator{
+		logger:           logger,
 		store:            store,
 		params:           params,
 		getSchema:        getSchema,
@@ -59,6 +64,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		stopwords:        stopwords,
 		shardVersion:     shardVersion,
 		vectorIndex:      vectorIndex,
+		propLengths:      propLengths,
 	}
 }
 
@@ -67,7 +73,7 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 		return newGroupedAggregator(a).Do(ctx)
 	}
 
-	if a.params.Filters != nil || len(a.params.SearchVector) > 0 {
+	if a.params.Filters != nil || len(a.params.SearchVector) > 0 || a.params.Hybrid != nil {
 		return newFilteredAggregator(a).Do(ctx)
 	}
 

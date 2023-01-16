@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package traverser
+package hybrid
 
 import (
 	"fmt"
@@ -50,26 +50,29 @@ func FusionScoreCombSUM(results [][]search.Result) []search.Result {
 	return out
 }
 
-func FusionReciprocal(weights []float64, results [][]search.Result) []search.Result {
-	mapResults := map[strfmt.UUID]search.Result{}
+func FusionReciprocal(weights []float64, results [][]*Result) []*Result {
+	mapResults := map[strfmt.UUID]*Result{}
 	for resultSetIndex, result := range results {
 		for i, res := range result {
 			tempResult := res
 			docId := tempResult.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // TODO replace 60 with a class configured variable
 
-			// Get previous results from the map, if any
-			previousResult, ok := mapResults[docId]
-
 			if tempResult.AdditionalProperties == nil {
 				tempResult.AdditionalProperties = map[string]interface{}{}
 			}
-			if ok {
 
-				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
-				score = score + float64(previousResult.Score)
+			// Get previous results from the map, if any
+			previousResult, ok := mapResults[docId]
+			if ok {
+				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
+					"%v\n(hybrid) Document %v contributed %v to the score",
+					previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
+				score += float64(previousResult.Score)
 			} else {
-				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf("%v\n(hybrid)Document %v contributed %v to the score", tempResult.ExplainScore, tempResult.ID, score)
+				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
+					"%v\n(hybrid) Document %v contributed %v to the score",
+					tempResult.ExplainScore, tempResult.ID, score)
 			}
 			tempResult.AdditionalProperties["rank_score"] = score
 			tempResult.AdditionalProperties["score"] = score
@@ -80,20 +83,24 @@ func FusionReciprocal(weights []float64, results [][]search.Result) []search.Res
 	}
 
 	// Sort the results
-	concatenatedResults := []search.Result{}
+	var (
+		concat = make([]*Result, len(mapResults))
+		i      = 0
+	)
 	for _, res := range mapResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
-		concatenatedResults = append(concatenatedResults, res)
+		concat[i] = res
+		i++
 	}
 
-	sort.Slice(concatenatedResults, func(i, j int) bool {
-		a_b := float64(concatenatedResults[j].Score - concatenatedResults[i].Score)
+	sort.Slice(concat, func(i, j int) bool {
+		a_b := float64(concat[j].Score - concat[i].Score)
 		if a_b*a_b < 1e-14 {
-			return concatenatedResults[i].SecondarySortValue > concatenatedResults[j].SecondarySortValue
+			return concat[i].SecondarySortValue > concat[j].SecondarySortValue
 		}
-		return float64(concatenatedResults[i].Score) > float64(concatenatedResults[j].Score)
+		return float64(concat[i].Score) > float64(concat[j].Score)
 	})
-	return concatenatedResults
+	return concat
 }
 
 func FusionScoreConcatenate(results [][]*search.Result) []*search.Result {

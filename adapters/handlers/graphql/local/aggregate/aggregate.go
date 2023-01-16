@@ -125,6 +125,7 @@ func classField(class *models.Class, description string,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
+			"hybrid": hybridArgument(fieldsObject, class, modulesProvider),
 		},
 		Resolve: makeResolveClass(modulesProvider, class),
 	}
