@@ -134,7 +134,7 @@ func addTestSchema(t *testing.T) {
 				"vectorizeClassName": true,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexTimestamps: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexPropertyLength: true, IndexTimestamps: true},
 		Properties: []*models.Property{
 			{
 				Name:     "name",

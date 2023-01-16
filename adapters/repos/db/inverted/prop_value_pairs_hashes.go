@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 func (pv *propValuePair) cacheable() bool {
@@ -48,6 +49,13 @@ func (pv *propValuePair) fetchHashes(s *Searcher) error {
 		}
 
 		bucketName := helpers.HashBucketFromPropNameLSM(pv.prop)
+		// format is hash_property_PROPERTY_NAME
+		propName, isPropLengthFilter := schema.IsPropertyLength(bucketName, 14)
+		if isPropLengthFilter {
+			bucketName = helpers.HashBucketFromPropNameLSM(propName + filters.InternalPropertyLength)
+			pv.prop = propName + filters.InternalPropertyLength
+		}
+
 		b := s.store.Bucket(bucketName)
 		if b == nil && pv.operator != filters.OperatorWithinGeoRange {
 			return errors.Errorf("hash bucket for prop %s not found - is it indexed?", pv.prop)

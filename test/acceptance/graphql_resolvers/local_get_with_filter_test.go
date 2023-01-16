@@ -49,6 +49,56 @@ func gettingObjectsWithFilters(t *testing.T) {
 		assert.ElementsMatch(t, expected, airports)
 	})
 
+	t.Run("nearText with prop length", func(t *testing.T) {
+		query := `
+		{
+			  Get {
+				City (
+					nearText: {
+						concepts: ["hi"],
+						distance: 0.9
+					},
+					where: {
+						path: "len(name)"
+						operator: GreaterThanEqual
+						valueInt: 0
+					}
+				) {
+				  name
+				}
+			  }
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		cities := result.Get("Get", "City").AsSlice()
+		assert.Len(t, cities, 5)
+	})
+
+	t.Run("nearText with null filter", func(t *testing.T) {
+		query := `
+		{
+			  Get {
+				City (
+					nearText: {
+						concepts: ["hi"],
+						distance: 0.9
+					},
+					where: {
+						path: "name"
+						operator: IsNull
+						valueBoolean: true
+					}
+				) {
+				  name
+				}
+			  }
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		cities := result.Get("Get", "City").AsSlice()
+		assert.Len(t, cities, 1)
+	})
+
 	t.Run("with filters applied", func(t *testing.T) {
 		query := `
 		{
