@@ -302,7 +302,7 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 
 func propertyIsIndexed(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
 	propertyName := strings.Split(tentativePropertyName, "^")[0]
-	c, err := schema.GetClassByName(schemaDefinition, string(className))
+	c, err := schema.GetClassByName(schemaDefinition, className)
 	if err != nil {
 		return false
 	}
@@ -311,6 +311,9 @@ func propertyIsIndexed(schemaDefinition *models.Schema, className, tentativeProp
 		return false
 	}
 	indexed := p.IndexInverted
+	if indexed == nil {
+		return true
+	}
 	return indexed != nil
 }
 
@@ -322,7 +325,7 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 
 	propNames := []string{}
 
-	// WEAVIATE-471 - If there are no searchable properties, return an error
+	// WEAVIATE-471 - If there a property is not searchable, return an error
 	for _, property := range properties {
 		if !propertyIsIndexed(b.schema.Objects, string(className), property) {
 			return docPointersWithScore{}, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")

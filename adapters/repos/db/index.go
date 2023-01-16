@@ -764,6 +764,9 @@ func propertyIsIndexed(schemaDefinition *models.Schema, className, tentativeProp
 		return false
 	}
 	indexed := p.IndexInverted
+	if indexed == nil {
+		return true
+	}
 	return indexed != nil
 }
 
