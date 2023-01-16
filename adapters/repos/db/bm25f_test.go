@@ -52,6 +52,11 @@ func truePointer() *bool {
 	return &t
 }
 
+func falsePointer() *bool {
+	t := false
+	return &t
+}
+
 func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
 	class := &models.Class{
@@ -366,7 +371,7 @@ func Test_propertyIsIndexed(t *testing.T) {
 				Name:          "stringField",
 				DataType:      []string{string(schema.DataTypeString)},
 				Tokenization:  "field",
-				IndexInverted: truePointer(),
+				IndexInverted: falsePointer(),
 			},
 		},
 	}
