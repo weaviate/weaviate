@@ -239,6 +239,9 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 
 	ids := mergeScores(idLists)
 	ids = b.sort(ids)
+	if len(ids.docIDs) > limit {
+		ids.docIDs = ids.docIDs[:limit]
+	}
 	objs, scores, err := b.rankedObjectsByDocID(ids, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "resolve doc ids to objects")
