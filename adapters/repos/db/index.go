@@ -767,7 +767,7 @@ func propertyIsIndexed(schemaDefinition *models.Schema, className, tentativeProp
 	if indexed == nil {
 		return true
 	}
-	return indexed != nil
+	return *indexed 
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
