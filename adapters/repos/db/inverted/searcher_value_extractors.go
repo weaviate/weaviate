@@ -20,7 +20,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (fs Searcher) extractNumberValue(in interface{}) ([]byte, error) {
+func (s *Searcher) extractNumberValue(in interface{}) ([]byte, error) {
 	value, ok := in.(float64)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be float64, got %T", in)
@@ -30,7 +30,7 @@ func (fs Searcher) extractNumberValue(in interface{}) ([]byte, error) {
 }
 
 // assumes an untyped int and stores as string-formatted int64
-func (fs Searcher) extractIntValue(in interface{}) ([]byte, error) {
+func (s *Searcher) extractIntValue(in interface{}) ([]byte, error) {
 	value, ok := in.(int)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be int, got %T", in)
@@ -40,7 +40,7 @@ func (fs Searcher) extractIntValue(in interface{}) ([]byte, error) {
 }
 
 // assumes an untyped int and stores as string-formatted int64
-func (fs Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
+func (s *Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
 	value, ok := in.(int)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be int, got %T", in)
@@ -50,7 +50,7 @@ func (fs Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
 }
 
 // assumes an untyped bool and stores as bool64
-func (fs Searcher) extractBoolValue(in interface{}) ([]byte, error) {
+func (s *Searcher) extractBoolValue(in interface{}) ([]byte, error) {
 	value, ok := in.(bool)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be bool, got %T", in)
@@ -66,7 +66,7 @@ func (fs Searcher) extractBoolValue(in interface{}) ([]byte, error) {
 
 // assumes a time.Time date and stores as string-formatted int64, if it
 // encounters a string it tries to parse it as a time.Time
-func (fs Searcher) extractDateValue(in interface{}) ([]byte, error) {
+func (s *Searcher) extractDateValue(in interface{}) ([]byte, error) {
 	var asInt64 int64
 
 	switch t := in.(type) {

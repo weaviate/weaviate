@@ -23,32 +23,32 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
-func (fs *Searcher) docPointers(prop string, b *lsmkv.Bucket, limit int,
+func (s *Searcher) docPointers(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool,
 ) (docPointers, error) {
 	if pv.operator == filters.OperatorWithinGeoRange {
 		// geo props cannot be served by the inverted index and they require an
 		// external index. So, instead of trying to serve this chunk of the filter
 		// request internally, we can pass it to an external geo index
-		return fs.docPointersGeo(pv)
+		return s.docPointersGeo(pv)
 	} else {
 		// all other operators perform operations on the inverted index which we
 		// can serve directly
-		return fs.docPointersInverted(prop, b, limit, pv, tolerateDuplicates)
+		return s.docPointersInverted(prop, b, limit, pv, tolerateDuplicates)
 	}
 }
 
-func (fs *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
+func (s *Searcher) docPointersInverted(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool,
 ) (docPointers, error) {
 	if pv.hasFrequency {
-		return fs.docPointersInvertedFrequency(prop, b, limit, pv, tolerateDuplicates)
+		return s.docPointersInvertedFrequency(prop, b, limit, pv, tolerateDuplicates)
 	}
 
-	return fs.docPointersInvertedNoFrequency(prop, b, limit, pv, tolerateDuplicates)
+	return s.docPointersInvertedNoFrequency(prop, b, limit, pv, tolerateDuplicates)
 }
 
-func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
+func (s *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool,
 ) (docPointers, error) {
 	rr := NewRowReader(b, pv.value, pv.operator, false)
@@ -70,7 +70,7 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 			propName += filters.InternalNullIndex
 		}
 
-		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(propName))
+		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(propName))
 		if hashBucket == nil {
 			return false, errors.Errorf("no hash bucket for prop '%s' found", propName)
 		}
@@ -104,10 +104,10 @@ func (fs *Searcher) docPointersInvertedNoFrequency(prop string, b *lsmkv.Bucket,
 	return pointers, nil
 }
 
-func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
+func (s *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, limit int,
 	pv *propValuePair, tolerateDuplicates bool,
 ) (docPointers, error) {
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, fs.shardVersion)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion)
 
 	var pointers docPointers
 	var hashes [][]byte
@@ -118,7 +118,7 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 		for i, pair := range pairs {
 			// this entry has a frequency, but that's only used for bm25, not for
 			// pure filtering, so we can ignore it here
-			if fs.shardVersion < 2 {
+			if s.shardVersion < 2 {
 				currentDocIDs[i] = binary.LittleEndian.Uint64(pair.Key)
 			} else {
 				currentDocIDs[i] = binary.BigEndian.Uint64(pair.Key)
@@ -133,7 +133,7 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 			pointers.docIDs = currentDocIDs
 		}
 
-		hashBucket := fs.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
+		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(pv.prop))
 		if b == nil {
 			return false, errors.Errorf("no hash bucket for prop '%s' found", pv.prop)
 		}
@@ -169,8 +169,8 @@ func (fs *Searcher) docPointersInvertedFrequency(prop string, b *lsmkv.Bucket, l
 	return pointers, nil
 }
 
-func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
-	propIndex, ok := fs.propIndices.ByProp(pv.prop)
+func (s *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
+	propIndex, ok := s.propIndices.ByProp(pv.prop)
 	out := docPointers{}
 	if !ok {
 		return out, nil
