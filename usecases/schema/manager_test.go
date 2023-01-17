@@ -544,6 +544,51 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	}, classes[0].VectorIndexConfig)
 }
 
+func Test_ExtendSchemaWithExistingPropName(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	repo := newFakeRepo()
+	repo.schema = &State{
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{{
+				Class:             "Foo",
+				VectorIndexConfig: "parse me, i should be in some sort of an object",
+				VectorIndexType:   "hnsw", // will always be set when loading from disk
+				Properties: []*models.Property{{
+					Name:     "my_prop",
+					DataType: []string{"string"},
+				}},
+			}},
+		},
+	}
+	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
+		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		dummyParseVectorConfig, // only option for now
+		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
+		&fakeTxClient{}, &fakeScaleOutManager{},
+	)
+	require.Nil(t, err)
+
+	// exactly identical name
+	err = sm.AddClassProperty(context.Background(), nil, "Foo", &models.Property{
+		Name:     "my_prop",
+		DataType: []string{"int"},
+	})
+
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "conflict for property")
+
+	// identical if case insensitive
+	err = sm.AddClassProperty(context.Background(), nil, "Foo", &models.Property{
+		Name:     "mY_pROp",
+		DataType: []string{"int"},
+	})
+
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "conflict for property")
+}
+
 type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
