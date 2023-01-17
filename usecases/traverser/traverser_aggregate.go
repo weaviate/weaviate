@@ -61,6 +61,15 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		params.Certainty = certainty
 	}
 
+	if params.Hybrid != nil && params.Hybrid.Vector == nil && params.Hybrid.Query != "" {
+		vec, err := t.nearParamsVector.modulesProvider.
+			VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query)
+		if err != nil {
+			return nil, err
+		}
+		params.Hybrid.Vector = vec
+	}
+
 	res, err := t.vectorSearcher.Aggregate(ctx, *params)
 	if err != nil {
 		return nil, err
