@@ -26,6 +26,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func getClass(t *testing.T, host, class string) *models.Class {
+	helper.SetupClient(host)
+	return helper.GetClass(t, class)
+}
+
+func updateClass(t *testing.T, host string, class *models.Class) {
+	helper.SetupClient(host)
+	helper.UpdateClass(t, class)
+}
+
 func createObject(t *testing.T, host string, obj *models.Object) {
 	helper.SetupClient(host)
 	helper.CreateObject(t, obj)

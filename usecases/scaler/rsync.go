@@ -52,7 +52,7 @@ func newRSync(c client, cl cluster, rootPath string) *rsync {
 }
 
 // Push pushes local shards of a class to remote nodes
-func (r rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor, dist ShardDist, className string) error {
+func (r *rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor, dist ShardDist, className string) error {
 	var g errgroup.Group
 	for _, desc := range shardsBackups {
 		shardName := desc.Name
@@ -68,6 +68,7 @@ func (r rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor,
 
 // PushShard replicates a shard on a set of nodes
 func (r *rsync) PushShard(ctx context.Context, className string, desc backup.ShardDescriptor, nodes []string) error {
+	ctx = context.Background()
 	// Iterate over the new target nodes and copy files
 	for _, targetNode := range nodes {
 		host, ok := r.cluster.NodeHostname(targetNode)
