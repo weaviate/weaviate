@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
@@ -278,6 +279,11 @@ func (s *Shard) filePutter(ctx context.Context,
 	// TODO: validate file prefix to rule out that we're accidentally writing
 	// into another shard
 	finalPath := filepath.Join(s.index.Config.RootPath, filePath)
+	dir := path.Dir(finalPath)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
+	}
+
 	f, err := os.Create(finalPath)
 	if err != nil {
 		return nil, fmt.Errorf("open file %q for writing: %w", filePath, err)
