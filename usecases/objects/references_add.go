@@ -19,7 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/objects/validation"
 )
 
@@ -57,7 +56,7 @@ func (m *Manager) AddObjectReference(
 	}
 	defer unlock()
 
-	validator := validation.New(schema.Schema{}, m.vectorRepo.Exists, m.config)
+	validator := validation.New(m.vectorRepo.Exists, m.config)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
@@ -76,7 +75,7 @@ func (m *Manager) AddObjectReference(
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, input.Class, input.ID); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 

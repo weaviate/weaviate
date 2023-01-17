@@ -60,7 +60,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics)
+		m.db.replicaClient, m.db.promMetrics, class)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -81,6 +81,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		if prop.IndexInverted != nil && !*prop.IndexInverted {
 			continue
 		}
+
 		errProps := m.addPropertiesAndNullAndLength(ctx, prop, idx)
 		if errProps != nil {
 			return errors.Wrapf(errProps, "add prop and null state and property length '%v'", prop)

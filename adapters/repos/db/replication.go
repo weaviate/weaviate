@@ -250,7 +250,7 @@ func (i *Index) IncomingCreateShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i)
+	s, err := NewShard(ctx, nil, shardName, i, nil)
 	if err != nil {
 		return err
 	}
@@ -307,7 +307,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 		defer s.vectorIndex.PostStartup()
 	}
 
-	if err := s.initNonVector(ctx); err != nil {
+	if err := s.initNonVector(ctx, nil); err != nil {
 		return fmt.Errorf("init non-vector: %w", err)
 	}
 
