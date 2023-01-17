@@ -81,6 +81,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("aggregates on date fields", aggregatesOnDateFields)
+	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	// tear down
@@ -134,7 +135,7 @@ func addTestSchema(t *testing.T) {
 				"vectorizeClassName": true,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexTimestamps: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexPropertyLength: true, IndexTimestamps: true},
 		Properties: []*models.Property{
 			{
 				Name:     "name",

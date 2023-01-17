@@ -224,15 +224,15 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		switch rerr.Code {
 		case uco.StatusForbidden:
 			return objects.NewObjectsListForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(rerr))
 		case uco.StatusNotFound:
 			return objects.NewObjectsListNotFound()
 		case uco.StatusBadRequest:
 			return objects.NewObjectsListUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(rerr))
 		default:
 			return objects.NewObjectsListInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(rerr))
 		}
 	}
 

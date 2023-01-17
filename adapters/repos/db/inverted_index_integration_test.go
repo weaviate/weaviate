@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -82,8 +81,16 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 	})
+	t.Run("Add additional property", func(t *testing.T) {
+		err := migrator.AddProperty(context.Background(), class.Class, &models.Property{
+			Name:         "OtherProp",
+			DataType:     []string{"string"},
+			Tokenization: "word",
+		})
+		require.Nil(t, err)
+	})
 
-	t.Run("check for timestamp buckets", func(t *testing.T) {
+	t.Run("check for additional buckets", func(t *testing.T) {
 		for _, idx := range migrator.db.indices {
 			for _, shd := range idx.Shards {
 				createBucket := shd.store.Bucket("property__creationTimeUnix")
@@ -100,10 +107,13 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
 				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("property_OtherProp"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_OtherProp"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
 
 				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
 				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
-
+				assert.NotNil(t, shd.store.Bucket("property_OtherProp"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_OtherProp"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
 			}
 		}
 	})
@@ -113,7 +123,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		objWithProperty := &models.Object{
 			ID:         testID1,
 			Class:      "TestClass",
-			Properties: map[string]interface{}{"name": "objectarooni"},
+			Properties: map[string]interface{}{"name": "objectarooni", "OtherProp": "whatever"},
 		}
 		vec := []float32{1, 2, 3}
 		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec))
@@ -122,7 +132,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		objWithoutProperty := &models.Object{
 			ID:         testID2,
 			Class:      "TestClass",
-			Properties: map[string]interface{}{"name": nil},
+			Properties: map[string]interface{}{"name": nil, "OtherProp": nil},
 		}
 		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec))
 	})
