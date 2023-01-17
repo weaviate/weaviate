@@ -15,12 +15,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/models"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/additional"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-func (m *Manager) updateRefVector(ctx context.Context,
+func (m *Manager) updateRefVector(ctx context.Context, principal *models.Principal,
 	className string, id strfmt.UUID,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
@@ -33,8 +35,12 @@ func (m *Manager) updateRefVector(ctx context.Context,
 
 		obj := parent.Object()
 
+		class, err := m.schemaManager.GetClass(ctx, principal, className)
+		if err != nil {
+			return err
+		}
 		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, nil, m.findObject, m.logger); err != nil {
+			ctx, obj, class, nil, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}

@@ -39,7 +39,7 @@ type State struct {
 // created before v1.17
 func (s *State) MigrateFromOldFormat() {
 	for shardName, shard := range s.Physical {
-		if len(shard.LegacyBelongsToNodeForBackwardCompat) > 0 && len(shard.BelongsToNodes) == 0 {
+		if shard.LegacyBelongsToNodeForBackwardCompat != "" && len(shard.BelongsToNodes) == 0 {
 			shard.BelongsToNodes = []string{
 				shard.LegacyBelongsToNodeForBackwardCompat,
 			}
@@ -78,13 +78,6 @@ func (p Physical) BelongsToNode() string {
 // some kind of node bias while scaling in the future, it would probably go
 // here.
 func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
-	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
-	if err != nil {
-		return err
-	}
-
-	it.SetStartNode(p.BelongsToNodes[len(p.BelongsToNodes)-1])
-
 	if count < len(p.BelongsToNodes) {
 		if count < 0 {
 			return errors.Errorf("cannot scale below 0, got %d", count)
@@ -92,7 +85,12 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 		p.BelongsToNodes = p.BelongsToNodes[:count]
 		return nil
 	}
+	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
+	if err != nil {
+		return err
+	}
 
+	it.SetStartNode(p.BelongsToNodes[len(p.BelongsToNodes)-1])
 	for len(p.BelongsToNodes) < count {
 		p.BelongsToNodes = append(p.BelongsToNodes, it.Next())
 	}

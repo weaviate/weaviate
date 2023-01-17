@@ -21,16 +21,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func (s *Shard) initProperties() error {
+func (s *Shard) initProperties(class *models.Class) error {
 	s.propertyIndices = propertyspecific.Indices{}
-	sch := s.index.getSchema.GetSchemaSkipAuth()
-	c := sch.FindClassByName(s.index.Config.ClassName)
-	if c == nil {
+	if class == nil {
 		return nil
 	}
 
 	eg := &errgroup.Group{}
-	for _, prop := range c.Properties {
+	for _, prop := range class.Properties {
 		if prop.IndexInverted != nil && !*prop.IndexInverted {
 			continue
 		}

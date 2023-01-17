@@ -127,10 +127,6 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		if vec == nil {
-			return nil, nil, fmt.Errorf("must provide hybrid search vector if alpha > 0")
-		}
-
 		res, dists, err := g.objectVectorSearch(vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate grouped dense search: %w", err)
