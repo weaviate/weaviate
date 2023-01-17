@@ -236,8 +236,12 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 	if totalLimit == 0 {
 		return nil, nil
 	}
-	if err := d.validateSort(q.Sort); err != nil {
-		return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
+	if len(q.Sort) > 0 {
+		scheme := d.schemaGetter.GetSchemaSkipAuth()
+		if err := filters.ValidateSort(scheme, schema.ClassName(q.Class), q.Sort); err != nil {
+			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
+		}
+
 	}
 	idx := d.GetIndex(schema.ClassName(q.Class))
 	if idx == nil {

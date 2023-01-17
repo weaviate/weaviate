@@ -659,7 +659,7 @@ func (m *Provider) VectorFromInput(ctx context.Context,
 		}
 	}
 
-	panic("VectorFromInput was called without vectorizer")
+	return nil, fmt.Errorf("VectorFromInput was called without vectorizer")
 }
 
 // ParseClassifierSettings parses and adds classifier specific settings

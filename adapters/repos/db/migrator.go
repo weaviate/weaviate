@@ -82,23 +82,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			continue
 		}
 
-		err := idx.addProperty(ctx, prop)
-		if err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
-		}
-
-		if class.InvertedIndexConfig.IndexNullState {
-			err = idx.addNullStateProperty(ctx, prop)
-			if err != nil {
-				return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
-			}
-		}
-
-		if class.InvertedIndexConfig.IndexPropertyLength {
-			err = idx.addPropertyLength(ctx, prop)
-			if err != nil {
-				return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
-			}
+		errProps := m.addPropertiesAndNullAndLength(ctx, prop, idx)
+		if errProps != nil {
+			return errors.Wrapf(errProps, "add prop and null state and property length '%v'", prop)
 		}
 	}
 
@@ -113,6 +99,35 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	idx.notifyReady()
 	m.db.indexLock.Unlock()
 
+	return nil
+}
+
+func (m *Migrator) addPropertiesAndNullAndLength(ctx context.Context, prop *models.Property, idx *Index) error {
+	err := idx.addProperty(ctx, prop)
+	if err != nil {
+		return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
+	}
+
+	if idx.invertedIndexConfig.IndexNullState {
+		err = idx.addNullStateProperty(ctx, prop)
+		if err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
+		}
+	}
+
+	if idx.invertedIndexConfig.IndexPropertyLength {
+		dt := schema.DataType(prop.DataType[0])
+		// some datatypes are not added to the inverted index, so we can skip them here
+		switch dt {
+		case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+			schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		default:
+			err = idx.addPropertyLength(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
+			}
+		}
+	}
 	return nil
 }
 
@@ -139,7 +154,7 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop *mode
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	return idx.addProperty(ctx, prop)
+	return m.addPropertiesAndNullAndLength(ctx, prop, idx)
 }
 
 // DropProperty is ignored, API compliant change

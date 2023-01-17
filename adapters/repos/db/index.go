@@ -792,7 +792,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				if len(keywordRanking.Properties) == 0 {
 					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
 				}
-
 			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
