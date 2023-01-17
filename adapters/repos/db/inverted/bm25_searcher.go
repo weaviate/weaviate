@@ -299,7 +299,6 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 	return res
 }
 
-
 // BM25F search each given property for a single term.  Results will be combined later
 func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, className schema.ClassName, objectByIndexID func(index uint64) *storobj.Object, properties []string, term string, query string) (docPointersWithScore, error) {
 	idss := []docPointersWithScore{}
