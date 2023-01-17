@@ -376,23 +376,23 @@ func Test_propertyIsIndexed(t *testing.T) {
 		},
 	}
 
-	schema := &models.Schema{
+	ClassSchema := &models.Schema{
 		Classes: []*models.Class{class},
 	}
 	t.Run("Property index", func(t *testing.T) {
-		if got := propertyIsIndexed(schema, "MyClass", "description"); got != true {
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description"); got != true {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
 		}
 
-		if got := propertyIsIndexed(schema, "MyClass", "description^2"); got != true {
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description^2"); got != true {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
 		}
 
-		if got := propertyIsIndexed(schema, "MyClass", "stringField"); got != false {
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "stringField"); got != false {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, false)
 		}
 
-		if got := propertyIsIndexed(schema, "MyClass", "title"); got != true {
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "title"); got != true {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
 		}
 	})

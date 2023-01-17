@@ -753,23 +753,6 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 	return ok, nil
 }
 
-func propertyIsIndexed(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
-	propertyName := strings.Split(tentativePropertyName, "^")[0]
-	c, err := schema.GetClassByName(schemaDefinition, string(className))
-	if err != nil {
-		return false
-	}
-	p, err := schema.GetPropertyByName(c, propertyName)
-	if err != nil {
-		return false
-	}
-	indexed := p.IndexInverted
-	if indexed == nil {
-		return true
-	}
-	return *indexed
-}
-
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties,
@@ -800,7 +783,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					if (v.DataType[0] == "text" || v.DataType[0] == "string") && propertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
+					if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
 				}
