@@ -58,7 +58,7 @@ You can find [code examples here](https://github.com/semi-technologies/weaviate-
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/cohere-multilingual-with-weaviate)
 - [The Sphere Dataset in Weaviate](https://weaviate.io/blog/sphere-dataset-in-weaviate)
 
-## Content
+## Weaviate content
 
 Speaking of content - we love connecting with our community through these. We love helping amazing people build cool things with Weaviate, and we love getting to know them as well as talking to them about their passions. 
 
@@ -80,7 +80,7 @@ Some of our past favorites include:
 
 Both our [📝 blogs](https://weaviate.io/blog) and [🎙️ podcasts](https://weaviate.io/podcast) are updated regularly. To keep up to date with all things Weaviate including new software releases, meetup news and of course all of the content, you can subscribe to our [🗞️ newsletter](https://newsletter.weaviate.io/).
 
-## Community
+## Join our community!
 
 Also, we invite you to join our [Slack](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw) community. There, you can meet other Weaviate users and members of the Weaviate team to talk all things Weaviate and AI (and other topics!).
 
