@@ -12,6 +12,8 @@
 package schema
 
 import (
+	"strings"
+
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -42,6 +44,23 @@ func (s *Schema) FindClassByName(className ClassName) *models.Class {
 
 // 	return "", false
 // }
+
+func PropertyIsIndexed(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	c, err := GetClassByName(schemaDefinition, string(className))
+	if err != nil {
+		return false
+	}
+	p, err := GetPropertyByName(c, propertyName)
+	if err != nil {
+		return false
+	}
+	indexed := p.IndexInverted
+	if indexed == nil {
+		return true
+	}
+	return *indexed
+}
 
 func (s *Schema) GetProperty(className ClassName, propName PropertyName) (*models.Property, error) {
 	semSchemaClass, err := GetClassByName(s.Objects, string(className))

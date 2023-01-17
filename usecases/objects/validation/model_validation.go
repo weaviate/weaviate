@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
@@ -60,27 +59,25 @@ const (
 )
 
 type Validator struct {
-	schema schema.Schema
 	exists exists
 	config *config.WeaviateConfig
 }
 
-func New(schema schema.Schema, exists exists,
+func New(exists exists,
 	config *config.WeaviateConfig,
 ) *Validator {
 	return &Validator{
-		schema: schema,
 		exists: exists,
 		config: config,
 	}
 }
 
-func (v *Validator) Object(ctx context.Context, object *models.Object) error {
+func (v *Validator) Object(ctx context.Context, object *models.Object, class *models.Class) error {
 	if err := validateClass(object.Class); err != nil {
 		return err
 	}
 
-	return v.properties(ctx, object)
+	return v.properties(ctx, object, class)
 }
 
 func validateClass(class string) error {

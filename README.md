@@ -51,7 +51,7 @@ Weaviate is a low-latency vector search engine with out-of-the-box support for d
 Weaviate makes it easy to use state-of-the-art ML models while giving you the scalability, ease of use, safety and cost-effectiveness of a purpose-built vector database. Most notably:
 
 * **Fast queries**<br>
-   Weaviate typically performs a 10-NN neighbor search out of millions of objects in considerably less than 100ms.
+   Weaviate typically performs a 10-NN neighbor search out of millions of objects in single-digit milliseconds. See [benchmarks](https://weaviate.io/developers/weaviate/current/benchmarks/ann.html).
    <br><sub></sub>
 
 * **Any media type with Weaviate Modules**<br>
@@ -66,7 +66,7 @@ Weaviate lets you search through your data even if it’s currently being import
   Scale Weaviate for your exact needs, e.g., maximum ingestion, largest possible dataset size, maximum queries per second, etc.
 
 * **High-Availability**<br>
-  Is on our [roadmap](https://weaviate.io/developers/weaviate/current/architecture/roadmap.html) and will be released later this year.
+  Use [replication with tunable write and read consistency](https://weaviate.io/developers/weaviate/current/replication-architecture/) for highly-available setups that scale with your workloads. 
 
 * **Cost-Effectiveness**<br>
   Very large datasets do not need to be kept entirely in memory in Weaviate. At the same time available memory can be used to increase the speed of queries. This allows for a conscious speed/cost trade-off to suit every use case.

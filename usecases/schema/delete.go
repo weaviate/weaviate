@@ -50,7 +50,7 @@ func (m *Manager) deleteClass(ctx context.Context, className string) error {
 }
 
 func (m *Manager) deleteClassApplyChanges(ctx context.Context, className string) error {
-	semanticSchema := m.state.SchemaFor()
+	semanticSchema := m.state.ObjectSchema
 	classIdx := -1
 	for idx, class := range semanticSchema.Classes {
 		if class.Class == className {

@@ -110,7 +110,7 @@ func TestRemoteIndexIncreaseRF(t *testing.T) {
 	defer ts.Close()
 	client := newRemoteIndex(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
-		err := client.IncreaseReplicationFactor(ctx, "", "C1", nil, nil)
+		err := client.IncreaseReplicationFactor(ctx, "", "C1", nil)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
@@ -126,7 +126,7 @@ func TestRemoteIndexIncreaseRF(t *testing.T) {
 		n++
 	}
 	t.Run("Success", func(t *testing.T) {
-		err := client.IncreaseReplicationFactor(ctx, fs.host, "C1", nil, nil)
+		err := client.IncreaseReplicationFactor(ctx, fs.host, "C1", nil)
 		assert.Nil(t, err)
 	})
 }

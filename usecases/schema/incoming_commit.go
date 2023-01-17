@@ -53,14 +53,23 @@ func (m *Manager) handleAddClassCommit(ctx context.Context,
 	tx *cluster.Transaction,
 ) error {
 	m.Lock()
-	defer m.Unlock()
-
 	pl, ok := tx.Payload.(AddClassPayload)
 	if !ok {
+		m.Unlock()
 		return errors.Errorf("expected commit payload to be AddClassPayload, but got %T",
 			tx.Payload)
 	}
 
+	err := m.handleAddClassCommitAndParse(ctx, &pl)
+	m.Unlock()
+	if err != nil {
+		return err
+	}
+	// call to migrator needs to be outside the lock that is set in addClass
+	return m.migrator.AddClass(ctx, pl.Class, pl.State)
+}
+
+func (m *Manager) handleAddClassCommitAndParse(ctx context.Context, pl *AddClassPayload) error {
 	err := m.parseShardingConfig(ctx, pl.Class)
 	if err != nil {
 		return err

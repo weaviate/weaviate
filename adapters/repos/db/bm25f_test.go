@@ -52,6 +52,11 @@ func truePointer() *bool {
 	return &t
 }
 
+func falsePointer() *bool {
+	t := false
+	return &t
+}
+
 func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
 ) {
 	class := &models.Class{
@@ -64,7 +69,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				Name:          "title",
 				DataType:      []string{string(schema.DataTypeText)},
 				Tokenization:  "word",
-				IndexInverted: nil,
+				IndexInverted: truePointer(),
 			},
 			{
 				Name:          "description",
@@ -341,4 +346,54 @@ func TestBM25FCompare(t *testing.T) {
 		require.Equal(t, withBM25Fobjs[2].DocID(), objs[2].DocID())
 		require.Equal(t, withBM25Fobjs[5].DocID(), objs[5].DocID())
 	}
+}
+
+func Test_propertyIsIndexed(t *testing.T) {
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(1, 1),
+		Class:               "MyClass",
+
+		Properties: []*models.Property{
+			{
+				Name:          "title",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: nil,
+			},
+			{
+				Name:          "description",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "stringField",
+				DataType:      []string{string(schema.DataTypeString)},
+				Tokenization:  "field",
+				IndexInverted: falsePointer(),
+			},
+		},
+	}
+
+	ClassSchema := &models.Schema{
+		Classes: []*models.Class{class},
+	}
+	t.Run("Property index", func(t *testing.T) {
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description"); got != true {
+			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		}
+
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "description^2"); got != true {
+			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		}
+
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "stringField"); got != false {
+			t.Errorf("propertyIsIndexed() = %v, want %v", got, false)
+		}
+
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "title"); got != true {
+			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
+		}
+	})
 }
