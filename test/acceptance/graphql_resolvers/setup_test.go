@@ -62,6 +62,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with near fields", gettingObjectsWithNearFields)
 	t.Run("getting objects with near fields with multi shard setup", gettingObjectsWithNearFieldsMultiShard)
 	t.Run("getting objects with sort", gettingObjectsWithSort)
+	t.Run("getting objects with hybrid search", getWithHybridSearch)
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
 
 	// aggregate tests
