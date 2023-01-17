@@ -65,10 +65,6 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		if vec == nil {
-			return nil, nil, fmt.Errorf("must provide hybrid search vector if alpha > 0")
-		}
-
 		allowList, err := fa.buildAllowList(ctx)
 		if err != nil {
 			return nil, nil, err

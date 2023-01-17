@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/searchparams"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -25,18 +26,18 @@ import (
 )
 
 func Test_Traverser_Aggregate(t *testing.T) {
+	principal := &models.Principal{}
+	logger, _ := test.NewNullLogger()
+	locks := &fakeLocks{}
+	authorizer := &fakeAuthorizer{}
+	vectorRepo := &fakeVectorRepo{}
+	explorer := &fakeExplorer{}
+	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
+
+	traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+		vectorRepo, explorer, schemaGetter, nil, nil)
+
 	t.Run("with aggregation only", func(t *testing.T) {
-		principal := &models.Principal{}
-		logger, _ := test.NewNullLogger()
-		locks := &fakeLocks{}
-		authorizer := &fakeAuthorizer{}
-		vectorRepo := &fakeVectorRepo{}
-		explorer := &fakeExplorer{}
-		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
-
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorRepo, explorer, schemaGetter, nil, nil)
-
 		params := aggregation.Params{
 			ClassName: "MyClass",
 			Properties: []aggregation.ParamProperty{
@@ -109,17 +110,6 @@ func Test_Traverser_Aggregate(t *testing.T) {
 	})
 
 	t.Run("with a mix of aggregation and type inspection", func(t *testing.T) {
-		principal := &models.Principal{}
-		logger, _ := test.NewNullLogger()
-		locks := &fakeLocks{}
-		authorizer := &fakeAuthorizer{}
-		vectorRepo := &fakeVectorRepo{}
-		explorer := &fakeExplorer{}
-		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
-
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-			vectorRepo, explorer, schemaGetter, nil, nil)
-
 		params := aggregation.Params{
 			ClassName: "MyClass",
 			Properties: []aggregation.ParamProperty{
@@ -259,6 +249,86 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		res, err := traverser.Aggregate(context.Background(), principal, &params)
 		require.Nil(t, err)
 		assert.Equal(t, &expectedResult, res)
+	})
+
+	t.Run("with hybrid search", func(t *testing.T) {
+		params := aggregation.Params{
+			ClassName: "MyClass",
+			Properties: []aggregation.ParamProperty{
+				{
+					Name:        "label",
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
+				},
+				{
+					Name:        "number",
+					Aggregators: []aggregation.Aggregator{aggregation.SumAggregator},
+				},
+				{
+					Name:        "int",
+					Aggregators: []aggregation.Aggregator{aggregation.SumAggregator},
+				},
+				{
+					Name:        "date",
+					Aggregators: []aggregation.Aggregator{aggregation.NewTopOccurrencesAggregator(nil)},
+				},
+			},
+			IncludeMetaCount: true,
+			Hybrid: &searchparams.HybridSearch{
+				Type:   "hybrid",
+				Alpha:  0.5,
+				Query:  "some query",
+				Vector: []float32{1, 2, 3},
+			},
+		}
+
+		agg := aggregation.Result{
+			Groups: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"label": {
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									{
+										Value:  "Foo",
+										Occurs: 200,
+									},
+								},
+							},
+							Type: aggregation.PropertyTypeText,
+						},
+						"date": {
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									{
+										Value:  "Bar",
+										Occurs: 100,
+									},
+								},
+							},
+							Type: aggregation.PropertyTypeText,
+						},
+						"number": {
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]interface{}{
+								"sum": 200,
+							},
+						},
+						"int": {
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]interface{}{
+								"sum": 100,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		vectorRepo.On("Aggregate", params).Return(&agg, nil)
+		res, err := traverser.Aggregate(context.Background(), principal, &params)
+		require.Nil(t, err)
+		assert.Equal(t, &agg, res)
+		t.Logf("res: %+v", res)
 	})
 }
 
