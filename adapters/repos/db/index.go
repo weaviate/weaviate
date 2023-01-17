@@ -783,10 +783,16 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					if v.DataType[0] == "text" || v.DataType[0] == "string" { // TODO: Also the array types?
+					if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
 				}
+
+				// WEAVIATE-471 - error if we can't find a property to search
+				if len(keywordRanking.Properties) == 0 {
+					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
+				}
+
 			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
