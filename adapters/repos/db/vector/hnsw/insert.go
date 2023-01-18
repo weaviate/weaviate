@@ -38,11 +38,9 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 		vector = distancer.Normalize(vector)
 	}
 
-	var error error
-	h.compressActionLock.InvokeConcurrentTask(func() {
-		error = h.insert(node, vector)
-	})
-	return error
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+	return h.insert(node, vector)
 }
 
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
