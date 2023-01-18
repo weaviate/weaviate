@@ -233,3 +233,20 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 	})
 }
+
+func Test_PropertyLengthTracker_Overflow(t *testing.T) {
+	dirName := t.TempDir()
+	path := path.Join(dirName, "my_test_shard")
+
+	tracker, err := NewPropertyLengthTracker(path)
+	require.Nil(t, err)
+
+	for i := 0; i < 15*15; i++ {
+		err := tracker.TrackProperty(fmt.Sprintf("prop_%v", i), float32(i))
+		require.Nil(t, err)
+	}
+
+	// Check that property that would cause the internal counter to overflow is not added
+	err = tracker.TrackProperty("OVERFLOW", float32(123))
+	require.NotNil(t, err)
+}
