@@ -28,25 +28,21 @@ func (h *hnsw) Compress(segments int) error {
 	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseKMeansEncoder)
 
 	data := h.cache.all()
-	h.compressedVectorsCache.grow(uint64(len(data)))
-	h.pq.Fit(data)
-	ssdhelpers.Concurrently(uint64(len(data)), func(_, index uint64, _ *sync.Mutex) {
-		if data[index] == nil {
-			return
+	cleanData := make([][]float32, 0, len(data))
+	for _, point := range data {
+		if point == nil {
+			continue
 		}
-		h.Lock()
-
-		err := h.growIndexToAccomodateNode(index, h.logger)
-		if err != nil {
-			h.Unlock()
-			//ToDo: report error
-			return
-		}
-		h.Unlock()
-		encoded := h.pq.Encode(data[index])
-		h.storeCompressedVector(index, encoded)
-		h.compressedVectorsCache.preload(index, encoded)
-	})
+		cleanData = append(cleanData, point)
+	}
+	h.compressedVectorsCache.grow(uint64(len(cleanData)))
+	h.pq.Fit(cleanData)
+	ssdhelpers.Concurrently(uint64(len(cleanData)),
+		func(_, index uint64, _ *sync.Mutex) {
+			encoded := h.pq.Encode(cleanData[index])
+			h.storeCompressedVector(index, encoded)
+			h.compressedVectorsCache.preload(index, encoded)
+		})
 	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
 		fmt.Println(err)
 		return err
