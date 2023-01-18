@@ -285,7 +285,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.PutObject(ctx, shardName, object)
+		err = i.replicator.PutObject(ctx, shardName, object, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object put across replicas: %w", err)
 		}
@@ -454,7 +454,7 @@ func (i *Index) putObjectBatch(ctx context.Context,
 			defer wg.Done()
 			var errs []error
 			if i.replicationEnabled() {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects)
+				errs = i.replicator.PutObjects(ctx, shardName, group.objects, replica.All)
 			} else if !i.isLocalShard(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
@@ -540,7 +540,7 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs)
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, replica.All)
 		} else if i.isLocalShard(shardName) {
 			shard := i.Shards[shardName]
 			errs = shard.addReferencesBatch(ctx, group.refs)
@@ -992,7 +992,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.DeleteObject(ctx, shardName, id)
+		err = i.replicator.DeleteObject(ctx, shardName, id, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object delete across replicas: %w", err)
 		}
@@ -1042,7 +1042,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.MergeObject(ctx, shardName, &merge)
+		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object patch across replicas: %w", err)
 		}
@@ -1296,7 +1296,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun)
+				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun, replica.All)
 			} else if i.isLocalShard(shardName) {
 				shard := i.Shards[shardName]
 				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
