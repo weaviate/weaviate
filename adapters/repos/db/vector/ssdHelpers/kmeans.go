@@ -2,6 +2,7 @@ package ssdhelpers
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"math/rand"
 
@@ -35,7 +36,7 @@ func NewKMeans(k int, distance distancer.Provider, dimensions int) *KMeans {
 		K:                  k,
 		DeltaThreshold:     0.01,
 		IterationThreshold: 10,
-		Distance:           distance,
+		Distance:           distancer.NewL2SquaredProvider(),
 		dimensions:         dimensions,
 		filter: func(x []float32) []float32 {
 			return x
@@ -58,10 +59,6 @@ func (m *KMeans) ExposeDataForRestore() []byte {
 		binary.LittleEndian.PutUint32(buffer[i*4:(i+1)*4], math.Float32bits(m.centers[i/ds][i%ds]))
 	}
 	return buffer
-}
-
-func (m *KMeans) SetDistance(d distancer.Provider) {
-	m.Distance = d
 }
 
 func (m *KMeans) Add(x []float32) {
@@ -200,8 +197,11 @@ func (m *KMeans) stopCondition(iterations int, dataSize int) bool {
 }
 
 func (m *KMeans) Fit(data [][]float32) error { // init centers using min/max per dimension
-	m.initCenters(data)
 	dataSize := len(data)
+	if dataSize < m.K {
+		return errors.New("Too few data to fit KMeans")
+	}
+	m.initCenters(data)
 	m.data.points = make([]uint64, dataSize)
 	m.data.changes = 1
 
@@ -226,7 +226,15 @@ func (m *KMeans) Fit(data [][]float32) error { // init centers using min/max per
 
 	}
 
+	m.clearData()
 	return nil
+}
+
+func (m *KMeans) clearData() {
+	m.data.points = nil
+	m.data.cc = nil
+	m.data.maxDistances = nil
+	m.data.maxPoints = nil
 }
 
 func (m *KMeans) Center(point []float32) []float32 {

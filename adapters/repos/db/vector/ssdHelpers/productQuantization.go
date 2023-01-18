@@ -108,7 +108,6 @@ type PQEncoder interface {
 	Centroid(b byte) []float32
 	Add(x []float32)
 	Fit(data [][]float32) error
-	SetDistance(d distancer.Provider)
 	ExposeDataForRestore() []byte
 }
 
@@ -130,9 +129,6 @@ func NewProductQuantizer(segments int, centroids int, distance *DistanceProvider
 func NewProductQuantizerWithEncoders(segments int, centroids int, distance *DistanceProvider, dimensions int, encoderType Encoder, encoders []PQEncoder) *ProductQuantizer {
 	if dimensions%segments != 0 {
 		panic("dimension must be a multiple of m")
-	}
-	for _, encoder := range encoders {
-		encoder.SetDistance(distance.Provider)
 	}
 	pq := &ProductQuantizer{
 		ks:          centroids,
