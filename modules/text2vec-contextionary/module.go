@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modcontextionary
@@ -17,23 +17,23 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	text2vecadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
-	text2vecinterpretation "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/interpretation"
-	text2vecnn "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
-	text2vecprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
-	text2vecsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
-	text2vecclassification "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/classification"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/client"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/concepts"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
-	text2vecneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
-	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	text2vecadditional "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional"
+	text2vecinterpretation "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/interpretation"
+	text2vecnn "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
+	text2vecprojector "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/projector"
+	text2vecsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
+	text2vecclassification "github.com/weaviate/weaviate/modules/text2vec-contextionary/classification"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/concepts"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/extensions"
+	text2vecneartext "github.com/weaviate/weaviate/modules/text2vec-contextionary/neartext"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
+	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 )
 
 // MinimumRequiredRemoteVersion describes the minimal semver version

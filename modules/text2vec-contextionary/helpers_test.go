@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modcontextionary
@@ -16,21 +16,21 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
-	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	text2vecadditional "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional"
-	text2vecadditionalprojector "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/projector"
-	text2vecadditionalsempath "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/sempath"
-	text2vecneartext "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/neartext"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
+	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	text2vecadditional "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional"
+	text2vecadditionalprojector "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/projector"
+	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
+	text2vecneartext "github.com/weaviate/weaviate/modules/text2vec-contextionary/neartext"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type mockRequestsLog struct{}
