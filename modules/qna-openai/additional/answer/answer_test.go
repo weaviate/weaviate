@@ -15,12 +15,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	qnamodels "github.com/semi-technologies/weaviate/modules/qna-openai/additional/models"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	qnamodels "github.com/weaviate/weaviate/modules/qna-openai/additional/models"
+	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {

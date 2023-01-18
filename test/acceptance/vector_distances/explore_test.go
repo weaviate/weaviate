@@ -15,8 +15,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func testExplore(t *testing.T) {

@@ -14,9 +14,9 @@ package grouper
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 // Grouper groups or merges search results by how releated they are

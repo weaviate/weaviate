@@ -19,7 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/semi-technologies/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func (sg *SegmentGroup) eligibleForCompaction() bool {

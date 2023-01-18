@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/semi-technologies/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type diskUse struct {

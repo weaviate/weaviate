@@ -13,11 +13,11 @@ package rest
 
 import (
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type schemaHandlers struct {

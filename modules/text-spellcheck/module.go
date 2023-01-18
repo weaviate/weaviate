@@ -18,14 +18,14 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	spellcheckadditional "github.com/semi-technologies/weaviate/modules/text-spellcheck/additional"
-	spellcheckadditionalspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck/additional/spellcheck"
-	"github.com/semi-technologies/weaviate/modules/text-spellcheck/clients"
-	"github.com/semi-technologies/weaviate/modules/text-spellcheck/ent"
-	spellchecktexttransformer "github.com/semi-technologies/weaviate/modules/text-spellcheck/transformer"
-	spellchecktexttransformerautocorrect "github.com/semi-technologies/weaviate/modules/text-spellcheck/transformer/autocorrect"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	spellcheckadditional "github.com/weaviate/weaviate/modules/text-spellcheck/additional"
+	spellcheckadditionalspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck/additional/spellcheck"
+	"github.com/weaviate/weaviate/modules/text-spellcheck/clients"
+	"github.com/weaviate/weaviate/modules/text-spellcheck/ent"
+	spellchecktexttransformer "github.com/weaviate/weaviate/modules/text-spellcheck/transformer"
+	spellchecktexttransformerautocorrect "github.com/weaviate/weaviate/modules/text-spellcheck/transformer/autocorrect"
 )
 
 func New() *SpellCheckModule {

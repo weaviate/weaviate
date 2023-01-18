@@ -16,9 +16,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const DefaultGoroutineFactor = 1.5

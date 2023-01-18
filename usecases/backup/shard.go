@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/backup"
 )
 
 const (

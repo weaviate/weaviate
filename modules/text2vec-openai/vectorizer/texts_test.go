@@ -45,7 +45,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			// due to https://github.com/weaviate/weaviate/issues/2458
 			modelVersion:         "003",
 			expectedModelVersion: "003",
 		},
@@ -60,7 +60,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			// due to https://github.com/weaviate/weaviate/issues/2458
 			modelVersion:         "003",
 			expectedModelVersion: "003",
 		},
@@ -75,7 +75,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			// due to https://github.com/weaviate/weaviate/issues/2458
 			modelVersion:         "003",
 			expectedModelVersion: "003",
 		},
@@ -90,7 +90,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			// due to https://github.com/weaviate/weaviate/issues/2458
 			modelVersion:         "003",
 			expectedModelVersion: "003",
 		},
@@ -105,7 +105,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			// due to https://github.com/weaviate/weaviate/issues/2458
 			modelVersion:         "003",
 			expectedModelVersion: "003",
 		},
@@ -120,7 +120,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			// due to https://github.com/weaviate/weaviate/issues/2458
 			modelVersion:         "003",
 			expectedModelVersion: "003",
 		},
@@ -135,7 +135,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			// use something that doesn't exist on purpose to rule out that this was
 			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/semi-technologies/weaviate/issues/2458
+			// due to https://github.com/weaviate/weaviate/issues/2458
 			modelVersion:         "003",
 			expectedModelVersion: "003",
 		},

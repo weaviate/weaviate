@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 )
 
 type fakeClient struct {

@@ -15,11 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/batch"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func SetupClient(uri string) {

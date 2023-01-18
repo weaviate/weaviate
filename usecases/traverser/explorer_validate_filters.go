@@ -12,7 +12,7 @@
 package traverser
 
 import (
-	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func (e *Explorer) validateFilters(filter *filters.LocalFilter) error {

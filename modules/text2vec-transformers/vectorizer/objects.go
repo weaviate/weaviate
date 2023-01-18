@@ -18,9 +18,9 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/ent"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
 
 type Vectorizer struct {

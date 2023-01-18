@@ -17,8 +17,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // AddReferences Class Instances in batch to the connected DB

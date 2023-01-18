@@ -12,14 +12,14 @@
 package local
 
 import (
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/aggregate"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 // Build the local queries from the database schema.

@@ -14,9 +14,9 @@ package traverser
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
 func TestGetParams(t *testing.T) {

@@ -3891,7 +3891,7 @@ func init() {
       }
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "classes": {
@@ -4203,7 +4203,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   }
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
@@ -8279,7 +8279,7 @@ func init() {
       }
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "classes": {
@@ -8600,7 +8600,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   }
 }`))
 }

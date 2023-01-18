@@ -18,15 +18,15 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	qnaadditional "github.com/semi-technologies/weaviate/modules/qna-transformers/additional"
-	qnaadditionalanswer "github.com/semi-technologies/weaviate/modules/qna-transformers/additional/answer"
-	qnaask "github.com/semi-technologies/weaviate/modules/qna-transformers/ask"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/clients"
-	qnaadependency "github.com/semi-technologies/weaviate/modules/qna-transformers/dependency"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	qnaadditional "github.com/weaviate/weaviate/modules/qna-transformers/additional"
+	qnaadditionalanswer "github.com/weaviate/weaviate/modules/qna-transformers/additional/answer"
+	qnaask "github.com/weaviate/weaviate/modules/qna-transformers/ask"
+	"github.com/weaviate/weaviate/modules/qna-transformers/clients"
+	qnaadependency "github.com/weaviate/weaviate/modules/qna-transformers/dependency"
+	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
 )
 
 func New() *QnAModule {

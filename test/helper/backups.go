@@ -14,8 +14,8 @@ package helper
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/backups"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func CreateBackup(t *testing.T, className, backend, backupID string) (*backups.BackupsCreateOK, error) {

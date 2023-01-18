@@ -16,10 +16,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	localvectorizer "github.com/semi-technologies/weaviate/modules/text2vec-huggingface/vectorizer"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-huggingface/vectorizer"
 )
 
 type Searcher struct {

@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
-	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	schemauc "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type txManager interface {

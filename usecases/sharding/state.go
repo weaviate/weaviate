@@ -18,8 +18,8 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/spaolacci/murmur3"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const shardNameLength = 12

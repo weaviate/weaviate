@@ -18,13 +18,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	neradditional "github.com/semi-technologies/weaviate/modules/ner-transformers/additional"
-	neradditionaltoken "github.com/semi-technologies/weaviate/modules/ner-transformers/additional/tokens"
-	"github.com/semi-technologies/weaviate/modules/ner-transformers/clients"
-	"github.com/semi-technologies/weaviate/modules/ner-transformers/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	neradditional "github.com/weaviate/weaviate/modules/ner-transformers/additional"
+	neradditionaltoken "github.com/weaviate/weaviate/modules/ner-transformers/additional/tokens"
+	"github.com/weaviate/weaviate/modules/ner-transformers/clients"
+	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
 )
 
 func New() *NERModule {

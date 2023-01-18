@@ -11,7 +11,7 @@
 
 package config
 
-import "github.com/semi-technologies/weaviate/entities/moduletools"
+import "github.com/weaviate/weaviate/entities/moduletools"
 
 const (
 	MethodMean    = "mean"

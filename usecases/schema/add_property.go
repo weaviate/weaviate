@@ -14,10 +14,10 @@ package schema
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // AddClassProperty to an existing Class

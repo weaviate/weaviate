@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/batch"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // Test if batching is working correctly. Sends an OK batch containing two batched requests that refer to non-existing classes.

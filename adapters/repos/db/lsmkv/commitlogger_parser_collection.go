@@ -18,7 +18,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (p *commitloggerParser) doCollection() error {

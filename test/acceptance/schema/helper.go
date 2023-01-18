@@ -14,7 +14,7 @@ package test
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // Helper function to get all the names of Object classes.

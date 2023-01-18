@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,

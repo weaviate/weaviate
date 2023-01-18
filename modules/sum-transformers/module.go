@@ -18,13 +18,13 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	sumadditional "github.com/semi-technologies/weaviate/modules/sum-transformers/additional"
-	sumadditionalsummary "github.com/semi-technologies/weaviate/modules/sum-transformers/additional/summary"
-	"github.com/semi-technologies/weaviate/modules/sum-transformers/client"
-	"github.com/semi-technologies/weaviate/modules/sum-transformers/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	sumadditional "github.com/weaviate/weaviate/modules/sum-transformers/additional"
+	sumadditionalsummary "github.com/weaviate/weaviate/modules/sum-transformers/additional/summary"
+	"github.com/weaviate/weaviate/modules/sum-transformers/client"
+	"github.com/weaviate/weaviate/modules/sum-transformers/ent"
 )
 
 func New() *SUMModule {

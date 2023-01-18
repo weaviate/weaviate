@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/semi-technologies/weaviate/usecases/byte_operations"
+	"github.com/weaviate/weaviate/usecases/byte_operations"
 
 	"github.com/pkg/errors"
 )

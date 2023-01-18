@@ -14,7 +14,7 @@ package articles
 import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func ArticlesClass() *models.Class {

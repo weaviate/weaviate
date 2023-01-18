@@ -14,8 +14,8 @@ package vectorizer
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 func Test_classSettings_getPassageModel(t *testing.T) {

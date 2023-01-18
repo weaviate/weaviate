@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 func Test_classSettings_Validate(t *testing.T) {

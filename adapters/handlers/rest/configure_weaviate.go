@@ -17,8 +17,8 @@ import (
 
 	"github.com/go-openapi/swag"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup

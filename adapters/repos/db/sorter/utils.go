@@ -13,7 +13,7 @@ package sorter
 
 import (
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func extractPropNamesAndOrders(sort []filters.Sort) ([]string, []string, error) {

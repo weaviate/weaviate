@@ -17,9 +17,9 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
-	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/notimplemented"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator

@@ -19,7 +19,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func testDotProductFixedValue(t *testing.T, size uint) {

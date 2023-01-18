@@ -21,12 +21,12 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 func newNullLogger() *logrus.Logger {

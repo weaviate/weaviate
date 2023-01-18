@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
 // groupedAggregator performs aggregation in groups. This is a two-step

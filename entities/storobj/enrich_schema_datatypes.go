@@ -16,7 +16,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {

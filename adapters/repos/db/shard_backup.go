@@ -18,7 +18,7 @@ import (
 	"path"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/backup"
 	"golang.org/x/sync/errgroup"
 )
 

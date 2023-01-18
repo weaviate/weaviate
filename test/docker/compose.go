@@ -17,9 +17,9 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	modstggcs "github.com/semi-technologies/weaviate/modules/backup-gcs"
-	modstgs3 "github.com/semi-technologies/weaviate/modules/backup-s3"
 	"github.com/testcontainers/testcontainers-go"
+	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
+	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
 )
 
 const (

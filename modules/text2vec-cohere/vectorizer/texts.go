@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,

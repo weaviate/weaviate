@@ -17,14 +17,14 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/additional"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/additional/projector"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/clients"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/vectorizer"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/additional"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/additional/projector"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/vectorizer"
 )
 
 const Name = "text2vec-huggingface"

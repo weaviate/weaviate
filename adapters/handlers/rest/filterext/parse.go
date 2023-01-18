@@ -14,8 +14,8 @@ package filterext
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Parse Filter from REST construct to entities filter

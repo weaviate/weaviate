@@ -16,14 +16,14 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // To prevent a regression on
-// https://github.com/semi-technologies/weaviate/issues/1878
+// https://github.com/weaviate/weaviate/issues/1878
 func Test_DynamicEF(t *testing.T) {
 	type test struct {
 		name       string

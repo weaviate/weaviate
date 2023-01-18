@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func hybridArgument(classObject *graphql.Object,

@@ -19,10 +19,10 @@ import (
 	"sync"
 
 	middleware "github.com/go-openapi/runtime/middleware"
-	libgraphql "github.com/semi-technologies/weaviate/adapters/handlers/graphql"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
-	"github.com/semi-technologies/weaviate/entities/models"
+	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."

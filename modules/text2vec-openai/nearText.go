@@ -12,8 +12,8 @@
 package modopenai
 
 import (
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/neartext"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/neartext"
 )
 
 func (m *OpenAIModule) initNearText() error {

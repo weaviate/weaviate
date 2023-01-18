@@ -15,10 +15,10 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestUserConfigUpdates(t *testing.T) {

@@ -14,8 +14,8 @@ package get
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // Resolver is a local abstraction of the required UC resolvers

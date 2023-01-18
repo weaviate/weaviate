@@ -14,7 +14,7 @@ package scaler
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type (

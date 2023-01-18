@@ -13,15 +13,15 @@ package rest
 
 import (
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/nodes"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	enterrors "github.com/semi-technologies/weaviate/entities/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	nodesUC "github.com/semi-technologies/weaviate/usecases/nodes"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	nodesUC "github.com/weaviate/weaviate/usecases/nodes"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type nodesHandlers struct {

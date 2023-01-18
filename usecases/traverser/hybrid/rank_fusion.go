@@ -16,7 +16,7 @@ import (
 	"sort"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
 func FusionScoreCombSUM(results [][]search.Result) []search.Result {

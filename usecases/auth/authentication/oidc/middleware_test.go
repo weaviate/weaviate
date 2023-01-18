@@ -18,9 +18,9 @@ import (
 
 	errors "github.com/go-openapi/errors"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_Middleware_NotConfigured(t *testing.T) {

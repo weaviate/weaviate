@@ -16,8 +16,8 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
 )
 
 func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,

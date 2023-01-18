@@ -16,8 +16,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_AnonymousMiddleware_Enabled(t *testing.T) {

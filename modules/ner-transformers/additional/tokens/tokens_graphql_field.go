@@ -14,8 +14,8 @@ package tokens
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func (p *TokenProvider) additionalTokensField(classname string) *graphql.Field {

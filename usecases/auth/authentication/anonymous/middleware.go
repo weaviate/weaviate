@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/runtime"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Client for anonymous access

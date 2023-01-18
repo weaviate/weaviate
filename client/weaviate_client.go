@@ -21,16 +21,16 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 
-	"github.com/semi-technologies/weaviate/client/backups"
-	"github.com/semi-technologies/weaviate/client/batch"
-	"github.com/semi-technologies/weaviate/client/classifications"
-	"github.com/semi-technologies/weaviate/client/graphql"
-	"github.com/semi-technologies/weaviate/client/meta"
-	"github.com/semi-technologies/weaviate/client/nodes"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/client/operations"
-	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/client/well_known"
+	"github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/classifications"
+	"github.com/weaviate/weaviate/client/graphql"
+	"github.com/weaviate/weaviate/client/meta"
+	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/client/operations"
+	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/client/well_known"
 )
 
 // Default weaviate HTTP client.

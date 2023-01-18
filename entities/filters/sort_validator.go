@@ -13,7 +13,7 @@ package filters
 
 import (
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func ValidateSort(sch schema.Schema, className schema.ClassName, sort []Sort) error {

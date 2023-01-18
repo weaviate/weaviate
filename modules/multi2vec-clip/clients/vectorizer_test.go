@@ -18,9 +18,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/modules/multi2vec-clip/ent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
 )
 
 func TestVectorize(t *testing.T) {

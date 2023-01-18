@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // GetWellKnownOpenidConfigurationReader is a Reader for the GetWellKnownOpenidConfiguration structure.

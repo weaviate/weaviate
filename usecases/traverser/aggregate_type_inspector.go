@@ -14,9 +14,9 @@ package traverser
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type typeInspector struct {

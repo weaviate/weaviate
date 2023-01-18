@@ -18,7 +18,7 @@ import (
 	"unicode"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // RefSource is an abstraction of the source of a cross-ref. The opposite would

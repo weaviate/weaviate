@@ -14,7 +14,7 @@ package common_filters
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 // ExtractNearObject arguments, such as "vector" and "certainty"

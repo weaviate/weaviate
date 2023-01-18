@@ -26,10 +26,10 @@ import (
 	"fmt"
 	"testing"
 
-	graphql_client "github.com/semi-technologies/weaviate/client/graphql"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
+	graphql_client "github.com/weaviate/weaviate/client/graphql"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // TODO: change this test to simulate a successful query response when the test dataset is implemented.

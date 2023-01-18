@@ -14,7 +14,7 @@ package schema
 import (
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (s *Schema) GetClass(className ClassName) *models.Class {

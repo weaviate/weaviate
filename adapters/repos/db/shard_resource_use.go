@@ -14,8 +14,8 @@ package db
 import (
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/storagestate"
-	"github.com/semi-technologies/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type resourceScanState struct {

@@ -18,9 +18,9 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	schemauc "github.com/weaviate/weaviate/usecases/schema"
 	bolt "go.etcd.io/bbolt"
 )
 

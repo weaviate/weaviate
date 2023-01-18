@@ -16,10 +16,10 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/img2vec-neural/ent"
-	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 type Vectorizer struct {

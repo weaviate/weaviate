@@ -17,10 +17,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/search"
-	spellcheckmodels "github.com/semi-technologies/weaviate/modules/text-spellcheck/additional/models"
-	"github.com/semi-technologies/weaviate/modules/text-spellcheck/ent"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
+	spellcheckmodels "github.com/weaviate/weaviate/modules/text-spellcheck/additional/models"
+	"github.com/weaviate/weaviate/modules/text-spellcheck/ent"
 )
 
 func (p *SpellCheckProvider) findSpellCheck(ctx context.Context,

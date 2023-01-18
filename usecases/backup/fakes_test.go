@@ -16,9 +16,9 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
 type fakeBackupBackendProvider struct {

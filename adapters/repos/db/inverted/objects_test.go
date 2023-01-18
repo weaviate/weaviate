@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestAnalyzeObject(t *testing.T) {
@@ -516,7 +516,7 @@ func TestAnalyzeObject(t *testing.T) {
 			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 
-		// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
 		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 		// an object's reference property.
 		//

@@ -16,10 +16,10 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	qnamodels "github.com/semi-technologies/weaviate/modules/qna-openai/additional/models"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	qnamodels "github.com/weaviate/weaviate/modules/qna-openai/additional/models"
 )
 
 func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {

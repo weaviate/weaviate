@@ -21,13 +21,13 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
-	usecasesclassfication "github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	testhelper "github.com/weaviate/weaviate/test/helper"
+	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
 )
 
 func TestContextualClassifier_ParseSettings(t *testing.T) {

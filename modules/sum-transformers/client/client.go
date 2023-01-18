@@ -20,8 +20,8 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/sum-transformers/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/modules/sum-transformers/ent"
 )
 
 type client struct {

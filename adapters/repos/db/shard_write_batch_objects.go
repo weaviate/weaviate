@@ -19,8 +19,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/storagestate"
-	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -288,7 +288,7 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 
 	if object.Vector != nil {
 		// vector is now optional as of
-		// https://github.com/semi-technologies/weaviate/issues/1800
+		// https://github.com/weaviate/weaviate/issues/1800
 		if err := b.shard.updateVectorIndex(object.Vector, status); err != nil {
 			b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 			return

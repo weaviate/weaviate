@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func (s *Shard) initStatus() {

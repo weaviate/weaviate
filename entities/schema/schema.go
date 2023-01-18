@@ -12,7 +12,7 @@
 package schema
 
 import (
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Newtype to denote that this string is used as a Class name

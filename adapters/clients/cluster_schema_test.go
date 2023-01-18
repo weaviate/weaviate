@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 func TestOpenTransactionNoReturnPayload(t *testing.T) {
