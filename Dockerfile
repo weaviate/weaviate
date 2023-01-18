@@ -3,6 +3,7 @@
 
 # vi: ft=dockerfile
 
+
 ###############################################################################
 # Base build image
 FROM golang:1.19-alpine AS build_base
