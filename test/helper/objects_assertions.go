@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package helper
@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func AssertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package helper
@@ -14,8 +14,8 @@ package helper
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/backups"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func CreateBackup(t *testing.T, className, backend, backupID string) (*backups.BackupsCreateOK, error) {

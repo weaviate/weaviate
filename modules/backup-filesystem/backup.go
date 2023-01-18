@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modstgfs
@@ -19,8 +19,8 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func (m *Module) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {

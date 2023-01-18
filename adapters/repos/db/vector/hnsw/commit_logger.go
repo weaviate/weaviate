@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package hnsw
@@ -23,10 +23,10 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/commitlog"
-	"github.com/semi-technologies/weaviate/entities/cyclemanager"
-	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 const defaultCommitLogSize = 500 * 1024 * 1024
@@ -265,8 +265,8 @@ const (
 	ClearLinks
 	DeleteNode
 	ResetIndex
-	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1701
-	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/semi-technologies/weaviate/issues/1705
+	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
+	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 )
 
 func (t HnswCommitType) String() string {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 // Package common_filters provides the filters for the graphql endpoint for Weaviate
@@ -15,8 +15,8 @@ package common_filters
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 // The filters common to Local->Get and Local->Meta queries.
