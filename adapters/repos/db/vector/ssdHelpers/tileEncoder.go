@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"math"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
@@ -40,9 +39,6 @@ func RestoreTileEncoder(bins float64, mean float64, stdDev float64, size float64
 		s2:      s2,
 		segment: int(segment),
 	}
-}
-
-func (te *TileEncoder) SetDistance(d distancer.Provider) {
 }
 
 func (te *TileEncoder) ExposeDataForRestore() []byte {
