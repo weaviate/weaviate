@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package additional
@@ -14,11 +14,11 @@ package additional
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
 type AdditionalProperty interface {
@@ -31,27 +31,27 @@ type AdditionalProperty interface {
 }
 
 type GraphQLAdditionalArgumentsProvider struct {
-	answerProvider AdditionalProperty
+	generateProvider AdditionalProperty
 }
 
-func New(answerProvider AdditionalProperty) *GraphQLAdditionalArgumentsProvider {
-	return &GraphQLAdditionalArgumentsProvider{answerProvider}
+func New(generateProvider AdditionalProperty) *GraphQLAdditionalArgumentsProvider {
+	return &GraphQLAdditionalArgumentsProvider{generateProvider}
 }
 
 func (p *GraphQLAdditionalArgumentsProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
-	additionalProperties["answer"] = p.getAnswer()
+	additionalProperties["generate"] = p.getGenerate()
 	return additionalProperties
 }
 
-func (p *GraphQLAdditionalArgumentsProvider) getAnswer() modulecapabilities.AdditionalProperty {
+func (p *GraphQLAdditionalArgumentsProvider) getGenerate() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		GraphQLNames:           []string{"answer"},
-		GraphQLFieldFunction:   p.answerProvider.AdditionalFieldFn,
-		GraphQLExtractFunction: p.answerProvider.ExtractAdditionalFn,
+		GraphQLNames:           []string{"generate"},
+		GraphQLFieldFunction:   p.generateProvider.AdditionalFieldFn,
+		GraphQLExtractFunction: p.generateProvider.ExtractAdditionalFn,
 		SearchFunctions: modulecapabilities.AdditionalSearch{
-			ExploreGet:  p.answerProvider.AdditionalPropertyFn,
-			ExploreList: p.answerProvider.AdditionalPropertyFn,
+			ExploreGet:  p.generateProvider.AdditionalPropertyFn,
+			ExploreList: p.generateProvider.AdditionalPropertyFn,
 		},
 	}
 }

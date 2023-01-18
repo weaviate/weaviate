@@ -4,12 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
-package answer
+package generate
 
 import (
 	"testing"
@@ -18,37 +18,28 @@ import (
 	"github.com/tailor-inc/graphql"
 )
 
-func TestAnswerField(t *testing.T) {
-	t.Run("should generate answer argument properly", func(t *testing.T) {
+func TestGenerateField(t *testing.T) {
+	t.Run("should generate generate argument properly", func(t *testing.T) {
 		// given
-		answerProvider := &AnswerProvider{}
+		answerProvider := &GenerateProvider{}
 		classname := "Class"
 
 		// when
-		answer := answerProvider.additionalAnswerField(classname)
+		answer := answerProvider.additionalGenerateField(classname)
 
 		// then
 		// the built graphQL field needs to support this structure:
 		// Type: {
 		//   answer: {
 		//     result: "answer",
-		//     startPosition: 1
-		//     endPosition: 2
-		//     distance: 0.2
-		//     property: "propName"
-		//     hasAnswer: true
 		//   }
 		// }
 		assert.NotNil(t, answer)
-		assert.Equal(t, "ClassAdditionalAnswer", answer.Type.Name())
+		assert.Equal(t, "ClassAdditionalGenerate", answer.Type.Name())
 		assert.NotNil(t, answer.Type)
 		answerObject, answerObjectOK := answer.Type.(*graphql.Object)
 		assert.True(t, answerObjectOK)
 		assert.Equal(t, 5, len(answerObject.Fields()))
 		assert.NotNil(t, answerObject.Fields()["result"])
-		assert.NotNil(t, answerObject.Fields()["startPosition"])
-		assert.NotNil(t, answerObject.Fields()["endPosition"])
-		assert.NotNil(t, answerObject.Fields()["property"])
-		assert.NotNil(t, answerObject.Fields()["hasAnswer"])
 	})
 }

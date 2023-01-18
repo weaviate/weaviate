@@ -4,31 +4,31 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
-package answer
+package generate
 
 import (
 	"context"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	qnamodels "github.com/semi-technologies/weaviate/modules/qna-openai/additional/models"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	generativemodels "github.com/weaviate/weaviate/modules/generative-openai/additional/models"
+	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should fail with empty content", func(t *testing.T) {
 		// given
-		qnaClient := &fakeQnAClient{}
+		openaiClient := &fakeOpenAIClient{}
 		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(qnaClient, fakeHelper)
+		answerProvider := New(openaiClient, fakeHelper)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -49,9 +49,9 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 	t.Run("should fail with empty question", func(t *testing.T) {
 		// given
-		qnaClient := &fakeQnAClient{}
+		openaiClient := &fakeOpenAIClient{}
 		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(qnaClient, fakeHelper)
+		answerProvider := New(openaiClient, fakeHelper)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -75,9 +75,9 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 	t.Run("should answer", func(t *testing.T) {
 		// given
-		qnaClient := &fakeQnAClient{}
+		openaiClient := &fakeOpenAIClient{}
 		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(qnaClient, fakeHelper)
+		answerProvider := New(openaiClient, fakeHelper)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -104,16 +104,16 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		answer, answerOK := in[0].AdditionalProperties["answer"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
-		answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
+		answerAdditional, answerAdditionalOK := answer.(*generativemodels.Answer)
 		assert.True(t, answerAdditionalOK)
 		assert.Equal(t, "answer", *answerAdditional.Result)
 	})
 
 	t.Run("should answer with property", func(t *testing.T) {
 		// given
-		qnaClient := &fakeQnAClient{}
+		openaiClient := &fakeOpenAIClient{}
 		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(qnaClient, fakeHelper)
+		answerProvider := New(openaiClient, fakeHelper)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -142,7 +142,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		answer, answerOK := in[0].AdditionalProperties["answer"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
-		answerAdditional, answerAdditionalOK := answer.(*qnamodels.Answer)
+		answerAdditional, answerAdditionalOK := answer.(*generativemodels.Answer)
 		assert.True(t, answerAdditionalOK)
 		assert.Equal(t, "answer", *answerAdditional.Result)
 		assert.Equal(t, "content", *answerAdditional.Property)
@@ -152,13 +152,13 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 	})
 }
 
-type fakeQnAClient struct{}
+type fakeOpenAIClient struct{}
 
-func (c *fakeQnAClient) Answer(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
-	return c.getAnswer(question, "answer"), nil
+func (c *fakeOpenAIClient) Result(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
+	return c.getResult(question, "generate"), nil
 }
 
-func (c *fakeQnAClient) getAnswer(question, answer string) *ent.AnswerResult {
+func (c *fakeOpenAIClient) getResult(question, answer string) *ent.AnswerResult {
 	return &ent.AnswerResult{
 		Text:     question,
 		Question: question,

@@ -4,25 +4,25 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
-package answer
+package generate
 
 import (
 	"context"
 	"errors"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	qnamodels "github.com/semi-technologies/weaviate/modules/qna-openai/additional/models"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	generativemodels "github.com/weaviate/weaviate/modules/generative-openai/additional/models"
 )
 
-func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
+func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
 	if len(in) == 0 {
 		return in, nil
 	}
@@ -52,7 +52,7 @@ func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, par
 			return in, errors.New("empty content")
 		}
 
-		answer, err := p.qna.Answer(ctx, text, question, cfg)
+		answer, err := p.client.Result(ctx, text, question, cfg)
 		if err != nil {
 			return in, err
 		}
@@ -62,7 +62,7 @@ func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, par
 			ap = models.AdditionalProperties{}
 		}
 		propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
-		ap["answer"] = &qnamodels.Answer{
+		ap["generate"] = &generativemodels.Answer{
 			Result:        answer.Answer,
 			Property:      propertyName,
 			StartPosition: startPos,
@@ -76,7 +76,7 @@ func (p *AnswerProvider) findAnswer(ctx context.Context, in []search.Result, par
 	return in, nil
 }
 
-func (p *AnswerProvider) containsProperty(property string, properties []string) bool {
+func (p *GenerateProvider) containsProperty(property string, properties []string) bool {
 	if len(properties) == 0 {
 		return true
 	}
@@ -88,7 +88,7 @@ func (p *AnswerProvider) containsProperty(property string, properties []string) 
 	return false
 }
 
-func (p *AnswerProvider) findProperty(answer *string, textProperties map[string]string) (*string, int, int) {
+func (p *GenerateProvider) findProperty(answer *string, textProperties map[string]string) (*string, int, int) {
 	if answer == nil {
 		return nil, 0, 0
 	}

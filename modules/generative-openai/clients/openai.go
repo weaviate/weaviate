@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clients
@@ -22,13 +22,13 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/config"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/generative-openai/config"
+	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
-type qna struct {
+type openai struct {
 	apiKey     string
 	host       string
 	path       string
@@ -36,8 +36,8 @@ type qna struct {
 	logger     logrus.FieldLogger
 }
 
-func New(apiKey string, logger logrus.FieldLogger) *qna {
-	return &qna{
+func New(apiKey string, logger logrus.FieldLogger) *openai {
+	return &openai{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
 		host:       "https://api.openai.com",
@@ -46,12 +46,12 @@ func New(apiKey string, logger logrus.FieldLogger) *qna {
 	}
 }
 
-func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
+func (v *openai) Result(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
 	prompt := v.generatePrompt(text, question)
 
 	settings := config.NewClassSettings(cfg)
 
-	body, err := json.Marshal(answersInput{
+	body, err := json.Marshal(generateInput{
 		Prompt:           prompt,
 		Model:            settings.Model(),
 		MaxTokens:        settings.MaxTokens(),
@@ -93,7 +93,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	var resBody answersResponse
+	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
@@ -118,7 +118,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	}, nil
 }
 
-func (v *qna) generatePrompt(text string, question string) string {
+func (v *openai) generatePrompt(text string, question string) string {
 	return fmt.Sprintf(`'Please answer the question according to the above context.
 
 ===
@@ -128,7 +128,7 @@ Q: %v
 A:`, strings.ReplaceAll(text, "\n", " "), question)
 }
 
-func (v *qna) getApiKey(ctx context.Context) (string, error) {
+func (v *openai) getApiKey(ctx context.Context) (string, error) {
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
 	}
@@ -142,7 +142,7 @@ func (v *qna) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under OPENAI_APIKEY")
 }
 
-type answersInput struct {
+type generateInput struct {
 	Prompt           string   `json:"prompt"`
 	Model            string   `json:"model"`
 	MaxTokens        float64  `json:"max_tokens"`
@@ -153,7 +153,7 @@ type answersInput struct {
 	TopP             float64  `json:"top_p"`
 }
 
-type answersResponse struct {
+type generateResponse struct {
 	Choices []choice
 	Error   *openAIApiError `json:"error,omitempty"`
 }

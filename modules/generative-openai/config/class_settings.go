@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package config
@@ -15,8 +15,8 @@ import (
 	"encoding/json"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 const (
@@ -106,7 +106,7 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 		return &defaultValue
 	}
 
-	model, ok := ic.cfg.ClassByModuleName("qna-openai")[name]
+	model, ok := ic.cfg.ClassByModuleName("generative-openai")[name]
 	if ok {
 		asString, ok := model.(string)
 		if ok {
@@ -124,7 +124,7 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *f
 		return defaultValue
 	}
 
-	val, ok := ic.cfg.ClassByModuleName("qna-openai")[name]
+	val, ok := ic.cfg.ClassByModuleName("generative-openai")[name]
 	if ok {
 		asFloat, ok := val.(float64)
 		if ok {

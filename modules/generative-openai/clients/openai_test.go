@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clients
@@ -19,11 +19,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -35,7 +35,7 @@ func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		handler := &testAnswerHandler{
 			t: t,
-			answer: answersResponse{
+			answer: generateResponse{
 				Choices: []choice{{
 					FinishReason: "test",
 					Index:        0,
@@ -57,7 +57,7 @@ func TestGetAnswer(t *testing.T) {
 			Answer:   ptString("John"),
 		}
 
-		res, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
+		res, err := c.Result(context.Background(), "My name is John", "What is my name?", nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
@@ -66,7 +66,7 @@ func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a an error", func(t *testing.T) {
 		server := httptest.NewServer(&testAnswerHandler{
 			t: t,
-			answer: answersResponse{
+			answer: generateResponse{
 				Error: &openAIApiError{
 					Message: "some error from the server",
 				},
@@ -77,7 +77,7 @@ func TestGetAnswer(t *testing.T) {
 		c := New("apiKey", nullLogger())
 		c.host = server.URL
 
-		_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
+		_, err := c.Result(context.Background(), "My name is John", "What is my name?", nil)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")
@@ -87,7 +87,7 @@ func TestGetAnswer(t *testing.T) {
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed
-	answer answersResponse
+	answer generateResponse
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
