@@ -62,26 +62,20 @@ func (h *hnsw) autoEfFromK(k int) int {
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
 	if h.distancerProvider.Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		vector = distancer.Normalize(vector)
 	}
 
-	var ids []uint64
-	var distances []float32
-	var err error
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && len(allowList) < flatSearchCutoff {
-		h.compressActionLock.InvokeConcurrentTask(func() {
-			ids, distances, err = h.flatSearch(vector, k, allowList)
-		})
-		return ids, distances, err
+		return h.flatSearch(vector, k, allowList)
 	}
-	h.compressActionLock.InvokeConcurrentTask(func() {
-		ids, distances, err = h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
-	})
-	return ids, distances, err
+	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until

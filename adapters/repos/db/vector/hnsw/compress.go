@@ -27,6 +27,8 @@ const (
 )
 
 func (h *hnsw) Compress(segments int) error {
+	h.compressActionLock.Lock()
+	defer h.compressActionLock.Unlock()
 	if h.nodes[0] == nil {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
