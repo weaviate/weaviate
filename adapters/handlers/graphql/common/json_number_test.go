@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package common
@@ -67,7 +67,7 @@ func resolveParams(input interface{}) graphql.ResolveParams {
 func TestNumberFieldNotPresent(t *testing.T) {
 	// shouldn't return anything, but also not error. This can otherwise lead to
 	// odd behavior when no entries are present, yet we asked for int props and
-	// type, see https://github.com/semi-technologies/weaviate/issues/775
+	// type, see https://github.com/weaviate/weaviate/issues/775
 	params := graphql.ResolveParams{
 		Source: map[string]interface{}{},
 		Info:   graphql.ResolveInfo{FieldName: "myField"},

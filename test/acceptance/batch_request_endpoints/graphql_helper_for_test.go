@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package batch_request_endpoints
@@ -17,10 +17,10 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
-	"github.com/semi-technologies/weaviate/client/graphql"
-	graphql_client "github.com/semi-technologies/weaviate/client/graphql"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/client/graphql"
+	graphql_client "github.com/weaviate/weaviate/client/graphql"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 type GraphQLResult struct {
