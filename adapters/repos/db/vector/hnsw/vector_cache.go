@@ -222,8 +222,8 @@ func (c *shardedLockCache) replaceIfFull() {
 			c.cache[i] = nil
 		}
 		c.releaseAllLocks()
+		atomic.StoreInt64(&c.count, 0)
 	}
-	atomic.StoreInt64(&c.count, 0)
 }
 
 func (c *shardedLockCache) obtainAllLocks() {
