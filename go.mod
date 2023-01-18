@@ -1,4 +1,4 @@
-module github.com/semi-technologies/weaviate
+module github.com/weaviate/weaviate
 
 require (
 	cloud.google.com/go/storage v1.24.0

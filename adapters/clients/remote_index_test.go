@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 //	_       _
@@ -32,11 +32,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func TestRemoteIndexGetObject(t *testing.T) {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package rest
@@ -19,10 +19,10 @@ import (
 	"sync"
 
 	middleware "github.com/go-openapi/runtime/middleware"
-	libgraphql "github.com/semi-technologies/weaviate/adapters/handlers/graphql"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
-	"github.com/semi-technologies/weaviate/entities/models"
+	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."

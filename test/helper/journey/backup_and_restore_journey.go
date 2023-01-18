@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package journey
@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/client/backups"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/books"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
 func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string) {
