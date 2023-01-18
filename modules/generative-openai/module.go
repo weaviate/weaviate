@@ -4,12 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
-package modqnaopenai
+package modgenerativeopenai
 
 import (
 	"context"
@@ -17,25 +17,23 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	qnaadditional "github.com/semi-technologies/weaviate/modules/qna-openai/additional"
-	qnaadditionalanswer "github.com/semi-technologies/weaviate/modules/qna-openai/additional/answer"
-	qnaask "github.com/semi-technologies/weaviate/modules/qna-openai/ask"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/clients"
-	qnaadependency "github.com/semi-technologies/weaviate/modules/qna-openai/dependency"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	generativeadditional "github.com/weaviate/weaviate/modules/generative-openai/additional"
+	generativeadditionalgenerate "github.com/weaviate/weaviate/modules/generative-openai/additional/generate"
+	"github.com/weaviate/weaviate/modules/generative-openai/clients"
+	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
 const Name = "generative-openai"
 
-func New() *QnAModule {
-	return &QnAModule{}
+func New() *GenerativeOpenAIModule {
+	return &GenerativeOpenAIModule{}
 }
 
-type QnAModule struct {
-	qna                          qnaClient
+type GenerativeOpenAIModule struct {
+	generative                   generativeClient
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.DependencySearcher
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
@@ -43,20 +41,20 @@ type QnAModule struct {
 	askTextTransformer           modulecapabilities.TextTransform
 }
 
-type qnaClient interface {
-	Answer(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error)
+type generativeClient interface {
+	Result(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 
-func (m *QnAModule) Name() string {
+func (m *GenerativeOpenAIModule) Name() string {
 	return Name
 }
 
-func (m *QnAModule) Type() modulecapabilities.ModuleType {
+func (m *GenerativeOpenAIModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2Text
 }
 
-func (m *QnAModule) Init(ctx context.Context,
+func (m *GenerativeOpenAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
@@ -66,94 +64,31 @@ func (m *QnAModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *QnAModule) InitExtension(modules []modulecapabilities.Module) error {
-	var textTransformer modulecapabilities.TextTransform
-	for _, module := range modules {
-		if module.Name() == m.Name() {
-			continue
-		}
-		if arg, ok := module.(modulecapabilities.TextTransformers); ok {
-			if arg != nil && arg.TextTransformers() != nil {
-				textTransformer = arg.TextTransformers()["ask"]
-			}
-		}
-	}
-
-	m.askTextTransformer = textTransformer
-
-	if err := m.initAskProvider(); err != nil {
-		return errors.Wrap(err, "init ask provider")
-	}
-
-	return nil
-}
-
-func (m *QnAModule) InitDependency(modules []modulecapabilities.Module) error {
-	nearTextDependencies := []modulecapabilities.Dependency{}
-	for _, module := range modules {
-		if module.Name() == m.Name() {
-			continue
-		}
-		var argument modulecapabilities.GraphQLArgument
-		var searcher modulecapabilities.VectorForParams
-		if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
-			if arg != nil && arg.Arguments() != nil {
-				if nearTextArg, ok := arg.Arguments()["nearText"]; ok {
-					argument = nearTextArg
-				}
-			}
-		}
-		if arg, ok := module.(modulecapabilities.Searcher); ok {
-			if arg != nil && arg.VectorSearches() != nil {
-				if nearTextSearcher, ok := arg.VectorSearches()["nearText"]; ok {
-					searcher = nearTextSearcher
-				}
-			}
-		}
-
-		if argument.ExtractFunction != nil && searcher != nil {
-			nearTextDependency := qnaadependency.New(module.Name(), argument, searcher)
-			nearTextDependencies = append(nearTextDependencies, nearTextDependency)
-		}
-	}
-	if len(nearTextDependencies) == 0 {
-		return errors.New("nearText dependecy not present")
-	}
-
-	m.nearTextDependencies = nearTextDependencies
-
-	if err := m.initAskSearcher(); err != nil {
-		return errors.Wrap(err, "init ask searcher")
-	}
-
-	return nil
-}
-
-func (m *QnAModule) initAdditional(ctx context.Context,
+func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("OPENAI_APIKEY")
 
 	client := clients.New(apiKey, logger)
 
-	m.qna = client
+	m.generative = client
 
-	answerProvider := qnaadditionalanswer.New(m.qna, qnaask.NewParamsHelper())
-	m.additionalPropertiesProvider = qnaadditional.New(answerProvider)
+	generateProvider := generativeadditionalgenerate.New(m.generative, nil)
+	m.additionalPropertiesProvider = generativeadditional.New(generateProvider)
 
 	return nil
 }
 
-func (m *QnAModule) RootHandler() http.Handler {
+func (m *GenerativeOpenAIModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *QnAModule) MetaInfo() (map[string]interface{}, error) {
-	return m.qna.MetaInfo()
+func (m *GenerativeOpenAIModule) MetaInfo() (map[string]interface{}, error) {
+	return m.generative.MetaInfo()
 }
 
-func (m *QnAModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *GenerativeOpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
