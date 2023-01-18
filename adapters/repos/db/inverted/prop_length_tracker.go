@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -41,6 +42,10 @@ import (
 //   - One index row is always 4+len(propName), consisting of a uint16 prop name
 //     length pointer, the name itself and an offset pointer pointing to the start
 //     (first byte) of the buckets
+//
+// The counter to the last index byte is only an uint16, so it can at maximum address 65535. This will overflow when the
+// 16th page is added (eg at page=15). To avoid a crash an error is returned in this case, but we will need to change
+// the byteformat to fix this.
 type PropertyLengthTracker struct {
 	file  *os.File
 	path  string
@@ -91,9 +96,7 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 	return t, nil
 }
 
-func (t *PropertyLengthTracker) TrackProperty(propName string,
-	value float32,
-) {
+func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) error {
 	t.Lock()
 	defer t.Unlock()
 
@@ -103,7 +106,11 @@ func (t *PropertyLengthTracker) TrackProperty(propName string,
 		page = p
 		relBucketOffset = o
 	} else {
-		page, relBucketOffset = t.addProperty(propName)
+		var err error
+		page, relBucketOffset, err = t.addProperty(propName)
+		if err != nil {
+			return err
+		}
 	}
 
 	bucketOffset := page*4096 + relBucketOffset + t.bucketFromValue(value)*4
@@ -113,6 +120,7 @@ func (t *PropertyLengthTracker) TrackProperty(propName string,
 	currentValue += 1
 	v = math.Float32bits(currentValue)
 	binary.LittleEndian.PutUint32(t.pages[bucketOffset:bucketOffset+4], v)
+	return nil
 }
 
 // propExists returns page number, relative offset on page, and a bool whether
@@ -147,7 +155,7 @@ func (t *PropertyLengthTracker) propExists(needle string) (uint16, uint16, bool)
 	return 0, 0, false
 }
 
-func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16) {
+func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, error) {
 	page := uint16(0)
 
 	for {
@@ -167,6 +175,11 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16) {
 
 		if !t.canPageFit(propNameBytes, offset, lastBucketOffset) {
 			page++
+			// overflow of uint16 variable that tracks the size of the tracker
+			if page >= 15 {
+				return 0, 0, fmt.Errorf("could not add property %v, to PropertyLengthTracker, because the total"+
+					"length of all properties is too long", propName)
+			}
 			continue
 		}
 
@@ -183,7 +196,7 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16) {
 		// update end of index offset for page, since the prop name index has
 		// now grown
 		binary.LittleEndian.PutUint16(t.pages[pageStart:pageStart+2], offset-pageStart)
-		return page, newBucketOffset
+		return page, newBucketOffset, nil
 	}
 }
 
