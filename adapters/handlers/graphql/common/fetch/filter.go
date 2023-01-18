@@ -14,9 +14,9 @@ package fetch
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 )
 
 // FilterBuilder can build where filters for both local and

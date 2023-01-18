@@ -14,8 +14,8 @@ package common_filters
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func ExtractHybridSearch(source map[string]interface{}) (*searchparams.HybridSearch, error) {

@@ -15,10 +15,10 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 func assertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {

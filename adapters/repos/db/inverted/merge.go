@@ -15,7 +15,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func mergeAndOptimized(children []*propValuePair,

@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type Metrics struct {

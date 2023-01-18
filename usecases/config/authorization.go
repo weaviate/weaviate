@@ -14,7 +14,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 )
 
 // Authorization configuration

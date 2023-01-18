@@ -15,10 +15,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/modules/sum-transformers/ent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/modules/sum-transformers/ent"
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {

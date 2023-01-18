@@ -21,9 +21,9 @@ import (
 	"testing"
 
 	"cloud.google.com/go/storage"
-	"github.com/semi-technologies/weaviate/test/helper"
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )

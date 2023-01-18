@@ -19,17 +19,17 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	helper "github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql/language/ast"
+	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	helper "github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {

@@ -15,11 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func aggregatesWithExpectedFailures(t *testing.T) {

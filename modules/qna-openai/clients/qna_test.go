@@ -19,11 +19,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 )
 
 func nullLogger() logrus.FieldLogger {

@@ -17,10 +17,10 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
 // PutReferenceInput represents required inputs to add a reference to an existing object.

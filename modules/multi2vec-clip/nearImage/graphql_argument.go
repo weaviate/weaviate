@@ -14,8 +14,8 @@ package nearImage
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func getNearImageArgumentFn(classname string) *graphql.ArgumentConfig {

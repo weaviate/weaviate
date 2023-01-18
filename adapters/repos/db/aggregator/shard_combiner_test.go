@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
 const (

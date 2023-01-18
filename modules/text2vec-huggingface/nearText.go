@@ -12,8 +12,8 @@
 package modhuggingface
 
 import (
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/modules/text2vec-huggingface/neartext"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/neartext"
 )
 
 func (m *HuggingFaceModule) initNearText() error {

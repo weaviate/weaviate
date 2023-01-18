@@ -16,14 +16,14 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/scaler"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TODO: These tests don't match the overall testing style in Weaviate.
@@ -427,7 +427,7 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, lsm *Ma
 }
 
 func testDropProperty(t *testing.T, lsm *Manager) {
-	// TODO: https://github.com/semi-technologies/weaviate/issues/973
+	// TODO: https://github.com/weaviate/weaviate/issues/973
 	// Remove skip
 
 	t.Skip()

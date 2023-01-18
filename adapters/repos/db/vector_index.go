@@ -14,8 +14,8 @@ package db
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // VectorIndex is anything that indexes vectors efficiently. For an example

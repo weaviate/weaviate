@@ -14,11 +14,11 @@ package modcohere
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/vectorizer"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/vectorizer"
 )
 
 func (m *CohereModule) ClassConfigDefaults() map[string]interface{} {

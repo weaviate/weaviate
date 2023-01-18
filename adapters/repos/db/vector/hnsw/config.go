@@ -12,10 +12,10 @@
 package hnsw
 
 import (
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/semi-technologies/weaviate/entities/errorcompounder"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Config for a new HSNW index, this contains information that is derived

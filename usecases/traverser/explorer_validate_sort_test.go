@@ -16,13 +16,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
 	testLogger "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 func Test_Explorer_GetClass_WithSort(t *testing.T) {

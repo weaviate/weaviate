@@ -17,7 +17,7 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
 const (

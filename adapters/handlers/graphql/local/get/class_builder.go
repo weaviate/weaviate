@@ -15,11 +15,11 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type classBuilder struct {

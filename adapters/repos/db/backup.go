@@ -16,8 +16,8 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/sync/errgroup"
 )
 

@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"sort"
 
-	enterrors "github.com/semi-technologies/weaviate/entities/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // GetNodeStatuses returns the status of all Weaviate nodes.

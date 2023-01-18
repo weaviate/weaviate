@@ -36,7 +36,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"golang.org/x/net/netutil"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 )
 
 const (

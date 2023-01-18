@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/schema"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {

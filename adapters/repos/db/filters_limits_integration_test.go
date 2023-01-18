@@ -21,18 +21,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // This test aims to prevent a regression on
-// https://github.com/semi-technologies/weaviate/issues/1352
+// https://github.com/weaviate/weaviate/issues/1352
 //
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
@@ -130,7 +130,7 @@ func chainedFilterCompanies(size int) []*models.Object {
 }
 
 // This test aims to prevent a regression on
-// https://github.com/semi-technologies/weaviate/issues/1355
+// https://github.com/weaviate/weaviate/issues/1355
 //
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests
@@ -258,7 +258,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 }
 
 // This test aims to prevent a regression on
-// https://github.com/semi-technologies/weaviate/issues/1356
+// https://github.com/weaviate/weaviate/issues/1356
 //
 // It reuses the company-schema from the regular filters test, but runs them in
 // isolation as to not interfere with the existing tests

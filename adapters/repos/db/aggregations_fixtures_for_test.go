@@ -18,8 +18,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/models"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 var productClass = &models.Class{
@@ -195,7 +195,7 @@ var companies = []map[string]interface{}{
 // Use fixed ids to make the test deterministic. The length of this must match
 // the len(companies)*importFactor These are somewhat carefully arranged to
 // make sure that we prevent the flakiness that was described in
-// https://github.com/semi-technologies/weaviate/issues/1884
+// https://github.com/weaviate/weaviate/issues/1884
 var companyIDs = []strfmt.UUID{
 	"9ee7640f-b4fc-45f1-b502-580e79062c99",
 	"f745485b-f6ef-4785-bd54-574cc4923899",

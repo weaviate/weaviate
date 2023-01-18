@@ -15,11 +15,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
 )
 
 type Params struct{}

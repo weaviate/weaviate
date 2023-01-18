@@ -14,9 +14,9 @@ package get
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {

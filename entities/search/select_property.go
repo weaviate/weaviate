@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type SelectProperty struct {

@@ -16,13 +16,13 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/modules/ref2vec-centroid/config"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/modules/ref2vec-centroid/config"
 )
 
 type calcFn func(vecs ...[]float32) ([]float32, error)
@@ -124,7 +124,7 @@ func beaconsForVectorization(allProps map[string]interface{},
 		if _, ok := targetRefProps[prop]; ok {
 			switch refs := val.(type) {
 			case []interface{}:
-				// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+				// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
 				// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 				// an object's reference property.
 				//

@@ -17,9 +17,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 var (

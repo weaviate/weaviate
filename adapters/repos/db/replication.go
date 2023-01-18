@@ -19,12 +19,12 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type Replicator interface {

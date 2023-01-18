@@ -16,9 +16,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestValidator_extractAndValidateProperty(t *testing.T) {

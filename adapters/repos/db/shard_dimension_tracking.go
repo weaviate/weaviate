@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
 func (s *Shard) Dimensions() int {

@@ -15,11 +15,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIncommingTxCommit(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
 func newBoolAggregator() *boolAggregator {

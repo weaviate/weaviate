@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
 func testParallelBatchWrite(batchWriter Writer, items search.Results, resultChannel chan<- WriterResults) {

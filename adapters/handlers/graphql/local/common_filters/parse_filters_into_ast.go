@@ -15,9 +15,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Extract the filters from the arguments of a Local->Get or Local->Meta query.

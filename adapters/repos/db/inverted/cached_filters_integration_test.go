@@ -20,12 +20,12 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -222,7 +222,7 @@ func Test_CachedFilters_String(t *testing.T) {
 		},
 		{
 			// This test prevents a regression on
-			// https://github.com/semi-technologies/weaviate/issues/1770
+			// https://github.com/weaviate/weaviate/issues/1770
 			name: "combined and/or filter, see gh-1770",
 			filter: &filters.LocalFilter{
 				Root: &filters.Clause{
@@ -800,7 +800,7 @@ func allowList(in ...uint64) helpers.AllowList {
 }
 
 // This prevents a regression on
-// https://github.com/semi-technologies/weaviate/issues/1772
+// https://github.com/weaviate/weaviate/issues/1772
 func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	dirName := t.TempDir()
 

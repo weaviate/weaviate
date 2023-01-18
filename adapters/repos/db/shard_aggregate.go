@@ -14,8 +14,8 @@ package db
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
+	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
 func (s *Shard) aggregate(ctx context.Context,

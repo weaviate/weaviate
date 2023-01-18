@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"testing"
 
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func gettingObjectsWithNearFields(t *testing.T) {

@@ -15,13 +15,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/nodes"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/books"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/multishard"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_WeaviateCluster_NodesAPI(t *testing.T) {

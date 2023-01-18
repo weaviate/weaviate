@@ -15,11 +15,11 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 type propValuePair struct {

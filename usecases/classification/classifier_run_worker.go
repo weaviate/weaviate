@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/errorcompounder"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
 type runWorker struct {

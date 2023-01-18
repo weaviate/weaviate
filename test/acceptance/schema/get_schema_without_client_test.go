@@ -17,9 +17,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func testGetSchemaWithoutClient(t *testing.T) {

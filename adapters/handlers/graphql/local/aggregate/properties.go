@@ -14,10 +14,10 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func numericPropertyFields(class *models.Class, property *models.Property, prefix string) *graphql.Object {

@@ -12,8 +12,8 @@
 package additional
 
 import (
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/additional/projector"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/additional/projector"
 )
 
 type GraphQLAdditionalArgumentsProvider struct {

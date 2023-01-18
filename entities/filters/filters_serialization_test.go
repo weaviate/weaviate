@@ -15,9 +15,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestSerializeValue(t *testing.T) {

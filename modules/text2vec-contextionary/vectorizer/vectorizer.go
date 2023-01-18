@@ -22,9 +22,9 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 // Vectorizer turns objects into vectors

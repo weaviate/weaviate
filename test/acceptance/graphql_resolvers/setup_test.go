@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	sch "github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/multishard"
+	"github.com/weaviate/weaviate/entities/models"
+	sch "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_GraphQL(t *testing.T) {

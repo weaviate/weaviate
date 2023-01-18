@@ -15,9 +15,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/helper"
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 // run by setup_test.go

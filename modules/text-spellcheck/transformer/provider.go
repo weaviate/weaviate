@@ -12,7 +12,7 @@
 package texttransformer
 
 import (
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
 type TextTransformerProvider struct {

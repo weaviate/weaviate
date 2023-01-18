@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 )
 
 func Serve(appState *state.State) {

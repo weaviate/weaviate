@@ -21,8 +21,8 @@ import (
 	"net/url"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 )
 
 type embeddingsRequest struct {

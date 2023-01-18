@@ -14,10 +14,10 @@ package get
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {

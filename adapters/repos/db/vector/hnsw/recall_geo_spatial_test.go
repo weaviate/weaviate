@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

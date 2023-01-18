@@ -14,7 +14,7 @@ package journey
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func singleNodeBackupJourneyTest(t *testing.T, weaviateEndpoint, backend, className, backupID string) {

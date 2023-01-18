@@ -18,7 +18,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func getIndexFilenames(dirName string, className string) ([]string, error) {

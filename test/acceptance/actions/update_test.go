@@ -19,9 +19,9 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // run from setup_test.go

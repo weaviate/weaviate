@@ -12,8 +12,8 @@
 package hnsw
 
 import (
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 )
 
 func (h *hnsw) flatSearch(queryVector []float32, limit int,
@@ -23,7 +23,7 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 
 	for candidate := range allowList {
 		h.RLock()
-		// Hot fix for https://github.com/semi-technologies/weaviate/issues/1937
+		// Hot fix for https://github.com/weaviate/weaviate/issues/1937
 		// this if statement mitigates the problem but it doesn't resolve the issue
 		if candidate >= uint64(len(h.nodes)) {
 			h.logger.WithField("action", "flatSearch").

@@ -15,13 +15,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/search"
-	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
+	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 const (

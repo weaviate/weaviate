@@ -17,7 +17,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func BenchmarkAnd10k1m_Old(b *testing.B) {

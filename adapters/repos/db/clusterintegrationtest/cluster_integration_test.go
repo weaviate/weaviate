@@ -24,16 +24,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -396,7 +396,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	})
 
 	// This test prevents a regression on
-	// https://github.com/semi-technologies/weaviate/issues/1775
+	// https://github.com/weaviate/weaviate/issues/1775
 	t.Run("query items by date filter with regular field", func(t *testing.T) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
@@ -426,7 +426,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 	})
 
 	// This test prevents a regression on
-	// https://github.com/semi-technologies/weaviate/issues/1775
+	// https://github.com/weaviate/weaviate/issues/1775
 	t.Run("query items by date filter with array field", func(t *testing.T) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)

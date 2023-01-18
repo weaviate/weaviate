@@ -15,12 +15,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, error) {

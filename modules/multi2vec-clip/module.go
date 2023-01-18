@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/multi2vec-clip/clients"
-	"github.com/semi-technologies/weaviate/modules/multi2vec-clip/vectorizer"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/multi2vec-clip/clients"
+	"github.com/weaviate/weaviate/modules/multi2vec-clip/vectorizer"
 )
 
 func New() *ClipModule {

@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/modules/multi2vec-clip/ent"
+	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
 )
 
 type builder struct {

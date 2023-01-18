@@ -17,8 +17,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.

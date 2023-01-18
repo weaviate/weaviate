@@ -18,8 +18,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
 
 const (

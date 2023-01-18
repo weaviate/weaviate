@@ -14,7 +14,7 @@ package objects
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // ValidateObject without adding it to the database. Can be used in UIs for

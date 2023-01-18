@@ -19,10 +19,10 @@ import (
 
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/deprecations"
-	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/deprecations"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
 )
 

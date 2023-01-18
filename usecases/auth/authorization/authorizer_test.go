@@ -14,9 +14,9 @@ package authorization
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/auth/authorization/adminlist"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_Authorizer(t *testing.T) {

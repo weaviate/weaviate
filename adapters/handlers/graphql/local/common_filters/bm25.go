@@ -11,7 +11,7 @@
 
 package common_filters
 
-import "github.com/semi-technologies/weaviate/entities/searchparams"
+import "github.com/weaviate/weaviate/entities/searchparams"
 
 // ExtractBM25
 func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {

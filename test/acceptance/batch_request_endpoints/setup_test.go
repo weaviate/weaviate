@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func Test_Batch(t *testing.T) {

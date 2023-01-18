@@ -20,8 +20,8 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/img2vec-neural/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
 )
 
 type vectorizer struct {

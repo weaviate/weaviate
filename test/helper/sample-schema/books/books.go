@@ -13,7 +13,7 @@ package books
 
 import (
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const defaultClassName = "Books"

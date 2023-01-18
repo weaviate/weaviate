@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"testing"
 
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func gettingObjectsWithCustomVectors(t *testing.T) {

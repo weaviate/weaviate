@@ -15,9 +15,9 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 type Countable struct {

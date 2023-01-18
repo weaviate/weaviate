@@ -20,10 +20,10 @@ import (
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	"github.com/semi-technologies/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 type replicator interface {

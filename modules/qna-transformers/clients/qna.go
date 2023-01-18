@@ -20,9 +20,9 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
 )
 
 type qna struct {

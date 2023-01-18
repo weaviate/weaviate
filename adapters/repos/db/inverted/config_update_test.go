@@ -14,11 +14,11 @@ package inverted
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestValidateUserConfigUpdate(t *testing.T) {

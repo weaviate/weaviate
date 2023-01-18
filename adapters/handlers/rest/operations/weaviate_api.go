@@ -31,16 +31,16 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/backups"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batch"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/nodes"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/objects"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/well_known"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewWeaviateAPI creates a new Weaviate instance

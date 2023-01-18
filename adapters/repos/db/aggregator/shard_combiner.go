@@ -15,7 +15,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
 type ShardCombiner struct{}

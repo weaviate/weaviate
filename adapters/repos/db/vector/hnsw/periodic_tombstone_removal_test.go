@@ -15,11 +15,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {

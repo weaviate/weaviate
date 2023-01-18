@@ -14,9 +14,9 @@ package modulecapabilities
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // ClassConfigurator is an optional capability interface which a module MAY

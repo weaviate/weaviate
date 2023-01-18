@@ -14,9 +14,9 @@ package objects
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.

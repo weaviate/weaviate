@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/test/docker"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/journey"
-	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/journey"
+	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
 
 const (

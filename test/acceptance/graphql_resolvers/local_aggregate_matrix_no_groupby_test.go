@@ -14,8 +14,8 @@ package test
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/helper"
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func aggregateArrayClassWithoutGroupByTest(t *testing.T) {

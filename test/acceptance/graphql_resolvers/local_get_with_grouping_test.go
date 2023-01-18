@@ -15,11 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func gettingObjectsWithGrouping(t *testing.T) {
@@ -210,7 +210,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		// this query should yield the same results as the above, as the above where filter will
 		// match all records. checking the previous payload with the one below is a sanity check
 		// for the sake of validating the fix for [github issue 1958]
-		// (https://github.com/semi-technologies/weaviate/issues/1958)
+		// (https://github.com/weaviate/weaviate/issues/1958)
 		queryWithoutWhere := `
 			{
 				Get {
@@ -268,7 +268,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 	})
 
 	// temporarily removed due to
-	// https://github.com/semi-technologies/weaviate/issues/1302
+	// https://github.com/weaviate/weaviate/issues/1302
 	// t.Run("grouping mode set to closest", func(t *testing.T) {
 	// 	query := `
 	// 	{

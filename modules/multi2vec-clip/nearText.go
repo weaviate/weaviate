@@ -12,8 +12,8 @@
 package modclip
 
 // import (
-// 	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-// 	"github.com/semi-technologies/weaviate/modules/multi2vec-clip/neartext"
+// 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+// 	"github.com/weaviate/weaviate/modules/multi2vec-clip/neartext"
 // )
 
 // func (m *ClipModule) initNearText() error {

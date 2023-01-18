@@ -15,7 +15,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/backup"
 )
 
 type client interface {

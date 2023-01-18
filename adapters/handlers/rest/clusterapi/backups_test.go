@@ -18,11 +18,11 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/clients"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/semi-technologies/weaviate/usecases/backup"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/usecases/backup"
 )
 
 func TestInternalBackupsAPI(t *testing.T) {

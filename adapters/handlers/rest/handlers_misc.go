@@ -16,12 +16,12 @@ import (
 	"net/url"
 
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/well_known"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type schemaManager interface {

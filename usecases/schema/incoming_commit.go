@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) error {

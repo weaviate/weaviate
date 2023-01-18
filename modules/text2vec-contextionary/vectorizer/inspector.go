@@ -18,8 +18,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
+	"github.com/weaviate/weaviate/entities/models"
+	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 type InspectorClient interface {

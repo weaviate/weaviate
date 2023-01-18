@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/errorcompounder"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type batchWriterResults struct {

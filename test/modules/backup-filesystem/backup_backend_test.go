@@ -20,13 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
-	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
+	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
 
 func Test_FilesystemBackend_Backup(t *testing.T) {

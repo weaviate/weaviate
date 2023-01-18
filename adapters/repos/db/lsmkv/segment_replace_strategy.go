@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (i *segment) get(key []byte) ([]byte, error) {
@@ -54,7 +54,7 @@ func (i *segment) get(key []byte) ([]byte, error) {
 	// If a compaction completes and the old segment is removed, we would be accessing
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	// Similar approach was used to fix SEGFAULT in collection strategy
-	// https://github.com/semi-technologies/weaviate/issues/1837
+	// https://github.com/weaviate/weaviate/issues/1837
 	contentsCopy := make([]byte, node.End-node.Start)
 	copy(contentsCopy, i.contents[node.Start:node.End])
 
@@ -93,7 +93,7 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 	// If a compaction completes and the old segment is removed, we would be accessing
 	// invalid memory without the copy, thus leading to a SEGFAULT.
 	// Similar approach was used to fix SEGFAULT in collection strategy
-	// https://github.com/semi-technologies/weaviate/issues/1837
+	// https://github.com/weaviate/weaviate/issues/1837
 	contentsCopy := make([]byte, node.End-node.Start)
 	copy(contentsCopy, i.contents[node.Start:node.End])
 

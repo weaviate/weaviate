@@ -22,10 +22,10 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/config"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/qna-openai/config"
+	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 )
 
 type qna struct {

@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/semi-technologies/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type ClusterSchema struct {

@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 func Test_classSettings_Validate(t *testing.T) {

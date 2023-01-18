@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
-	"github.com/semi-technologies/weaviate/entities/cyclemanager"
-	"github.com/semi-technologies/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (h *hnsw) init(cfg Config) error {

@@ -23,10 +23,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	testhelper "github.com/weaviate/weaviate/test/helper"
 )
 
 // run from setup_test.go

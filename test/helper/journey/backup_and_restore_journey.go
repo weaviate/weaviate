@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/client/backups"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/books"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/backups"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
 func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string) {

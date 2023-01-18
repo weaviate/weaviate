@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type parserFn func(ctx context.Context, schema *State) error

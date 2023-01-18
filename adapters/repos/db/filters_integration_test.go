@@ -23,11 +23,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -589,7 +589,7 @@ func testChainedPrimitiveProps(repo *DB,
 			},
 
 			// this test prevents a regression on
-			// https://github.com/semi-technologies/weaviate/issues/1638
+			// https://github.com/weaviate/weaviate/issues/1638
 			{
 				name: "Like ca* AND Like eng*",
 				filter: filterAnd(
@@ -942,7 +942,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 }
 
 // This test prevents a regression on
-// https://github.com/semi-technologies/weaviate/issues/1426
+// https://github.com/weaviate/weaviate/issues/1426
 func TestCasingOfOperatorCombinations(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()

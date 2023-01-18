@@ -14,10 +14,10 @@ package rest
 import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/classification"
 )
 
 func setupClassificationHandlers(api *operations.WeaviateAPI,

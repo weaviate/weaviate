@@ -15,9 +15,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func addTestDataCosine(t *testing.T) {

@@ -14,9 +14,9 @@ package nodes
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type authorizer interface {

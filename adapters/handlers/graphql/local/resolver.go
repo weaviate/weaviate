@@ -12,8 +12,8 @@
 package local
 
 import (
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
-	get "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/aggregate"
+	get "github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 )
 
 // Resolver for local GraphQL queries

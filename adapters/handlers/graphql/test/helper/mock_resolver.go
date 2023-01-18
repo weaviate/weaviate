@@ -19,11 +19,11 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/gqlerrors"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type MockResolver struct {

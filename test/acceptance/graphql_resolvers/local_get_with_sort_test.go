@@ -17,10 +17,10 @@ import (
 	"strings"
 	"testing"
 
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func gettingObjectsWithSort(t *testing.T) {

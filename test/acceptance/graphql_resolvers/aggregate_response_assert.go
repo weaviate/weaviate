@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const delta = 0.00001

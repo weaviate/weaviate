@@ -20,9 +20,9 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func Test_UserFacingHandlers(t *testing.T) {

@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func Test_ValidConfig(t *testing.T) {

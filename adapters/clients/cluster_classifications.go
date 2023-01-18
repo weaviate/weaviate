@@ -20,7 +20,7 @@ import (
 	"net/url"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type ClusterClassifications struct {

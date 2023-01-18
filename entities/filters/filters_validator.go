@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func ValidateFilters(sch schema.Schema, filters *LocalFilter) error {

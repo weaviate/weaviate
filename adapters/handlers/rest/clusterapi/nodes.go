@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 type nodesManager interface {

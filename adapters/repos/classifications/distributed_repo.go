@@ -18,10 +18,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/classification"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const DefaultTxTTL = 60 * time.Second

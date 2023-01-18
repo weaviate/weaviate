@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"sort"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/rbtree"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
 
 type binarySearchTreeMap struct {

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func benchmarkDotGo(b *testing.B, dims int) {

@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func Test_ValidateUserInput(t *testing.T) {

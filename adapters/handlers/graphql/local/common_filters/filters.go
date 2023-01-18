@@ -15,8 +15,8 @@ package common_filters
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 // The filters common to Local->Get and Local->Meta queries.

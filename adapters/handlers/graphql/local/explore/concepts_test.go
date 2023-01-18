@@ -14,12 +14,12 @@ package explore
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	helper "github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	helper "github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type testCase struct {

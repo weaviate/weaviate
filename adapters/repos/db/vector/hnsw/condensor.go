@@ -19,8 +19,8 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 type MemoryCondensor struct {

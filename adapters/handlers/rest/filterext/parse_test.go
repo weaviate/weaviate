@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func Test_ExtractFlatFilters(t *testing.T) {

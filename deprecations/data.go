@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func timeMust(t time.Time, err error) strfmt.DateTime {

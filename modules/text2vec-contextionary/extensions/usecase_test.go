@@ -17,9 +17,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 func Test_UseCase(t *testing.T) {

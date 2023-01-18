@@ -20,8 +20,8 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/multi2vec-clip/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
 )
 
 type vectorizer struct {
