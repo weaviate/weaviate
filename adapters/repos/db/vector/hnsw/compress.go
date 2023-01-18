@@ -38,7 +38,7 @@ func (h *hnsw) Compress(segments int) error {
 	if segments <= 0 {
 		segments = dims
 	}
-	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseKMeansEncoder)
+	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseTileEncoder)
 
 	data := h.cache.all()
 	cleanData := make([][]float32, 0, len(data))
@@ -61,7 +61,7 @@ func (h *hnsw) Compress(segments int) error {
 		return err
 	}
 
-	h.compressed = true
+	h.compressed.Store(true)
 	h.cache.drop()
 	//ToDo: clear cache
 	return nil

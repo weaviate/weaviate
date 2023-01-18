@@ -120,7 +120,7 @@ func (h *hnsw) restoreFromDisk() error {
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
 	h.tombstones = state.Tombstones
-	h.compressed = state.Compressed
+	h.compressed.Store(state.Compressed)
 
 	if state.Compressed {
 		h.cache.drop()
@@ -163,7 +163,7 @@ func (h *hnsw) PostStartup() {
 
 func (h *hnsw) prefillCache() {
 	limit := 0
-	if h.compressed {
+	if h.compressed.Load() {
 		limit = int(h.compressedVectorsCache.copyMaxSize())
 	} else {
 		limit = int(h.cache.copyMaxSize())
@@ -174,7 +174,7 @@ func (h *hnsw) prefillCache() {
 		defer cancel()
 
 		var err error
-		if h.compressed {
+		if h.compressed.Load() {
 			cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				h.compressedVectorsCache.preload(binary.LittleEndian.Uint64(k), v)

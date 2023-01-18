@@ -169,7 +169,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
 	var byteDistancer *ssdhelpers.PQDistancer
-	if h.compressed {
+	if h.compressed.Load() {
 		byteDistancer = h.pq.NewDistancer(queryVector)
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
@@ -179,7 +179,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		results, level, visited, allowList)
 	var worstResultDistance float32
 	var err error
-	if h.compressed {
+	if h.compressed.Load() {
 		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, byteDistancer)
 	} else {
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
@@ -192,7 +192,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 		var dist float32
 		var ok bool
 		var err error
-		if h.compressed {
+		if h.compressed.Load() {
 			dist, ok, err = h.distanceToByteNode(byteDistancer, candidates.Top().ID)
 		} else {
 			dist, ok, err = h.distanceToFloatNode(floatDistancer, candidates.Top().ID)
@@ -268,7 +268,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			var distance float32
 			var ok bool
 			var err error
-			if h.compressed {
+			if h.compressed.Load() {
 				distance, ok, err = h.distanceToByteNode(byteDistancer, neighborID)
 			} else {
 				distance, ok, err = h.distanceToFloatNode(floatDistancer, neighborID)
@@ -300,7 +300,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 				results.Insert(neighborID, distance)
 
-				if h.compressed {
+				if h.compressed.Load() {
 					h.compressedVectorsCache.prefetch(candidates.Top().ID)
 				} else {
 					h.cache.prefetch(candidates.Top().ID)
