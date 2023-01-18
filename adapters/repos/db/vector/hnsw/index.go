@@ -18,6 +18,7 @@ import (
 	"math"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -145,7 +146,7 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed             bool
+	compressed             atomic.Bool
 	pq                     *ssdhelpers.ProductQuantizer
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
@@ -420,7 +421,7 @@ func min(a, b int) int {
 }
 
 func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
-	if h.compressed {
+	if h.compressed.Load() {
 		v1, err := h.compressedVectorsCache.get(context.Background(), a)
 		if err != nil {
 			var e storobj.ErrNotFound
@@ -495,7 +496,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 }
 
 func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
-	if h.compressed {
+	if h.compressed.Load() {
 		v1, err := h.compressedVectorsCache.get(context.Background(), node)
 		if err != nil {
 			var e storobj.ErrNotFound
@@ -639,7 +640,7 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 	if err := h.compressedStore.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
-	if h.compressed {
+	if h.compressed.Load() {
 		h.compressedVectorsCache.drop()
 	} else {
 		h.cache.drop()
