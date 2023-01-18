@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -15,15 +15,15 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/batch"
-	"github.com/semi-technologies/weaviate/client/meta"
-	"github.com/semi-technologies/weaviate/client/nodes"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/books"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/multishard"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/meta"
+	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_NodesAPI(t *testing.T) {
@@ -127,7 +127,7 @@ func Test_NodesAPI(t *testing.T) {
 	})
 
 	// This test prevents a regression of
-	// https://github.com/semi-technologies/weaviate/issues/2454
+	// https://github.com/weaviate/weaviate/issues/2454
 	t.Run("validate count with updates", func(t *testing.T) {
 		booksClass := books.ClassContextionaryVectorizer()
 		helper.CreateClass(t, booksClass)

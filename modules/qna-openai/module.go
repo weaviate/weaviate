@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modqnaopenai
@@ -17,15 +17,15 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	qnaadditional "github.com/semi-technologies/weaviate/modules/qna-openai/additional"
-	qnaadditionalanswer "github.com/semi-technologies/weaviate/modules/qna-openai/additional/answer"
-	qnaask "github.com/semi-technologies/weaviate/modules/qna-openai/ask"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/clients"
-	qnaadependency "github.com/semi-technologies/weaviate/modules/qna-openai/dependency"
-	"github.com/semi-technologies/weaviate/modules/qna-openai/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	qnaadditional "github.com/weaviate/weaviate/modules/qna-openai/additional"
+	qnaadditionalanswer "github.com/weaviate/weaviate/modules/qna-openai/additional/answer"
+	qnaask "github.com/weaviate/weaviate/modules/qna-openai/ask"
+	"github.com/weaviate/weaviate/modules/qna-openai/clients"
+	qnaadependency "github.com/weaviate/weaviate/modules/qna-openai/dependency"
+	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 )
 
 const Name = "qna-openai"
