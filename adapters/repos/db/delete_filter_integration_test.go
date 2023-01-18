@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
@@ -22,19 +22,19 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
-	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // This test aims to prevent a regression on
-// https://github.com/semi-technologies/weaviate/issues/1308 where we
+// https://github.com/weaviate/weaviate/issues/1308 where we
 // discovered that if the first n doc ids are deleted and a filter would return
 // <= n doc ids, it would return no results instead of skipping the deleted ids
 // and returning the next ones
@@ -155,7 +155,7 @@ func extractIDs(in []search.Result) []strfmt.UUID {
 }
 
 // This bug aims to prevent a regression on
-// https://github.com/semi-technologies/weaviate/issues/1765
+// https://github.com/weaviate/weaviate/issues/1765
 func TestLimitOneAfterDeletion(t *testing.T) {
 	className := "Test"
 	rand.Seed(time.Now().UnixNano())

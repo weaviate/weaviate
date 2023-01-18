@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package answer
@@ -17,10 +17,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/search"
-	qnamodels "github.com/semi-technologies/weaviate/modules/qna-transformers/additional/models"
-	"github.com/semi-technologies/weaviate/modules/qna-transformers/ent"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/search"
+	qnamodels "github.com/weaviate/weaviate/modules/qna-transformers/additional/models"
+	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
 )
 
 func (p *AnswerProvider) findAnswer(ctx context.Context,

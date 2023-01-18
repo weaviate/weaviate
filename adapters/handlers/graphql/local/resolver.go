@@ -4,16 +4,16 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package local
 
 import (
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
-	get "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/aggregate"
+	get "github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 )
 
 // Resolver for local GraphQL queries

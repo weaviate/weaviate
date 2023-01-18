@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package common_filters
@@ -14,7 +14,7 @@ package common_filters
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 // ExtractNearObject arguments, such as "vector" and "certainty"
