@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package aggregator
@@ -14,8 +14,8 @@ package aggregator
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
 func TestTextAggregator_TopOccurrencesCalculation(t *testing.T) {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package lsmkv
@@ -16,7 +16,7 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
@@ -45,7 +45,7 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 	// this place it would only be safe to hold this data while still under the
 	// protection of the segmentGroup.maintenanceLock. This lock makes sure that
 	// no compaction is started during an ongoing read. However, as we could show
-	// as part of https://github.com/semi-technologies/weaviate/issues/1837
+	// as part of https://github.com/weaviate/weaviate/issues/1837
 	// further processing, such as map-decoding and eventually map-merging would
 	// happen inside the bucket.MapList() method. This scope has its own lock,
 	// but that lock can only protecting against flushing (i.e. changing the

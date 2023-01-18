@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -21,15 +21,15 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	mod "github.com/semi-technologies/weaviate/modules/backup-s3"
-	"github.com/semi-technologies/weaviate/test/docker"
-	moduleshelper "github.com/semi-technologies/weaviate/test/helper/modules"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	mod "github.com/weaviate/weaviate/modules/backup-s3"
+	"github.com/weaviate/weaviate/test/docker"
+	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 )
 
 func Test_S3Backend_Backup(t *testing.T) {
