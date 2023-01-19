@@ -30,6 +30,7 @@ type openAIClient interface {
 
 type paramsHelper interface {
 	GetQuestion(params interface{}) string
+	GetNearText(param interface{}) string
 	GetProperties(params interface{}) []string
 }
 
