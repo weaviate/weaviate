@@ -15,6 +15,7 @@ import (
 func init() {
 	rootCmd.AddCommand(importCmd)
 	importCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
+	importCmd.PersistentFlags().IntVarP(&MultiplyProperties, "multiply-properties", "m", DefaultMultiplyProperties, "create artifical copies of real properties by setting a value larger than 1. The properties have identical contents, so it won't alter results, but leads to many more calculations.")
 }
 
 var importCmd = &cobra.Command{
@@ -40,7 +41,7 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("parse dataset cfg file: %w", err)
 		}
 
-		c, err := lib.ParseCorpi(datasets.Datasets[0])
+		c, err := lib.ParseCorpi(datasets.Datasets[0], MultiplyProperties)
 		if err != nil {
 			return err
 		}

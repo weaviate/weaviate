@@ -14,7 +14,7 @@ type Corpus map[string]string
 
 // TODO: just loading the whole corpus into memory isn't very efficient, this
 // could be improved by iterating one object at a time, e.g. with a callback
-func ParseCorpi(ds Dataset) (Corpi, error) {
+func ParseCorpi(ds Dataset, multiply int) (Corpi, error) {
 	p := filepath.Join(ds.Path, "corpus.jsonl")
 	f, err := os.Open(p)
 	if err != nil {
@@ -41,6 +41,10 @@ func ParseCorpi(ds Dataset) (Corpi, error) {
 			}
 
 			corp[SanitizePropName(prop)] = propStr
+			for i := 1; i < multiply; i++ {
+				newName := fmt.Sprintf("%s_copy_%d", SanitizePropName(prop), i)
+				corp[newName] = propStr
+			}
 		}
 
 		for _, prop := range ds.Corpus.UnindexedProperties {
