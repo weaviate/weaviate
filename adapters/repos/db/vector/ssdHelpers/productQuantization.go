@@ -200,6 +200,12 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	return d.pq.Distance(x, d.lut), true, nil
 }
 
+func (pq *ProductQuantizer) Update(x []float32) {
+	/*Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
+		pq.kms[i].Add(x)
+	})*/
+}
+
 func (pq *ProductQuantizer) Fit(data [][]float32) {
 	switch pq.encoderType {
 	case UseTileEncoder:
