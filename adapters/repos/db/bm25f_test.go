@@ -141,7 +141,7 @@ func TestBM25FJourney(t *testing.T) {
 	require.NotNil(t, idx)
 
 	// Check basic search with one property
-	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey"}
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
 	addit := additional.Properties{}
 	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
@@ -159,6 +159,30 @@ func TestBM25FJourney(t *testing.T) {
 		// Check explainScore
 		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25F")
 	})
+
+
+	// Check basic search on string field
+	kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "*&^$@#$%^&*()(offtopic!!!!"}
+	addit = additional.Properties{}
+	resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, addit)
+	require.Nil(t, err)
+
+	// Print results
+	fmt.Println("--- Start results for stringField search ---")
+	for _, r := range res {
+		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+	}
+	t.Run("bm25f journey", func(t *testing.T) {
+		// Check results in correct order
+		require.Equal(t, uint64(7), resStringField[0].DocID())
+		
+
+		// Check explainScore
+		require.Contains(t, resStringField[0].Object.Additional["explainScore"], "BM25F")
+	})
+
+
+
 	// Check basic search WITH CAPS
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
 	addit = additional.Properties{}
