@@ -1,10 +1,10 @@
-<h1>Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='124' align='right' /></h1>
+<h1>Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/weaviate/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='124' align='right' /></h1>
 
-[![Build Status](https://github.com/semi-technologies/weaviate/actions/workflows/.github/workflows/pull_requests.yaml/badge.svg?branch=master)](https://github.com/semi-technologies/weaviate/actions/workflows/.github/workflows/pull_requests.yaml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/semi-technologies/weaviate)](https://goreportcard.com/report/github.com/semi-technologies/weaviate)
-[![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/semi-technologies/weaviate)
+[![Build Status](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml/badge.svg?branch=master)](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/weaviate/weaviate)](https://goreportcard.com/report/github.com/weaviate/weaviate)
+[![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
-[![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=revue)](http://weaviate-newsletter.semi.technology/)
+[![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=revue)](https://newsletter.weaviate.io/)
 
 ## Overview
 
@@ -52,7 +52,7 @@ For starters, you can build vector search engines with text, images, or a combin
 
 You can also build question and answer extraction, summarization and classification systems.
 
-You can find [code examples here](https://github.com/semi-technologies/weaviate-examples), and you might blog posts like these useful:
+You can find [code examples here](https://github.com/weaviate/weaviate-examples), and you might blog posts like these useful:
 
 - [How to build an Image Search Application with Weaviate](https://weaviate.io/blog/how-to-build-an-image-search-application-with-weaviate)
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/cohere-multilingual-with-weaviate)
@@ -86,11 +86,11 @@ Also, we invite you to join our [Slack](https://join.slack.com/t/weaviate/shared
 
 You can also say hi to us below:
 - [Twitter](https://twitter.com/weaviate_io) 
-- [LinkedIn](https://www.linkedin.com/company/semi-technologies)
+- [LinkedIn](https://www.linkedin.com/company/weaviate)
 
 Or connect to us via:
 - [Stack Overflow for questions](https://stackoverflow.com/questions/tagged/weaviate)
-- [GitHub for issues](https://github.com/semi-technologies/weaviate/issues)
+- [GitHub for issues](https://github.com/weaviate/weaviate/issues)
 
 -----
 
@@ -126,7 +126,7 @@ You can also use its GraphQL API to retrieve objects and properties.
 
 <a href="https://weaviate.io/developers/weaviate/current/" target="_blank"><img src="https://weaviate.io/img/weaviate-demo.gif?i=8" alt="Demo of Weaviate" width="100%"></a>
 
-<sup>Weaviate GraphQL demo on news article dataset containing: Transformers module, GraphQL usage, semantic search, _additional{} features, Q&A, and Aggregate{} function. You can the demo on this dataset in the GUI here: <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%20%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20nearText%3A%20%7B%0A%20%20%20%20%20%20%20%20concepts%3A%20%5B%22Housing%20prices%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20where%3A%20%7B%0A%20%20%20%20%20%20%20%20operator%3A%20Equal%0A%20%20%20%20%20%20%20%20path%3A%20%5B%22inPublication%22%2C%20%22Publication%22%2C%20%22name%22%5D%0A%20%20%20%20%20%20%20%20valueString%3A%20%22The%20Economist%22%0A%20%20%20%20%20%20%7D%0A%20%20%20%20)%20%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20certainty%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">semantic search</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20ask%3A%20%7B%0A%20%20%20%20%20%20%20%20question%3A%20%22What%20did%20Jemina%20Packington%20predict%3F%22%0A%20%20%20%20%20%20%20%20properties%3A%20%5B%22summary%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20limit%3A%201%0A%20%20%20%20)%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20answer%20%7B%0A%20%20%20%20%20%20%20%20%20%20endPosition%0A%20%20%20%20%20%20%20%20%20%20property%0A%20%20%20%20%20%20%20%20%20%20result%0A%20%20%20%20%20%20%20%20%20%20startPosition%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Q&A</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Aggregate%20%7B%0A%20%20%20%20Article%20%7B%0A%20%20%20%20%20%20meta%20%7B%0A%20%20%20%20%20%20%20%20count%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Aggregate</a>.</sup>
+<sup>Weaviate GraphQL demo on news article dataset containing: Transformers module, GraphQL usage, semantic search, _additional{} features, Q&A, and Aggregate{} function. You can the demo on this dataset in the GUI here: <a href="https://console.weaviate.io/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%20%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20nearText%3A%20%7B%0A%20%20%20%20%20%20%20%20concepts%3A%20%5B%22Housing%20prices%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20where%3A%20%7B%0A%20%20%20%20%20%20%20%20operator%3A%20Equal%0A%20%20%20%20%20%20%20%20path%3A%20%5B%22inPublication%22%2C%20%22Publication%22%2C%20%22name%22%5D%0A%20%20%20%20%20%20%20%20valueString%3A%20%22The%20Economist%22%0A%20%20%20%20%20%20%7D%0A%20%20%20%20)%20%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20certainty%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">semantic search</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Get%7B%0A%20%20%20%20Article(%0A%20%20%20%20%20%20ask%3A%20%7B%0A%20%20%20%20%20%20%20%20question%3A%20%22What%20did%20Jemina%20Packington%20predict%3F%22%0A%20%20%20%20%20%20%20%20properties%3A%20%5B%22summary%22%5D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20limit%3A%201%0A%20%20%20%20)%7B%0A%20%20%20%20%20%20title%0A%20%20%20%20%20%20inPublication%20%7B%0A%20%20%20%20%20%20%20%20...%20on%20Publication%20%7B%0A%20%20%20%20%20%20%20%20%20%20name%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20_additional%20%7B%0A%20%20%20%20%20%20%20%20answer%20%7B%0A%20%20%20%20%20%20%20%20%20%20endPosition%0A%20%20%20%20%20%20%20%20%20%20property%0A%20%20%20%20%20%20%20%20%20%20result%0A%20%20%20%20%20%20%20%20%20%20startPosition%0A%20%20%20%20%20%20%20%20%7D%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Q&A</a>, <a href="https://console.semi.technology/console/query#weaviate_uri=https://demo.dataset.playground.semi.technology&graphql_query=%7B%0A%20%20Aggregate%20%7B%0A%20%20%20%20Article%20%7B%0A%20%20%20%20%20%20meta%20%7B%0A%20%20%20%20%20%20%20%20count%0A%20%20%20%20%20%20%7D%0A%20%20%20%20%7D%0A%20%20%7D%0A%7D" target="_blank">Aggregate</a>.</sup>
 
 ## Additional material
 
