@@ -35,7 +35,12 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("parse dataset cfg file: %w", err)
 		}
 
-		fmt.Printf("%#v\n", datasets)
+		q, err := lib.ParseQueries(datasets.Datasets[0])
+		if err != nil {
+			return err
+		}
+
+		fmt.Println(q)
 
 		return nil
 	},
