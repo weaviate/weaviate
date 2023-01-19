@@ -26,11 +26,13 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 	if len(in) == 0 {
 		return in, nil
 	}
-	question := p.paramsHelper.GetQuestion(argumentModuleParams["ask"])
-	if question == "" {
-		return in, errors.New("empty question")
+
+	query, askParam, results, err := p.getSearchQuery(argumentModuleParams, in)
+	if err != nil {
+		return results, err
 	}
-	properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
+
+	properties := p.paramsHelper.GetProperties(askParam)
 
 	for i := range in {
 		textProperties := map[string]string{}
@@ -52,7 +54,7 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 			return in, errors.New("empty content")
 		}
 
-		answer, err := p.client.Result(ctx, text, question, cfg)
+		answer, err := p.client.Result(ctx, text, query, cfg)
 		if err != nil {
 			return in, err
 		}
@@ -74,6 +76,31 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 	}
 
 	return in, nil
+}
+
+func (p *GenerateProvider) getSearchQuery(argumentModuleParams map[string]interface{}, in []search.Result) (string, interface{}, []search.Result, error) {
+	query := ""
+	askParam := argumentModuleParams["ask"]
+	if askParam != nil {
+		query := p.paramsHelper.GetQuestion(askParam)
+		if query == "" {
+			return "", nil, in, errors.New("empty question")
+		}
+		return query, in, nil, nil
+	}
+
+	askParam = argumentModuleParams["nearText"]
+	if askParam != nil {
+		//todo what to get here?
+		//todo implemtn GetNearText?
+		query := p.paramsHelper.GetNearText(askParam)
+		if query == "" {
+			return "", nil, in, errors.New("empty question")
+		}
+		return query, in, nil, nil
+	}
+
+	return query, askParam, nil, nil
 }
 
 func (p *GenerateProvider) containsProperty(property string, properties []string) bool {
