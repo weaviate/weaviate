@@ -339,6 +339,7 @@ func TestBM25FCompare(t *testing.T) {
 		for i := range objs {
 			s1 := fmt.Sprintf("%v", withBM25Fscores[i])
 			s2 := fmt.Sprintf("%v", scores[i])
+			fmt.Printf("%v: BM25F score: %v, BM25 score: %v", i, s1[:9], s2[:9])
 			require.Equal(t, s1[:9], s2[:9])
 		}
 
