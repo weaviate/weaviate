@@ -3,8 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/benchmark_bm25/lib"
 )
 
@@ -51,8 +55,42 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("create schema for %s: %w", datasets.Datasets[0], err)
 		}
 
-		_ = c
-		fmt.Println(BatchSize)
+		batch := client.Batch().ObjectsBatcher()
+		for i, corp := range c {
+			id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
+			batch.WithObject(&models.Object{
+				ID:         strfmt.UUID(id),
+				Class:      lib.ClassNameFromDatasetID(datasets.Datasets[0].ID),
+				Properties: corp,
+			})
+
+			if i != 0 && i%BatchSize == 0 {
+				br, err := batch.Do(context.Background())
+				if err != nil {
+					return fmt.Errorf("batch %d: %w", i, err)
+				}
+
+				if err := lib.HandleBatchResponse(br); err != nil {
+					return err
+				}
+			}
+
+			if i%1000 == 0 {
+				log.Printf("imported %d/%d objects", i, len(c))
+			}
+		}
+
+		if len(c)&BatchSize != 0 {
+			// we need to send one final batch
+			br, err := batch.Do(context.Background())
+			if err != nil {
+				return fmt.Errorf("final batch: %w", err)
+			}
+			if err := lib.HandleBatchResponse(br); err != nil {
+				return err
+			}
+			log.Printf("imported %d/%d objects", len(c), len(c))
+		}
 
 		return nil
 	},

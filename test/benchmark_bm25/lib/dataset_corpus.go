@@ -10,10 +10,7 @@ import (
 
 type Corpi []Corpus
 
-type Corpus struct {
-	Indexed   map[string]interface{}
-	Unindexed map[string]interface{}
-}
+type Corpus map[string]string
 
 // TODO: just loading the whole corpus into memory isn't very efficient, this
 // could be improved by iterating one object at a time, e.g. with a callback
@@ -35,11 +32,7 @@ func ParseCorpi(ds Dataset) (Corpi, error) {
 			return nil, err
 		}
 
-		corp := Corpus{
-			Indexed:   map[string]interface{}{},
-			Unindexed: map[string]interface{}{},
-		}
-
+		corp := Corpus{}
 		for _, prop := range ds.Corpus.IndexedProperties {
 			propStr, ok := obj[prop].(string)
 			if !ok {
@@ -47,7 +40,7 @@ func ParseCorpi(ds Dataset) (Corpi, error) {
 					prop, obj[prop])
 			}
 
-			corp.Indexed[prop] = propStr
+			corp[SanitizePropName(prop)] = propStr
 		}
 
 		for _, prop := range ds.Corpus.UnindexedProperties {
@@ -57,7 +50,7 @@ func ParseCorpi(ds Dataset) (Corpi, error) {
 					prop, obj[prop])
 			}
 
-			corp.Unindexed[prop] = propStr
+			corp[SanitizePropName(prop)] = propStr
 		}
 
 		c = append(c, corp)
