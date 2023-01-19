@@ -23,7 +23,7 @@ require (
 	github.com/spf13/cobra v1.6.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/weaviate/weaviate v1.17.2-0.20230118094121-abf30eac8656 // indirect
-	github.com/weaviate/weaviate-go-client/v4 v4.5.2-0.20230118112501-2efdcb0bd698 // indirect
+	github.com/weaviate/weaviate-go-client/v4 v4.5.2 // indirect
 	go.mongodb.org/mongo-driver v1.11.0 // indirect
 	golang.org/x/net v0.4.0 // indirect
 	golang.org/x/text v0.5.0 // indirect
