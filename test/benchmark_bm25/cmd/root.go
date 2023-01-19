@@ -10,11 +10,13 @@ import (
 var (
 	Origin            string
 	DatasetConfigPath string
+	BatchSize         int
 )
 
 const (
 	DefaultOrigin            = "http://localhost:8080"
 	DefaultDatasetConfigPath = "datasets.yml"
+	DefaultBatchSize         = 100
 )
 
 var rootCmd = &cobra.Command{
