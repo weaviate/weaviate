@@ -831,6 +831,8 @@ github.com/weaviate/weaviate v1.17.2-0.20230118094121-abf30eac8656 h1:HA/GgZEqsL
 github.com/weaviate/weaviate v1.17.2-0.20230118094121-abf30eac8656/go.mod h1:qK+KLW5a/5lKPkIW9Fp6ZISWuZCzUFEaUc1U3KMUSSA=
 github.com/weaviate/weaviate-go-client/v4 v4.5.2-0.20230118112501-2efdcb0bd698 h1:igp4vU+4a/XQFEKfvw0RNGA07toiwXuq2Fx+f8z5Wu0=
 github.com/weaviate/weaviate-go-client/v4 v4.5.2-0.20230118112501-2efdcb0bd698/go.mod h1:9zmA2zuTtGN0ShAiUtOnLV7QobrbVkgsxHByBIUpb1o=
+github.com/weaviate/weaviate-go-client/v4 v4.5.2 h1:Dy9f+ihFE97oTsnhpKRLdh1851xxAIegcX1VZq5ekpE=
+github.com/weaviate/weaviate-go-client/v4 v4.5.2/go.mod h1:9zmA2zuTtGN0ShAiUtOnLV7QobrbVkgsxHByBIUpb1o=
 github.com/willf/bitset v1.1.11-0.20200630133818-d5bec3311243/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=
 github.com/willf/bitset v1.1.11/go.mod h1:83CECat5yLh5zVOf4P1ErAgKA5UDvKtgyUABdr3+MjI=
 github.com/willf/bloom v2.0.3+incompatible/go.mod h1:MmAltL9pDMNTrvUkxdg0k0q5I0suxmuwp3KbyrZLOZ8=
