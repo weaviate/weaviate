@@ -18,7 +18,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 type compactorMap struct {

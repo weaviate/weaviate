@@ -19,10 +19,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func TestPrecomputeSegmentMeta_Replace(t *testing.T) {

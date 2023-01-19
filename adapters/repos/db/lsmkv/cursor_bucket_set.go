@@ -15,7 +15,7 @@ import (
 	"bytes"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 )
 
 type CursorSet struct {

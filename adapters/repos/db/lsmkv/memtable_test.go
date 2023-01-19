@@ -15,9 +15,9 @@ import (
 	"path"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 )
 
 // This test prevents a regression on
