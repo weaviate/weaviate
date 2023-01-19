@@ -160,7 +160,6 @@ func TestBM25FJourney(t *testing.T) {
 		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25F")
 	})
 
-
 	// Check basic search on string field
 	kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "*&^$@#$%^&*()(offtopic!!!!"}
 	addit = additional.Properties{}
@@ -175,13 +174,10 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f journey", func(t *testing.T) {
 		// Check results in correct order
 		require.Equal(t, uint64(7), resStringField[0].DocID())
-		
 
 		// Check explainScore
 		require.Contains(t, resStringField[0].Object.Additional["explainScore"], "BM25F")
 	})
-
-
 
 	// Check basic search WITH CAPS
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
