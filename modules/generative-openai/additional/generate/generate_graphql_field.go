@@ -45,6 +45,11 @@ func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Fi
 				}),
 				DefaultValue: nil,
 			},
+			"properties": &graphql.ArgumentConfig{
+				Description:  "Properties used for the generation",
+				Type:         graphql.NewList(graphql.String),
+				DefaultValue: nil,
+			},
 			"onSet": &graphql.ArgumentConfig{
 				Description: "Generate all over the results",
 				Type: graphql.NewEnum(graphql.EnumConfig{

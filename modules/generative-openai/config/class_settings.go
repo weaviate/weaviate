@@ -29,9 +29,9 @@ const (
 )
 
 var (
-	DefaultOpenAIModel                    = "text-ada-001"
+	DefaultOpenAIModel                    = "text-davinci-003"
 	DefaultOpenAITemperature      float64 = 0.0
-	DefaultOpenAIMaxTokens        float64 = 16
+	DefaultOpenAIMaxTokens        float64 = 100
 	DefaultOpenAIFrequencyPenalty float64 = 0.0
 	DefaultOpenAIPresencePenalty  float64 = 0.0
 	DefaultOpenAITopP             float64 = 1.0
@@ -47,6 +47,7 @@ var maxTokensForModel = map[string]float64{
 
 var availableOpenAIModels = []string{
 	"text-ada-001",
+	"text-ada-002",
 	"text-babbage-001",
 	"text-curie-001",
 	"text-davinci-002",

@@ -115,13 +115,10 @@ func (v *openai) Generate(ctx context.Context, text, task, language string, cfg 
 }
 
 func (v *openai) generatePrompt(text string, question string, language string) string {
-	return fmt.Sprintf(`'Please answer the question according to the above context.
-
+	return fmt.Sprintf(`'%v in the following language: %v for the following context:
 ===
 Context: %v
-===
-Q: %v
-A:`, strings.ReplaceAll(text, "\n", " "), question)
+===`, question, language, strings.ReplaceAll(text, "\n", " "))
 }
 
 func (v *openai) getApiKey(ctx context.Context) (string, error) {

@@ -15,6 +15,7 @@ type Params struct {
 	Task           string
 	ResultLanguage string
 	OnSet          string
+	Properties     []string
 }
 
 func (n Params) GetTask() string {
@@ -25,4 +26,7 @@ func (n Params) GetResultLanguage() string {
 }
 func (n Params) GetOnSet() string {
 	return n.OnSet
+}
+func (n Params) GetProperties() []string {
+	return n.Properties
 }
