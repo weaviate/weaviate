@@ -12,47 +12,50 @@
 package replication
 
 import (
+	"context"
 	"fmt"
-	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/articles"
 	"testing"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/docker"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-type mockCompose struct {
-	uri string
-}
-
-func (m mockCompose) GetWeaviate() mockCompose {
-	return mockCompose{uri: "localhost:8080"}
-}
-
-func (m mockCompose) GetWeaviateNode2() mockCompose {
-	return mockCompose{uri: "localhost:8081"}
-}
-
-func (m mockCompose) URI() string {
-	return m.uri
-}
+//type mockCompose struct {
+//	uri string
+//}
+//
+//func (m mockCompose) GetWeaviate() mockCompose {
+//	return mockCompose{uri: "localhost:8080"}
+//}
+//
+//func (m mockCompose) GetWeaviateNode2() mockCompose {
+//	return mockCompose{uri: "localhost:8081"}
+//}
+//
+//func (m mockCompose) URI() string {
+//	return m.uri
+//}
 
 func multiShardScaleOut(t *testing.T) {
-	//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	//defer cancel()
-	//
-	//compose, err := docker.New().
-	//	WithWeaviateCluster().
-	//	WithText2VecContextionary().
-	//	Start(ctx)
-	//require.Nil(t, err)
-	//defer func() {
-	//	if err := compose.Terminate(ctx); err != nil {
-	//		t.Fatalf("failed to terminte test containers: %s", err.Error())
-	//	}
-	//}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	compose := mockCompose{}
+	compose, err := docker.New().
+		WithWeaviateCluster().
+		WithText2VecContextionary().
+		Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminte test containers: %s", err.Error())
+		}
+	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
@@ -107,6 +110,4 @@ func multiShardScaleOut(t *testing.T) {
 		c.ReplicationConfig.Factor = 2
 		updateClass(t, compose.GetWeaviate().URI(), c)
 	})
-
-	t.Log()
 }

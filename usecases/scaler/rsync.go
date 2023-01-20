@@ -68,7 +68,6 @@ func (r *rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor
 
 // PushShard replicates a shard on a set of nodes
 func (r *rsync) PushShard(ctx context.Context, className string, desc backup.ShardDescriptor, nodes []string) error {
-	ctx = context.Background()
 	// Iterate over the new target nodes and copy files
 	for _, node := range nodes {
 		host, ok := r.cluster.NodeHostname(node)
