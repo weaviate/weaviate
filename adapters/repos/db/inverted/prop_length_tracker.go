@@ -176,7 +176,7 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, er
 		if !t.canPageFit(propNameBytes, offset, lastBucketOffset) {
 			page++
 			// overflow of uint16 variable that tracks the size of the tracker
-			if page >= 15 {
+			if page > 15 {
 				return 0, 0, fmt.Errorf("could not add property %v, to PropertyLengthTracker, because the total"+
 					"length of all properties is too long", propName)
 			}
@@ -263,7 +263,7 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
 	if uint16(len(t.pages))/4096-1 < page {
 		// we need to grow the page buffer
-		newPages := make([]byte, page*4096+4096)
+		newPages := make([]byte, uint64(page)*4096+4096)
 		copy(newPages[:len(t.pages)], t.pages)
 
 		// the new page must have the correct offset initialized
