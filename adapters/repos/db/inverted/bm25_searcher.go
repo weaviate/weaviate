@@ -358,11 +358,10 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			if p.Tokenization == "word" {
 				if p.DataType[0] == "text" && textTerm != "" {
 					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, textTerm)
-				} else {
-					if p.DataType[0] == "string" && stringTerm != "" {
-						ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, stringTerm)
-					}
+				} else if p.DataType[0] == "string" && stringTerm != "" {
+					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, stringTerm)
 				}
+
 			} else {
 				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
 			}

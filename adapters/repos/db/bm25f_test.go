@@ -391,10 +391,8 @@ func TestBM25FCompare(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, len(withBM25Fobjs), len(objs))
 		for i := range objs {
-			s1 := fmt.Sprintf("%v", withBM25Fscores[i])
-			s2 := fmt.Sprintf("%v", scores[i])
-			fmt.Printf("%v: BM25F score: %v, BM25 score: %v", i, s1[:9], s2[:9])
-			require.Equal(t, s1[:9], s2[:9])
+			fmt.Printf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
+			EqualFloats(t, withBM25Fscores[i], scores[i], 9)
 		}
 
 		// Not all the scores are unique and the search is not stable, so pick ones that don't move
