@@ -50,8 +50,8 @@ func New(apiKey string, logger logrus.FieldLogger) *openai {
 	}
 }
 
-func (v *openai) Generate(ctx context.Context, text, task, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
-	prompt := v.generatePrompt(text, task, language)
+func (v *openai) Generate(ctx context.Context, textProperties []map[string]string, task, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	prompt := v.generatePrompt(textProperties, task, language)
 
 	settings := config.NewClassSettings(cfg)
 
@@ -120,9 +120,11 @@ func (v *openai) Generate(ctx context.Context, text, task, language string, cfg 
 	}, nil
 }
 
-func (v *openai) generatePrompt(text string, question string, language string) string {
-	//nolint:gofumpt    //todo [byron - this is the prompt created by Bob/Connor, check if it actually performs better than simple piping
-	//todo of question + language check out code commented out below code]
+func (v *openai) generatePrompt(textProperties []map[string]string, question string, language string) string {
+	marshal, err := json.Marshal(textProperties)
+	if err != nil {
+		fmt.Println(err)
+	}
 	return fmt.Sprintf(`We need your help to complete the task: %v
 	
 	Additional instructions are as follows:
@@ -133,15 +135,9 @@ func (v *openai) generatePrompt(text string, question string, language string) s
 	- You should be kind and decent.
 	
 	This is the result in JSON format:
-	{
-		%v
-	}
-`,
-		question, language, strings.ReplaceAll(text, "\n", " "))
-	//todo [save this for later, in case needed]
-	//return fmt.Sprintf(`'%v in the %v language:
-	//%v
-	//`, question, language, strings.ReplaceAll(text, "\n", " "))
+
+	%v
+`, question, language, string(marshal))
 }
 
 func (v *openai) getApiKey(ctx context.Context) (string, error) {

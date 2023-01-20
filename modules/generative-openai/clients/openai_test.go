@@ -32,6 +32,7 @@ func nullLogger() logrus.FieldLogger {
 }
 
 func TestGetAnswer(t *testing.T) {
+	textProperties := []map[string]string{{"prop": "My name is john"}}
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		handler := &testAnswerHandler{
 			t: t,
@@ -55,7 +56,7 @@ func TestGetAnswer(t *testing.T) {
 			Result: ptString("John"),
 		}
 
-		res, err := c.Generate(context.Background(), "My name is John", "What is my name?", "", nil)
+		res, err := c.Generate(context.Background(), textProperties, "What is my name?", "", nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
@@ -75,7 +76,7 @@ func TestGetAnswer(t *testing.T) {
 		c := New("apiKey", nullLogger())
 		c.host = server.URL
 
-		_, err := c.Generate(context.Background(), "My name is John", "What is my name?", "", nil)
+		_, err := c.Generate(context.Background(), textProperties, "What is my name?", "", nil)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")

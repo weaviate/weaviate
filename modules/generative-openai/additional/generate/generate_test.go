@@ -100,11 +100,11 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 type fakeOpenAIClient struct{}
 
-func (c *fakeOpenAIClient) Generate(ctx context.Context, text, task, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
-	return c.getResult(text, task, language, "generate"), nil
+func (c *fakeOpenAIClient) Generate(ctx context.Context, textProperties []map[string]string, task string, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	return c.getResult(textProperties, task, language, "generate"), nil
 }
 
-func (c *fakeOpenAIClient) getResult(text, task, language, s string) *ent.GenerateResult {
+func (c *fakeOpenAIClient) getResult(text []map[string]string, task, language, s string) *ent.GenerateResult {
 	return &ent.GenerateResult{
 		Result: &task,
 	}
