@@ -16,16 +16,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"strings"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	"github.com/weaviate/weaviate/modules/generative-openai/ent"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
 type openai struct {
@@ -38,11 +38,14 @@ type openai struct {
 
 func New(apiKey string, logger logrus.FieldLogger) *openai {
 	return &openai{
-		apiKey:     apiKey,
-		httpClient: &http.Client{},
-		host:       "https://api.openai.com",
-		path:       "/v1/completions",
-		logger:     logger,
+		apiKey: apiKey,
+		httpClient: &http.Client{
+			//todo check if we need longer than this!
+			Timeout: 60 * time.Second,
+		},
+		host:   "https://api.openai.com",
+		path:   "/v1/completions",
+		logger: logger,
 	}
 }
 
@@ -56,7 +59,6 @@ func (v *openai) Generate(ctx context.Context, text, task, language string, cfg 
 		Model:            settings.Model(),
 		MaxTokens:        settings.MaxTokens(),
 		Temperature:      settings.Temperature(),
-		Stop:             []string{"\n"},
 		FrequencyPenalty: settings.FrequencyPenalty(),
 		PresencePenalty:  settings.PresencePenalty(),
 		TopP:             settings.TopP(),
@@ -104,9 +106,12 @@ func (v *openai) Generate(ctx context.Context, text, task, language string, cfg 
 		}
 		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
 	}
-	if len(resBody.Choices) > 0 && resBody.Choices[0].Text != "" {
+	textResponse := resBody.Choices[0].Text
+	if len(resBody.Choices) > 0 && textResponse != "" {
+		//todo [@marcin, should we do this? seems like OpenAI returns the \n from the prompt I think for some reason]
+		replaceAll := strings.ReplaceAll(textResponse, "\n", "")
 		return &ent.GenerateResult{
-			Result: &resBody.Choices[0].Text,
+			Result: &replaceAll,
 		}, nil
 	}
 	return &ent.GenerateResult{
@@ -115,10 +120,27 @@ func (v *openai) Generate(ctx context.Context, text, task, language string, cfg 
 }
 
 func (v *openai) generatePrompt(text string, question string, language string) string {
-	return fmt.Sprintf(`'%v in the following language: %v for the following context:
-===
-Context: %v
-===`, question, language, strings.ReplaceAll(text, "\n", " "))
+	//todo [byron - this is the prompt created by Bob/Connor, check if it actually performs better than simple piping
+	//todo of question + language check out code commented out below code]
+	return fmt.Sprintf(`We need your help to complete the task: %v
+	
+	Additional instructions are as follows:
+	- You must base your response on the result in JSON format and nothing else.
+	- The response should be in %v.
+	- You should only base your results on the result in JSON format. If you can't do this, could you explain why you can't do this?
+	- You should only respond with the result to the task, nothing more.
+	- You should be kind and decent.
+	
+	This is the result in JSON format:
+	{
+		%v
+	}
+`,
+		question, language, strings.ReplaceAll(text, "\n", " "))
+	//todo [save this for later, in case needed]
+	//return fmt.Sprintf(`'%v in the %v language:
+	//%v
+	//`, question, language, strings.ReplaceAll(text, "\n", " "))
 }
 
 func (v *openai) getApiKey(ctx context.Context) (string, error) {
