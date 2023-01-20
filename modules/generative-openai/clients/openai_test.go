@@ -52,9 +52,7 @@ func TestGetAnswer(t *testing.T) {
 		c.host = server.URL
 
 		expected := ent.GenerateResult{
-			Text:     "My name is John",
-			Question: "What is my name?",
-			Answer:   ptString("John"),
+			Result: ptString("John"),
 		}
 
 		res, err := c.Generate(context.Background(), "My name is John", "What is my name?", "", nil)

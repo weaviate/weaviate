@@ -21,12 +21,15 @@ type Params struct {
 func (n Params) GetTask() string {
 	return n.Task
 }
+
 func (n Params) GetResultLanguage() string {
 	return n.ResultLanguage
 }
+
 func (n Params) GetOnSet() string {
 	return n.OnSet
 }
+
 func (n Params) GetProperties() []string {
 	return n.Properties
 }

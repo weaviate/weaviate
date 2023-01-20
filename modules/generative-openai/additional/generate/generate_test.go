@@ -27,8 +27,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should fail with empty content", func(t *testing.T) {
 		// given
 		openaiClient := &fakeOpenAIClient{}
-		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(openaiClient, fakeHelper)
+		answerProvider := New(openaiClient)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -50,8 +49,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should fail with empty question", func(t *testing.T) {
 		// given
 		openaiClient := &fakeOpenAIClient{}
-		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(openaiClient, fakeHelper)
+		answerProvider := New(openaiClient)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -76,8 +74,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should answer", func(t *testing.T) {
 		// given
 		openaiClient := &fakeOpenAIClient{}
-		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(openaiClient, fakeHelper)
+		answerProvider := New(openaiClient)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -112,8 +109,7 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should answer with property", func(t *testing.T) {
 		// given
 		openaiClient := &fakeOpenAIClient{}
-		fakeHelper := &fakeParamsHelper{}
-		answerProvider := New(openaiClient, fakeHelper)
+		answerProvider := New(openaiClient)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -155,33 +151,11 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 type fakeOpenAIClient struct{}
 
 func (c *fakeOpenAIClient) Generate(ctx context.Context, text, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
-	return c.getResult(question, "generate"), nil
+	return c.getResult(text, question, language, "generate"), nil
 }
 
-func (c *fakeOpenAIClient) getResult(question, answer string) *ent.GenerateResult {
+func (c *fakeOpenAIClient) getResult(text, question, language, s string) *ent.GenerateResult {
 	return &ent.GenerateResult{
-		Text:     question,
-		Question: question,
-		Answer:   &answer,
+		Result: &text,
 	}
-}
-
-type fakeParamsHelper struct{}
-
-func (h *fakeParamsHelper) GetQuestion(params interface{}) string {
-	if fakeParamsMap, ok := params.(map[string]interface{}); ok {
-		if question, ok := fakeParamsMap["question"].(string); ok {
-			return question
-		}
-	}
-	return ""
-}
-
-func (h *fakeParamsHelper) GetProperties(params interface{}) []string {
-	if fakeParamsMap, ok := params.(map[string]interface{}); ok {
-		if properties, ok := fakeParamsMap["properties"].([]string); ok {
-			return properties
-		}
-	}
-	return nil
 }
