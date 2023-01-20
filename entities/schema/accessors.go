@@ -4,15 +4,17 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
 
 import (
-	"github.com/semi-technologies/weaviate/entities/models"
+	"strings"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (s *Schema) GetClass(className ClassName) *models.Class {
@@ -42,6 +44,23 @@ func (s *Schema) FindClassByName(className ClassName) *models.Class {
 
 // 	return "", false
 // }
+
+func PropertyIsIndexed(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	c, err := GetClassByName(schemaDefinition, string(className))
+	if err != nil {
+		return false
+	}
+	p, err := GetPropertyByName(c, propertyName)
+	if err != nil {
+		return false
+	}
+	indexed := p.IndexInverted
+	if indexed == nil {
+		return true
+	}
+	return *indexed
+}
 
 func (s *Schema) GetProperty(className ClassName, propName PropertyName) (*models.Property, error) {
 	semSchemaClass, err := GetClassByName(s.Objects, string(className))

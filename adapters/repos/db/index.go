@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -21,28 +21,28 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/multi"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/multi"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -285,7 +285,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.PutObject(ctx, shardName, object)
+		err = i.replicator.PutObject(ctx, shardName, object, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object put across replicas: %w", err)
 		}
@@ -320,7 +320,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	// Parse() would break a lot of code, because it currently
 	// schema-independent. To find out if a field is a date or date[], we need to
 	// involve the schema, thus why we are doing it here. This was discovered as
-	// part of https://github.com/semi-technologies/weaviate/issues/1775
+	// part of https://github.com/weaviate/weaviate/issues/1775
 	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
 		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
@@ -454,7 +454,7 @@ func (i *Index) putObjectBatch(ctx context.Context,
 			defer wg.Done()
 			var errs []error
 			if i.replicationEnabled() {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects)
+				errs = i.replicator.PutObjects(ctx, shardName, group.objects, replica.All)
 			} else if !i.isLocalShard(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
@@ -499,7 +499,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	// Parse() would break a lot of code, because it currently
 	// schema-independent. To find out if a field is a date or date[], we need to
 	// involve the schema, thus why we are doing it here. This was discovered as
-	// part of https://github.com/semi-technologies/weaviate/issues/1775
+	// part of https://github.com/weaviate/weaviate/issues/1775
 	for j := range objects {
 		if err := i.parseDateFieldsInProps(objects[j].Object.Properties); err != nil {
 			return duplicateErr(errors.Wrapf(err, "shard %s", localShard.ID()),
@@ -540,7 +540,7 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs)
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, replica.All)
 		} else if i.isLocalShard(shardName) {
 			shard := i.Shards[shardName]
 			errs = shard.addReferencesBatch(ctx, group.refs)
@@ -783,9 +783,14 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					if v.DataType[0] == "text" || v.DataType[0] == "string" { // TODO: Also the array types?
+					if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
+				}
+
+				// WEAVIATE-471 - error if we can't find a property to search
+				if len(keywordRanking.Properties) == 0 {
+					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
 				}
 			}
 			shard := i.Shards[shardName]
@@ -987,7 +992,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.DeleteObject(ctx, shardName, id)
+		err = i.replicator.DeleteObject(ctx, shardName, id, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object delete across replicas: %w", err)
 		}
@@ -1037,7 +1042,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.MergeObject(ctx, shardName, &merge)
+		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object patch across replicas: %w", err)
 		}
@@ -1291,7 +1296,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun)
+				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun, replica.All)
 			} else if i.isLocalShard(shardName) {
 				shard := i.Shards[shardName]
 				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)

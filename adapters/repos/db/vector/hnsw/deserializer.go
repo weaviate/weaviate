@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package hnsw
@@ -39,7 +39,7 @@ type DeserializationResult struct {
 	// flag, so that future appends aren't always appended and we run into a
 	// situation where reading multiple condensed logs in succession leads to too
 	// many connections as discovered in
-	// https://github.com/semi-technologies/weaviate/issues/1868
+	// https://github.com/weaviate/weaviate/issues/1868
 	LinksReplaced map[uint64]map[uint16]struct{}
 }
 

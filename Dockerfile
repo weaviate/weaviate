@@ -3,11 +3,12 @@
 
 # vi: ft=dockerfile
 
+
 ###############################################################################
 # Base build image
 FROM golang:1.19-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
-WORKDIR /go/src/github.com/semi-technologies/weaviate
+WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
 COPY go.mod .
@@ -22,7 +23,7 @@ ARG GITHASH="unknown"
 ARG EXTRA_BUILD_ARGS=""
 COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
-      -ldflags '-w -extldflags "-static" -X github.com/semi-technologies/weaviate/usecases/config.GitHash='"$GITHASH"'' \
+      -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
