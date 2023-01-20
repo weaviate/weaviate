@@ -22,24 +22,16 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
-type Params struct{}
-
 type openAIClient interface {
-	Result(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error)
-}
-
-type paramsHelper interface {
-	GetQuestion(params interface{}) string
-	GetProperties(params interface{}) []string
+	Generate(ctx context.Context, text, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
 }
 
 type GenerateProvider struct {
 	client openAIClient
-	paramsHelper
 }
 
-func New(openai openAIClient, paramsHelper paramsHelper) *GenerateProvider {
-	return &GenerateProvider{openai, paramsHelper}
+func New(openai openAIClient) *GenerateProvider {
+	return &GenerateProvider{openai}
 }
 
 func (p *GenerateProvider) AdditonalPropertyDefaultValue() interface{} {
@@ -47,7 +39,7 @@ func (p *GenerateProvider) AdditonalPropertyDefaultValue() interface{} {
 }
 
 func (p *GenerateProvider) ExtractAdditionalFn(param []*ast.Argument) interface{} {
-	return &Params{}
+	return p.parseGenerateArguments(param)
 }
 
 func (p *GenerateProvider) AdditionalFieldFn(classname string) *graphql.Field {

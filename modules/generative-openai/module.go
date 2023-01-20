@@ -42,7 +42,7 @@ type GenerativeOpenAIModule struct {
 }
 
 type generativeClient interface {
-	Result(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error)
+	Generate(ctx context.Context, text, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 
@@ -73,7 +73,7 @@ func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context,
 
 	m.generative = client
 
-	generateProvider := generativeadditionalgenerate.New(m.generative, nil)
+	generateProvider := generativeadditionalgenerate.New(m.generative)
 	m.additionalPropertiesProvider = generativeadditional.New(generateProvider)
 
 	return nil

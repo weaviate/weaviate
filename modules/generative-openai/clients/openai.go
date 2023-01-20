@@ -46,8 +46,8 @@ func New(apiKey string, logger logrus.FieldLogger) *openai {
 	}
 }
 
-func (v *openai) Result(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
-	prompt := v.generatePrompt(text, question)
+func (v *openai) Generate(ctx context.Context, text, task, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	prompt := v.generatePrompt(text, task, language)
 
 	settings := config.NewClassSettings(cfg)
 
@@ -105,20 +105,16 @@ func (v *openai) Result(ctx context.Context, text, question string, cfg moduleto
 		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
 	}
 	if len(resBody.Choices) > 0 && resBody.Choices[0].Text != "" {
-		return &ent.AnswerResult{
-			Text:     text,
-			Question: question,
-			Answer:   &resBody.Choices[0].Text,
+		return &ent.GenerateResult{
+			Result: &resBody.Choices[0].Text,
 		}, nil
 	}
-	return &ent.AnswerResult{
-		Text:     text,
-		Question: question,
-		Answer:   nil,
+	return &ent.GenerateResult{
+		Result: nil,
 	}, nil
 }
 
-func (v *openai) generatePrompt(text string, question string) string {
+func (v *openai) generatePrompt(text string, question string, language string) string {
 	return fmt.Sprintf(`'Please answer the question according to the above context.
 
 ===
