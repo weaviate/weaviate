@@ -16,16 +16,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-openai/config"
-	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/generative-openai/config"
+	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
 type openai struct {
@@ -40,7 +41,7 @@ func New(apiKey string, logger logrus.FieldLogger) *openai {
 	return &openai{
 		apiKey: apiKey,
 		httpClient: &http.Client{
-			//todo check if we need longer than this!
+			//nolint:gofumpt    //todo check if we need longer than this!
 			Timeout: 60 * time.Second,
 		},
 		host:   "https://api.openai.com",
@@ -108,7 +109,7 @@ func (v *openai) Generate(ctx context.Context, text, task, language string, cfg 
 	}
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
-		//todo [@marcin, should we do this? seems like OpenAI returns the \n from the prompt I think for some reason]
+		//nolint:gofumpt    //todo [@marcin, should we do this? seems like OpenAI returns the \n from the prompt I think for some reason]
 		replaceAll := strings.ReplaceAll(textResponse, "\n", "")
 		return &ent.GenerateResult{
 			Result: &replaceAll,
@@ -120,7 +121,7 @@ func (v *openai) Generate(ctx context.Context, text, task, language string, cfg 
 }
 
 func (v *openai) generatePrompt(text string, question string, language string) string {
-	//todo [byron - this is the prompt created by Bob/Connor, check if it actually performs better than simple piping
+	//nolint:gofumpt    //todo [byron - this is the prompt created by Bob/Connor, check if it actually performs better than simple piping
 	//todo of question + language check out code commented out below code]
 	return fmt.Sprintf(`We need your help to complete the task: %v
 	

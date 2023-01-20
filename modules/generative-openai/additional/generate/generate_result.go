@@ -26,7 +26,7 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 	if len(in) == 0 {
 		return in, nil
 	}
-	//todo switch here depending on input
+	//nolint:gofumpt    //todo switch here depending on input
 	task := params.Task
 	onSet := params.OnSet
 	language := params.ResultLanguage
@@ -42,7 +42,6 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 						textProperties[property] = valueString
 					}
 				}
-
 			}
 
 			var texts []string
@@ -72,9 +71,6 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 		}
 	}
 
-	//"individualResults"
-	//"allResults"
-
 	return in, nil
 }
 
@@ -88,22 +84,4 @@ func (p *GenerateProvider) containsProperty(property string, properties []string
 		}
 	}
 	return false
-}
-
-func (p *GenerateProvider) findProperty(answer *string, textProperties map[string]string) (*string, int, int) {
-	if answer == nil {
-		return nil, 0, 0
-	}
-	lowercaseAnswer := strings.ToLower(*answer)
-	if len(lowercaseAnswer) > 0 {
-		for property, value := range textProperties {
-			lowercaseValue := strings.ToLower(strings.ReplaceAll(value, "\n", " "))
-			if strings.Contains(lowercaseValue, lowercaseAnswer) {
-				startIndex := strings.Index(lowercaseValue, lowercaseAnswer)
-				return &property, startIndex, startIndex + len(lowercaseAnswer)
-			}
-		}
-	}
-	propertyNotFound := ""
-	return &propertyNotFound, 0, 0
 }

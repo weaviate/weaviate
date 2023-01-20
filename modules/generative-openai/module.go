@@ -34,11 +34,7 @@ func New() *GenerativeOpenAIModule {
 
 type GenerativeOpenAIModule struct {
 	generative                   generativeClient
-	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.DependencySearcher
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-	nearTextDependencies         []modulecapabilities.Dependency
-	askTextTransformer           modulecapabilities.TextTransform
 }
 
 type generativeClient interface {
