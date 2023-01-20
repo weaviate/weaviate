@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package spellcheck
@@ -15,11 +15,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/modules/text-spellcheck/ent"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/modules/text-spellcheck/ent"
 )
 
 type Params struct{}

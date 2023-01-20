@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest && !race
@@ -22,11 +22,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // The !race build tag makes sure that this test is EXCLUDED from running with
@@ -36,7 +36,7 @@ import (
 // This test imports 10,000 objects concurrently which is extremely expensive
 // with the race detector on.
 // It prevents a regression on
-// https://github.com/semi-technologies/weaviate/issues/1868
+// https://github.com/weaviate/weaviate/issues/1868
 func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	n := 10000
 	dim := 16

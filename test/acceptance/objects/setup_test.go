@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -14,10 +14,49 @@ package test
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/objects"
+
+	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
+
+// Tests that sort parameters are validated with the correct class
+func TestSort(t *testing.T) {
+	createObjectClass(t, &models.Class{
+		Class: "ClassToSort",
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
+	})
+	defer deleteObjectClass(t, "ClassToSort")
+
+	createObjectClass(t, &models.Class{
+		Class: "OtherClass",
+		Properties: []*models.Property{
+			{
+				Name:     "ref",
+				DataType: []string{"ClassToSort"},
+			},
+		},
+	})
+	defer deleteObjectClass(t, "OtherClass")
+
+	listParams := objects.NewObjectsListParams()
+	nameClass := "ClassToSort"
+	nameProp := "name"
+	limit := int64(5)
+	listParams.Class = &nameClass
+	listParams.Sort = &nameProp
+	listParams.Limit = &limit
+
+	_, err := helper.Client(t).Objects.ObjectsList(listParams, nil)
+	require.Nil(t, err, "should not error")
+}
 
 func Test_Objects(t *testing.T) {
 	createObjectClass(t, &models.Class{

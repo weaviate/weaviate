@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -14,8 +14,8 @@ package db
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
+	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
 func (s *Shard) aggregate(ctx context.Context,

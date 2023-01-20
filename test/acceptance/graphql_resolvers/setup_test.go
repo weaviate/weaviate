@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	sch "github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/multishard"
+	"github.com/weaviate/weaviate/entities/models"
+	sch "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_GraphQL(t *testing.T) {
@@ -81,6 +81,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("aggregates on date fields", aggregatesOnDateFields)
+	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	// tear down
@@ -134,7 +135,7 @@ func addTestSchema(t *testing.T) {
 				"vectorizeClassName": true,
 			},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexTimestamps: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexPropertyLength: true, IndexTimestamps: true},
 		Properties: []*models.Property{
 			{
 				Name:     "name",

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -17,13 +17,13 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type DB struct {
@@ -57,7 +57,7 @@ type DB struct {
 	// hopefully very short).
 	//
 	//
-	// See also: https://github.com/semi-technologies/weaviate/issues/2351
+	// See also: https://github.com/weaviate/weaviate/issues/2351
 	indexLock sync.RWMutex
 }
 

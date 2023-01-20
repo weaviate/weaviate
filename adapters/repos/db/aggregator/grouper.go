@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package aggregator
@@ -16,13 +16,13 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/traverser/hybrid"
+	"github.com/weaviate/weaviate/adapters/repos/db/docid"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -127,10 +127,6 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		if vec == nil {
-			return nil, nil, fmt.Errorf("must provide hybrid search vector if alpha > 0")
-		}
-
 		res, dists, err := g.objectVectorSearch(vec, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate grouped dense search: %w", err)

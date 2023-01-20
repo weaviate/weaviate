@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -20,12 +20,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/storagestate"
-	"github.com/semi-technologies/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
@@ -82,7 +82,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	}
 
 	// vector is now optional as of
-	// https://github.com/semi-technologies/weaviate/issues/1800
+	// https://github.com/weaviate/weaviate/issues/1800
 	if len(vector) == 0 {
 		return nil
 	}
@@ -175,7 +175,7 @@ func (s *Shard) determineInsertStatus(previous []byte,
 	out.oldDocID = docID
 
 	// with docIDs now being immutable (see
-	// https://github.com/semi-technologies/weaviate/issues/1282) there is no
+	// https://github.com/weaviate/weaviate/issues/1282) there is no
 	// more check if we need to increase a docID. Any update will mean a doc ID
 	// needs to be updated.
 	docID, err = s.counter.GetAndInc()
