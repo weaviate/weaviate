@@ -11,12 +11,8 @@
 
 package models
 
-// Answer used in generative OpenAI module to represent
+// GenerateResult used in generative OpenAI module to represent
 // the answer to a given question
-type Answer struct {
-	Result        *string `json:"result,omitempty"`
-	Property      *string `json:"property,omitempty"`
-	StartPosition int     `json:"startPosition,omitempty"`
-	EndPosition   int     `json:"endPosition,omitempty"`
-	HasAnswer     bool    `json:"hasAnswer,omitempty"`
+type GenerateResult struct {
+	Result *string `json:"result,omitempty"`
 }
