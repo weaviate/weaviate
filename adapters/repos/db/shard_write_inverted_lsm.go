@@ -262,7 +262,9 @@ func (s *Shard) addPropLengths(props []inverted.Property) error {
 			continue
 		}
 
-		s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items)))
+		if err := s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+			return err
+		}
 	}
 
 	return nil
