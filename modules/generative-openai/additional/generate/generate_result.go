@@ -30,15 +30,19 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 	task := params.Task
 	onSet := params.OnSet
 	language := params.ResultLanguage
+	properties := params.Properties
 
 	if onSet == "individualResults" {
 		for i := range in {
 			textProperties := map[string]string{}
 			schema := in[i].Object().Properties.(map[string]interface{})
 			for property, value := range schema {
-				if valueString, ok := value.(string); ok && len(valueString) > 0 {
-					textProperties[property] = valueString
+				if p.containsProperty(property, properties) {
+					if valueString, ok := value.(string); ok && len(valueString) > 0 {
+						textProperties[property] = valueString
+					}
 				}
+
 			}
 
 			var texts []string

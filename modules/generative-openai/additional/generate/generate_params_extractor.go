@@ -28,6 +28,14 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument) *Params 
 			out.ResultLanguage = arg.Value.(*ast.EnumValue).Value
 		case "onSet":
 			out.OnSet = arg.Value.(*ast.EnumValue).Value
+		case "properties":
+			inp := arg.Value.GetValue().([]ast.Value)
+			out.Properties = make([]string, len(inp))
+
+			for i, value := range inp {
+				out.Properties[i] = value.(*ast.StringValue).Value
+			}
+
 		default:
 			// ignore what we don't recognize
 			log.Printf("Igonore not recognized value: %v", arg.Name.Value)
