@@ -105,7 +105,8 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	testData = append(testData, map[string]interface{}{"title": "journey journey", "description": "journey journey journey"})
 	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey"})
 	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY"})
-	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(offtopic!!!!"})
+	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(Offtopic!!!!"})
+	testData = append(testData, map[string]interface{}{"title": "none", "description": "none", "stringField": "YELLING IS FUN"})
 
 	for i, data := range testData {
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -140,7 +141,7 @@ func TestBM25FJourney(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	// Check basic search with one property
+	// Check basic search
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
 	addit := additional.Properties{}
 	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
@@ -151,6 +152,7 @@ func TestBM25FJourney(t *testing.T) {
 	for _, r := range res {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
+
 	t.Run("bm25f journey", func(t *testing.T) {
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
@@ -160,18 +162,21 @@ func TestBM25FJourney(t *testing.T) {
 		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25F")
 	})
 
-	// Check basic search on string field
-	kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "*&^$@#$%^&*()(offtopic!!!!"}
-	addit = additional.Properties{}
-	resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, addit)
-	require.Nil(t, err)
+	// Check non-alpha search on string field
 
-	// Print results
-	fmt.Println("--- Start results for stringField search ---")
-	for _, r := range res {
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-	}
-	t.Run("bm25f journey", func(t *testing.T) {
+	// String are by default not tokenized, so we can search for non-alpha characters
+	t.Run("bm25f stringfield non-alpha", func(t *testing.T) {
+		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
+		addit = additional.Properties{}
+		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, addit)
+		require.Nil(t, err)
+
+		// Print results
+		fmt.Println("--- Start results for stringField search ---")
+		for _, r := range resStringField {
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
 		// Check results in correct order
 		require.Equal(t, uint64(7), resStringField[0].DocID())
 
@@ -179,18 +184,37 @@ func TestBM25FJourney(t *testing.T) {
 		require.Contains(t, resStringField[0].Object.Additional["explainScore"], "BM25F")
 	})
 
-	// Check basic search WITH CAPS
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-	addit = additional.Properties{}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	// Print results
-	fmt.Println("--- Start results for search with caps ---")
-	for _, r := range res {
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-	}
-	require.Nil(t, err)
+	// String and text fields are indexed differently, so this checks the string indexing and searching.  In particular,
+	// string fields are not lower-cased before indexing, so upper case searches must be passed through unchanged.
+	t.Run("bm25f stringfield caps", func(t *testing.T) {
+		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"stringField"}, Query: "YELLING IS FUN"}
+		addit := additional.Properties{}
+		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, addit)
+		require.Nil(t, err)
 
-	t.Run("bm25f journey with caps", func(t *testing.T) {
+		// Print results
+		fmt.Println("--- Start results for stringField caps search ---")
+		for _, r := range resStringField {
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
+		// Check results in correct order
+		require.Equal(t, uint64(8), resStringField[0].DocID())
+
+	})
+
+	// Check basic text search WITH CAPS
+	t.Run("bm25f text with caps", func(t *testing.T) {
+		kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
+		addit = additional.Properties{}
+		res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		// Print results
+		fmt.Println("--- Start results for search with caps ---")
+		for _, r := range res {
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+		require.Nil(t, err)
+
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
@@ -243,7 +267,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	fmt.Println("Search with non alphanums")
 	// Check search with no properties (should include all properties)
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(offtopic!!!!"}
+	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 	require.Nil(t, err)
 
@@ -288,8 +312,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	// Check results in correct order
-	require.Equal(t, uint64(1), res[0].DocID())
-	require.Equal(t, uint64(5), res[3].DocID())
+	require.Equal(t, uint64(6), res[0].DocID())
+	require.Equal(t, uint64(1), res[3].DocID())
 
 	// Print results
 	fmt.Println("--- Start results for boosted search ---")
@@ -298,13 +322,23 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.04598), res[0].Score(), 6)
-	EqualFloats(t, float32(0.01435), res[1].Score(), 6)
+	EqualFloats(t, float32(0.2442), res[1].Score(), 5)
+	EqualFloats(t, float32(0.270), res[0].Score(), 5)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
+
 	s1 := fmt.Sprintf("%v", expected)
 	s2 := fmt.Sprintf("%v", actual)
+	if len(s1) < 2 || len(s2) < 2 {
+		t.Fail()
+	}
+	if len(s1) < significantFigures {
+		significantFigures = len(s1) - 1
+	}
+	if len(s2) < significantFigures {
+		significantFigures = len(s2) - 1
+	}
 	require.Equal(t, s1[:significantFigures+1], s2[:significantFigures+1])
 }
 
