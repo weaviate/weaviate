@@ -154,12 +154,12 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 type fakeOpenAIClient struct{}
 
-func (c *fakeOpenAIClient) Result(ctx context.Context, text, question string, cfg moduletools.ClassConfig) (*ent.AnswerResult, error) {
+func (c *fakeOpenAIClient) Generate(ctx context.Context, text, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
 	return c.getResult(question, "generate"), nil
 }
 
-func (c *fakeOpenAIClient) getResult(question, answer string) *ent.AnswerResult {
-	return &ent.AnswerResult{
+func (c *fakeOpenAIClient) getResult(question, answer string) *ent.GenerateResult {
+	return &ent.GenerateResult{
 		Text:     question,
 		Question: question,
 		Answer:   &answer,

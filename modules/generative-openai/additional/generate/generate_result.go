@@ -26,52 +26,50 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 	if len(in) == 0 {
 		return in, nil
 	}
-	question := p.paramsHelper.GetQuestion(argumentModuleParams["ask"])
-	if question == "" {
-		return in, errors.New("empty question")
-	}
-	properties := p.paramsHelper.GetProperties(argumentModuleParams["ask"])
+	//todo switch here depending on input
+	task := params.Task
+	onSet := params.OnSet
+	language := params.ResultLanguage
 
-	for i := range in {
-		textProperties := map[string]string{}
-		schema := in[i].Object().Properties.(map[string]interface{})
-		for property, value := range schema {
-			if p.containsProperty(property, properties) {
+	if onSet == "individualResults" {
+		for i := range in {
+			textProperties := map[string]string{}
+			schema := in[i].Object().Properties.(map[string]interface{})
+			for property, value := range schema {
 				if valueString, ok := value.(string); ok && len(valueString) > 0 {
 					textProperties[property] = valueString
 				}
 			}
-		}
 
-		var texts []string
-		for _, value := range textProperties {
-			texts = append(texts, value)
-		}
-		text := strings.Join(texts, " ")
-		if len(text) == 0 {
-			return in, errors.New("empty content")
-		}
+			var texts []string
+			for _, value := range textProperties {
+				texts = append(texts, value)
+			}
+			text := strings.Join(texts, " ")
+			if len(text) == 0 {
+				return in, errors.New("empty content")
+			}
 
-		answer, err := p.client.Result(ctx, text, question, cfg)
-		if err != nil {
-			return in, err
-		}
+			generateResult, err := p.client.Generate(ctx, text, task, language, cfg)
+			if err != nil {
+				return in, err
+			}
 
-		ap := in[i].AdditionalProperties
-		if ap == nil {
-			ap = models.AdditionalProperties{}
-		}
-		propertyName, startPos, endPos := p.findProperty(answer.Answer, textProperties)
-		ap["generate"] = &generativemodels.Answer{
-			Result:        answer.Answer,
-			Property:      propertyName,
-			StartPosition: startPos,
-			EndPosition:   endPos,
-			HasAnswer:     answer.Answer != nil,
-		}
+			ap := in[i].AdditionalProperties
+			if ap == nil {
+				ap = models.AdditionalProperties{}
+			}
 
-		in[i].AdditionalProperties = ap
+			ap["generate"] = &generativemodels.Answer{
+				Result: generateResult.Result,
+			}
+
+			in[i].AdditionalProperties = ap
+		}
 	}
+
+	//"individualResults"
+	//"allResults"
 
 	return in, nil
 }

@@ -9,10 +9,20 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package generate
 
-type AnswerResult struct {
-	Text     string
-	Question string
-	Answer   *string
+type Params struct {
+	Task           string
+	ResultLanguage string
+	OnSet          string
+}
+
+func (n Params) GetTask() string {
+	return n.Task
+}
+func (n Params) GetResultLanguage() string {
+	return n.ResultLanguage
+}
+func (n Params) GetOnSet() string {
+	return n.OnSet
 }

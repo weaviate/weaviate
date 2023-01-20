@@ -51,13 +51,13 @@ func TestGetAnswer(t *testing.T) {
 		c := New("apiKey", nullLogger())
 		c.host = server.URL
 
-		expected := ent.AnswerResult{
+		expected := ent.GenerateResult{
 			Text:     "My name is John",
 			Question: "What is my name?",
 			Answer:   ptString("John"),
 		}
 
-		res, err := c.Result(context.Background(), "My name is John", "What is my name?", nil)
+		res, err := c.Generate(context.Background(), "My name is John", "What is my name?", "", nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
@@ -77,7 +77,7 @@ func TestGetAnswer(t *testing.T) {
 		c := New("apiKey", nullLogger())
 		c.host = server.URL
 
-		_, err := c.Result(context.Background(), "My name is John", "What is my name?", nil)
+		_, err := c.Generate(context.Background(), "My name is John", "What is my name?", "", nil)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")
