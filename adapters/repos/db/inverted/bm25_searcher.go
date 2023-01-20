@@ -226,26 +226,25 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 	textTerms := helpers.TokenizeText(keywordRanking.Query)
 	stringTerms := helpers.TokenizeString(keywordRanking.Query)
 
-	idLists := []docPointersWithScore{}
-
-	for _, term := range textTerms {
+	idLists := make([]docPointersWithScore, len(textTerms)+len(stringTerms))
+	for i, term := range textTerms {
 
 		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, term, "", keywordRanking.Query)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		idLists = append(idLists, ids)
+		idLists[i] = ids
 	}
 
-	for _, term := range stringTerms {
+	for i, term := range stringTerms {
 
 		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, "", term, keywordRanking.Query)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		idLists = append(idLists, ids)
+		idLists[len(textTerms)+i] = ids
 	}
 
 	ids := mergeScores(idLists)
@@ -361,7 +360,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 				} else if p.DataType[0] == "string" && stringTerm != "" {
 					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, stringTerm)
 				}
-
 			} else {
 				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
 			}

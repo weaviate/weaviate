@@ -200,7 +200,6 @@ func TestBM25FJourney(t *testing.T) {
 
 		// Check results in correct order
 		require.Equal(t, uint64(8), resStringField[0].DocID())
-
 	})
 
 	// Check basic text search WITH CAPS
@@ -327,7 +326,6 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
-
 	s1 := fmt.Sprintf("%v", expected)
 	s2 := fmt.Sprintf("%v", actual)
 	if len(s1) < 2 || len(s2) < 2 {
