@@ -200,7 +200,7 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 	}
 
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead)
+		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
