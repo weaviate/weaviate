@@ -63,7 +63,7 @@ func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, 
 				ap = models.AdditionalProperties{}
 			}
 
-			ap["generate"] = &generativemodels.Answer{
+			ap["generate"] = &generativemodels.GenerateResult{
 				Result: generateResult.Result,
 			}
 

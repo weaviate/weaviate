@@ -30,8 +30,8 @@ func TestGenerateField(t *testing.T) {
 		// then
 		// the built graphQL field needs to support this structure:
 		// Type: {
-		//   answer: {
-		//     result: "answer",
+		//   generate: {
+		//     result: "result",
 		//   }
 		// }
 		assert.NotNil(t, answer)
@@ -39,7 +39,7 @@ func TestGenerateField(t *testing.T) {
 		assert.NotNil(t, answer.Type)
 		answerObject, answerObjectOK := answer.Type.(*graphql.Object)
 		assert.True(t, answerObjectOK)
-		assert.Equal(t, 5, len(answerObject.Fields()))
+		assert.Equal(t, 1, len(answerObject.Fields()))
 		assert.NotNil(t, answerObject.Fields()["result"])
 	})
 }

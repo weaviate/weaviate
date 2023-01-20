@@ -36,8 +36,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:            "text-ada-001",
-			wantMaxTokens:        16,
+			wantModel:            "text-davinci-003",
+			wantMaxTokens:        100,
 			wantTemperature:      0.0,
 			wantTopP:             1,
 			wantFrequencyPenalty: 0.0,

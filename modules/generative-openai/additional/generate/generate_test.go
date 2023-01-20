@@ -24,53 +24,6 @@ import (
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {
-	t.Run("should fail with empty content", func(t *testing.T) {
-		// given
-		openaiClient := &fakeOpenAIClient{}
-		answerProvider := New(openaiClient)
-		in := []search.Result{
-			{
-				ID: "some-uuid",
-			},
-		}
-		fakeParams := &Params{}
-		limit := 1
-		argumentModuleParams := map[string]interface{}{}
-
-		// when
-		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
-
-		// then
-		require.NotNil(t, err)
-		require.NotEmpty(t, out)
-		assert.Error(t, err, "empty content")
-	})
-
-	t.Run("should fail with empty question", func(t *testing.T) {
-		// given
-		openaiClient := &fakeOpenAIClient{}
-		answerProvider := New(openaiClient)
-		in := []search.Result{
-			{
-				ID: "some-uuid",
-				Schema: map[string]interface{}{
-					"content": "content",
-				},
-			},
-		}
-		fakeParams := &Params{}
-		limit := 1
-		argumentModuleParams := map[string]interface{}{}
-
-		// when
-		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
-
-		// then
-		require.NotNil(t, err)
-		require.NotEmpty(t, out)
-		assert.Error(t, err, "empty content")
-	})
-
 	t.Run("should answer", func(t *testing.T) {
 		// given
 		openaiClient := &fakeOpenAIClient{}
@@ -83,13 +36,14 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 				},
 			},
 		}
-		fakeParams := &Params{}
-		limit := 1
-		argumentModuleParams := map[string]interface{}{
-			"ask": map[string]interface{}{
-				"question": "question",
-			},
+		fakeParams := &Params{
+			Task:           "this is a task",
+			ResultLanguage: "English",
+			OnSet:          "individualResults",
+			Properties:     nil,
 		}
+		limit := 1
+		argumentModuleParams := map[string]interface{}{}
 
 		// when
 		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
@@ -98,12 +52,12 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		require.Nil(t, err)
 		require.NotEmpty(t, out)
 		assert.Equal(t, 1, len(in))
-		answer, answerOK := in[0].AdditionalProperties["answer"]
+		answer, answerOK := in[0].AdditionalProperties["generate"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
-		answerAdditional, answerAdditionalOK := answer.(*generativemodels.Answer)
+		answerAdditional, answerAdditionalOK := answer.(*generativemodels.GenerateResult)
 		assert.True(t, answerAdditionalOK)
-		assert.Equal(t, "answer", *answerAdditional.Result)
+		assert.Equal(t, "this is a task", *answerAdditional.Result)
 	})
 
 	t.Run("should answer with property", func(t *testing.T) {
@@ -119,14 +73,14 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 				},
 			},
 		}
-		fakeParams := &Params{}
-		limit := 1
-		argumentModuleParams := map[string]interface{}{
-			"ask": map[string]interface{}{
-				"question":   "question",
-				"properties": []string{"content", "content2"},
-			},
+		fakeParams := &Params{
+			Task:           "this is a task",
+			ResultLanguage: "English",
+			OnSet:          "individualResults",
+			Properties:     []string{"content", "content2"},
 		}
+		limit := 1
+		argumentModuleParams := map[string]interface{}{}
 
 		// when
 		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
@@ -135,27 +89,23 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		require.Nil(t, err)
 		require.NotEmpty(t, out)
 		assert.Equal(t, 1, len(in))
-		answer, answerOK := in[0].AdditionalProperties["answer"]
+		answer, answerOK := in[0].AdditionalProperties["generate"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
-		answerAdditional, answerAdditionalOK := answer.(*generativemodels.Answer)
+		answerAdditional, answerAdditionalOK := answer.(*generativemodels.GenerateResult)
 		assert.True(t, answerAdditionalOK)
-		assert.Equal(t, "answer", *answerAdditional.Result)
-		assert.Equal(t, "content", *answerAdditional.Property)
-		assert.Equal(t, 13, answerAdditional.StartPosition)
-		assert.Equal(t, 19, answerAdditional.EndPosition)
-		assert.Equal(t, true, answerAdditional.HasAnswer)
+		assert.Equal(t, "this is a task", *answerAdditional.Result)
 	})
 }
 
 type fakeOpenAIClient struct{}
 
-func (c *fakeOpenAIClient) Generate(ctx context.Context, text, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
-	return c.getResult(text, question, language, "generate"), nil
+func (c *fakeOpenAIClient) Generate(ctx context.Context, text, task, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	return c.getResult(text, task, language, "generate"), nil
 }
 
-func (c *fakeOpenAIClient) getResult(text, question, language, s string) *ent.GenerateResult {
+func (c *fakeOpenAIClient) getResult(text, task, language, s string) *ent.GenerateResult {
 	return &ent.GenerateResult{
-		Result: &text,
+		Result: &task,
 	}
 }
