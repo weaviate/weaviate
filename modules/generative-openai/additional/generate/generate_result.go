@@ -13,65 +13,75 @@ package generate
 
 import (
 	"context"
-	"errors"
-	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	generativemodels "github.com/weaviate/weaviate/modules/generative-openai/additional/models"
+	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
-func (p *GenerateProvider) findResults(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
+func (p *GenerateProvider) generateResult(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
 	if len(in) == 0 {
 		return in, nil
 	}
-	//nolint:gofumpt    //todo switch here depending on input
 	task := params.Task
 	onSet := params.OnSet
 	language := params.ResultLanguage
 	properties := params.Properties
 
-	if onSet == "individualResults" {
-		for i := range in {
-			textProperties := map[string]string{}
-			schema := in[i].Object().Properties.(map[string]interface{})
-			for property, value := range schema {
-				if p.containsProperty(property, properties) {
-					if valueString, ok := value.(string); ok && len(valueString) > 0 {
-						textProperties[property] = valueString
-					}
-				}
-			}
-
-			var texts []string
-			for _, value := range textProperties {
-				texts = append(texts, value)
-			}
-			text := strings.Join(texts, " ")
-			if len(text) == 0 {
-				return in, errors.New("empty content")
-			}
-
-			generateResult, err := p.client.Generate(ctx, text, task, language, cfg)
+	var propertieForAllDocs []map[string]string
+	for i := range in {
+		textProperties := p.getTextProperties(in, i, properties)
+		i2 := []map[string]string{textProperties}
+		if onSet == "individualResults" {
+			generateResult, err := p.client.Generate(ctx, i2, task, language, cfg)
 			if err != nil {
 				return in, err
 			}
 
-			ap := in[i].AdditionalProperties
-			if ap == nil {
-				ap = models.AdditionalProperties{}
-			}
-
-			ap["generate"] = &generativemodels.GenerateResult{
-				Result: generateResult.Result,
-			}
-
-			in[i].AdditionalProperties = ap
+			p.setResult(in, 0, generateResult)
+		} else {
+			propertieForAllDocs = append(propertieForAllDocs, p.getTextProperties(in, i, properties))
 		}
+
 	}
 
+	if len(propertieForAllDocs) > 0 {
+		generateResult, err := p.client.Generate(ctx, propertieForAllDocs, task, language, cfg)
+		if err != nil {
+			return in, err
+		}
+
+		p.setResult(in, 0, generateResult)
+	}
 	return in, nil
+}
+
+func (p *GenerateProvider) setResult(in []search.Result, i int, generateResult *ent.GenerateResult) {
+	ap := in[i].AdditionalProperties
+	if ap == nil {
+		ap = models.AdditionalProperties{}
+	}
+
+	ap["generate"] = &generativemodels.GenerateResult{
+		Result: generateResult.Result,
+	}
+
+	in[i].AdditionalProperties = ap
+}
+
+func (p *GenerateProvider) getTextProperties(in []search.Result, i int, properties []string) map[string]string {
+	textProperties := map[string]string{}
+	schema := in[i].Object().Properties.(map[string]interface{})
+	for property, value := range schema {
+		if p.containsProperty(property, properties) {
+			if valueString, ok := value.(string); ok && len(valueString) > 0 {
+				textProperties[property] = valueString
+			}
+		}
+	}
+	return textProperties
 }
 
 func (p *GenerateProvider) containsProperty(property string, properties []string) bool {

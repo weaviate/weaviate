@@ -38,7 +38,7 @@ type GenerativeOpenAIModule struct {
 }
 
 type generativeClient interface {
-	Generate(ctx context.Context, text, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
+	Generate(ctx context.Context, text []map[string]string, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
 	MetaInfo() (map[string]interface{}, error)
 }
 

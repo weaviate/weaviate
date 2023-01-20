@@ -23,7 +23,7 @@ import (
 )
 
 type openAIClient interface {
-	Generate(ctx context.Context, text, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
+	Generate(ctx context.Context, textProperties []map[string]string, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
 }
 
 type GenerateProvider struct {
@@ -51,7 +51,7 @@ func (p *GenerateProvider) AdditionalPropertyFn(ctx context.Context,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
-		return p.findResults(ctx, in, parameters, limit, argumentModuleParams, cfg)
+		return p.generateResult(ctx, in, parameters, limit, argumentModuleParams, cfg)
 	}
 	return nil, errors.New("wrong parameters")
 }
