@@ -1,4 +1,14 @@
 datasets:
+  - id: msmarco
+    path: ./datasets/msmarco
+    corpus:
+      indexed_properties:
+        - title
+        - text
+      unindexed_properties:
+        - _id 
+    queries:
+      property: text
   - id: nfcorpus
     path: ./datasets/nfcorpus
     corpus:
