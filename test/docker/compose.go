@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package docker
@@ -17,9 +17,9 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	modstggcs "github.com/semi-technologies/weaviate/modules/backup-gcs"
-	modstgs3 "github.com/semi-technologies/weaviate/modules/backup-s3"
 	"github.com/testcontainers/testcontainers-go"
+	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
+	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
 )
 
 const (

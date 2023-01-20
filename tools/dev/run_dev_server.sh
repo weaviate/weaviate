@@ -20,7 +20,7 @@ export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node1"}
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -ldflags "-X github.com/semi-technologies/weaviate/usecases/config.GitHash=$GIT_HASH" $@
+  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" $@
 }
 
 case $CONFIG in

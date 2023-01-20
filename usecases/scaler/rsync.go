@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package scaler
@@ -18,7 +18,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/semi-technologies/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/backup"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -70,44 +70,44 @@ func (r *rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor
 func (r *rsync) PushShard(ctx context.Context, className string, desc backup.ShardDescriptor, nodes []string) error {
 	ctx = context.Background()
 	// Iterate over the new target nodes and copy files
-	for _, targetNode := range nodes {
-		host, ok := r.cluster.NodeHostname(targetNode)
+	for _, node := range nodes {
+		host, ok := r.cluster.NodeHostname(node)
 		if !ok {
-			return fmt.Errorf("%w: %q", ErrUnresolvedName, targetNode)
+			return fmt.Errorf("%w: %q", ErrUnresolvedName, node)
 		}
 		if err := r.client.CreateShard(ctx, host, className, desc.Name); err != nil {
-			return fmt.Errorf("create new shard on remote node: %w", err)
+			return fmt.Errorf("create new shard on remote node %q: %w", node, err)
 		}
 
 		// Transfer each file that's part of the backup.
 		for _, file := range desc.Files {
 			err := r.PutFile(ctx, file, host, className, desc.Name)
 			if err != nil {
-				return fmt.Errorf("copy files to remote node: %w", err)
+				return fmt.Errorf("copy files to remote node %q: %w", node, err)
 			}
 		}
 
 		// Transfer shard metadata files
 		err := r.PutFile(ctx, desc.ShardVersionPath, host, className, desc.Name)
 		if err != nil {
-			return fmt.Errorf("copy shard version to remote node: %w", err)
+			return fmt.Errorf("copy shard version to remote node %q: %w", node, err)
 		}
 
 		err = r.PutFile(ctx, desc.DocIDCounterPath, host, className, desc.Name)
 		if err != nil {
-			return fmt.Errorf("copy index counter to remote node: %w", err)
+			return fmt.Errorf("copy index counter to remote node %q: %w", node, err)
 		}
 
 		err = r.PutFile(ctx, desc.PropLengthTrackerPath, host, className, desc.Name)
 		if err != nil {
-			return fmt.Errorf("copy prop length tracker to remote node: %w", err)
+			return fmt.Errorf("copy prop length tracker to remote node %q: %w", node, err)
 		}
 
 		// Now that all files are on the remote node's new shard, the shard needs
 		// to be reinitialized. Otherwise, it would not recognize the files when
 		// serving traffic later.
 		if err := r.client.ReInitShard(ctx, host, className, desc.Name); err != nil {
-			return fmt.Errorf("create new shard on remote node: %w", err)
+			return fmt.Errorf("create new shard on remote node %q: %w", node, err)
 		}
 	}
 	return nil

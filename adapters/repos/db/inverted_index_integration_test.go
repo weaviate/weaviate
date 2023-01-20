@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -23,15 +22,15 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
@@ -82,8 +81,16 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 	})
+	t.Run("Add additional property", func(t *testing.T) {
+		err := migrator.AddProperty(context.Background(), class.Class, &models.Property{
+			Name:         "OtherProp",
+			DataType:     []string{"string"},
+			Tokenization: "word",
+		})
+		require.Nil(t, err)
+	})
 
-	t.Run("check for timestamp buckets", func(t *testing.T) {
+	t.Run("check for additional buckets", func(t *testing.T) {
 		for _, idx := range migrator.db.indices {
 			for _, shd := range idx.Shards {
 				createBucket := shd.store.Bucket("property__creationTimeUnix")
@@ -100,10 +107,13 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
 				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("property_OtherProp"+filters.InternalNullIndex), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_OtherProp"+filters.InternalNullIndex), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
 
 				assert.NotNil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
 				assert.NotNil(t, shd.store.Bucket("hash_property_name"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
-
+				assert.NotNil(t, shd.store.Bucket("property_OtherProp"+filters.InternalPropertyLength), "property_name"+filters.InternalNullIndex+"bucket not found")
+				assert.NotNil(t, shd.store.Bucket("hash_property_OtherProp"+filters.InternalPropertyLength), "hash_property_name"+filters.InternalNullIndex+"bucket not found")
 			}
 		}
 	})
@@ -113,7 +123,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		objWithProperty := &models.Object{
 			ID:         testID1,
 			Class:      "TestClass",
-			Properties: map[string]interface{}{"name": "objectarooni"},
+			Properties: map[string]interface{}{"name": "objectarooni", "OtherProp": "whatever"},
 		}
 		vec := []float32{1, 2, 3}
 		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec))
@@ -122,7 +132,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		objWithoutProperty := &models.Object{
 			ID:         testID2,
 			Class:      "TestClass",
-			Properties: map[string]interface{}{"name": nil},
+			Properties: map[string]interface{}{"name": nil, "OtherProp": nil},
 		}
 		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec))
 	})
