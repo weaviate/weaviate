@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/ratelimiter"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -45,6 +46,7 @@ type Traverser struct {
 	schemaGetter     schema.SchemaGetter
 	nearParamsVector *nearParamsVector
 	metrics          *Metrics
+	ratelimiter      *ratelimiter.Limiter
 }
 
 type VectorSearcher interface {
@@ -81,6 +83,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 		schemaGetter:     schemaGetter,
 		nearParamsVector: newNearParamsVector(modulesProvider, vectorSearcher),
 		metrics:          metrics,
+		ratelimiter:      ratelimiter.New(30),
 	}
 }
 
