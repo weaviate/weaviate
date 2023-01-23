@@ -13,6 +13,7 @@ package generate
 
 import (
 	"context"
+	"sync"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -30,32 +31,60 @@ func (p *GenerateProvider) generateResult(ctx context.Context, in []search.Resul
 	language := params.ResultLanguage
 	properties := params.Properties
 
-	var propertieForAllDocs []map[string]string
-	for i := range in {
-		textProperties := p.getTextProperties(in, i, properties)
-		i2 := []map[string]string{textProperties}
-		if onSet == "individualResults" {
-			generateResult, err := p.client.Generate(ctx, i2, task, language, cfg)
+	switch onSet {
+	case "individualResults":
+		return p.generatePerSearchResult(ctx, in, properties, task, language, cfg)
+	case "allResults":
+		return p.generateForAllSearchResults(ctx, in, properties, task, language, cfg)
+	default:
+		return in, nil
+	}
+}
+
+func (p *GenerateProvider) generatePerSearchResult(ctx context.Context, in []search.Result, properties []string, task string, language string, cfg moduletools.ClassConfig) ([]search.Result, error) {
+	//nolint:gofumpt    //todo How to limit the number of go-routines??
+	var wg sync.WaitGroup
+	for i, result := range in {
+		wg.Add(1)
+		textProperties := p.getTextProperties(result, properties)
+		go func(result search.Result, textProperties map[string]string, i int) {
+			defer wg.Done()
+			generateResult, err := p.client.Generate(ctx, []map[string]string{textProperties}, task, language, cfg)
 			if err != nil {
-				return in, err
+				return
 			}
-
-			p.setResult(in, 0, generateResult)
-		} else {
-			propertieForAllDocs = append(propertieForAllDocs, p.getTextProperties(in, i, properties))
-		}
-
+			p.setResult(in, i, generateResult)
+		}(result, textProperties, i)
 	}
-
-	if len(propertieForAllDocs) > 0 {
-		generateResult, err := p.client.Generate(ctx, propertieForAllDocs, task, language, cfg)
-		if err != nil {
-			return in, err
-		}
-
-		p.setResult(in, 0, generateResult)
-	}
+	wg.Wait()
 	return in, nil
+}
+
+func (p *GenerateProvider) generateForAllSearchResults(ctx context.Context, in []search.Result, properties []string, task string, language string, cfg moduletools.ClassConfig) ([]search.Result, error) {
+	var propertiesForAllDocs []map[string]string
+	for _, res := range in {
+		propertiesForAllDocs = append(propertiesForAllDocs, p.getTextProperties(res, properties))
+	}
+	generateResult, err := p.client.Generate(ctx, propertiesForAllDocs, task, language, cfg)
+	if err != nil {
+		return in, err
+	}
+
+	p.setResult(in, 0, generateResult)
+	return in, nil
+}
+
+func (p *GenerateProvider) getTextProperties(result search.Result, properties []string) map[string]string {
+	textProperties := map[string]string{}
+	schema := result.Object().Properties.(map[string]interface{})
+	for property, value := range schema {
+		if p.containsProperty(property, properties) {
+			if valueString, ok := value.(string); ok {
+				textProperties[property] = valueString
+			}
+		}
+	}
+	return textProperties
 }
 
 func (p *GenerateProvider) setResult(in []search.Result, i int, generateResult *ent.GenerateResult) {
@@ -69,19 +98,6 @@ func (p *GenerateProvider) setResult(in []search.Result, i int, generateResult *
 	}
 
 	in[i].AdditionalProperties = ap
-}
-
-func (p *GenerateProvider) getTextProperties(in []search.Result, i int, properties []string) map[string]string {
-	textProperties := map[string]string{}
-	schema := in[i].Object().Properties.(map[string]interface{})
-	for property, value := range schema {
-		if p.containsProperty(property, properties) {
-			if valueString, ok := value.(string); ok && len(valueString) > 0 {
-				textProperties[property] = valueString
-			}
-		}
-	}
-	return textProperties
 }
 
 func (p *GenerateProvider) containsProperty(property string, properties []string) bool {
