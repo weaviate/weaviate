@@ -310,3 +310,33 @@ func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 		require.Equal(t, "l2-squared", conf.DefaultVectorDistanceMetric)
 	})
 }
+
+func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"100"}, 100, false},
+		{"not given", []string{}, DefaultMaxConcurrentGetRequests, false},
+		{"unlimitd", []string{"-1"}, -1, false},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("MAXIMUM_CONCURRENT_GET_REQUESTS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.MaximumConcurrentGetRequests)
+			}
+		})
+	}
+}

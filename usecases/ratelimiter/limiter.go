@@ -23,6 +23,10 @@ func (l *Limiter) TryInc() bool {
 	l.lock.Lock()
 	defer l.lock.Unlock()
 
+	if l.max < 0 {
+		return true
+	}
+
 	if l.current < l.max {
 		l.current++
 		return true
@@ -35,6 +39,10 @@ func (l *Limiter) TryInc() bool {
 func (l *Limiter) Dec() {
 	l.lock.Lock()
 	defer l.lock.Unlock()
+
+	if l.max < 0 {
+		return
+	}
 
 	l.current--
 }

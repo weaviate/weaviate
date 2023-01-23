@@ -207,6 +207,16 @@ func FromEnv(config *Config) error {
 		config.Profiling.MutexProfileFraction = asInt
 	}
 
+	if v := os.Getenv("MAXIMUM_CONCURRENT_GET_REQUESTS"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse MAXIMUM_CONCURRENT_GET_REQUESTS as int")
+		}
+		config.MaximumConcurrentGetRequests = int(asInt)
+	} else {
+		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
+	}
+
 	return nil
 }
 
@@ -280,6 +290,7 @@ const (
 	DefaultPersistenceMemtablesMaxSize        = 200
 	DefaultPersistenceMemtablesMinDuration    = 15
 	DefaultPersistenceMemtablesMaxDuration    = 45
+	DefaultMaxConcurrentGetRequests           = -1
 )
 
 const VectorizerModuleNone = "none"
