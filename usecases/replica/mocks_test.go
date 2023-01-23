@@ -35,6 +35,11 @@ func (f *fakeRClient) FindObject(ctx context.Context, host, index, shard string,
 	return args.Get(0).(*storobj.Object), args.Error(1)
 }
 
+func (f *fakeRClient) Exists(ctx context.Context, host, index, shard string, id strfmt.UUID) (bool, error) {
+	args := f.Called(ctx, host, index, shard, id)
+	return args.Get(0).(bool), args.Error(1)
+}
+
 type fakeClient struct {
 	mock.Mock
 }
@@ -89,14 +94,6 @@ func (f *fakeClient) Commit(ctx context.Context, host, index, shard, requestID s
 func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID)
 	return args.Get(0).(SimpleResponse), args.Error(1)
-}
-
-func (f *fakeClient) FindObject(ctx context.Context, host, index, shard string,
-	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
-) (*storobj.Object, error) {
-	args := f.Called(ctx, host, index, shard, id, props, additional)
-	return args.Get(0).(*storobj.Object), args.Error(1)
 }
 
 // Replica finder
