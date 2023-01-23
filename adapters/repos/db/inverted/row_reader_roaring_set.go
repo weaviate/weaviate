@@ -26,24 +26,29 @@ import (
 // RowReaderRoaringSet reads one or many row(s) depending on the specified
 // operator
 type RowReaderRoaringSet struct {
-	value    []byte
-	bucket   *lsmkv.Bucket
-	operator filters.Operator
-
-	keyOnly bool
+	value     []byte
+	operator  filters.Operator
+	newCursor func() lsmkv.CursorRoaringSet
+	getter    func(key []byte) (*sroar.Bitmap, error)
 }
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
-// wherever cursors are used, the specified value arguments in the ReadFn will
-// always be nil
+// wherever cursors are used, the specified value arguments in the
+// RoaringSetReadFn will always be empty
 func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool,
 ) *RowReaderRoaringSet {
+	getter := bucket.RoaringSetGet
+	newCursor := bucket.CursorRoaringSet
+	if keyOnly {
+		newCursor = bucket.CursorRoaringSetKeyOnly
+	}
+
 	return &RowReaderRoaringSet{
-		bucket:   bucket,
-		value:    value,
-		operator: operator,
-		keyOnly:  keyOnly,
+		value:     value,
+		operator:  operator,
+		newCursor: newCursor,
+		getter:    getter,
 	}
 }
 
@@ -96,7 +101,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 		return err
 	}
 
-	v, err := rr.bucket.RoaringSetGet(rr.value)
+	v, err := rr.getter(rr.value)
 	if err != nil {
 		return err
 	}
@@ -240,13 +245,4 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	}
 
 	return nil
-}
-
-// newCursor will either return a regular cursor - or a key-only cursor if
-// keyOnly==true
-func (rr *RowReaderRoaringSet) newCursor() *lsmkv.CursorRoaringSet {
-	if rr.keyOnly {
-		return rr.bucket.CursorRoaringSetKeyOnly()
-	}
-	return rr.bucket.CursorRoaringSet()
 }
