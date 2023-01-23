@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -110,4 +111,12 @@ func gqlGet(t *testing.T, host, class string, fields ...string) []interface{} {
 
 	result := resp.Get("Get").Get(class)
 	return result.Result.([]interface{})
+}
+
+func getNodes(t *testing.T, host string) *models.NodesStatusResponse {
+	helper.SetupClient(host)
+
+	resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	return resp.Payload
 }
