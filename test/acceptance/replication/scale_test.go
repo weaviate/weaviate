@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package replication
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -25,22 +26,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
-
-//type mockCompose struct {
-//	uri string
-//}
-//
-//func (m mockCompose) GetWeaviate() mockCompose {
-//	return mockCompose{uri: "localhost:8080"}
-//}
-//
-//func (m mockCompose) GetWeaviateNode2() mockCompose {
-//	return mockCompose{uri: "localhost:8081"}
-//}
-//
-//func (m mockCompose) URI() string {
-//	return m.uri
-//}
 
 func multiShardScaleOut(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -109,5 +94,47 @@ func multiShardScaleOut(t *testing.T) {
 		c := getClass(t, compose.GetWeaviate().URI(), paragraphClass.Class)
 		c.ReplicationConfig.Factor = 2
 		updateClass(t, compose.GetWeaviate().URI(), c)
+	})
+
+	t.Run("assert paragraphs were scaled out", func(t *testing.T) {
+		n := getNodes(t, compose.GetWeaviate().URI())
+		var shardsFound int
+		for _, node := range n.Nodes {
+			for _, shard := range node.Shards {
+				if shard.Class == paragraphClass.Class {
+					assert.EqualValues(t, 10, shard.ObjectCount)
+					shardsFound++
+				}
+			}
+		}
+		assert.Equal(t, 2, shardsFound)
+	})
+
+	t.Run("scale out articles", func(t *testing.T) {
+		c := getClass(t, compose.GetWeaviate().URI(), articleClass.Class)
+		c.ReplicationConfig.Factor = 2
+		updateClass(t, compose.GetWeaviate().URI(), c)
+	})
+
+	t.Run("assert articles were scaled out", func(t *testing.T) {
+		n := getNodes(t, compose.GetWeaviate().URI())
+		var shardsFound int
+		for _, node := range n.Nodes {
+			for _, shard := range node.Shards {
+				if shard.Class == articleClass.Class {
+					assert.EqualValues(t, 10, shard.ObjectCount)
+					shardsFound++
+				}
+			}
+		}
+		assert.Equal(t, 2, shardsFound)
+	})
+
+	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
+		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class)
+		assert.Len(t, p, 10)
+		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class)
+		assert.Len(t, a, 10)
 	})
 }
