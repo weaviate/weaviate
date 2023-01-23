@@ -26,8 +26,10 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 
 	ok := t.ratelimiter.TryInc()
 	if !ok {
-		// TODO typed error
-		return nil, fmt.Errorf("429")
+		// we currently have no concept of error status code or typed errors in
+		// GraphQL, so there is no other way then to send a message containing what
+		// we want to convey
+		return nil, fmt.Errorf("429 Too many requests")
 	}
 
 	defer t.ratelimiter.Dec()

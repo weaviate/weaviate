@@ -71,7 +71,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 	vectorSearcher VectorSearcher,
 	explorer explorer, schemaGetter schema.SchemaGetter,
 	modulesProvider ModulesProvider,
-	metrics *Metrics,
+	metrics *Metrics, maxGetRequests int,
 ) *Traverser {
 	return &Traverser{
 		config:           config,
@@ -83,7 +83,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 		schemaGetter:     schemaGetter,
 		nearParamsVector: newNearParamsVector(modulesProvider, vectorSearcher),
 		metrics:          metrics,
-		ratelimiter:      ratelimiter.New(30),
+		ratelimiter:      ratelimiter.New(maxGetRequests),
 	}
 }
 

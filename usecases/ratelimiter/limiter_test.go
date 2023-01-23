@@ -64,3 +64,17 @@ func TestLimiterConcurrently(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestLimiterUnlimited(t *testing.T) {
+	l := New(-1)
+
+	for i := 0; i < 1000; i++ {
+		assert.True(t, l.TryInc())
+	}
+
+	for i := 0; i < 1000; i++ {
+		l.Dec()
+	}
+
+	assert.True(t, l.TryInc())
+}
