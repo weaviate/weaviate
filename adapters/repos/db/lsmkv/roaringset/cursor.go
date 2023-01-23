@@ -89,8 +89,8 @@ func (c *CombinedCursor) createState(key []byte, layer BitmapLayer, err error) i
 
 func (c *CombinedCursor) getResultFromStates(states []innerCursorState) ([]byte, *sroar.Bitmap) {
 	// NotFound is returned only by Seek call.
-	// If all cursors returned NotFound, combined Seek has no result, therefore inner cursor states
-	// should not be updated to allow cursor to proceed with following Next calls
+	// If all cursors returned NotFound, combined Seek has no result, therefore inner cursors' states
+	// should not be updated to allow combined cursor to proceed with following Next calls
 
 	key, ids, allNotFound := c.getCursorIdsWithLowestKey(states)
 	if !allNotFound {
