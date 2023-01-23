@@ -14,7 +14,7 @@ package hnsw
 import (
 	"context"
 
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not

@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
-	testinghelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/testingHelpers"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
+	testinghelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/stretchr/testify/assert"
 )
 
