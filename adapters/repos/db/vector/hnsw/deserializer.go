@@ -18,7 +18,7 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/sirupsen/logrus"
 )
 

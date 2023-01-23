@@ -25,7 +25,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/commitlog"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/semi-technologies/weaviate/entities/cyclemanager"
 	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"

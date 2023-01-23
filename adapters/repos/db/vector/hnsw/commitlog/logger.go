@@ -16,7 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type Logger struct {

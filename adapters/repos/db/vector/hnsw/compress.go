@@ -19,7 +19,7 @@ import (
 	"sync"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdHelpers"
+	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 const (
@@ -38,7 +38,7 @@ func (h *hnsw) Compress(segments int) error {
 	if segments <= 0 {
 		segments = dims
 	}
-	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseKMeansEncoder)
+	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseTileEncoder)
 
 	data := h.cache.all()
 	cleanData := make([][]float32, 0, len(data))
