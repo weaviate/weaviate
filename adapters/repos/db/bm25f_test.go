@@ -148,9 +148,9 @@ func TestBM25FJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	// Print results
-	fmt.Println("--- Start results for basic search ---")
+	t.Log("--- Start results for basic search ---")
 	for _, r := range res {
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
 	t.Run("bm25f journey", func(t *testing.T) {
@@ -172,9 +172,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Nil(t, err)
 
 		// Print results
-		fmt.Println("--- Start results for stringField search ---")
+		t.Log("--- Start results for stringField search ---")
 		for _, r := range resStringField {
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
@@ -193,9 +193,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Nil(t, err)
 
 		// Print results
-		fmt.Println("--- Start results for stringField caps search ---")
+		t.Log("--- Start results for stringField caps search ---")
 		for _, r := range resStringField {
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
@@ -208,9 +208,9 @@ func TestBM25FJourney(t *testing.T) {
 		addit = additional.Properties{}
 		res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 		// Print results
-		fmt.Println("--- Start results for search with caps ---")
+		t.Log("--- Start results for search with caps ---")
 		for _, r := range res {
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 		require.Nil(t, err)
 
@@ -225,9 +225,9 @@ func TestBM25FJourney(t *testing.T) {
 
 	require.Nil(t, err)
 	// Print results
-	fmt.Println("--- Start results for boosted search ---")
+	t.Log("--- Start results for boosted search ---")
 	for _, r := range res {
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
@@ -250,7 +250,7 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[3].DocID())
 		require.Equal(t, uint64(2), res[4].DocID())
 	})
-	fmt.Println("Search with no properties")
+	t.Log("Search with no properties")
 	// Check search with no properties (should include all properties)
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
 	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
@@ -264,7 +264,7 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[3].DocID())
 	})
 
-	fmt.Println("Search with non alphanums")
+	t.Log("Search with non alphanums")
 	// Check search with no properties (should include all properties)
 	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
@@ -303,9 +303,9 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 	// Print results
-	fmt.Println("--- Start results for boosted search ---")
+	t.Log("--- Start results for boosted search ---")
 	for _, r := range res {
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
 	require.Nil(t, err)
@@ -315,9 +315,9 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Equal(t, uint64(1), res[3].DocID())
 
 	// Print results
-	fmt.Println("--- Start results for boosted search ---")
+	t.Log("--- Start results for boosted search ---")
 	for _, r := range res {
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
 	// Check scores
@@ -367,29 +367,29 @@ func TestBM25FCompare(t *testing.T) {
 
 	for _, shardName := range shardNames {
 		shard := idx.Shards[shardName]
-		fmt.Printf("------ BM25F --------\n")
+		t.Logf("------ BM25F --------\n")
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "journey"}
 		addit := additional.Properties{}
 
 		withBM25Fobjs, withBM25Fscores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 		for i, r := range withBM25Fobjs {
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
-		fmt.Printf("------ BM25 --------\n")
+		t.Logf("------ BM25 --------\n")
 		kwr.Type = ""
 
 		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 
 		for i, r := range objs {
-			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		require.Nil(t, err)
 		require.Equal(t, len(withBM25Fobjs), len(objs))
 		for i := range objs {
-			fmt.Printf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
+			t.Logf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
 			EqualFloats(t, withBM25Fscores[i], scores[i], 9)
 		}
 
