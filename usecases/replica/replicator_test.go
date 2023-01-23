@@ -650,5 +650,5 @@ func (f fakeFactory) newReplicator() *Replicator {
 func (f fakeFactory) newFinder() *Finder {
 	shardingState := newFakeShardingState(f.shard2replicas)
 	nodeResolver := newFakeNodeResolver(f.Nodes)
-	return NewFinder(f.CLS, shardingState, nodeResolver, f.Client)
+	return NewFinder(f.CLS, shardingState, nodeResolver, f.RClient)
 }
