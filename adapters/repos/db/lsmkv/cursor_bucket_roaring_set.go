@@ -7,20 +7,43 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
-type CursorRoaringSet struct {
+type CursorRoaringSet interface {
+	First() ([]byte, *sroar.Bitmap)
+	Next() ([]byte, *sroar.Bitmap)
+	Seek([]byte) ([]byte, *sroar.Bitmap)
+	Close()
+}
+
+type cursorRoaringSet struct {
 	combinedCursor *roaringset.CombinedCursor
 	unlock         func()
 }
 
-func (b *Bucket) CursorRoaringSet() *CursorRoaringSet {
+func (c *cursorRoaringSet) First() ([]byte, *sroar.Bitmap) {
+	return c.combinedCursor.First()
+}
+
+func (c *cursorRoaringSet) Next() ([]byte, *sroar.Bitmap) {
+	return c.combinedCursor.Next()
+}
+
+func (c *cursorRoaringSet) Seek(key []byte) ([]byte, *sroar.Bitmap) {
+	return c.combinedCursor.Seek(key)
+}
+
+func (c *cursorRoaringSet) Close() {
+	c.unlock()
+}
+
+func (b *Bucket) CursorRoaringSet() CursorRoaringSet {
 	return b.cursorRoaringSet(false)
 }
 
-func (b *Bucket) CursorRoaringSetKeyOnly() *CursorRoaringSet {
+func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 	return b.cursorRoaringSet(true)
 }
 
-func (b *Bucket) cursorRoaringSet(keyOnly bool) *CursorRoaringSet {
+func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	b.flushLock.RLock()
 
 	// TODO move to helper func
@@ -40,27 +63,11 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) *CursorRoaringSet {
 
 	// cursors are in order from oldest to newest, with the memtable cursor
 	// being at the very top
-	return &CursorRoaringSet{
+	return &cursorRoaringSet{
 		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly),
 		unlock: func() {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
 		},
 	}
-}
-
-func (c *CursorRoaringSet) First() ([]byte, *sroar.Bitmap) {
-	return c.combinedCursor.First()
-}
-
-func (c *CursorRoaringSet) Next() ([]byte, *sroar.Bitmap) {
-	return c.combinedCursor.Next()
-}
-
-func (c *CursorRoaringSet) Seek(key []byte) ([]byte, *sroar.Bitmap) {
-	return c.combinedCursor.Seek(key)
-}
-
-func (c *CursorRoaringSet) Close() {
-	c.unlock()
 }
