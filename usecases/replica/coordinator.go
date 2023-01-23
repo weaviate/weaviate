@@ -20,10 +20,13 @@ import (
 )
 
 // readyOp asks a replica if it is ready to commit
-type readyOp func(ctx context.Context, host, requestID string) error
+type readyOp func(_ context.Context, host, requestID string) error
 
 // readyOp asks a replica to execute the actual operation
-type commitOp[T any] func(ctx context.Context, host, requestID string) (T, error)
+type commitOp[T any] func(_ context.Context, host, requestID string) (T, error)
+
+// readOp defines a generic read operation
+type readOp[T any] func(_ context.Context, host string) (T, error)
 
 // coordinator coordinates replication of write requests
 type coordinator[T any] struct {
@@ -45,6 +48,18 @@ func newCoordinator[T any](r *Replicator, shard, requestID string) *coordinator[
 		Class: r.class,
 		Shard: shard,
 		TID:   requestID,
+	}
+}
+
+func newReadCoordinator[T any](f *Finder, shard string) *coordinator[T] {
+	return &coordinator[T]{
+		Resolver: &resolver{
+			schema:       f.resolver.schema,
+			nodeResolver: f.resolver,
+			class:        f.class,
+		},
+		Class: f.class,
+		Shard: shard,
 	}
 }
 
@@ -117,4 +132,32 @@ func (c *coordinator[T]) Replicate(ctx context.Context, cl ConsistencyLevel, ask
 		return nil, level, fmt.Errorf("broadcast: %w", err)
 	}
 	return c.commitAll(context.Background(), nodes, com), level, nil
+}
+
+func (c *coordinator[T]) Fetch(ctx context.Context, cl ConsistencyLevel, op readOp[T]) (<-chan simpleResult[T], int, error) {
+	state, err := c.Resolver.State(c.Shard)
+	level := 0
+	if err == nil {
+		level, err = state.ConsistencyLevel(cl)
+	}
+	if err != nil {
+		return nil, level, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+	}
+	replicas := state.Hosts
+	replyCh := make(chan simpleResult[T], len(replicas))
+	go func() {
+		wg := sync.WaitGroup{}
+		wg.Add(len(replicas))
+		for _, replica := range replicas {
+			go func(replica string) {
+				defer wg.Done()
+				resp, err := op(ctx, replica)
+				replyCh <- simpleResult[T]{resp, err}
+			}(replica)
+		}
+		wg.Wait()
+		close(replyCh)
+	}()
+
+	return replyCh, level, nil
 }
