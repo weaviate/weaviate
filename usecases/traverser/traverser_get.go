@@ -23,6 +23,15 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params GetParams,
 ) (interface{}, error) {
 	before := time.Now()
+
+	ok := t.ratelimiter.TryInc()
+	if !ok {
+		// TODO typed error
+		return nil, fmt.Errorf("429")
+	}
+
+	defer t.ratelimiter.Dec()
+
 	t.metrics.QueriesGetInc(params.ClassName)
 	defer t.metrics.QueriesGetDec(params.ClassName)
 	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())
