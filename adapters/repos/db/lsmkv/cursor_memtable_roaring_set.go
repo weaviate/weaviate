@@ -21,7 +21,7 @@ type memtableCursorRoaringSet struct {
 	unlock    func()
 }
 
-func (m *Memtable) newRoaringSetCursor() *memtableCursorRoaringSet {
+func (m *Memtable) newRoaringSetCursor() roaringset.InnerCursor {
 	m.RLock()
 	defer m.RUnlock()
 
