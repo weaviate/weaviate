@@ -38,7 +38,7 @@ func (h *hnsw) Compress(segments int) error {
 	if segments <= 0 {
 		segments = dims
 	}
-	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, ssdhelpers.NewDistanceProvider(h.distancerProvider), dims, ssdhelpers.UseTileEncoder)
+	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, h.distancerProvider, dims, ssdhelpers.UseTileEncoder)
 
 	data := h.cache.all()
 	cleanData := make([][]float32, 0, len(data))
