@@ -18,30 +18,38 @@ import (
 	"gonum.org/v1/gonum/stat/distuv"
 )
 
+type Centroid struct {
+	Center     []float32
+	Calculated bool
+}
+
 type TileEncoder struct {
-	bins    float64
-	mean    float64
-	stdDev  float64
-	size    float64
-	s1      float64
-	s2      float64
-	segment int
+	bins      float64
+	mean      float64
+	stdDev    float64
+	size      float64
+	s1        float64
+	s2        float64
+	segment   int
+	centroids []Centroid
 }
 
 func NewTileEncoder(bits int, segment int) *TileEncoder {
-	return &TileEncoder{
-		bins:    math.Pow(2, float64(bits)),
-		mean:    0,
-		stdDev:  0,
-		size:    0,
-		s1:      0,
-		s2:      0,
-		segment: segment,
+	te := &TileEncoder{
+		bins:      math.Pow(2, float64(bits)),
+		mean:      0,
+		stdDev:    0,
+		size:      0,
+		s1:        0,
+		s2:        0,
+		segment:   segment,
+		centroids: make([]Centroid, 256),
 	}
+	return te
 }
 
 func RestoreTileEncoder(bins float64, mean float64, stdDev float64, size float64, s1 float64, s2 float64, segment uint16) *TileEncoder {
-	return &TileEncoder{
+	te := &TileEncoder{
 		bins:    bins,
 		mean:    mean,
 		stdDev:  stdDev,
@@ -50,6 +58,7 @@ func RestoreTileEncoder(bins float64, mean float64, stdDev float64, size float64
 		s2:      s2,
 		segment: int(segment),
 	}
+	return te
 }
 
 func (te *TileEncoder) ExposeDataForRestore() []byte {
@@ -65,7 +74,6 @@ func (te *TileEncoder) ExposeDataForRestore() []byte {
 }
 
 func (te *TileEncoder) Fit(data [][]float32) error {
-	//No need
 	return nil
 }
 
@@ -93,7 +101,7 @@ func (te *TileEncoder) Encode(x []float32) byte {
 	return byte(intPart)
 }
 
-func (te *TileEncoder) Centroid(b byte) []float32 {
+func (te *TileEncoder) centroid(b byte) []float32 {
 	dist := distuv.LogNormal{
 		Mu:    te.mean,
 		Sigma: te.stdDev,
@@ -109,4 +117,13 @@ func (te *TileEncoder) Centroid(b byte) []float32 {
 		res = append(res, float32(dist.Quantile(mean)))
 	}
 	return res
+}
+
+func (te *TileEncoder) Centroid(b byte) []float32 {
+	if te.centroids[b].Calculated {
+		return te.centroids[b].Center
+	}
+	te.centroids[b].Center = te.centroid(b)
+	te.centroids[b].Calculated = true
+	return te.centroids[b].Center
 }
