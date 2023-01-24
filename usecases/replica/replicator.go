@@ -108,6 +108,27 @@ func (r *Replicator) MergeObject(ctx context.Context, shard string,
 	return readSimpleResponses(1, level, replyCh)[0]
 }
 
+func (r *Replicator) DeleteObject(ctx context.Context, shard string,
+	id strfmt.UUID, cl ConsistencyLevel,
+) error {
+	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject))
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id)
+		if err == nil {
+			err = resp.FirstError()
+		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
+	}
+	replyCh, level, err := coord.Replicate(ctx, cl, op, r.simpleCommit(shard))
+	if err != nil {
+		return err
+	}
+	return readSimpleResponses(1, level, replyCh)[0]
+}
+
 func (r *Replicator) PutObjects(ctx context.Context, shard string,
 	objs []*storobj.Object, cl ConsistencyLevel,
 ) []error {
@@ -132,41 +153,6 @@ func (r *Replicator) PutObjects(ctx context.Context, shard string,
 		return errs
 	}
 	return readSimpleResponses(len(objs), level, replyCh)
-}
-
-func (r *Replicator) DeleteObject(ctx context.Context, shard string,
-	id strfmt.UUID, cl ConsistencyLevel,
-) error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject))
-	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			return fmt.Errorf("%q: %w", host, err)
-		}
-		return nil
-	}
-	replyCh, level, err := coord.Replicate(ctx, cl, op, r.simpleCommit(shard))
-	if err != nil {
-		return err
-	}
-	return readSimpleResponses(1, level, replyCh)[0]
-}
-
-func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
-	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
-		resp := SimpleResponse{}
-		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			err = fmt.Errorf("%s: %w", host, err)
-		}
-		return resp, err
-	}
 }
 
 func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
@@ -230,6 +216,20 @@ func (r *Replicator) AddReferences(ctx context.Context, shard string,
 		return errs
 	}
 	return readSimpleResponses(len(refs), level, replyCh)
+}
+
+func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
+	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
+		resp := SimpleResponse{}
+		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
+		if err == nil {
+			err = resp.FirstError()
+		}
+		if err != nil {
+			err = fmt.Errorf("%s: %w", host, err)
+		}
+		return resp, err
+	}
 }
 
 func errorsFromSimpleResponses(batchSize int, rs []SimpleResponse, defaultErr error) []error {

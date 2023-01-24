@@ -585,7 +585,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		if replProps.NodeName != "" {
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, additional)
 		} else if replProps.ConsistencyLevel != "" {
-			obj, err = i.replicator.FindOne(ctx,
+			obj, err = i.replicator.GetOne(ctx,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, additional)
 		} else {
 			err = fmt.Errorf("replication properties are inconsistent: %+v", replProps)
