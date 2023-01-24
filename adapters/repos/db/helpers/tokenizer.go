@@ -33,6 +33,28 @@ func TokenizeText(in string) []string {
 	return parts
 }
 
+func SmartSplit(in string) ([]string, []float64) {
+	raw := strings.Split(in, " ")
+
+	count := map[string]int{}
+
+	for _, term := range raw {
+		count[term]++
+	}
+
+	terms := make([]string, len(count))
+	boosts := make([]float64, len(count))
+
+	i := 0
+	for term, boost := range count {
+		terms[i] = term
+		boosts[i] = float64(boost)
+		i++
+	}
+
+	return terms, boosts
+}
+
 // Tokenize Text splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
 func TokenizeTextKeepWildcards(in string) []string {
