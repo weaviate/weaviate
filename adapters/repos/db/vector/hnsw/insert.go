@@ -144,7 +144,6 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	// // have to read it from disk again
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)
-		h.pq.Update(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
 		h.compressedVectorsCache.preload(node.id, compressed)
 	} else {

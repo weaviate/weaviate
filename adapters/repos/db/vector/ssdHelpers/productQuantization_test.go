@@ -37,6 +37,13 @@ type IndexAndDistance struct {
 	distance float32
 }
 
+func distance(dp distancer.Provider) func(x, y []float32) float32 {
+	return func(x, y []float32) float32 {
+		dist, _, _ := dp.SingleDist(x, y)
+		return dist
+	}
+}
+
 func TestPQKMeans(t *testing.T) {
 	rand.Seed(0)
 	dimensions := 128
@@ -44,7 +51,7 @@ func TestPQKMeans(t *testing.T) {
 	queries_size := 100
 	k := 100
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, int(dimensions))
-	distanceProvider := ssdhelpers.NewDistanceProvider(distancer.NewL2SquaredProvider())
+	distanceProvider := distancer.NewL2SquaredProvider()
 
 	pq := ssdhelpers.NewProductQuantizer(
 		dimensions,
@@ -62,7 +69,7 @@ func TestPQKMeans(t *testing.T) {
 	var relevant uint64
 	queries_size = 100
 	for _, query := range queries {
-		truth := testinghelpers.BruteForce(vectors, query, k, distanceProvider.Distance)
+		truth := testinghelpers.BruteForce(vectors, query, k, distance(distanceProvider))
 		distances := make([]IndexAndDistance, len(vectors))
 
 		lut := pq.CenterAt(query)
