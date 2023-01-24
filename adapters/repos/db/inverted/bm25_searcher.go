@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -225,11 +227,22 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 ) ([]*storobj.Object, []float32, error) {
 	terms := helpers.TokenizeText(keywordRanking.Query)
 
+	// WEAVIATE-471 - If a property is not searchable, return an error
+	for _, property := range keywordRanking.Properties {
+		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
+			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
+		}
+	}
+	class, err := schema.GetClassByName(b.schema.Objects, string(className))
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "get class by name")
+	}
+
 	idLists := make([]docPointersWithScore, len(terms))
 
 	for i, term := range terms {
 
-		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, term, keywordRanking.Query)
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, class, objectByIndexID, keywordRanking.Properties, term, keywordRanking.Query)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -303,20 +316,13 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 }
 
 // BM25F search each given property for a single term.  Results will be combined later
-func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, className schema.ClassName, objectByIndexID func(index uint64) *storobj.Object, properties []string, term string, query string) (docPointersWithScore, error) {
-	idss := []docPointersWithScore{}
+func (b *BM25Searcher) retrieveForSingleTermMultipleProps(
+	ctx context.Context, c *models.Class, objectByIndexID func(index uint64) *storobj.Object, properties []string,
+	searchTerm string, query string,
+) (docPointersWithScore, error) {
+	var idss []docPointersWithScore
 
-	searchTerm := term
-
-	propNames := []string{}
-
-	// WEAVIATE-471 - If a property is not searchable, return an error
-	for _, property := range properties {
-		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
-			return docPointersWithScore{}, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
-		}
-	}
-
+	var propNames []string
 	for _, propertyWithBoost := range properties {
 		boost := 1
 		property := propertyWithBoost
@@ -325,22 +331,16 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
 			boost, _ = strconv.Atoi(boostStr)
 		}
+		propNames = append(propNames, property)
 
-		var ids docPointersWithScore
-		var err error
-		c, err := schema.GetClassByName(b.schema.Objects, string(className))
-		if err != nil {
-			return docPointersWithScore{}, errors.Wrap(err,
-				"get class by name")
-		}
 		p, err := schema.GetPropertyByName(c, property)
 		if err != nil {
-			return docPointersWithScore{}, errors.Wrap(err,
-				"read property from class")
+			return docPointersWithScore{}, errors.Wrap(err, "read property from class")
 		}
 		indexed := p.IndexInverted
 
 		// Properties don't have to be indexed, if they are not, they will error on search
+		var ids docPointersWithScore
 		if indexed == nil || *indexed {
 			if p.Tokenization == "word" {
 				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
@@ -357,7 +357,6 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			ids.docIDs[i].frequency = ids.docIDs[i].frequency * float64(boost)
 		}
 		idss = append(idss, ids)
-		propNames = append(propNames, property)
 	}
 
 	// Merge the results from different properties
