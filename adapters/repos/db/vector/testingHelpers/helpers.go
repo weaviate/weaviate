@@ -20,9 +20,11 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type DistanceFunction func([]float32, []float32) float32
@@ -185,9 +187,9 @@ func BuildTruths(queries_size int, vectors_size int, queries [][]float32, vector
 		return loadTruths(fileName, queries_size, k)
 	}
 
-	for i, query := range queries {
-		truths[i] = BruteForce(vectors, query, k, distance)
-	}
+	ssdhelpers.Concurrently(uint64(len(queries)), func(_ uint64, i uint64, _ *sync.Mutex) {
+		truths[i] = BruteForce(vectors, queries[i], k, distance)
+	})
 
 	f, err := os.Create(fileName)
 	if err != nil {
