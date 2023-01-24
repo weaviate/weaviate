@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dgraph-io/sroar"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -542,6 +543,15 @@ func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	default:
 		return false
 	}
+}
+
+type docBitmap struct {
+	docIDs   *sroar.Bitmap
+	checksum []byte
+}
+
+func newDocBitmap() docBitmap {
+	return docBitmap{docIDs: sroar.NewBitmap()}
 }
 
 type docPointers struct {
