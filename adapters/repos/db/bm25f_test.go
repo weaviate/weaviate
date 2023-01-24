@@ -231,6 +231,41 @@ func TestBM25FJourney(t *testing.T) {
 	})
 }
 
+func TestBM25FSingleProp(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	// Check boosted
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+	addit := additional.Properties{}
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	require.Nil(t, err)
+	// Check results in correct order
+	require.Equal(t, uint64(2), res[0].DocID())
+	require.Equal(t, uint64(4), res[3].DocID())
+
+	// Check scores
+	EqualFloats(t, float32(0.056586314), res[0].Score(), 6)
+	EqualFloats(t, float32(-0.02731475), res[1].Score(), 6)
+}
+
 func TestBM25FDifferentParamsJourney(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
