@@ -79,6 +79,9 @@ type vectorClassSearch interface {
 		properties *additional.ReplicationProperties) (*search.Result, error)
 	ObjectsByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (search.Results, error)
+	ResolveReferences(ctx context.Context, objs search.Results,
+		props search.SelectProperties, additional additional.Properties,
+	) (search.Results, error)
 }
 
 // NewExplorer with search and connector repo
@@ -250,11 +253,21 @@ func (e *Explorer) Hybrid(ctx context.Context, params GetParams) ([]search.Resul
 		return res, dists, nil
 	}
 
+	postProcess := func(results hybrid.Results) ([]search.Result, error) {
+		res, err := e.search.ResolveReferences(ctx, results.SearchResults(),
+			params.Properties, params.AdditionalProperties)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	}
+
 	h := hybrid.NewSearcher(&hybrid.Params{
 		HybridSearch: params.HybridSearch,
 		Keyword:      params.KeywordRanking,
 		Class:        params.ClassName,
-	}, e.logger, sparseSearch, denseSearch, e.modulesProvider)
+	}, e.logger, sparseSearch, denseSearch,
+		postProcess, e.modulesProvider)
 
 	res, err := h.Search(ctx)
 	if err != nil {
