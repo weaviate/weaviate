@@ -114,3 +114,56 @@ func readOneExists(ch <-chan simpleResult[existReply], cl int) (bool, error) {
 	}
 	return false, errors.New(sb.String())
 }
+
+type osTuple struct {
+	sender string
+	data   []*storobj.Object
+	acks   []int
+	err    error
+}
+
+func readAll(ch <-chan simpleResult[getObjectsReply], level, N int, cl ConsistencyLevel) ([]*storobj.Object, error) {
+	ret := make([]*storobj.Object, N)
+	counters := make([]osTuple, 0, level*2)
+	var sb strings.Builder
+	for r := range ch {
+		resp := r.Response
+		if r.Err != nil {
+			fmt.Fprintf(&sb, "%s: %v ", resp.sender, r.Err)
+			continue
+		} else if n := len(resp.data); n != N {
+			fmt.Fprintf(&sb, "%s: number of objects %d != %d ", resp.sender, n, N)
+			continue
+		}
+		counters = append(counters, osTuple{resp.sender, resp.data, make([]int, N), nil})
+		M := 0
+		for i, x := range resp.data {
+			var lastTime int64
+			if x != nil {
+				lastTime = resp.data[i].LastUpdateTimeUnix()
+			}
+			max := 0
+			for j := range counters {
+				o := counters[j].data[i]
+				if (o == nil && lastTime == 0) || (o != nil && o.LastUpdateTimeUnix() == lastTime) {
+					counters[j].acks[i]++
+				}
+				if max < counters[j].acks[i] {
+					max = counters[j].acks[i]
+				}
+				if max >= level {
+					ret[i] = o
+				}
+			}
+			if max >= level {
+				M++
+			}
+		}
+
+		if M == N {
+			return ret, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w %q %s", ErrConsistencyLevel, cl, sb.String())
+}
