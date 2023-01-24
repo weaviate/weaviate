@@ -97,16 +97,15 @@ func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 		return nil, []float32{}, errors.Wrap(err,
 			"get class by name")
 	}
-	for i, term := range terms {
-		property := keywordRanking.Properties[0]
-		p, err := schema.GetPropertyByName(c, property)
-		if err != nil {
-			return nil, []float32{}, errors.Wrap(err,
-				"read property from class")
-		}
-		indexed := p.IndexInverted
+	property := keywordRanking.Properties[0]
+	p, err := schema.GetPropertyByName(c, property)
+	if err != nil {
+		return nil, []float32{}, errors.Wrap(err, "read property from class")
+	}
+	indexed := p.IndexInverted
 
-		if indexed == nil || *indexed {
+	if indexed == nil || *indexed {
+		for i, term := range terms {
 			ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
 				property, term)
 			if err != nil {
@@ -114,9 +113,9 @@ func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 			}
 
 			idLists[i] = ids
-		} else {
-			idLists[i] = docPointersWithScore{}
 		}
+	} else {
+		return []*storobj.Object{}, []float32{}, nil
 	}
 
 	before := time.Now()
