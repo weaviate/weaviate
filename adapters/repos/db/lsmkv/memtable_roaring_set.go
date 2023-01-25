@@ -23,6 +23,9 @@ func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {
 		return err
 	}
 
+	m.Lock()
+	defer m.Unlock()
+
 	// TODO: write into commit log
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: []uint64{value}})
@@ -35,6 +38,9 @@ func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
+
+	m.Lock()
+	defer m.Unlock()
 
 	// TODO: write into commit log
 
@@ -49,6 +55,9 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
+	m.Lock()
+	defer m.Unlock()
+
 	// TODO: write into commit log
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
@@ -62,6 +71,9 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
+	m.Lock()
+	defer m.Unlock()
+
 	// TODO: write into commit log
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: bm.ToArray()})
@@ -73,6 +85,9 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
+
+	m.RLock()
+	defer m.RUnlock()
 
 	s, err := m.roaringSet.Get(key)
 	if err != nil {

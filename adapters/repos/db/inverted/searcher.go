@@ -233,7 +233,6 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		out.Insert(p)
 	}
 
-	// TODO should really be single pv.docIDs or merged ones?
 	if cacheable && allowCaching {
 		// TODO change cache to work on BM?
 		// transforming to pointers for backward compatibility
