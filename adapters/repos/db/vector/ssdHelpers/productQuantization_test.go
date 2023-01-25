@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// nolint:unused
 func compare(x []byte, y []byte) bool {
 	for i := range x {
 		if x[i] != y[i] {

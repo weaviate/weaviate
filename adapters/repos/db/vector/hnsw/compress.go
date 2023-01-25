@@ -63,10 +63,11 @@ func (h *hnsw) Compress(segments int) error {
 
 	h.compressed.Store(true)
 	h.cache.drop()
-	//ToDo: clear cache
+	// ToDo: clear cache
 	return nil
 }
 
+//nolint:unused
 func (h *hnsw) encodedVector(id uint64) ([]byte, error) {
 	return h.compressedVectorsCache.get(context.Background(), id)
 }
