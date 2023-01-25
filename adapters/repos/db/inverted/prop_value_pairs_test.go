@@ -25,28 +25,28 @@ func TestPropValuePairs_MergeAnd(t *testing.T) {
 		operator: filters.OperatorAnd,
 		children: []*propValuePair{
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 7, 8, 9, 10, 11),
 					checksum: []byte{0x01},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 1, 3, 5, 7, 9, 11),
 					checksum: []byte{0x02},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 1, 3, 5, 7, 9),
 					checksum: []byte{0x03},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 1, 3, 5, 7),
 					checksum: []byte{0x04},
 				},
@@ -68,28 +68,28 @@ func TestPropValuePairs_MergeOr(t *testing.T) {
 		operator: filters.OperatorOr,
 		children: []*propValuePair{
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 7, 8, 9, 10, 11),
 					checksum: []byte{0x01},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 1, 3, 5, 7, 9, 11),
 					checksum: []byte{0x02},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 1, 3, 5, 7, 9),
 					checksum: []byte{0x03},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
-				docIDsBM: docBitmap{
+				docIDs: docBitmap{
 					docIDs:   createBitmap(t, 1, 3, 5, 7),
 					checksum: []byte{0x04},
 				},

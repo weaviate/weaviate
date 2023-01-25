@@ -14,6 +14,7 @@ package inverted
 import (
 	"context"
 
+	"github.com/dgraph-io/sroar"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -105,10 +106,15 @@ func (pv *propValuePair) hashForNonEqualOp(store *lsmkv.Store,
 	if pv.hasFrequency {
 		return pv.hashForNonEqualOpWithFrequency(propBucket, hashBucket, shardVersion)
 	}
-	return pv.hashForNonEqualOpWithoutFrequency(propBucket, hashBucket)
+
+	if propBucket.Strategy() == lsmkv.StrategyRoaringSet {
+		return pv.hashForNonEqualOpWithoutFrequencyRoaringSet(propBucket, hashBucket)
+	}
+
+	return pv.hashForNonEqualOpWithoutFrequencySet(propBucket, hashBucket)
 }
 
-func (pv *propValuePair) hashForNonEqualOpWithoutFrequency(propBucket,
+func (pv *propValuePair) hashForNonEqualOpWithoutFrequencySet(propBucket,
 	hashBucket *lsmkv.Bucket,
 ) ([]byte, error) {
 	rr := NewRowReader(propBucket, pv.value, pv.operator, true)
@@ -118,6 +124,33 @@ func (pv *propValuePair) hashForNonEqualOpWithoutFrequency(propBucket,
 		keys = append(keys, k)
 		return true, nil
 	}); err != nil {
+		return nil, errors.Wrap(err, "read row")
+	}
+
+	hashes := make([][]byte, len(keys))
+	for i, key := range keys {
+		h, err := hashBucket.Get(key)
+		if err != nil {
+			return nil, errors.Wrapf(err, "get hash for key %v", key)
+		}
+		hashes[i] = h
+	}
+
+	return combineChecksums(hashes, pv.operator), nil
+}
+
+func (pv *propValuePair) hashForNonEqualOpWithoutFrequencyRoaringSet(propBucket,
+	hashBucket *lsmkv.Bucket,
+) ([]byte, error) {
+	rr := NewRowReaderRoaringSet(propBucket, pv.value, pv.operator, true)
+
+	var keys [][]byte
+	var readFn RoaringSetReadFn = func(k []byte, _ *sroar.Bitmap) (bool, error) {
+		keys = append(keys, k)
+		return true, nil
+	}
+
+	if err := rr.Read(context.TODO(), readFn); err != nil {
 		return nil, errors.Wrap(err, "read row")
 	}
 
