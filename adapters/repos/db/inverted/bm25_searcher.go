@@ -170,7 +170,7 @@ type term struct {
 
 	idPointer         uint64
 	posPointer        uint64
-	data              []lsmkv.MapPair
+	data              []docPointerWithScore
 	term              string // not really needed, just to make debugging easier
 	exhausted         bool
 	k1                float64
@@ -241,28 +241,17 @@ func (t terms) scoreNext() (uint64, float64, bool) {
 	return id, cumScore, true
 }
 
-func (t terms) debugPrint() {
-	for i, term := range t {
-		fmt.Printf("pos %d (%s), next_id=%d, max_impact=%f\n", i, term.term, term.idPointer, term.idf)
-	}
-	fmt.Printf("\n")
-}
-
 func (t *term) scoreAndAdvance() (uint64, float64) {
 	id := t.idPointer
 	pair := t.data[t.posPointer]
-	freqBits := binary.LittleEndian.Uint32(pair.Value[0:4])
-	frequency := float64(math.Float32frombits(freqBits))
-	propLenBits := binary.LittleEndian.Uint32(pair.Value[4:8])
-	propLength := float64(math.Float32frombits(propLenBits))
-	tf := frequency / (frequency + t.k1*(1-t.b+t.b*propLength/t.averagePropLength))
+	tf := pair.frequency / (pair.frequency + t.k1*(1-t.b+t.b*pair.propLength/t.averagePropLength))
 
 	// advance
 	t.posPointer++
 	if t.posPointer >= uint64(len(t.data)) {
 		t.exhausted = true
 	} else {
-		t.idPointer = binary.BigEndian.Uint64(t.data[t.posPointer].Key)
+		t.idPointer = t.data[t.posPointer].id
 	}
 
 	return id, tf * t.idf
@@ -275,7 +264,7 @@ func (t *term) advanceAtLeast(minID uint64) {
 			t.exhausted = true
 			return
 		}
-		t.idPointer = binary.BigEndian.Uint64(t.data[t.posPointer].Key)
+		t.idPointer = t.data[t.posPointer].id
 	}
 
 	return
@@ -292,40 +281,83 @@ func (b *BM25Searcher) wand(
 	}
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
-	queryTerms, boost := helpers.SmartSplit(query)
+	queryTerms := helpers.TokenizeText(query)
 	terms := make(terms, len(queryTerms))
 
-	propertyWithBoost := properties[0]
-	// propBoost := 1
-	property := propertyWithBoost
-	if strings.Contains(propertyWithBoost, "^") {
-		property = strings.Split(propertyWithBoost, "^")[0]
-		// boostStr := strings.Split(propertyWithBoost, "^")[1]
-		// PropBoost, _ = strconv.Atoi(boostStr)
-	}
+	propertyNames := make([]string, len(properties))
+	propertyBoosts := make([]float32, len(properties))
 
+	for i, propertyWithBoost := range properties {
+		property := propertyWithBoost
+		propBoost := 1
+		if strings.Contains(propertyWithBoost, "^") {
+			property = strings.Split(propertyWithBoost, "^")[0]
+			boostStr := strings.Split(propertyWithBoost, "^")[1]
+			propBoost, _ = strconv.Atoi(boostStr)
+		}
+		propertyNames[i] = property
+		propertyBoosts[i] = float32(propBoost)
+	}
 	for i, queryTerm := range queryTerms {
+		var docMapPairs []docPointerWithScore = nil
+		docMapPairsIndices := make(map[uint64]int, 0)
 		terms[i].term = queryTerm
 		terms[i].k1 = b.config.K1
 		terms[i].b = b.config.B
-		propMean, err := b.propLengths.PropertyMean(property)
-		terms[i].averagePropLength = float64(propMean)
-		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(property))
-		if bucket == nil {
-			return nil, nil, fmt.Errorf("could not find bucket for property %v", property)
-		}
-		m, err := bucket.MapList([]byte(queryTerm))
-		if err != nil {
-			return nil, nil, err
-		}
+		averagePropLength := float32(0.)
+		for j, propName := range propertyNames {
+			propMean, err := b.propLengths.PropertyMean(propName)
+			averagePropLength += propMean
 
-		terms[i].data = m
+			bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+			if bucket == nil {
+				return nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
+			}
+			m, err := bucket.MapList([]byte(queryTerm))
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(m) == 0 {
+				terms[i].exhausted = true
+				continue
+			}
 
-		n := float64(len(m))
-		terms[i].idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * boost[i]
+			if docMapPairs == nil {
+				docMapPairs = make([]docPointerWithScore, 0, len(m))
+				for k, val := range m {
+					freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
+					propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+					docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: float64(math.Float32frombits(freqBits) * propertyBoosts[j]), propLength: float64(math.Float32frombits(propLenBits))})
+					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+				}
+			} else {
+				for k, val := range m {
+					key := binary.BigEndian.Uint64(val.Key)
+					ind, ok := docMapPairsIndices[key]
+					freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
+					propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+					if ok {
+						docMapPairs[ind].propLength += float64(math.Float32frombits(propLenBits))
+						docMapPairs[ind].frequency += float64(math.Float32frombits(freqBits) * propertyBoosts[i])
+					} else {
+						docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: float64(math.Float32frombits(freqBits) * propertyBoosts[j]), propLength: float64(math.Float32frombits(propLenBits))})
+						docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+					}
+				}
+			}
+
+		}
+		if terms[i].exhausted {
+			continue
+		}
+		terms[i].averagePropLength = float64(averagePropLength / float32(len(propertyNames)))
+		terms[i].data = docMapPairs
+
+		n := float64(len(docMapPairs))
+		terms[i].idf = math.Log(float64(1) + (N-n+0.5)/(n+0.5))
 
 		terms[i].posPointer = 0
-		terms[i].idPointer = binary.BigEndian.Uint64(terms[i].data[0].Key)
+		terms[i].idPointer = terms[i].data[0].id
 
 	}
 
