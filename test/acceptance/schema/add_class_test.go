@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -17,13 +17,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
+	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // this test prevents a regression on
-// https://github.com/semi-technologies/weaviate/issues/981
+// https://github.com/weaviate/weaviate/issues/981
 func TestInvalidDataTypeInProperty(t *testing.T) {
 	t.Parallel()
 	className := "WrongPropertyClass"
@@ -122,7 +122,7 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 }
 
 // This test prevents a regression on
-// https://github.com/semi-technologies/weaviate/issues/1799
+// https://github.com/weaviate/weaviate/issues/1799
 //
 // This was related to adding ref props. For example in the case of a circular
 // dependency (A<>B), users would typically add A without refs, then add B with
@@ -222,9 +222,9 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 	})
 }
 
-// TODO: https://github.com/semi-technologies/weaviate/issues/973
+// TODO: https://github.com/weaviate/weaviate/issues/973
 // // This test prevents a regression on the fix for this bug:
-// // https://github.com/semi-technologies/weaviate/issues/831
+// // https://github.com/weaviate/weaviate/issues/831
 // func TestDeleteSingleProperties(t *testing.T) {
 // 	t.Parallel()
 
