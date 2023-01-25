@@ -22,7 +22,7 @@ type Encoder byte
 
 const (
 	UseTileEncoder   Encoder = 0
-	UseKMeansEncoder         = 1
+	UseKMeansEncoder Encoder = 1
 )
 
 type DistanceLookUpTable struct {
@@ -166,7 +166,8 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []
 }
 
 type PQDistancer struct {
-	x         []float32
+	x []float32
+	// nolint:unused
 	distancer distancer.Provider
 	pq        *ProductQuantizer
 	lut       *DistanceLookUpTable

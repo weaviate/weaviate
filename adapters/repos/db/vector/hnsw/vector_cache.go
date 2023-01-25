@@ -67,6 +67,7 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 	return vc
 }
 
+//nolint:unused
 func (f *shardedLockCache) all() [][]float32 {
 	return f.cache
 }
@@ -83,6 +84,7 @@ func (n *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 	return n.handleCacheMiss(ctx, id)
 }
 
+//nolint:unused
 func (n *shardedLockCache) delete(ctx context.Context, id uint64) {
 	n.shardedLocks[id%shardFactor].Lock()
 	defer n.shardedLocks[id%shardFactor].Unlock()
@@ -138,11 +140,13 @@ func (n *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]floa
 	return out, errs
 }
 
+//nolint:unused
 var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// do nothing on default arch
 	// this function will be overridden for amd64
 }
 
+//nolint:unused
 func (n *shardedLockCache) prefetch(id uint64) {
 	n.shardedLocks[id%shardFactor].RLock()
 	defer n.shardedLocks[id%shardFactor].RUnlock()
@@ -150,6 +154,7 @@ func (n *shardedLockCache) prefetch(id uint64) {
 	prefetchFunc(uintptr(unsafe.Pointer(&n.cache[id])))
 }
 
+//nolint:unused
 func (n *shardedLockCache) preload(id uint64, vec []float32) {
 	n.shardedLocks[id%shardFactor].RLock()
 	defer n.shardedLocks[id%shardFactor].RUnlock()
@@ -162,6 +167,7 @@ func (n *shardedLockCache) preload(id uint64, vec []float32) {
 	n.cache[id] = vec
 }
 
+//nolint:unused
 func (n *shardedLockCache) grow(node uint64) {
 	n.maintenanceLock.Lock()
 	defer n.maintenanceLock.Unlock()
@@ -175,19 +181,23 @@ func (n *shardedLockCache) grow(node uint64) {
 	n.cache = newCache
 }
 
+//nolint:unused
 func (n *shardedLockCache) len() int32 {
 	return int32(len(n.cache))
 }
 
+//nolint:unused
 func (n *shardedLockCache) countVectors() int64 {
 	return atomic.LoadInt64(&n.count)
 }
 
+//nolint:unused
 func (n *shardedLockCache) drop() {
 	n.deleteAllVectors()
 	n.cancel <- true
 }
 
+//nolint:unused
 func (n *shardedLockCache) deleteAllVectors() {
 	n.obtainAllLocks()
 	defer n.releaseAllLocks()
@@ -243,10 +253,12 @@ func (c *shardedLockCache) releaseAllLocks() {
 	}
 }
 
+//nolint:unused
 func (c *shardedLockCache) updateMaxSize(size int64) {
 	atomic.StoreInt64(&c.maxSize, size)
 }
 
+//nolint:unused
 func (c *shardedLockCache) copyMaxSize() int64 {
 	sizeCopy := atomic.LoadInt64(&c.maxSize)
 	return sizeCopy

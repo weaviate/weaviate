@@ -23,13 +23,15 @@ import (
 )
 
 type compressedShardedLockCache struct {
-	shardedLocks        []sync.RWMutex
-	cache               [][]byte
-	maxSize             int64
-	count               int64
-	cancel              chan bool
-	logger              logrus.FieldLogger
-	dims                int32
+	shardedLocks []sync.RWMutex
+	cache        [][]byte
+	maxSize      int64
+	count        int64
+	cancel       chan bool
+	logger       logrus.FieldLogger
+	//nolint:unused
+	dims int32
+	//nolint:unused
 	trackDimensionsOnce sync.Once
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
@@ -37,6 +39,7 @@ type compressedShardedLockCache struct {
 	maintenanceLock sync.Mutex
 }
 
+//nolint:unused
 var compressedShardFactor = uint64(512)
 
 func newCompressedShardedLockCache(maxSize int, logger logrus.FieldLogger) *compressedShardedLockCache {
@@ -57,6 +60,7 @@ func newCompressedShardedLockCache(maxSize int, logger logrus.FieldLogger) *comp
 	return vc
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) get(ctx context.Context, id uint64) ([]byte, error) {
 	n.shardedLocks[id%shardFactor].RLock()
 	vec := n.cache[id]
@@ -69,10 +73,12 @@ func (n *compressedShardedLockCache) get(ctx context.Context, id uint64) ([]byte
 	return n.handleCacheMiss(ctx, id)
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) all() [][]byte {
 	return n.cache
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) delete(ctx context.Context, id uint64) {
 	n.shardedLocks[id%shardFactor].Lock()
 	defer n.shardedLocks[id%shardFactor].Unlock()
@@ -85,10 +91,12 @@ func (n *compressedShardedLockCache) delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&n.count, -1)
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]byte, error) {
 	return nil, errors.New("Not implemented")
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]byte, []error) {
 	out := make([][]byte, len(ids))
 	errs := make([]error, len(ids))
@@ -110,6 +118,7 @@ func (n *compressedShardedLockCache) multiGet(ctx context.Context, ids []uint64)
 	return out, errs
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) prefetch(id uint64) {
 	n.shardedLocks[id%shardFactor].RLock()
 	defer n.shardedLocks[id%shardFactor].RUnlock()
@@ -117,6 +126,7 @@ func (n *compressedShardedLockCache) prefetch(id uint64) {
 	prefetchFunc(uintptr(unsafe.Pointer(&n.cache[id])))
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) preload(id uint64, vec []byte) {
 	n.shardedLocks[id%shardFactor].RLock()
 	defer n.shardedLocks[id%shardFactor].RUnlock()
@@ -129,6 +139,7 @@ func (n *compressedShardedLockCache) preload(id uint64, vec []byte) {
 	n.cache[id] = vec
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) grow(node uint64) {
 	n.maintenanceLock.Lock()
 	defer n.maintenanceLock.Unlock()
@@ -142,19 +153,23 @@ func (n *compressedShardedLockCache) grow(node uint64) {
 	n.cache = newCache
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) len() int32 {
 	return int32(len(n.cache))
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) countVectors() int64 {
 	return atomic.LoadInt64(&n.count)
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) drop() {
 	n.deleteAllVectors()
 	n.cancel <- true
 }
 
+//nolint:unused
 func (n *compressedShardedLockCache) deleteAllVectors() {
 	n.obtainAllLocks()
 	defer n.releaseAllLocks()
@@ -216,10 +231,12 @@ func (c *compressedShardedLockCache) releaseAllLocks() {
 	}
 }
 
+//nolint:unused
 func (c *compressedShardedLockCache) updateMaxSize(size int64) {
 	atomic.StoreInt64(&c.maxSize, size)
 }
 
+//nolint:unused
 func (c *compressedShardedLockCache) copyMaxSize() int64 {
 	sizeCopy := atomic.LoadInt64(&c.maxSize)
 	return sizeCopy

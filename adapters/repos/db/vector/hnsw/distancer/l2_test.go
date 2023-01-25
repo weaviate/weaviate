@@ -75,7 +75,7 @@ func TestL2DistancerStepbyStep(t *testing.T) {
 		require.True(t, ok)
 
 		distanceProvider := NewL2SquaredProvider()
-		var sum = float32(0.0)
+		sum := float32(0.0)
 		for i := range vec1 {
 			sum += distanceProvider.Step(vec1[i], vec2[i])
 		}
