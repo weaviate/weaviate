@@ -39,10 +39,12 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	if pv.hasFrequency {
 		return s.docBitmapInvertedMap(ctx, b, limit, pv)
 	}
+
 	// bucket with strategy roaring set serves bitmaps directly
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
 		return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
 	}
+
 	// bucket with strategy set serves docIds used to build bitmap
 	return s.docBitmapInvertedSet(ctx, b, limit, pv)
 }

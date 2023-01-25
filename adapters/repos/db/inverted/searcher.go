@@ -212,7 +212,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
 		}
 
-		res, ok := s.rowCache.Load(pv.docIDsBM.checksum)
+		res, ok := s.rowCache.Load(pv.docIDs.checksum)
 		if ok && res.Type == CacheTypeAllowList {
 			return res.AllowList, nil
 		}
@@ -237,11 +237,11 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	if cacheable && allowCaching {
 		// TODO change cache to work on BM?
 		// transforming to pointers for backward compatibility
-		s.rowCache.Store(pv.docIDsBM.checksum, &CacheEntry{
+		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
 			Type:      CacheTypeAllowList,
 			AllowList: out,
-			Partial:   pv.docIDsBM.toDocPointers(),
-			Hash:      pv.docIDsBM.checksum,
+			Partial:   pv.docIDs.toDocPointers(),
+			Hash:      pv.docIDs.checksum,
 		})
 	}
 
@@ -251,7 +251,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
-	var out propValuePair
+	out := newPropValuePair()
 	if filter.Operands != nil {
 		// nested filter
 		out.children = make([]*propValuePair, len(filter.Operands))

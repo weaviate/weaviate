@@ -34,9 +34,12 @@ type propValuePair struct {
 	// byte value from an inverted index
 	valueGeoRange *filters.GeoRange
 	hasFrequency  bool
-	docIDs        docPointers
-	docIDsBM      docBitmap
+	docIDs        docBitmap
 	children      []*propValuePair
+}
+
+func newPropValuePair() propValuePair {
+	return propValuePair{docIDs: newDocBitmap()}
 }
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
@@ -92,7 +95,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		if err != nil {
 			return err
 		}
-		pv.docIDsBM = dbm
+		pv.docIDs = dbm
 	} else {
 		for i, child := range pv.children {
 			// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
@@ -111,7 +114,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 
 func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	if pv.operator.OnValue() {
-		return &pv.docIDsBM, nil
+		return &pv.docIDs, nil
 	}
 
 	if pv.operator != filters.OperatorAnd && pv.operator != filters.OperatorOr {
