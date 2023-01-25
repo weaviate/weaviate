@@ -40,6 +40,13 @@ func (f *fakeRClient) Exists(ctx context.Context, host, index, shard string, id 
 	return args.Get(0).(bool), args.Error(1)
 }
 
+func (f *fakeRClient) MultiGetObjects(ctx context.Context, host, index,
+	shard string, ids []strfmt.UUID,
+) ([]*storobj.Object, error) {
+	args := f.Called(ctx, host, index, shard, ids)
+	return args.Get(0).([]*storobj.Object), args.Error(1)
+}
+
 type fakeClient struct {
 	mock.Mock
 }
