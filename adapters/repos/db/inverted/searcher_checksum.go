@@ -82,3 +82,41 @@ func docPointerChecksum(pointers []uint64) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+func checksumsIdentical(sets []*docPointers) bool {
+	if len(sets) == 0 {
+		return false
+	}
+
+	if len(sets) == 1 {
+		return true
+	}
+
+	lastChecksum := sets[0].checksum
+	for _, set := range sets {
+		if !bytes.Equal(set.checksum, lastChecksum) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func checksumsIdenticalBM(docBitmaps []*docBitmap) bool {
+	if len(docBitmaps) == 0 {
+		return false
+	}
+
+	if len(docBitmaps) == 1 {
+		return true
+	}
+
+	firstChecksum := docBitmaps[0].checksum
+	for _, docBitmap := range docBitmaps {
+		if !bytes.Equal(docBitmap.checksum, firstChecksum) {
+			return false
+		}
+	}
+
+	return true
+}
