@@ -25,27 +25,29 @@ import (
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
 ) (docBitmap, error) {
+	// geo props cannot be served by the inverted index and they require an
+	// external index. So, instead of trying to serve this chunk of the filter
+	// request internally, we can pass it to an external geo index
 	if pv.operator == filters.OperatorWithinGeoRange {
-		// geo props cannot be served by the inverted index and they require an
-		// external index. So, instead of trying to serve this chunk of the filter
-		// request internally, we can pass it to an external geo index
 		return s.docBitmapGeo(ctx, pv)
 	}
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
-	return s.docBitmapInverted(ctx, b, limit, pv)
-}
 
-func (s *Searcher) docBitmapInverted(ctx context.Context, b *lsmkv.Bucket,
-	limit int, pv *propValuePair,
-) (docBitmap, error) {
+	// bucket with strategy map serves docIds used to build bitmap
+	// and frequencies, which are ignored for filtering
 	if pv.hasFrequency {
-		return s.docBitmapInvertedFrequency(ctx, b, limit, pv)
+		return s.docBitmapInvertedMap(ctx, b, limit, pv)
 	}
-	return s.docBitmapInvertedNoFrequency(ctx, b, limit, pv)
+	// bucket with strategy roaring set serves bitmaps directly
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
+	}
+	// bucket with strategy set serves docIds used to build bitmap
+	return s.docBitmapInvertedSet(ctx, b, limit, pv)
 }
 
-func (s *Searcher) docBitmapInvertedNoFrequency(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
@@ -86,7 +88,50 @@ func (s *Searcher) docBitmapInvertedNoFrequency(ctx context.Context, b *lsmkv.Bu
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedFrequency(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
+	limit int, pv *propValuePair,
+) (docBitmap, error) {
+	out := newDocBitmap()
+	hashBucket, err := s.getHashBucket(pv)
+
+	if err != nil {
+		return out, err
+	}
+
+	rr := NewRowReader(b, pv.value, pv.operator, false)
+	var hashes [][]byte
+	var readFn ReadFn = func(k []byte, ids [][]byte) (bool, error) {
+		for _, asBytes := range ids {
+			out.docIDs.Set(binary.LittleEndian.Uint64(asBytes))
+		}
+
+		currHash, err := hashBucket.Get(k)
+		if err != nil {
+			return false, errors.Wrap(err, "get hash")
+		}
+		// currHash is only safe to access for the lifetime of the RowReader, once
+		// that has finished, a compaction could happen and remove the underlying
+		// memory that the slice points to. Since the hashes will be used to merge
+		// filters - which happens after the RowReader has completed - this can lead
+		// to segfault crashes. Now is the time to safely copy it, creating a new
+		// and immutable slice.
+		hashes = append(hashes, copyBytes(currHash))
+
+		if limit > 0 && out.docIDs.GetCardinality() >= limit {
+			return false, nil
+		}
+		return true, nil
+	}
+
+	if err := rr.Read(ctx, readFn); err != nil {
+		return out, errors.Wrap(err, "read row")
+	}
+
+	out.checksum = combineChecksums(hashes, pv.operator)
+	return out, nil
+}
+
+func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()

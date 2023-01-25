@@ -81,22 +81,20 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, err
 	}
 
-	// we assume that when retrieving objects, we can not tolerate duplicates as
-	// they would have a direct impact on the user
-	if err := pv.fetchDocIDs(s, limit, false); err != nil {
+	if err := pv.fetchDocIDs(s, limit); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs(false)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
 	if len(sort) > 0 {
-		return s.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
+		return s.sortedObjectsByDocID(ctx, limit, sort, dbm.IDs(), additional, className)
 	}
 
-	return s.allObjectsByDocID(pointers.IDs(), limit, additional)
+	return s.allObjectsByDocID(dbm.IDs(), limit, additional)
 }
 
 func (s *Searcher) allObjectsByDocID(ids []uint64, limit int,
@@ -214,34 +212,36 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
 		}
 
-		res, ok := s.rowCache.Load(pv.docIDs.checksum)
+		res, ok := s.rowCache.Load(pv.docIDsBM.checksum)
 		if ok && res.Type == CacheTypeAllowList {
 			return res.AllowList, nil
 		}
 	}
 
-	// when building an allow list (which is a set anyway) we can skip the costly
-	// deduplication, as it doesn't matter
-	if err := pv.fetchDocIDs(s, -1, true); err != nil {
+	if err := pv.fetchDocIDs(s, 0); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs(true)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	out := make(helpers.AllowList, len(pointers.docIDs))
-	for _, p := range pointers.docIDs {
+	// TODO make allowlist use bitmaps under the hood?
+	out := make(helpers.AllowList, dbm.count())
+	for _, p := range dbm.IDs() {
 		out.Insert(p)
 	}
 
+	// TODO should really be single pv.docIDs or merged ones?
 	if cacheable && allowCaching {
-		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
+		// TODO change cache to work on BM?
+		// transforming to pointers for backward compatibility
+		s.rowCache.Store(pv.docIDsBM.checksum, &CacheEntry{
 			Type:      CacheTypeAllowList,
 			AllowList: out,
-			Partial:   &pv.docIDs,
-			Hash:      pv.docIDs.checksum,
+			Partial:   pv.docIDsBM.toDocPointers(),
+			Hash:      pv.docIDsBM.checksum,
 		})
 	}
 
@@ -552,6 +552,31 @@ type docBitmap struct {
 
 func newDocBitmap() docBitmap {
 	return docBitmap{docIDs: sroar.NewBitmap()}
+}
+
+func (dbm *docBitmap) count() int {
+	if dbm.docIDs == nil {
+		return 0
+	}
+	return dbm.docIDs.GetCardinality()
+}
+
+func (dbm *docBitmap) IDs() []uint64 {
+	if dbm.docIDs == nil {
+		return []uint64{}
+	}
+	return dbm.docIDs.ToArray()
+}
+
+func (dbm *docBitmap) toDocPointers() *docPointers {
+	if dbm.docIDs == nil {
+		return &docPointers{checksum: dbm.checksum}
+	}
+	return &docPointers{
+		count:    uint64(dbm.docIDs.GetCardinality()),
+		docIDs:   dbm.docIDs.ToArray(),
+		checksum: dbm.checksum,
+	}
 }
 
 type docPointers struct {
