@@ -2055,24 +2055,6 @@ func TestDBOverwriteObjects(t *testing.T) {
 		Additional:    models.AdditionalProperties{},
 	}
 
-	unchanged := &models.Object{
-		ID:                 "f65f6291-bc4e-48bb-a093-26fce81a7cda",
-		Class:              class.Class,
-		CreationTimeUnix:   now.UnixMilli(),
-		LastUpdateTimeUnix: now.UnixMilli(),
-		Properties: map[string]interface{}{
-			"value": "some things stay the same",
-		},
-		Vector:        []float32{7, 8, 9},
-		VectorWeights: (map[string]string)(nil),
-		Additional:    models.AdditionalProperties{},
-	}
-
-	t.Run("insert unchanging object", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), unchanged, unchanged.Vector)
-		require.Nil(t, err)
-	})
-
 	t.Run("insert stale object", func(t *testing.T) {
 		err := repo.PutObject(context.Background(), stale, stale.Vector)
 		require.Nil(t, err)
@@ -2080,16 +2062,19 @@ func TestDBOverwriteObjects(t *testing.T) {
 
 	t.Run("overwrite with fresh object", func(t *testing.T) {
 		input := []*objects.VObject{
-			{Object: fresh, UpdateTime: fresh.LastUpdateTimeUnix},
-			{Object: unchanged, UpdateTime: unchanged.LastUpdateTimeUnix},
+			{Object: fresh, UpdateTime: stale.LastUpdateTimeUnix},
 		}
 		expected := []*objects.VObject{
 			{Object: fresh, UpdateTime: fresh.LastUpdateTimeUnix},
-			nil,
 		}
-		received, err := repo.OverwriteObjects(context.Background(), input)
+
+		idx := repo.GetIndex(schema.ClassName(class.Class))
+		shd, err := idx.shardFromUUID(fresh.ID)
+		require.Nil(t, err)
+
+		received, err := repo.OverwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
-		assert.ElementsMatch(t, expected, received)
+		assert.EqualValues(t, expected[0].Object, received[0].Object)
 	})
 
 	t.Run("assert data was overwritten", func(t *testing.T) {
