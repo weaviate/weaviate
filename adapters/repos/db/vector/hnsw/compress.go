@@ -14,11 +14,13 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
 
+	"github.com/pkg/errors"
+
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
@@ -32,6 +34,16 @@ func (h *hnsw) Compress(segments int) error {
 	if h.nodes[0] == nil {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
+	store, err := lsmkv.New(fmt.Sprintf("%s/%s", h.rootPath, h.className), "", h.logger, nil)
+	if err != nil {
+		return errors.Wrapf(err, "init hnsw")
+	}
+	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
+	if err != nil {
+		return errors.Wrapf(err, "init hnsw")
+	}
+	h.compressedStore = store
+
 	vec, _ := h.vectorForID(context.Background(), h.nodes[0].id)
 	dims := len(vec)
 	// segments == 0 (default value) means use as many sements as dimensions
