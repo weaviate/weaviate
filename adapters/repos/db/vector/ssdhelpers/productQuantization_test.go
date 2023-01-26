@@ -60,6 +60,7 @@ func TestPQKMeans(t *testing.T) {
 		distanceProvider,
 		dimensions,
 		ssdhelpers.UseKMeansEncoder,
+		ssdhelpers.LogNormalEncoderDistribution,
 	)
 	pq.Fit(vectors)
 	encoded := make([][]byte, vectors_size)

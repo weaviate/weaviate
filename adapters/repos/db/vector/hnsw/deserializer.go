@@ -142,7 +142,7 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 			out.Nodes = make([]*vertex, initialSize)
 		case AddPQ:
 			err = c.ReadPQ(fd, out)
-			readThisRound = 7
+			readThisRound = 8
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -477,7 +477,11 @@ func (c *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, 
 	if err != nil {
 		return nil, err
 	}
-	return ssdhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment), nil
+	encDistribution, err := c.readByte(r)
+	if err != nil {
+		return nil, err
+	}
+	return ssdhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
 func (c *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
@@ -521,12 +525,17 @@ func (c *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 	if err != nil {
 		return err
 	}
+	dist, err := c.readByte(r)
+	if err != nil {
+		return err
+	}
 	encoder := ssdhelpers.Encoder(enc)
 	res.PQData = ssdhelpers.PQData{
-		Dimensions:  dims,
-		EncoderType: encoder,
-		Ks:          ks,
-		M:           m,
+		Dimensions:          dims,
+		EncoderType:         encoder,
+		Ks:                  ks,
+		M:                   m,
+		EncoderDistribution: byte(dist),
 	}
 	var encoderReader func(io.Reader, *DeserializationResult, uint16) (ssdhelpers.PQEncoder, error)
 	switch encoder {
