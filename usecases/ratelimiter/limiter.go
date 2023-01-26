@@ -31,12 +31,12 @@ func New(maxRequests int) *Limiter {
 // there are too many concurrent requests it does not increase the counter and
 // returns false
 func (l *Limiter) TryInc() bool {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-
-	if l.max < 0 {
+	if l.max <= 0 {
 		return true
 	}
+
+	l.lock.Lock()
+	defer l.lock.Unlock()
 
 	if l.current < l.max {
 		l.current++
@@ -48,12 +48,15 @@ func (l *Limiter) TryInc() bool {
 }
 
 func (l *Limiter) Dec() {
-	l.lock.Lock()
-	defer l.lock.Unlock()
-
 	if l.max < 0 {
 		return
 	}
 
+	l.lock.Lock()
+	defer l.lock.Unlock()
+
 	l.current--
+	if l.current < 0 {
+		l.current = 0
+	}
 }

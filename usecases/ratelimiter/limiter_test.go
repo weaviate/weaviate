@@ -89,3 +89,16 @@ func TestLimiterUnlimited(t *testing.T) {
 
 	assert.True(t, l.TryInc())
 }
+
+func TestLimiterCantGoNegative(t *testing.T) {
+	l := New(3)
+
+	for i := 0; i < 10; i++ {
+		l.Dec()
+	}
+
+	for i := 0; i < 3; i++ {
+		assert.True(t, l.TryInc())
+	}
+	assert.False(t, l.TryInc())
+}
