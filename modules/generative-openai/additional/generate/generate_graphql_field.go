@@ -20,6 +20,51 @@ import (
 func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Field {
 	return &graphql.Field{
 		Args: graphql.FieldConfigArgument{
+			"individualResults": &graphql.ArgumentConfig{
+				Description: "individual results",
+				Type: graphql.NewInputObject(graphql.InputObjectConfig{
+					Name: fmt.Sprintf("%sIndividualResultsArg", classname),
+					Fields: graphql.InputObjectConfigFieldMap{
+						"prompt": &graphql.InputObjectFieldConfig{
+							Description: "prompt",
+							Type:        graphql.String,
+						},
+					},
+				}),
+				DefaultValue: nil,
+			},
+			"allResults": &graphql.ArgumentConfig{
+				Description: "all results",
+				Type: graphql.NewInputObject(graphql.InputObjectConfig{
+					Name: fmt.Sprintf("%sAllResultsArg", classname),
+					Fields: graphql.InputObjectConfigFieldMap{
+						"task": &graphql.InputObjectFieldConfig{
+							Description: "task",
+							Type:        graphql.String,
+						},
+						"language": &graphql.InputObjectFieldConfig{
+							Description: "task",
+							Type: graphql.NewEnum(graphql.EnumConfig{
+								Name: fmt.Sprintf("%sAllResultsLanguageArg", classname),
+								Values: graphql.EnumValueConfigMap{
+									"English":    &graphql.EnumValueConfig{},
+									"Chinese":    &graphql.EnumValueConfig{},
+									"Spanish":    &graphql.EnumValueConfig{},
+									"French":     &graphql.EnumValueConfig{},
+									"Arabic":     &graphql.EnumValueConfig{},
+									"Russian":    &graphql.EnumValueConfig{},
+									"Portuguese": &graphql.EnumValueConfig{},
+									"Japanese":   &graphql.EnumValueConfig{},
+									"German":     &graphql.EnumValueConfig{},
+									"Dutch":      &graphql.EnumValueConfig{},
+									"auto":       &graphql.EnumValueConfig{},
+								},
+							}),
+						},
+					},
+				}),
+				DefaultValue: nil,
+			},
 			"task": &graphql.ArgumentConfig{
 				Description:  "Task to be performed",
 				Type:         graphql.String,
