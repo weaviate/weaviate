@@ -321,7 +321,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) OverwriteObject(ctx context.Context,
+func (db *DB) OverwriteObjects(ctx context.Context,
 	objects []*objects.VObject,
 ) ([]int64, error) {
 	result := make([]int64, len(objects))

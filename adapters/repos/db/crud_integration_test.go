@@ -2062,7 +2062,7 @@ func TestDBOverwriteObject(t *testing.T) {
 	})
 
 	t.Run("overwrite with fresh object", func(t *testing.T) {
-		versions, err := repo.OverwriteObject(context.Background(), []*objects.VObject{
+		versions, err := repo.OverwriteObjects(context.Background(), []*objects.VObject{
 			{
 				Version: fresh.LastUpdateTimeUnix,
 				Object:  storobj.FromObject(fresh, fresh.Vector),
