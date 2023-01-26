@@ -636,13 +636,15 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "hnsw shutdown")
 	}
 
-	if err := h.compressedStore.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "hnsw shutdown")
-	}
 	if h.compressed.Load() {
-		h.compressedVectorsCache.drop()
-	} else {
-		h.cache.drop()
+		if h.compressed.Load() {
+			h.compressedVectorsCache.drop()
+		} else {
+			h.cache.drop()
+		}
+		if err := h.compressedStore.Shutdown(ctx); err != nil {
+			return errors.Wrap(err, "hnsw shutdown")
+		}
 	}
 
 	return nil
