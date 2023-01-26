@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -1984,6 +1985,98 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+	})
+}
+
+func TestDBOverwriteObject(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "SomeClass",
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{},
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	t.Run("create the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	})
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	now := time.Now()
+	later := now.Add(time.Hour) // time-traveling ;)
+	stale := &models.Object{
+		ID:                 "981c09f9-67f3-4e6e-a988-c53eaefbd58e",
+		Class:              class.Class,
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: now.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+		},
+		Vector:        []float32{1, 2, 3},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	fresh := &models.Object{
+		ID:                 "981c09f9-67f3-4e6e-a988-c53eaefbd58e",
+		Class:              class.Class,
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: later.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+			"newValue": "how they are now",
+		},
+		Vector:        []float32{4, 5, 6},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	t.Run("insert stale object", func(t *testing.T) {
+		err := repo.PutObject(context.Background(), stale, stale.Vector)
+		require.Nil(t, err)
+	})
+
+	t.Run("overwrite with fresh object", func(t *testing.T) {
+		versions, err := repo.OverwriteObject(context.Background(), []*objects.VObject{
+			{
+				Version: fresh.LastUpdateTimeUnix,
+				Object:  storobj.FromObject(fresh, fresh.Vector),
+			},
+		})
+		assert.Nil(t, err)
+		assert.ElementsMatch(t, []int64{later.UnixMilli()}, versions)
+	})
+
+	t.Run("assert data was overwritten", func(t *testing.T) {
+		found, err := repo.Object(context.Background(), stale.Class,
+			stale.ID, nil, additional.Properties{}, nil)
+		assert.Nil(t, err)
+		assert.EqualValues(t, fresh, found.Object())
 	})
 }
 

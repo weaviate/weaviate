@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -318,4 +319,33 @@ func (s *Shard) reinit(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (db *DB) OverwriteObject(ctx context.Context,
+	objects []*objects.VObject,
+) ([]int64, error) {
+	result := make([]int64, len(objects))
+	for i, vobj := range objects {
+		found, err := db.Object(ctx,
+			vobj.Object.Class().String(), vobj.Object.ID(),
+			nil, additional.Properties{}, nil)
+		if err != nil {
+			return nil, err
+		}
+		// the db's stored object is not the most recent version.
+		// in this case, we overwrite it with the more recent one
+		if found.Object().LastUpdateTimeUnix < vobj.Version {
+			// 1) overwrite object
+			err := db.PutObject(ctx, &vobj.Object.Object, vobj.Object.Vector)
+			if err != nil {
+				return nil, fmt.Errorf("overwrite stale object: %w", err)
+			}
+			// the new version for the object at the corresponding index
+			result[i] = vobj.Version
+		} else {
+			result[i] = found.Object().LastUpdateTimeUnix
+		}
+	}
+
+	return result, nil
 }
