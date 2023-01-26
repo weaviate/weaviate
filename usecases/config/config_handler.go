@@ -89,6 +89,7 @@ type Config struct {
 	Profiling                        Profiling      `json:"profiling" yaml:"profiling"`
 	ResourceUsage                    ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests     int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 }

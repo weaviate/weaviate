@@ -45,6 +45,11 @@ func (db *DB) GetQueryMaximumResults() int {
 	return int(db.config.QueryMaximumResults)
 }
 
+// ClassObjectSearch is used to perform an inverted index search on the db
+//
+// Earlier use cases required only []search.Result as a return value from the db, and the
+// Class ClassSearch method fit this need. Later on, other use cases presented the need
+// for the raw storage objects, such as hybrid search.
 func (db *DB) ClassObjectSearch(ctx context.Context,
 	params traverser.GetParams,
 ) ([]*storobj.Object, []float32, error) {
@@ -79,7 +84,7 @@ func (db *DB) ClassSearch(ctx context.Context,
 		return nil, err
 	}
 
-	return db.enrichRefsForList(ctx,
+	return db.ResolveReferences(ctx,
 		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties),
 		params.Properties, params.AdditionalProperties)
 }
@@ -112,7 +117,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 		params.Pagination.Limit = len(res)
 	}
 
-	return db.enrichRefsForList(ctx,
+	return db.ResolveReferences(ctx,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties,
 			db.getDists(dists, params.Pagination)), params.Properties, params.AdditionalProperties)
 }
@@ -127,6 +132,11 @@ func extractDistanceFromParams(params traverser.GetParams) float32 {
 	return float32(dist)
 }
 
+// ClassObjectVectorSearch is used to perform a vector search on the db
+//
+// Earlier use cases required only []search.Result as a return value from the db, and the
+// Class VectorSearch method fit this need. Later on, other use cases presented the need
+// for the raw storage objects, such as hybrid search.
 func (db *DB) ClassObjectVectorSearch(ctx context.Context, class string, vector []float32, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]*storobj.Object, []float32, error) {
@@ -295,6 +305,20 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	return d.getSearchResults(storobj.SearchResults(found, additional), offset, limit), nil
 }
 
+// ResolveReferences takes a list of search results and enriches them
+// with any referenced objects
+func (d *DB) ResolveReferences(ctx context.Context, objs search.Results,
+	props search.SelectProperties, additional additional.Properties,
+) (search.Results, error) {
+	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
+		Do(ctx, objs, props, additional)
+	if err != nil {
+		return nil, fmt.Errorf("resolve cross-refs: %w", err)
+	}
+
+	return res, nil
+}
+
 func (d *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
@@ -315,18 +339,6 @@ func (d *DB) validateSort(sort []filters.Sort) error {
 		}
 	}
 	return nil
-}
-
-func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
-	props search.SelectProperties, additional additional.Properties,
-) (search.Results, error) {
-	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
-		Do(ctx, objs, props, additional)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve cross-refs")
-	}
-
-	return res, nil
 }
 
 func (db *DB) getTotalLimit(pagination *filters.Pagination, addl additional.Properties) (int, error) {

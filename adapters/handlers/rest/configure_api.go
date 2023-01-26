@@ -268,7 +268,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
-		appState.Modules, traverser.NewMetrics(appState.Metrics))
+		appState.Modules, traverser.NewMetrics(appState.Metrics),
+		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)

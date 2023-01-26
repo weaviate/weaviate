@@ -48,7 +48,7 @@ func TestSearcher(t *testing.T) {
 				dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 				provider := &fakeModuleProvider{}
 				provider.On("VectorFromInput", ctx, class, params.Query).Return([]float32{1, 2, 3}, nil)
-				s := NewSearcher(params, logger, sparse, dense, provider)
+				s := NewSearcher(params, logger, sparse, dense, nil, provider)
 				_, err := s.Search(ctx)
 				require.Nil(t, err)
 			},
@@ -66,7 +66,7 @@ func TestSearcher(t *testing.T) {
 				}
 				sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 				dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-				s := NewSearcher(params, logger, sparse, dense, nil)
+				s := NewSearcher(params, logger, sparse, dense, nil, nil)
 				_, err := s.Search(ctx)
 				require.Nil(t, err)
 			},
@@ -96,7 +96,7 @@ func TestSearcher(t *testing.T) {
 					}, []float32{0.008}, nil
 				}
 				dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-				s := NewSearcher(params, logger, sparse, dense, nil)
+				s := NewSearcher(params, logger, sparse, dense, nil, nil)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -133,7 +133,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				s := NewSearcher(params, logger, sparse, dense, nil)
+				s := NewSearcher(params, logger, sparse, dense, nil, nil)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -182,7 +182,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				s := NewSearcher(params, logger, sparse, dense, nil)
+				s := NewSearcher(params, logger, sparse, dense, nil, nil)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
 				assert.Len(t, res, 2)
@@ -234,7 +234,7 @@ func TestSearcher(t *testing.T) {
 				dense := func([]float32) ([]*storobj.Object, []float32, error) {
 					return nil, nil, nil
 				}
-				s := NewSearcher(params, logger, sparse, dense, nil)
+				s := NewSearcher(params, logger, sparse, dense, nil, nil)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -284,7 +284,7 @@ func TestSearcher(t *testing.T) {
 				provider.On("VectorFromInput", ctx, class,
 					params.HybridSearch.SubSearches.([]searchparams.WeightedSearchResult)[0].
 						SearchParams.(searchparams.NearTextParams).Values[0]).Return([]float32{1, 2, 3}, nil)
-				s := NewSearcher(params, logger, sparse, dense, provider)
+				s := NewSearcher(params, logger, sparse, dense, nil, provider)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -334,7 +334,7 @@ func TestSearcher(t *testing.T) {
 				provider.On("VectorFromInput", ctx, class,
 					params.HybridSearch.SubSearches.([]searchparams.WeightedSearchResult)[0].
 						SearchParams.(searchparams.NearVector).Vector).Return([]float32{1, 2, 3}, nil)
-				s := NewSearcher(params, logger, sparse, dense, provider)
+				s := NewSearcher(params, logger, sparse, dense, nil, provider)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -416,7 +416,7 @@ func TestSearcher(t *testing.T) {
 				provider.On("VectorFromInput", ctx, class,
 					params.HybridSearch.SubSearches.([]searchparams.WeightedSearchResult)[1].
 						SearchParams.(searchparams.NearTextParams).Values[0]).Return([]float32{1, 2, 3}, nil)
-				s := NewSearcher(params, logger, sparse, dense, provider)
+				s := NewSearcher(params, logger, sparse, dense, nil, provider)
 				res, err := s.Search(ctx)
 				require.Nil(t, err)
 				assert.Len(t, res, 2)
