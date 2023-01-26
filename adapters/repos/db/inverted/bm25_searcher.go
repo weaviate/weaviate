@@ -223,18 +223,28 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
-	terms := helpers.TokenizeText(keywordRanking.Query)
+	textTerms := helpers.TokenizeText(keywordRanking.Query)
+	stringTerms := helpers.TokenizeString(keywordRanking.Query)
 
-	idLists := make([]docPointersWithScore, len(terms))
+	idLists := make([]docPointersWithScore, len(textTerms)+len(stringTerms))
+	for i, term := range textTerms {
 
-	for i, term := range terms {
-
-		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, term, keywordRanking.Query)
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, term, "", keywordRanking.Query)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		idLists[i] = ids
+	}
+
+	for i, term := range stringTerms {
+
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, "", term, keywordRanking.Query)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		idLists[len(textTerms)+i] = ids
 	}
 
 	ids := mergeScores(idLists)
@@ -303,11 +313,12 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 }
 
 // BM25F search each given property for a single term.  Results will be combined later
-func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, className schema.ClassName, objectByIndexID func(index uint64) *storobj.Object, properties []string, term string, query string) (docPointersWithScore, error) {
+func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, className schema.ClassName, objectByIndexID func(index uint64) *storobj.Object, properties []string, textTerm, stringTerm string, query string) (docPointersWithScore, error) {
 	idss := []docPointersWithScore{}
 
-	searchTerm := term
-
+	if textTerm != "" && stringTerm != "" {
+		return docPointersWithScore{}, errors.New("Internal Error: Both textTerm and stringTerm are set")
+	}
 	propNames := []string{}
 
 	// WEAVIATE-471 - If a property is not searchable, return an error
@@ -342,8 +353,13 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 
 		// Properties don't have to be indexed, if they are not, they will error on search
 		if indexed == nil || *indexed {
+
 			if p.Tokenization == "word" {
-				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
+				if p.DataType[0] == "text" && textTerm != "" {
+					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, textTerm)
+				} else if p.DataType[0] == "string" && stringTerm != "" {
+					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, stringTerm)
+				}
 			} else {
 				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
 			}
