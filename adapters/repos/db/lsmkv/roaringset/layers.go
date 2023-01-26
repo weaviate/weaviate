@@ -41,6 +41,17 @@ type BitmapLayer struct {
 	Deletions *sroar.Bitmap
 }
 
+func (l *BitmapLayer) Clone() BitmapLayer {
+	clone := BitmapLayer{}
+	if l.Additions != nil {
+		clone.Additions = l.Additions.Clone()
+	}
+	if l.Deletions != nil {
+		clone.Deletions = l.Deletions.Clone()
+	}
+	return clone
+}
+
 // BitmapLayers are a helper type to perform operations on multiple layers,
 // such as [BitmapLayers.Flatten] or [BitmapLayers.Merge].
 type BitmapLayers []BitmapLayer

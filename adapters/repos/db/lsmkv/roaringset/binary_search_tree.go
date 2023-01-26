@@ -61,6 +61,8 @@ func (t *BinarySearchTree) Get(key []byte) (*BitmapLayer, error) {
 	return t.root.get(key)
 }
 
+// FlattenInOrder creates list of ordered copies of bst nodes
+// Only Key and Value fields are populated
 func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
 	if t.root == nil {
 		return nil
@@ -257,6 +259,12 @@ func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
 		right = n.right.flattenInOrder()
 	}
 
-	right = append([]*BinarySearchNode{n}, right...)
+	key := make([]byte, len(n.Key))
+	copy(key, n.Key)
+
+	right = append([]*BinarySearchNode{{
+		Key:   key,
+		Value: n.Value.Clone(),
+	}}, right...)
 	return append(left, right...)
 }
