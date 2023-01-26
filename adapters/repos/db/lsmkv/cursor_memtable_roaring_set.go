@@ -11,41 +11,13 @@
 
 package lsmkv
 
-import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
-)
-
-type memtableCursorRoaringSet struct {
-	bstCursor *roaringset.BinarySearchTreeCursor
-	lock      func()
-	unlock    func()
-}
+import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 
 func (m *Memtable) newRoaringSetCursor() roaringset.InnerCursor {
 	m.RLock()
 	defer m.RUnlock()
 
-	return &memtableCursorRoaringSet{
-		bstCursor: roaringset.NewBinarySearchTreeCursor(m.roaringSet),
-		lock:      m.RLock,
-		unlock:    m.RUnlock,
-	}
-}
-
-func (c *memtableCursorRoaringSet) First() ([]byte, roaringset.BitmapLayer, error) {
-	c.lock()
-	defer c.unlock()
-	return c.bstCursor.First()
-}
-
-func (c *memtableCursorRoaringSet) Next() ([]byte, roaringset.BitmapLayer, error) {
-	c.lock()
-	defer c.unlock()
-	return c.bstCursor.Next()
-}
-
-func (c *memtableCursorRoaringSet) Seek(key []byte) ([]byte, roaringset.BitmapLayer, error) {
-	c.lock()
-	defer c.unlock()
-	return c.bstCursor.Seek(key)
+	// Since FlattenInOrder makes deep copy of bst's nodes,
+	// no further memtable's locking in required on cursor's methods
+	return roaringset.NewBinarySearchTreeCursor(m.roaringSet)
 }

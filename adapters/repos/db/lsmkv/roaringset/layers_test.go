@@ -261,3 +261,55 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 		})
 	}
 }
+
+func Test_BitmapLayer_Clone(t *testing.T) {
+	t.Run("cloning empty BitmapLayer", func(t *testing.T) {
+		layerEmpty := BitmapLayer{}
+
+		cloned := layerEmpty.Clone()
+
+		assert.Nil(t, cloned.Additions)
+		assert.Nil(t, cloned.Deletions)
+	})
+
+	t.Run("cloning partially inited BitmapLayer", func(t *testing.T) {
+		additions := sroar.NewBitmap()
+		additions.Set(1)
+		deletions := sroar.NewBitmap()
+		deletions.Set(100)
+
+		layerAdditions := BitmapLayer{Additions: additions}
+		layerDeletions := BitmapLayer{Deletions: deletions}
+
+		clonedLayerAdditions := layerAdditions.Clone()
+		clonedLayerDeletions := layerDeletions.Clone()
+		additions.Remove(1)
+		deletions.Remove(100)
+
+		assert.True(t, layerAdditions.Additions.IsEmpty())
+		assert.ElementsMatch(t, []uint64{1}, clonedLayerAdditions.Additions.ToArray())
+		assert.Nil(t, clonedLayerAdditions.Deletions)
+
+		assert.True(t, layerDeletions.Deletions.IsEmpty())
+		assert.Nil(t, clonedLayerDeletions.Additions)
+		assert.ElementsMatch(t, []uint64{100}, clonedLayerDeletions.Deletions.ToArray())
+	})
+
+	t.Run("cloning fully inited BitmapLayer", func(t *testing.T) {
+		additions := sroar.NewBitmap()
+		additions.Set(1)
+		deletions := sroar.NewBitmap()
+		deletions.Set(100)
+
+		layer := BitmapLayer{Additions: additions, Deletions: deletions}
+
+		clonedLayer := layer.Clone()
+		additions.Remove(1)
+		deletions.Remove(100)
+
+		assert.True(t, layer.Additions.IsEmpty())
+		assert.True(t, layer.Deletions.IsEmpty())
+		assert.ElementsMatch(t, []uint64{1}, clonedLayer.Additions.ToArray())
+		assert.ElementsMatch(t, []uint64{100}, clonedLayer.Deletions.ToArray())
+	})
+}
