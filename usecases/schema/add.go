@@ -262,7 +262,7 @@ func (m *Manager) validateCanAddClass(
 		if err := m.validateProperty(property, class.Class, existingPropertyNames, relaxCrossRefValidation); err != nil {
 			return err
 		}
-		existingPropertyNames[property.Name] = true
+		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
 	if err := m.validateVectorSettings(ctx, class); err != nil {
@@ -293,8 +293,8 @@ func (m *Manager) validateProperty(
 		return err
 	}
 
-	if existingPropertyNames[property.Name] {
-		return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, className)
+	if existingPropertyNames[strings.ToLower(property.Name)] {
+		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, className)
 	}
 
 	// Validate data type of property.
