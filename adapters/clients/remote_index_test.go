@@ -24,6 +24,7 @@ package clients
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,11 +33,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func TestRemoteIndexGetObject(t *testing.T) {
@@ -309,6 +313,44 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		err := client.PutFile(ctx, fs.host, "C1", "S1", "file1", rsc)
 		assert.Nil(t, err)
+	})
+}
+
+func TestRemoteIndexOverwriteObjects(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx  = context.Background()
+		path = "/indices/C1/shards/S1/objects:overwrite"
+		fs   = newFakeRemoteIndexServer(t, http.MethodPut, path)
+		vobj = []*objects.VObject{
+			{
+				Version: time.Now().UnixMilli(),
+				Object: &storobj.Object{
+					MarshallerVersion: 1,
+					Object: models.Object{
+						ID:         strfmt.UUID("47b7dcca-d020-40c0-ae5f-2634a1f83ff1"),
+						Class:      "SomeClass",
+						Properties: map[string]interface{}{"prop": "value"},
+					},
+					Vector:    []float32{1, 2, 3, 4, 5},
+					VectorLen: 5,
+				},
+			},
+		}
+	)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+	versions := []int64{1, 2, 3, 4}
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		b, _ := json.Marshal(versions)
+		w.Write(b)
+	}
+	t.Run("Success", func(t *testing.T) {
+		payload, err := client.OverwriteObjects(ctx, fs.host, "C1", "S1", vobj)
+		assert.Nil(t, err)
+		assert.Equal(t, versions, payload)
 	})
 }
 

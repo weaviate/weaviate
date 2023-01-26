@@ -861,7 +861,6 @@ func (c *RemoteIndex) FindObject(ctx context.Context, hostName, indexName,
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
 			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-
 		}
 
 		ct, ok := clusterapi.IndicesPayloads.SingleObject.CheckContentTypeHeader(res)
@@ -881,4 +880,50 @@ func (c *RemoteIndex) FindObject(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 	return obj, c.retry(ctx, 9, try)
+}
+
+func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]int64, error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects:overwrite", index, shard)
+
+	url := url.URL{Scheme: "http", Host: host, Path: path}
+
+	marshalled, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(objects)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		url.String(), bytes.NewReader(marshalled))
+	if err != nil {
+		return nil, fmt.Errorf("open http request: %w", err)
+	}
+
+	clusterapi.IndicesPayloads.VersionedObjectList.SetContentTypeHeaderReq(req)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send http request: %w", err)
+	}
+
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d (%s)",
+			resp.StatusCode, body)
+	}
+
+	var result []int64
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	err = json.Unmarshal(b, &result)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal body: %w", err)
+	}
+
+	return result, nil
 }

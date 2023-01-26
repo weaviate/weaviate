@@ -93,6 +93,11 @@ type RemoteIndexClient interface {
 	FindObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
+
+	// OverwriteObjects updates an existing object if the replication coordinator
+	// detects that a set of nodes contains an outdated version of an object
+	OverwriteObjects(ctx context.Context, host, index,
+		shard string, objects []*objects.VObject) ([]int64, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,

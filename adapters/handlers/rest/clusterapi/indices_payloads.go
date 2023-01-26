@@ -37,6 +37,7 @@ type indicesPayloads struct {
 	SingleObject              singleObjectPayload
 	MergeDoc                  mergeDocPayload
 	ObjectList                objectListPayload
+	VersionedObjectList       versionedObjectListPayload
 	SearchResults             searchResultsPayload
 	SearchParams              searchParamsPayload
 	ReferenceList             referenceListPayload
@@ -218,6 +219,47 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 		}
 
 		out = append(out, obj)
+	}
+
+	return out, nil
+}
+
+type versionedObjectListPayload struct{}
+
+func (p versionedObjectListPayload) MIME() string {
+	return "application/vnd.weaviate.vobject.list+octet-stream"
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
 	}
 
 	return out, nil
