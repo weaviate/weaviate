@@ -323,8 +323,8 @@ func TestRemoteIndexOverwriteObjects(t *testing.T) {
 		fs   = newFakeRemoteIndexServer(t, http.MethodPut, path)
 		vobj = []*objects.VObject{
 			{
-				UpdateTime: time.Now().UnixMilli(),
-				Object: &models.Object{
+				StaleUpdateTime: time.Now().UnixMilli(),
+				LatestObject: &models.Object{
 					ID:         strfmt.UUID("47b7dcca-d020-40c0-ae5f-2634a1f83ff1"),
 					Class:      "SomeClass",
 					Properties: map[string]interface{}{"prop": "value"},

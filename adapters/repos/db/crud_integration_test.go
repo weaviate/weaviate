@@ -2062,10 +2062,10 @@ func TestDBOverwriteObjects(t *testing.T) {
 
 	t.Run("overwrite with fresh object", func(t *testing.T) {
 		input := []*objects.VObject{
-			{Object: fresh, UpdateTime: stale.LastUpdateTimeUnix},
+			{LatestObject: fresh, StaleUpdateTime: stale.LastUpdateTimeUnix},
 		}
 		expected := []*objects.VObject{
-			{Object: fresh, UpdateTime: fresh.LastUpdateTimeUnix},
+			{LatestObject: fresh, StaleUpdateTime: fresh.LastUpdateTimeUnix},
 		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))
@@ -2074,7 +2074,7 @@ func TestDBOverwriteObjects(t *testing.T) {
 
 		received, err := repo.OverwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
-		assert.EqualValues(t, expected[0].Object, received[0].Object)
+		assert.EqualValues(t, expected[0].LatestObject, received[0].LatestObject)
 	})
 
 	t.Run("assert data was overwritten", func(t *testing.T) {

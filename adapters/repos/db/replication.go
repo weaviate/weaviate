@@ -327,20 +327,20 @@ func (db *DB) OverwriteObjects(ctx context.Context,
 	result := make([]*objects.VObject, len(vobjects))
 	for i, vobj := range vobjects {
 		found, err := db.Object(ctx,
-			vobj.Object.Class, vobj.Object.ID,
+			vobj.LatestObject.Class, vobj.LatestObject.ID,
 			nil, additional.Properties{}, nil)
 		if err != nil {
 			return nil, err
 		}
 		// the db's stored object is not the most recent version.
 		// in this case, we overwrite it with the more recent one
-		if found.Object().LastUpdateTimeUnix == vobj.UpdateTime {
-			idx := db.GetIndex(schema.ClassName(vobj.Object.Class))
+		if found.Object().LastUpdateTimeUnix == vobj.StaleUpdateTime {
+			idx := db.GetIndex(schema.ClassName(vobj.LatestObject.Class))
 			shd := idx.Shards[shard]
 			if shd == nil {
 				return nil, fmt.Errorf("shard %q not found locally", shard)
 			}
-			err := shd.putObject(ctx, storobj.FromObject(vobj.Object, vobj.Object.Vector))
+			err := shd.putObject(ctx, storobj.FromObject(vobj.LatestObject, vobj.LatestObject.Vector))
 			if err != nil {
 				return nil, fmt.Errorf("overwrite stale object: %w", err)
 			}

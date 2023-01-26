@@ -47,9 +47,9 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 
 	t.Run("assert BinaryMarshaler implementation correctness", func(t *testing.T) {
 		expected := VObject{
-			Object:     &obj,
-			UpdateTime: now.UnixMilli(),
-			Version:    1,
+			LatestObject:    &obj,
+			StaleUpdateTime: now.UnixMilli(),
+			Version:         1,
 		}
 
 		b, err := expected.MarshalBinary()
