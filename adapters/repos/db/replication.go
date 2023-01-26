@@ -321,29 +321,29 @@ func (s *Shard) reinit(ctx context.Context) error {
 	return nil
 }
 
-func (idx *Index) OverwriteObjects(ctx context.Context,
+func (i *Index) OverwriteObjects(ctx context.Context,
 	shard string, vobjects []*objects.VObject,
 ) ([]*objects.VObject, error) {
 	result := make([]*objects.VObject, len(vobjects))
-	for i, vobj := range vobjects {
-		found, err := idx.objectByID(ctx, vobj.LatestObject.ID, nil, additional.Properties{}, nil)
+	shd := i.Shards[shard]
+	if shd == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shard)
+	}
+	for j, vobj := range vobjects {
+		found, err := shd.objectByID(ctx, vobj.LatestObject.ID, nil, additional.Properties{})
 		if err != nil {
 			return nil, err
 		}
 		// the stored object is not the most recent version. in
 		// this case, we overwrite it with the more recent one.
 		if found.LastUpdateTimeUnix() == vobj.StaleUpdateTime {
-			shd := idx.Shards[shard]
-			if shd == nil {
-				return nil, fmt.Errorf("shard %q not found locally", shard)
-			}
 			err := shd.putObject(ctx, storobj.FromObject(vobj.LatestObject, vobj.LatestObject.Vector))
 			if err != nil {
 				return nil, fmt.Errorf("overwrite stale object: %w", err)
 			}
-			result[i] = vobj
+			result[j] = vobj
 		} else {
-			result[i] = nil
+			result[j] = nil
 		}
 	}
 	return result, nil
