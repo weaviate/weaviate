@@ -48,7 +48,7 @@ func (l *Limiter) TryInc() bool {
 }
 
 func (l *Limiter) Dec() {
-	if l.max < 0 {
+	if l.max <= 0 {
 		return
 	}
 

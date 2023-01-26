@@ -290,7 +290,7 @@ const (
 	DefaultPersistenceMemtablesMaxSize        = 200
 	DefaultPersistenceMemtablesMinDuration    = 15
 	DefaultPersistenceMemtablesMaxDuration    = 45
-	DefaultMaxConcurrentGetRequests           = -1
+	DefaultMaxConcurrentGetRequests           = 0
 )
 
 const VectorizerModuleNone = "none"
