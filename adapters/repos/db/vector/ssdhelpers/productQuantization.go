@@ -74,21 +74,23 @@ func (lut *DistanceLookUpTable) LookUp(
 }
 
 type ProductQuantizer struct {
-	ks          int
-	m           int
-	ds          int
-	distance    distancer.Provider
-	dimensions  int
-	kms         []PQEncoder
-	encoderType Encoder
+	ks                  int
+	m                   int
+	ds                  int
+	distance            distancer.Provider
+	dimensions          int
+	kms                 []PQEncoder
+	encoderType         Encoder
+	encoderDistribution EncoderDistribution
 }
 
 type PQData struct {
-	Ks          uint16
-	M           uint16
-	Dimensions  uint16
-	EncoderType Encoder
-	Encoders    []PQEncoder
+	Ks                  uint16
+	M                   uint16
+	Dimensions          uint16
+	EncoderType         Encoder
+	EncoderDistribution byte
+	Encoders            []PQEncoder
 }
 
 type PQEncoder interface {
@@ -99,17 +101,19 @@ type PQEncoder interface {
 	ExposeDataForRestore() []byte
 }
 
-func NewProductQuantizer(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder) *ProductQuantizer {
+// ToDo: Add a settings struct. Already necessary!!
+func NewProductQuantizer(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder, encoderDistribution EncoderDistribution) *ProductQuantizer {
 	if dimensions%segments != 0 {
 		panic("dimension must be a multiple of m")
 	}
 	pq := &ProductQuantizer{
-		ks:          centroids,
-		m:           segments,
-		ds:          int(dimensions / segments),
-		distance:    distance,
-		dimensions:  dimensions,
-		encoderType: encoderType,
+		ks:                  centroids,
+		m:                   segments,
+		ds:                  int(dimensions / segments),
+		distance:            distance,
+		dimensions:          dimensions,
+		encoderType:         encoderType,
+		encoderDistribution: encoderDistribution,
 	}
 	return pq
 }
@@ -132,11 +136,12 @@ func NewProductQuantizerWithEncoders(segments int, centroids int, distance dista
 
 func (pq *ProductQuantizer) ExposeFields() PQData {
 	return PQData{
-		Dimensions:  uint16(pq.dimensions),
-		EncoderType: pq.encoderType,
-		Ks:          uint16(pq.ks),
-		M:           uint16(pq.m),
-		Encoders:    pq.kms,
+		Dimensions:          uint16(pq.dimensions),
+		EncoderType:         pq.encoderType,
+		Ks:                  uint16(pq.ks),
+		M:                   uint16(pq.m),
+		EncoderDistribution: byte(pq.encoderDistribution),
+		Encoders:            pq.kms,
 	}
 }
 
@@ -191,7 +196,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 	case UseTileEncoder:
 		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
-			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i))
+			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i), NormalEncoderDistribution)
 			for j := 0; j < len(data); j++ {
 				pq.kms[i].Add(data[j])
 			}
