@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+
 	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
@@ -151,6 +151,7 @@ type hnsw struct {
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
 	compressActionLock     *sync.RWMutex
+	className              string
 }
 
 type CommitLogger interface {
@@ -213,15 +214,6 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead)
 
-	store, err := lsmkv.New(fmt.Sprintf("%s/%s", cfg.RootPath, cfg.ClassName), "", cfg.Logger, nil)
-	if err != nil {
-		return nil, errors.Wrapf(err, "init hnsw")
-	}
-	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
-	if err != nil {
-		return nil, errors.Wrapf(err, "init hnsw")
-	}
-
 	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
@@ -260,8 +252,8 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 
 		randFunc:           rand.Float64,
-		compressedStore:    store,
 		compressActionLock: &sync.RWMutex{},
+		className:          cfg.ClassName,
 	}
 
 	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
