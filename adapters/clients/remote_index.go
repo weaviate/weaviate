@@ -884,7 +884,7 @@ func (c *RemoteIndex) FindObject(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
-) ([]int64, error) {
+) ([]*objects.VObject, error) {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects:overwrite", index, shard)
 
 	url := url.URL{Scheme: "http", Host: host, Path: path}
@@ -914,16 +914,10 @@ func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
 			resp.StatusCode, body)
 	}
 
-	var result []int64
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	err = json.Unmarshal(b, &result)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal body: %w", err)
-	}
-
-	return result, nil
+	return clusterapi.IndicesPayloads.VersionedObjectList.Unmarshal(b)
 }

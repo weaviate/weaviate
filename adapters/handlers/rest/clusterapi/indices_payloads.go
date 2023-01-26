@@ -265,6 +265,40 @@ func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, erro
 	return out, nil
 }
 
+func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	reusableLengthBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := r.Read(reusableLengthBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		ln := binary.LittleEndian.Uint64(reusableLengthBuf)
+		payloadBytes := make([]byte, ln)
+		_, err = r.Read(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		var vobj objects.VObject
+		err = vobj.UnmarshalBinary(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, &vobj)
+	}
+
+	return out, nil
+}
+
 type mergeDocPayload struct{}
 
 func (p mergeDocPayload) MIME() string {

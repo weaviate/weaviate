@@ -24,7 +24,6 @@ package clients
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -337,16 +336,15 @@ func TestRemoteIndexOverwriteObjects(t *testing.T) {
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newRemoteIndex(ts.Client())
-	versions := []int64{1, 2, 3, 4}
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		b, _ := json.Marshal(versions)
+		b, _ := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobj)
 		w.Write(b)
 	}
 	t.Run("Success", func(t *testing.T) {
 		payload, err := client.OverwriteObjects(ctx, fs.host, "C1", "S1", vobj)
 		assert.Nil(t, err)
-		assert.Equal(t, versions, payload)
+		assert.Equal(t, vobj, payload)
 	})
 }
 
