@@ -23,6 +23,17 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params GetParams,
 ) (interface{}, error) {
 	before := time.Now()
+
+	ok := t.ratelimiter.TryInc()
+	if !ok {
+		// we currently have no concept of error status code or typed errors in
+		// GraphQL, so there is no other way then to send a message containing what
+		// we want to convey
+		return nil, fmt.Errorf("429 Too many requests")
+	}
+
+	defer t.ratelimiter.Dec()
+
 	t.metrics.QueriesGetInc(params.ClassName)
 	defer t.metrics.QueriesGetDec(params.ClassName)
 	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())

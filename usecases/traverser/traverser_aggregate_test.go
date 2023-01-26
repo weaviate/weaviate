@@ -35,7 +35,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
 
 	traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-		vectorRepo, explorer, schemaGetter, nil, nil)
+		vectorRepo, explorer, schemaGetter, nil, nil, -1)
 
 	t.Run("with aggregation only", func(t *testing.T) {
 		params := aggregation.Params{
