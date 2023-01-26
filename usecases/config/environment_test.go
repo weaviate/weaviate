@@ -320,7 +320,7 @@ func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
 	}{
 		{"Valid", []string{"100"}, 100, false},
 		{"not given", []string{}, DefaultMaxConcurrentGetRequests, false},
-		{"unlimitd", []string{"-1"}, -1, false},
+		{"unlimited", []string{"-1"}, -1, false},
 		{"not parsable", []string{"I'm not a number"}, -1, true},
 	}
 	for _, tt := range factors {
