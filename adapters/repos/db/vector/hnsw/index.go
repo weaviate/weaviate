@@ -213,7 +213,7 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead)
 
-	store, err := lsmkv.New(fmt.Sprintf("./data/%s", cfg.ClassName), "", cfg.Logger, nil)
+	store, err := lsmkv.New(fmt.Sprintf("%s/%s", cfg.RootPath, cfg.ClassName), "", cfg.Logger, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init hnsw")
 	}
