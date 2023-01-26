@@ -243,6 +243,11 @@ func (p versionedObjectListPayload) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
 }
 
+func (p versionedObjectListPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
 func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
 	// NOTE: This implementation is not optimized for allocation efficiency,
 	// reserve 1024 byte per object which is rather arbitrary

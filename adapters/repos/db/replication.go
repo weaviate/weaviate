@@ -321,21 +321,18 @@ func (s *Shard) reinit(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) OverwriteObjects(ctx context.Context,
+func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, vobjects []*objects.VObject,
 ) ([]*objects.VObject, error) {
 	result := make([]*objects.VObject, len(vobjects))
 	for i, vobj := range vobjects {
-		found, err := db.Object(ctx,
-			vobj.LatestObject.Class, vobj.LatestObject.ID,
-			nil, additional.Properties{}, nil)
+		found, err := idx.objectByID(ctx, vobj.LatestObject.ID, nil, additional.Properties{}, nil)
 		if err != nil {
 			return nil, err
 		}
-		// the db's stored object is not the most recent version.
-		// in this case, we overwrite it with the more recent one
-		if found.Object().LastUpdateTimeUnix == vobj.StaleUpdateTime {
-			idx := db.GetIndex(schema.ClassName(vobj.LatestObject.Class))
+		// the stored object is not the most recent version. in
+		// this case, we overwrite it with the more recent one.
+		if found.LastUpdateTimeUnix() == vobj.StaleUpdateTime {
 			shd := idx.Shards[shard]
 			if shd == nil {
 				return nil, fmt.Errorf("shard %q not found locally", shard)
@@ -350,4 +347,10 @@ func (db *DB) OverwriteObjects(ctx context.Context,
 		}
 	}
 	return result, nil
+}
+
+func (i *Index) IncomingOverwriteObjects(ctx context.Context,
+	shard string, vobjects []*objects.VObject,
+) ([]*objects.VObject, error) {
+	return i.OverwriteObjects(ctx, shard, vobjects)
 }

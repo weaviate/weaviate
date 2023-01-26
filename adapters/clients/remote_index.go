@@ -919,5 +919,10 @@ func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
+	ct, ok := clusterapi.IndicesPayloads.VersionedObjectList.CheckContentTypeHeader(resp)
+	if !ok {
+		return nil, fmt.Errorf("invalid content-type: %q", ct)
+	}
+
 	return clusterapi.IndicesPayloads.VersionedObjectList.Unmarshal(b)
 }

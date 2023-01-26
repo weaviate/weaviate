@@ -1987,7 +1987,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	})
 }
 
-func TestDBOverwriteObjects(t *testing.T) {
+func TestOverwriteObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -2072,7 +2072,7 @@ func TestDBOverwriteObjects(t *testing.T) {
 		shd, err := idx.shardFromUUID(fresh.ID)
 		require.Nil(t, err)
 
-		received, err := repo.OverwriteObjects(context.Background(), shd, input)
+		received, err := idx.OverwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
 		assert.EqualValues(t, expected[0].LatestObject, received[0].LatestObject)
 	})

@@ -337,8 +337,8 @@ func TestRemoteIndexOverwriteObjects(t *testing.T) {
 	defer ts.Close()
 	client := newRemoteIndex(ts.Client())
 	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		b, _ := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobj)
+		clusterapi.IndicesPayloads.VersionedObjectList.SetContentTypeHeader(w)
 		w.Write(b)
 	}
 	t.Run("Success", func(t *testing.T) {
