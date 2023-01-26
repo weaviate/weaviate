@@ -151,6 +151,7 @@ type hnsw struct {
 	compressedVectorsCache cache[byte]
 	compressedStore        *lsmkv.Store
 	compressActionLock     *sync.RWMutex
+	className              string
 }
 
 type CommitLogger interface {
@@ -261,8 +262,8 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 
 		randFunc:           rand.Float64,
-		compressedStore:    store,
 		compressActionLock: &sync.RWMutex{},
+		className:          cfg.ClassName,
 	}
 
 	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
