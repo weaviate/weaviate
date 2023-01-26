@@ -15,25 +15,29 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // VObject is a versioned object for detecting replication inconsistencies
 type VObject struct {
-	Object *storobj.Object `json:"object"`
+	Object *models.Object `json:"object,omitempty"`
 
-	// Version is the LastUpdateTimeUnix of the object sent to the coordinator
-	Version int64 `json:"version"`
+	// UpdateTime is the LastUpdateTimeUnix of the object sent to the coordinator
+	UpdateTime int64 `json:"updateTime,omitempty"`
+
+	// Version is the incremental version number of the object
+	Version uint64 `json:"version"`
 }
 
 // vobjectMarshaler is a helper for the functions implementing encoding.BinaryMarshaler
 //
-// Because storobj.Object has an optimized custom MarshalBinary function, that is what
+// Because models.Object has an optimized custom MarshalBinary function, that is what
 // we want to use when serializing, rather than json.Marshal. This is just a thin
 // wrapper around the storobj bytes resulting from the underlying call to MarshalBinary
 type vobjectMarshaler struct {
-	Version int64
-	Object  []byte
+	UpdateTime int64
+	Version    uint64
+	Object     []byte
 }
 
 func (vo *VObject) MarshalBinary() ([]byte, error) {
@@ -42,7 +46,7 @@ func (vo *VObject) MarshalBinary() ([]byte, error) {
 		return nil, fmt.Errorf("marshal object: %w", err)
 	}
 
-	b := vobjectMarshaler{vo.Version, obj}
+	b := vobjectMarshaler{vo.UpdateTime, vo.Version, obj}
 	return json.Marshal(b)
 }
 
@@ -53,9 +57,10 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 	if err != nil {
 		return err
 	}
+	vo.UpdateTime = b.UpdateTime
 	vo.Version = b.Version
 
-	var obj storobj.Object
+	var obj models.Object
 	err = obj.UnmarshalBinary(b.Object)
 	if err != nil {
 		return fmt.Errorf("unmarshal object: %w", err)

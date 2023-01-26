@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -1988,7 +1987,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	})
 }
 
-func TestDBOverwriteObject(t *testing.T) {
+func TestDBOverwriteObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -2064,8 +2063,8 @@ func TestDBOverwriteObject(t *testing.T) {
 	t.Run("overwrite with fresh object", func(t *testing.T) {
 		versions, err := repo.OverwriteObjects(context.Background(), []*objects.VObject{
 			{
-				Version: fresh.LastUpdateTimeUnix,
-				Object:  storobj.FromObject(fresh, fresh.Vector),
+				UpdateTime: fresh.LastUpdateTimeUnix,
+				Object:     fresh,
 			},
 		})
 		assert.Nil(t, err)

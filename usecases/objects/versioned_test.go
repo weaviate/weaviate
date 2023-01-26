@@ -19,46 +19,37 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func Test_VObject_MarshalBinary(t *testing.T) {
 	now := time.Now()
 	vec := []float32{1, 2, 3, 4, 5}
 
-	obj := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 strfmt.UUID("c6f85bf5-c3b7-4c1d-bd51-e899f9605336"),
-			Class:              "SomeClass",
-			CreationTimeUnix:   now.UnixMilli(),
-			LastUpdateTimeUnix: now.Add(time.Hour).UnixMilli(), // time-traveling ;)
-			Properties: map[string]interface{}{
-				"propA":    "this is prop A",
-				"propB":    "this is prop B",
-				"someDate": now.Format(time.RFC3339Nano),
-				"aNumber":  1e+06,
-				"crossRef": models.MultipleRef{
-					crossref.NewLocalhost(
-						"OtherClass",
-						"c82d011c-f05a-43de-8a8a-ee9c814d4cfb",
-					).SingleRef(),
-				},
-			},
-			Additional: map[string]interface{}{
-				"score": 0.055465422484,
+	obj := models.Object{
+		ID:                 strfmt.UUID("c6f85bf5-c3b7-4c1d-bd51-e899f9605336"),
+		Class:              "SomeClass",
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: now.Add(time.Hour).UnixMilli(), // time-traveling ;)
+		Properties: map[string]interface{}{
+			"propA":    "this is prop A",
+			"propB":    "this is prop B",
+			"someDate": now.Format(time.RFC3339Nano),
+			"aNumber":  1e+06,
+			"crossRef": map[string]interface{}{
+				"beacon": "weaviate://localhost/OtherClass/c82d011c-f05a-43de-8a8a-ee9c814d4cfb",
 			},
 		},
-		Vector:    vec,
-		VectorLen: len(vec),
+		Vector: vec,
+		Additional: map[string]interface{}{
+			"score": 0.055465422484,
+		},
 	}
-	obj.SetDocID(12)
 
 	t.Run("assert BinaryMarshaler implementation correctness", func(t *testing.T) {
-		expected := &VObject{
-			Object:  obj,
-			Version: now.UnixMilli(),
+		expected := VObject{
+			Object:     &obj,
+			UpdateTime: now.UnixMilli(),
+			Version:    1,
 		}
 
 		b, err := expected.MarshalBinary()
@@ -68,6 +59,6 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 		err = received.UnmarshalBinary(b)
 		require.Nil(t, err)
 
-		assert.EqualValues(t, expected.Object, received.Object)
+		assert.EqualValues(t, expected, received)
 	})
 }

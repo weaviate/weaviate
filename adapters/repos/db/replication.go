@@ -327,21 +327,21 @@ func (db *DB) OverwriteObjects(ctx context.Context,
 	result := make([]int64, len(objects))
 	for i, vobj := range objects {
 		found, err := db.Object(ctx,
-			vobj.Object.Class().String(), vobj.Object.ID(),
+			vobj.Object.Class, vobj.Object.ID,
 			nil, additional.Properties{}, nil)
 		if err != nil {
 			return nil, err
 		}
 		// the db's stored object is not the most recent version.
 		// in this case, we overwrite it with the more recent one
-		if found.Object().LastUpdateTimeUnix < vobj.Version {
+		if found.Object().LastUpdateTimeUnix < vobj.UpdateTime {
 			// 1) overwrite object
-			err := db.PutObject(ctx, &vobj.Object.Object, vobj.Object.Vector)
+			err := db.PutObject(ctx, vobj.Object, vobj.Object.Vector)
 			if err != nil {
 				return nil, fmt.Errorf("overwrite stale object: %w", err)
 			}
 			// the new version for the object at the corresponding index
-			result[i] = vobj.Version
+			result[i] = vobj.UpdateTime
 		} else {
 			result[i] = found.Object().LastUpdateTimeUnix
 		}
