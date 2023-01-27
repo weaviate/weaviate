@@ -42,6 +42,8 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
 				Distance:               DefaultDistanceMetric,
+				PQEncoderType:          DefaultPQEncoderType,
+				PQEncoderDistribution:  DefaultPQEncoderDistribution,
 			},
 		},
 
@@ -61,6 +63,8 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
 				Distance:               DefaultDistanceMetric,
+				PQEncoderType:          DefaultPQEncoderType,
+				PQEncoderDistribution:  DefaultPQEncoderDistribution,
 			},
 		},
 
