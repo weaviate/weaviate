@@ -28,7 +28,7 @@ const (
 	centroids = 256
 )
 
-func (h *hnsw) Compress(segments int) error {
+func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) error {
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	if h.nodes[0] == nil {
@@ -50,7 +50,7 @@ func (h *hnsw) Compress(segments int) error {
 	if segments <= 0 {
 		segments = dims
 	}
-	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, h.distancerProvider, dims, ssdhelpers.UseTileEncoder, ssdhelpers.NormalEncoderDistribution)
+	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, h.distancerProvider, dims, ssdhelpers.Encoder(encoderType), ssdhelpers.EncoderDistribution(encoderDistribution))
 
 	data := h.cache.all()
 	cleanData := make([][]float32, 0, len(data))

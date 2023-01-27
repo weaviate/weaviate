@@ -18,6 +18,7 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -60,6 +61,8 @@ type UserConfig struct {
 	Distance               string `json:"distance"`
 	Compressed             bool   `json:"compressed"`
 	PQSegments             int    `json:"pqSegments"`
+	PQEncoderType          int    `json:"pqEncoderType"`
+	PQEncoderDistribution  int    `json:"pqEncoderDistribution"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -83,6 +86,8 @@ func (c *UserConfig) SetDefaults() {
 	c.Distance = DefaultDistanceMetric
 	c.Compressed = DefaultCompressed
 	c.PQSegments = DefaultPQSegments
+	c.PQEncoderType = int(ssdhelpers.UseKMeansEncoder)
+	c.PQEncoderDistribution = int(ssdhelpers.LogNormalEncoderDistribution)
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
@@ -174,6 +179,18 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 
 	if err := optionalIntFromMap(asMap, "pqSegments", func(v int) {
 		uc.PQSegments = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "pqEncoderType", func(v int) {
+		uc.PQEncoderType = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := optionalIntFromMap(asMap, "pqEncoderDistribution", func(v int) {
+		uc.PQEncoderDistribution = v
 	}); err != nil {
 		return uc, err
 	}
