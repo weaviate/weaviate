@@ -35,22 +35,22 @@ func combineChecksums(checksums [][]byte, operator filters.Operator) []byte {
 	return buf
 }
 
-func combineSetChecksums(sets []*docPointers, operator filters.Operator) []byte {
-	if len(sets) == 1 {
-		return sets[0].checksum
-	}
+// func combineSetChecksums(sets []*docPointers, operator filters.Operator) []byte {
+// 	if len(sets) == 1 {
+// 		return sets[0].checksum
+// 	}
 
-	total := make([]byte, 8*len(sets)+1) // one extra byte for operator encoding
-	for i, set := range sets {
-		copy(total[(i*8):(i+1)*8], set.checksum)
-	}
-	total[len(total)-1] = uint8(operator)
+// 	total := make([]byte, 8*len(sets)+1) // one extra byte for operator encoding
+// 	for i, set := range sets {
+// 		copy(total[(i*8):(i+1)*8], set.checksum)
+// 	}
+// 	total[len(total)-1] = uint8(operator)
 
-	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, newChecksum)
-	return buf
-}
+// 	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
+// 	buf := make([]byte, 8)
+// 	binary.LittleEndian.PutUint64(buf, newChecksum)
+// 	return buf
+// }
 
 // docPointerChecksum is a way to generate a checksum from an already "parsed"
 // list of docIDs. This is untypical, as usually we can just use the raw binary
@@ -83,24 +83,24 @@ func docPointerChecksum(pointers []uint64) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func checksumsIdentical(sets []*docPointers) bool {
-	if len(sets) == 0 {
-		return false
-	}
+// func checksumsIdentical(sets []*docPointers) bool {
+// 	if len(sets) == 0 {
+// 		return false
+// 	}
 
-	if len(sets) == 1 {
-		return true
-	}
+// 	if len(sets) == 1 {
+// 		return true
+// 	}
 
-	lastChecksum := sets[0].checksum
-	for _, set := range sets {
-		if !bytes.Equal(set.checksum, lastChecksum) {
-			return false
-		}
-	}
+// 	lastChecksum := sets[0].checksum
+// 	for _, set := range sets {
+// 		if !bytes.Equal(set.checksum, lastChecksum) {
+// 			return false
+// 		}
+// 	}
 
-	return true
-}
+// 	return true
+// }
 
 func checksumsIdenticalBM(docBitmaps []*docBitmap) bool {
 	if len(docBitmaps) == 0 {

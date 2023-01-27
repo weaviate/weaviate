@@ -15,11 +15,11 @@ func TestDocBitmap(t *testing.T) {
 		assert.Empty(t, dbm.IDs())
 		assert.Empty(t, dbm.checksum)
 
-		pointers := dbm.toDocPointers()
+		// pointers := dbm.toDocPointers()
 
-		assert.Equal(t, uint64(0), pointers.count)
-		assert.Empty(t, pointers.docIDs)
-		assert.Empty(t, pointers.checksum)
+		// assert.Equal(t, uint64(0), pointers.count)
+		// assert.Empty(t, pointers.docIDs)
+		// assert.Empty(t, pointers.checksum)
 	})
 
 	t.Run("filled doc bitmap", func(t *testing.T) {
@@ -34,10 +34,10 @@ func TestDocBitmap(t *testing.T) {
 		assert.ElementsMatch(t, ids, dbm.IDs())
 		assert.Equal(t, checksum, dbm.checksum)
 
-		pointers := dbm.toDocPointers()
+		// pointers := dbm.toDocPointers()
 
-		assert.Equal(t, uint64(5), pointers.count)
-		assert.ElementsMatch(t, ids, pointers.docIDs)
-		assert.Equal(t, checksum, pointers.checksum)
+		// assert.Equal(t, uint64(5), pointers.count)
+		// assert.ElementsMatch(t, ids, pointers.docIDs)
+		// assert.Equal(t, checksum, pointers.checksum)
 	})
 }
