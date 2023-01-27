@@ -212,8 +212,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
 		}
 
-		res, ok := s.rowCache.Load(pv.docIDs.checksum)
-		if ok && res.Type == CacheTypeAllowList {
+		if res, ok := s.rowCache.Load(pv.docIDs.checksum); ok {
 			return res.AllowList, nil
 		}
 	}
@@ -230,12 +229,8 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
 
 	if cacheable && allowCaching {
-		// TODO change cache to work on BM?
-		// transforming to pointers for backward compatibility
 		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
-			Type:      CacheTypeAllowList,
 			AllowList: out,
-			Partial:   pv.docIDs.toDocPointers(),
 			Hash:      pv.docIDs.checksum,
 		})
 	}
@@ -563,22 +558,22 @@ func (dbm *docBitmap) IDs() []uint64 {
 	return dbm.docIDs.ToArray()
 }
 
-func (dbm *docBitmap) toDocPointers() *docPointers {
-	if dbm.docIDs == nil {
-		return &docPointers{checksum: dbm.checksum}
-	}
-	return &docPointers{
-		count:    uint64(dbm.docIDs.GetCardinality()),
-		docIDs:   dbm.docIDs.ToArray(),
-		checksum: dbm.checksum,
-	}
-}
+// func (dbm *docBitmap) toDocPointers() *docPointers {
+// 	if dbm.docIDs == nil {
+// 		return &docPointers{checksum: dbm.checksum}
+// 	}
+// 	return &docPointers{
+// 		count:    uint64(dbm.docIDs.GetCardinality()),
+// 		docIDs:   dbm.docIDs.ToArray(),
+// 		checksum: dbm.checksum,
+// 	}
+// }
 
-type docPointers struct {
-	count    uint64
-	docIDs   []uint64
-	checksum []byte // helps us judge if a cached read is still fresh
-}
+// type docPointers struct {
+// 	count    uint64
+// 	docIDs   []uint64
+// 	checksum []byte // helps us judge if a cached read is still fresh
+// }
 
 type docPointersWithScore struct {
 	count    uint64
@@ -594,9 +589,9 @@ type docPointerWithScore struct {
 	Additional map[string]interface{}
 }
 
-func (d docPointers) IDs() []uint64 {
-	return d.docIDs
-}
+// func (d docPointers) IDs() []uint64 {
+// 	return d.docIDs
+// }
 
 func (d docPointersWithScore) IDs() []uint64 {
 	out := make([]uint64, len(d.docIDs))
@@ -606,22 +601,22 @@ func (d docPointersWithScore) IDs() []uint64 {
 	return out
 }
 
-func (d *docPointers) removeDuplicates() {
-	counts := make(map[uint64]uint16, len(d.docIDs))
-	for _, id := range d.docIDs {
-		counts[id]++
-	}
+// func (d *docPointers) removeDuplicates() {
+// 	counts := make(map[uint64]uint16, len(d.docIDs))
+// 	for _, id := range d.docIDs {
+// 		counts[id]++
+// 	}
 
-	updated := make([]uint64, len(d.docIDs))
-	i := 0
-	for _, id := range d.docIDs {
-		if counts[id] == 1 {
-			updated[i] = id
-			i++
-		}
+// 	updated := make([]uint64, len(d.docIDs))
+// 	i := 0
+// 	for _, id := range d.docIDs {
+// 		if counts[id] == 1 {
+// 			updated[i] = id
+// 			i++
+// 		}
 
-		counts[id]--
-	}
+// 		counts[id]--
+// 	}
 
-	d.docIDs = updated[:i]
-}
+// 	d.docIDs = updated[:i]
+// }

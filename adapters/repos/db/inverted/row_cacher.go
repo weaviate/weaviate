@@ -34,38 +34,13 @@ func NewRowCacher(maxSize uint64) *RowCacher {
 }
 
 type CacheEntry struct {
-	Type      CacheEntryType
 	Hash      []byte
-	Partial   *docPointers
 	AllowList helpers.AllowList
 }
 
-// Size cannot be determined accurately since a golang map does not have fixed
-// size per elements. However, through experimentation we have found that a
-// map[uint64]struct{} rarely exceeds 25 bytes per entry, so we are using this
-// as an estimate. In addition, we know that the partial content uses an array
-// where we can assume full efficiency, i.e. 8 bytes per entry.
 func (ce *CacheEntry) Size() uint64 {
-	return ce.AllowList.Size() + uint64(8*len(ce.Partial.docIDs))
+	return ce.AllowList.Size()
 }
-
-type CacheEntryType uint8
-
-func (t CacheEntryType) String() string {
-	switch t {
-	case CacheTypePartial:
-		return "partial"
-	case CacheTypeAllowList:
-		return "allow list"
-	default:
-		return "unknown"
-	}
-}
-
-const (
-	CacheTypePartial CacheEntryType = iota
-	CacheTypeAllowList
-)
 
 func (rc *RowCacher) Store(id []byte, row *CacheEntry) {
 	size := row.Size()
