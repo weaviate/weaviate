@@ -218,10 +218,6 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		}
 	}
 
-	if class.InvertedIndexConfig.FilterCacheSize == 0 {
-		class.InvertedIndexConfig.FilterCacheSize = config.DefaultFilterCacheSize
-	}
-
 	for _, prop := range class.Properties {
 		m.setPropertyDefaults(prop)
 	}
