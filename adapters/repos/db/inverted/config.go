@@ -27,7 +27,7 @@ func ValidateConfig(conf *models.InvertedIndexConfig) error {
 	}
 
 	if conf.FilterCacheSize < 0 {
-		return errors.Errorf("filter cache size must be > 0")
+		return errors.Errorf("filter cache size must be >= 0")
 	}
 
 	err := validateBM25Config(conf.Bm25)
@@ -50,10 +50,6 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 	conf.IndexNullState = iicm.IndexNullState
 	conf.IndexPropertyLength = iicm.IndexPropertyLength
 	conf.FilterCacheSize = iicm.FilterCacheSize
-
-	if iicm.FilterCacheSize == 0 {
-		conf.FilterCacheSize = config.DefaultFilterCacheSize
-	}
 
 	if iicm.Bm25 == nil {
 		conf.BM25.K1 = float64(config.DefaultBM25k1)

@@ -45,6 +45,7 @@ type Searcher struct {
 }
 
 type cacher interface {
+	MaxSize() uint64
 	Store(id []byte, entry *CacheEntry)
 	Load(id []byte) (*CacheEntry, bool)
 }
@@ -184,7 +185,11 @@ func (s *Searcher) objectsByDocID(ids []uint64,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	return s.docIDs(ctx, filter, additional, className, true)
+	var allowCaching bool = false
+	if s.rowCache.MaxSize() > 0 {
+		allowCaching = true
+	}
+	return s.docIDs(ctx, filter, additional, className, allowCaching)
 }
 
 // DocIDsPreventCaching is the same as DocIDs, but makes sure that no filter

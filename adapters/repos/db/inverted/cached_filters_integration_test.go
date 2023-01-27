@@ -783,6 +783,10 @@ func (s *rowCacherSpy) Store(id []byte, entry *CacheEntry) {
 	s.cacher.Store(id, entry)
 }
 
+func (s *rowCacherSpy) MaxSize() uint64 {
+	return s.cacher.MaxSize()
+}
+
 func (s *rowCacherSpy) reset() {
 	s.count = 0
 	s.hitCount = 0

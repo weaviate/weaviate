@@ -96,6 +96,10 @@ func (rc *RowCacher) Size() uint64 {
 	return atomic.LoadUint64(&rc.currentSize)
 }
 
+func (rc *RowCacher) MaxSize() uint64 {
+	return rc.maxSize
+}
+
 func (rc *RowCacher) Load(id []byte) (*CacheEntry, bool) {
 	retrieved, ok := rc.rowStore.Load(string(id))
 	if !ok {

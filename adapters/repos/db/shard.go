@@ -96,10 +96,18 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrap(err, "init bufferend random generator")
 	}
 
+	cacheSize := uint64(index.invertedIndexConfig.FilterCacheSize) * 1024 * 1024
+
+	index.logger.
+		WithField("action", "startup").
+		WithField("class", class.Class).
+		WithField("cache", cacheSize).
+		Debugf("shard=%s is initializing", shardName)
+
 	s := &Shard{
 		index:            index,
 		name:             shardName,
-		invertedRowCache: inverted.NewRowCacher(uint64(index.invertedIndexConfig.FilterCacheSize) * 1024 * 1024),
+		invertedRowCache: inverted.NewRowCacher(cacheSize),
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
