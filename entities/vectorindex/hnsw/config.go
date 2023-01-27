@@ -44,6 +44,8 @@ const (
 	DefaultDistanceMetric         = DistanceCosine
 	DefaultCompressed             = false
 	DefaultPQSegments             = 0
+	DefaultPQEncoderType          = int(ssdhelpers.UseKMeansEncoder)
+	DefaultPQEncoderDistribution  = int(ssdhelpers.LogNormalEncoderDistribution)
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -86,8 +88,8 @@ func (c *UserConfig) SetDefaults() {
 	c.Distance = DefaultDistanceMetric
 	c.Compressed = DefaultCompressed
 	c.PQSegments = DefaultPQSegments
-	c.PQEncoderType = int(ssdhelpers.UseKMeansEncoder)
-	c.PQEncoderDistribution = int(ssdhelpers.LogNormalEncoderDistribution)
+	c.PQEncoderType = DefaultPQEncoderType
+	c.PQEncoderDistribution = DefaultPQEncoderDistribution
 }
 
 // ParseUserConfig from an unknown input value, as this is not further
