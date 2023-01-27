@@ -100,7 +100,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	index.logger.
 		WithField("action", "startup").
-		WithField("class", class.Class).
 		WithField("cache", cacheSize).
 		Debugf("shard=%s is initializing", shardName)
 
