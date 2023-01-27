@@ -101,7 +101,7 @@ func TestPropValuePairs_MergeOr(t *testing.T) {
 	expectedPointers := []uint64{1, 3, 5, 7, 8, 9, 10, 11}
 
 	dbm, err := pv.mergeDocIDs()
-	
+
 	require.Nil(t, err)
 	assert.ElementsMatch(t, expectedPointers, dbm.IDs())
 }

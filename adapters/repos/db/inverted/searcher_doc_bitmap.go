@@ -54,7 +54,6 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 ) (docBitmap, error) {
 	out := newDocBitmap()
 	hashBucket, err := s.getHashBucket(pv)
-
 	if err != nil {
 		return out, err
 	}
@@ -95,7 +94,6 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newDocBitmap()
 	hashBucket, err := s.getHashBucket(pv)
-
 	if err != nil {
 		return out, err
 	}
@@ -138,7 +136,6 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 ) (docBitmap, error) {
 	out := newDocBitmap()
 	hashBucket, err := s.getHashBucket(pv)
-
 	if err != nil {
 		return out, err
 	}
