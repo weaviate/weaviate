@@ -227,11 +227,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	// TODO make allowlist use bitmaps under the hood?
-	out := make(helpers.AllowList, dbm.count())
-	for _, p := range dbm.IDs() {
-		out.Insert(p)
-	}
+	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
 
 	if cacheable && allowCaching {
 		// TODO change cache to work on BM?

@@ -46,7 +46,7 @@ type CacheEntry struct {
 // as an estimate. In addition, we know that the partial content uses an array
 // where we can assume full efficiency, i.e. 8 bytes per entry.
 func (ce *CacheEntry) Size() uint64 {
-	return uint64(25*len(ce.AllowList) + 8*len(ce.Partial.docIDs))
+	return ce.AllowList.Size() + uint64(8*len(ce.Partial.docIDs))
 }
 
 type CacheEntryType uint8
