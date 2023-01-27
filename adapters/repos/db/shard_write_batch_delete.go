@@ -153,9 +153,5 @@ func (s *Shard) findDocIDs(ctx context.Context,
 		s.index.stopwords, s.versioner.version).
 		DocIDsPreventCaching(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 
-	var docIDs []uint64
-	for id := range allowList {
-		docIDs = append(docIDs, id)
-	}
-	return docIDs, err
+	return allowList.Slice(), err
 }

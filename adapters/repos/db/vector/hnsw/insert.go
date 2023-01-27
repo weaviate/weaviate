@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
@@ -153,7 +154,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	before = time.Now()
 
 	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
-		targetLevel, currentMaximumLayer, nil); err != nil {
+		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
 
