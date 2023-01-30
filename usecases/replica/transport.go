@@ -169,7 +169,7 @@ type RClient interface {
 
 type RepairResponse struct {
 	ID         string // object id
-	Version    int64  // sender's current version of the object
+	Version    uint64 // sender's current version of the object
 	UpdateTime int64  // sender's current update time
 	Err        string
 }

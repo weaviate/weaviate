@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
@@ -884,7 +885,7 @@ func (c *RemoteIndex) FindObject(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
-) ([]*objects.VObject, error) {
+) ([]replica.RepairResponse, error) {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects:overwrite", index, shard)
 
 	url := url.URL{Scheme: "http", Host: host, Path: path}
@@ -919,10 +920,14 @@ func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	ct, ok := clusterapi.IndicesPayloads.VersionedObjectList.CheckContentTypeHeader(resp)
-	if !ok {
-		return nil, fmt.Errorf("invalid content-type: %q", ct)
+	if len(b) == 0 {
+		return nil, nil
 	}
 
-	return clusterapi.IndicesPayloads.VersionedObjectList.Unmarshal(b)
+	var rr []replica.RepairResponse
+	err = json.Unmarshal(b, &rr)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal response body: %w", err)
+	}
+	return rr, nil
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type RemoteIndex struct {
@@ -97,7 +98,7 @@ type RemoteIndexClient interface {
 	// OverwriteObjects updates an existing object if the replication coordinator
 	// detects that a set of nodes contains an outdated version of an object
 	OverwriteObjects(ctx context.Context, host, index, shard string,
-		objects []*objects.VObject) ([]*objects.VObject, error)
+		objects []*objects.VObject) ([]replica.RepairResponse, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,

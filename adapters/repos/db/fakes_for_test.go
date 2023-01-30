@@ -152,7 +152,7 @@ func (f *fakeRemoteClient) FindObject(ctx context.Context, hostName, indexName,
 
 func (f *fakeRemoteClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
-) ([]*objects.VObject, error) {
+) ([]replica.RepairResponse, error) {
 	return nil, nil
 }
 
