@@ -1,4 +1,22 @@
 datasets:
+  - id: quora
+    path: ./datasets/quora
+    corpus:
+      indexed_properties:
+        - text
+      unindexed_properties:
+        - _id 
+    queries:
+      property: text
+  - id: webistouche
+    path: ./datasets/webis-touche2020
+    corpus:
+      indexed_properties:
+        - text
+      unindexed_properties:
+        - _id 
+    queries:
+      property: text
   - id: nfcorpus
     path: ./datasets/nfcorpus
     corpus:

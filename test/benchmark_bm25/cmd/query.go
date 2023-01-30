@@ -14,6 +14,7 @@ import (
 func init() {
 	rootCmd.AddCommand(queryCmd)
 	queryCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
+	queryCmd.PersistentFlags().IntVarP(&QueriesCount, "count", "c", DefaultQueriesCount, "run only the specified amount of queries, negative numbers mean unlimited")
 }
 
 var queryCmd = &cobra.Command{
@@ -43,7 +44,7 @@ var queryCmd = &cobra.Command{
 		ds := datasets.Datasets[0]
 
 		log.Print("parse queries")
-		q, err := lib.ParseQueries(ds)
+		q, err := lib.ParseQueries(ds, QueriesCount)
 		if err != nil {
 			return err
 		}

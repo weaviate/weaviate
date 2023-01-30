@@ -10,7 +10,7 @@ import (
 
 type Queries []string
 
-func ParseQueries(ds Dataset) (Queries, error) {
+func ParseQueries(ds Dataset, limit int) (Queries, error) {
 	p := filepath.Join(ds.Path, "queries.jsonl")
 	f, err := os.Open(p)
 	if err != nil {
@@ -24,6 +24,10 @@ func ParseQueries(ds Dataset) (Queries, error) {
 	q := Queries{}
 	obj := map[string]interface{}{}
 	for scanner.Scan() {
+		if limit > 0 && len(q) >= limit {
+			break
+		}
+
 		if err := json.Unmarshal(scanner.Bytes(), &obj); err != nil {
 			return nil, err
 		}
