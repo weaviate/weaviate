@@ -90,20 +90,20 @@ func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 		}
 	}()
 
-	c, err := schema.GetClassByName(b.schema.Objects, string(className))
+	class, err := schema.GetClassByName(b.schema.Objects, string(className))
 	if err != nil {
 		return nil, []float32{}, errors.Wrap(err,
 			"get class by name")
 	}
 	property := keywordRanking.Properties[0]
-	p, err := schema.GetPropertyByName(c, property)
+	p, err := schema.GetPropertyByName(class, property)
 	if err != nil {
 		return nil, []float32{}, errors.Wrap(err, "read property from class")
 	}
 	indexed := p.IndexInverted
 
 	if indexed == nil || *indexed {
-		return b.wand(ctx, keywordRanking.Query, keywordRanking.Properties[:1], limit)
+		return b.wand(ctx, class, keywordRanking.Query, keywordRanking.Properties[:1], limit)
 	} else {
 		return []*storobj.Object{}, []float32{}, nil
 	}
@@ -273,7 +273,7 @@ func (t *term) advanceAtLeast(minID uint64) {
 type terms []term
 
 func (b *BM25Searcher) wand(
-	ctx context.Context, query string, properties []string, limit int,
+	ctx context.Context, class *models.Class, fullQuery string, properties []string, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
@@ -281,7 +281,7 @@ func (b *BM25Searcher) wand(
 	}
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
-	queryTerms := helpers.TokenizeText(query)
+	queryTerms, duplicateTextBoost := helpers.TokenizeTextAndCountDuplicates(fullQuery)
 	terms := make(terms, len(queryTerms))
 
 	propertyNames := make([]string, len(properties))
@@ -297,6 +297,7 @@ func (b *BM25Searcher) wand(
 		}
 		propertyNames[i] = property
 		propertyBoosts[i] = float32(propBoost)
+
 	}
 	for i, queryTerm := range queryTerms {
 		var docMapPairs []docPointerWithScore = nil
@@ -309,16 +310,27 @@ func (b *BM25Searcher) wand(
 			propMean, err := b.propLengths.PropertyMean(propName)
 			averagePropLength += propMean
 
+			prop, err := schema.GetPropertyByName(class, propName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			var query string
+			if prop.Tokenization != "word" {
+				query = fullQuery
+			} else {
+				query = queryTerm
+			}
+
 			bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
 			if bucket == nil {
 				return nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
 			}
-			m, err := bucket.MapList([]byte(queryTerm))
+			m, err := bucket.MapList([]byte(query))
 			if err != nil {
 				return nil, nil, err
 			}
 			if len(m) == 0 {
-				terms[i].exhausted = true
 				continue
 			}
 
@@ -345,16 +357,15 @@ func (b *BM25Searcher) wand(
 					}
 				}
 			}
-
 		}
-		if terms[i].exhausted {
-			continue
+		if docMapPairs == nil {
+			terms[i].exhausted = true
 		}
 		terms[i].averagePropLength = float64(averagePropLength / float32(len(propertyNames)))
 		terms[i].data = docMapPairs
 
 		n := float64(len(docMapPairs))
-		terms[i].idf = math.Log(float64(1) + (N-n+0.5)/(n+0.5))
+		terms[i].idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost[i])
 
 		terms[i].posPointer = 0
 		terms[i].idPointer = terms[i].data[0].id
@@ -415,8 +426,9 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
 		}
 	}
+	class, err := schema.GetClassByName(b.schema.Objects, string(className))
 
-	objs, scores, err := b.wand(ctx, keywordRanking.Query, keywordRanking.Properties, limit)
+	objs, scores, err := b.wand(ctx, class, keywordRanking.Query, keywordRanking.Properties, limit)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
