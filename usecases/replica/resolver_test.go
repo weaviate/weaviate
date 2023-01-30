@@ -27,9 +27,10 @@ func TestResolver(t *testing.T) {
 		"S5": {"A", "B", "C", "D", "E", "F"},
 	}
 
+	nr := newFakeNodeResolver([]string{"A", "B", "C"})
 	r := resolver{
-		schema:       newFakeShardingState(ss),
-		nodeResolver: newFakeNodeResolver([]string{"A", "B", "C"}),
+		nodeResolver: nr,
+		schema:       newFakeShardingState(ss, nr),
 	}
 	t.Run("ShardingState", func(t *testing.T) {
 		_, err := r.State("Sx")

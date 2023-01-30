@@ -1987,6 +1987,102 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	})
 }
 
+func TestOverwriteObjects(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "SomeClass",
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{},
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	t.Run("create the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	})
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	now := time.Now()
+	later := now.Add(time.Hour) // time-traveling ;)
+	stale := &models.Object{
+		ID:                 "981c09f9-67f3-4e6e-a988-c53eaefbd58e",
+		Class:              class.Class,
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: now.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+		},
+		Vector:        []float32{1, 2, 3},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	fresh := &models.Object{
+		ID:                 "981c09f9-67f3-4e6e-a988-c53eaefbd58e",
+		Class:              class.Class,
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: later.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+			"newValue": "how they are now",
+		},
+		Vector:        []float32{4, 5, 6},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	t.Run("insert stale object", func(t *testing.T) {
+		err := repo.PutObject(context.Background(), stale, stale.Vector)
+		require.Nil(t, err)
+	})
+
+	t.Run("overwrite with fresh object", func(t *testing.T) {
+		input := []*objects.VObject{
+			{LatestObject: fresh, StaleUpdateTime: stale.LastUpdateTimeUnix},
+		}
+
+		idx := repo.GetIndex(schema.ClassName(class.Class))
+		shd, err := idx.shardFromUUID(fresh.ID)
+		require.Nil(t, err)
+
+		received, err := idx.OverwriteObjects(context.Background(), shd, input)
+		assert.Nil(t, err)
+		assert.ElementsMatch(t, nil, received)
+
+	})
+
+	t.Run("assert data was overwritten", func(t *testing.T) {
+		found, err := repo.Object(context.Background(), stale.Class,
+			stale.ID, nil, additional.Properties{}, nil)
+		assert.Nil(t, err)
+		assert.EqualValues(t, fresh, found.Object())
+	})
+}
+
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	for _, item := range list {
 		if item.ID == id {

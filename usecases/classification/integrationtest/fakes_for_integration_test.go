@@ -62,6 +62,11 @@ func (m *fakeSchemaGetter) ClusterHealthScore() int {
 	return 0
 }
 
+func (m *fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
+) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
 func singleShardState() *sharding.State {
 	config, err := sharding.ParseConfig(nil, 1)
 	if err != nil {
@@ -354,6 +359,12 @@ func (f *fakeRemoteClient) FindObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
+	return nil, nil
+}
+
+func (f *fakeRemoteClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
 	return nil, nil
 }
 
