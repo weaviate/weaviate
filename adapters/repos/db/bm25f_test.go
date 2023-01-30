@@ -302,8 +302,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	// Check results in correct order
-	require.Equal(t, uint64(1), res[0].DocID())
-	require.Equal(t, uint64(5), res[3].DocID())
+	require.Equal(t, uint64(6), res[0].DocID())
+	require.Equal(t, uint64(1), res[3].DocID())
 
 	// Print results
 	fmt.Println("--- Start results for boosted search ---")
@@ -312,8 +312,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.04598), res[0].Score(), 6)
-	EqualFloats(t, float32(0.01435), res[1].Score(), 6)
+	EqualFloats(t, float32(0.05652), res[0].Score(), 6)
+	EqualFloats(t, float32(0.04202), res[1].Score(), 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
