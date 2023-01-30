@@ -11,12 +11,14 @@ var (
 	Origin            string
 	DatasetConfigPath string
 	BatchSize         int
+	QueriesCount      int
 )
 
 const (
 	DefaultOrigin            = "http://localhost:8080"
 	DefaultDatasetConfigPath = "datasets.yml"
 	DefaultBatchSize         = 100
+	DefaultQueriesCount      = -1
 )
 
 var rootCmd = &cobra.Command{
