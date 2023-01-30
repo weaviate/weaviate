@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -318,4 +319,59 @@ func (s *Shard) reinit(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// OverwriteObjects overwrite objects if their state didn't change in the meantime
+// It returns nil if all object have been successfully overwritten and otherwise a list of failed operations.
+func (i *Index) OverwriteObjects(ctx context.Context,
+	shard string, list []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	result := make([]replica.RepairResponse, 0, len(list)/2)
+	s := i.Shards[shard]
+	if s == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shard)
+	}
+	for _, update := range list {
+		id := update.LatestObject.ID
+		found, err := s.objectByID(ctx, id, nil, additional.Properties{})
+		if err != nil || found == nil {
+			result = append(result, replica.RepairResponse{
+				ID:  id.String(),
+				Err: "not found",
+			})
+			continue
+		}
+		// the stored object is not the most recent version. in
+		// this case, we overwrite it with the more recent one.
+		if found.LastUpdateTimeUnix() == update.StaleUpdateTime {
+			err := s.putObject(ctx, storobj.FromObject(update.LatestObject, update.LatestObject.Vector))
+			if err != nil {
+				result = append(result, replica.RepairResponse{
+					ID:         id.String(),
+					UpdateTime: found.LastUpdateTimeUnix(),
+					// Version: , todo
+					Err: fmt.Sprintf("overwrite stale object: %v", err),
+				})
+				continue
+			}
+		} else {
+			// todo set version once implemented
+			result = append(result, replica.RepairResponse{
+				ID:         id.String(),
+				UpdateTime: found.LastUpdateTimeUnix(),
+				// Version: , todo
+				Err: "conflict",
+			})
+		}
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+func (i *Index) IncomingOverwriteObjects(ctx context.Context,
+	shard string, vobjects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	return i.OverwriteObjects(ctx, shard, vobjects)
 }

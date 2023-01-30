@@ -257,6 +257,11 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 	panic("not implemented")
 }
 
+func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
+) ([]string, []string, error) {
+	panic("not implemented")
+}
+
 type fakeInterpretation struct{}
 
 func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,

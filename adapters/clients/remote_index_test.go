@@ -24,6 +24,8 @@ package clients
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,11 +34,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestRemoteIndexGetObject(t *testing.T) {
@@ -309,6 +315,62 @@ func TestRemoteIndexPutFile(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		err := client.PutFile(ctx, fs.host, "C1", "S1", "file1", rsc)
 		assert.Nil(t, err)
+	})
+}
+
+func TestRemoteIndexOverwriteObjects(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx  = context.Background()
+		path = "/indices/C1/shards/S1/objects:overwrite"
+		vobj = &objects.VObject{
+			StaleUpdateTime: time.Now().UnixMilli(),
+			LatestObject: &models.Object{
+				ID:         strfmt.UUID("47b7dcca-d020-40c0-ae5f-2634a1f83ff1"),
+				Class:      "SomeClass",
+				Properties: map[string]interface{}{"prop": "value"},
+				Vector:     []float32{1, 2, 3, 4, 5},
+			},
+		}
+	)
+	t.Run("successful overwrite", func(t *testing.T) {
+		fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
+		ts := fs.server(t)
+		defer ts.Close()
+		client := newRemoteIndex(ts.Client())
+		fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}
+		t.Run("Success", func(t *testing.T) {
+			payload, err := client.OverwriteObjects(
+				ctx, fs.host, "C1", "S1", []*objects.VObject{vobj})
+			assert.Nil(t, err)
+			assert.Nil(t, payload)
+		})
+	})
+	t.Run("failed overwrite", func(t *testing.T) {
+		fs := newFakeRemoteIndexServer(t, http.MethodPut, path)
+		ts := fs.server(t)
+		defer ts.Close()
+		client := newRemoteIndex(ts.Client())
+		overwriteErr := errors.New("failed to overwrite")
+		fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+			resp := []replica.RepairResponse{{
+				ID:         vobj.LatestObject.ID.String(),
+				Version:    vobj.Version,
+				UpdateTime: time.Now().UnixMilli(),
+				Err:        overwriteErr.Error(),
+			}}
+			b, _ := json.Marshal(resp)
+			w.Write(b)
+		}
+		t.Run("Failure", func(t *testing.T) {
+			payload, err := client.OverwriteObjects(
+				ctx, fs.host, "C1", "S1", []*objects.VObject{vobj})
+			assert.Nil(t, err)
+			assert.Len(t, payload, 1)
+			assert.EqualError(t, overwriteErr, payload[0].Err)
+		})
 	})
 }
 
