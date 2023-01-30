@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type RemoteIncomingRepo interface {
@@ -63,7 +64,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
 	IncomingOverwriteObjects(ctx context.Context, shard string,
-		vobjects []*objects.VObject) ([]*objects.VObject, error)
+		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
@@ -278,7 +279,7 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
-) ([]*objects.VObject, error) {
+) ([]replica.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type indices struct {
@@ -104,7 +105,7 @@ type shards interface {
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string) error
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
-		vobjects []*objects.VObject) ([]*objects.VObject, error)
+		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 
 	// Scale-out Replication POC
 	FilePutter(ctx context.Context, indexName, shardName,
@@ -772,13 +773,12 @@ func (i *indices) putOverwriteObjects() http.Handler {
 			return
 		}
 
-		resBytes, err := IndicesPayloads.VersionedObjectList.Marshal(results)
+		resBytes, err := json.Marshal(results)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.VersionedObjectList.SetContentTypeHeader(w)
 		w.Write(resBytes)
 	})
 }

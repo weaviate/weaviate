@@ -2064,9 +2064,6 @@ func TestOverwriteObjects(t *testing.T) {
 		input := []*objects.VObject{
 			{LatestObject: fresh, StaleUpdateTime: stale.LastUpdateTimeUnix},
 		}
-		expected := []*objects.VObject{
-			{LatestObject: fresh, StaleUpdateTime: fresh.LastUpdateTimeUnix},
-		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))
 		shd, err := idx.shardFromUUID(fresh.ID)
@@ -2074,7 +2071,8 @@ func TestOverwriteObjects(t *testing.T) {
 
 		received, err := idx.OverwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
-		assert.EqualValues(t, expected[0].LatestObject, received[0].LatestObject)
+		assert.ElementsMatch(t, nil, received)
+
 	})
 
 	t.Run("assert data was overwritten", func(t *testing.T) {
