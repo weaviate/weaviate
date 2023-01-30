@@ -37,6 +37,9 @@ type innerCursorState struct {
 	err   error
 }
 
+// When keyOnly flag is set, only keys are returned by First/Next/Seek access methods,
+// 2nd value returned is expected to be nil
+// When keyOnly is not set, 2nd value is always bitmap. Returned bitmap can be empty (e.g. for Next call after last element was already returned)
 func NewCombinedCursor(innerCursors []InnerCursor, keyOnly bool) *CombinedCursor {
 	return &CombinedCursor{cursors: innerCursors, keyOnly: keyOnly}
 }
@@ -96,16 +99,18 @@ func (c *CombinedCursor) getResultFromStates(states []innerCursorState) ([]byte,
 	if !allNotFound {
 		c.states = states
 	}
-	if c.keyOnly {
-		return key, nil
-	}
 	layers := BitmapLayers{}
 	for _, id := range ids {
-		layers = append(layers, c.states[id].layer)
+		if !c.keyOnly {
+			layers = append(layers, c.states[id].layer)
+		}
 		// forward cursors used in final result
 		c.states[id] = c.createState(c.cursors[id].Next())
 	}
-	return key, layers.Flatten()
+	if !c.keyOnly {
+		return key, layers.Flatten()
+	}
+	return key, nil
 }
 
 func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([]byte, []int, bool) {
