@@ -102,10 +102,8 @@ func Test_BitmapLayers_Flatten(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := make(BitmapLayers, len(test.inputs))
 			for i, inp := range test.inputs {
-				input[i].Additions = sroar.NewBitmap()
-				input[i].Additions.SetMany(inp.additions)
-				input[i].Deletions = sroar.NewBitmap()
-				input[i].Deletions.SetMany(inp.deletions)
+				input[i].Additions = NewBitmap(inp.additions...)
+				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
 			res := input.Flatten()
@@ -234,10 +232,8 @@ func Test_BitmapLayers_Merge(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			input := make(BitmapLayers, len(test.inputs))
 			for i, inp := range test.inputs {
-				input[i].Additions = sroar.NewBitmap()
-				input[i].Additions.SetMany(inp.additions)
-				input[i].Deletions = sroar.NewBitmap()
-				input[i].Deletions.SetMany(inp.deletions)
+				input[i].Additions = NewBitmap(inp.additions...)
+				input[i].Deletions = NewBitmap(inp.deletions...)
 			}
 
 			res, err := input.Merge()
@@ -273,10 +269,8 @@ func Test_BitmapLayer_Clone(t *testing.T) {
 	})
 
 	t.Run("cloning partially inited BitmapLayer", func(t *testing.T) {
-		additions := sroar.NewBitmap()
-		additions.Set(1)
-		deletions := sroar.NewBitmap()
-		deletions.Set(100)
+		additions := NewBitmap(1)
+		deletions := NewBitmap(100)
 
 		layerAdditions := BitmapLayer{Additions: additions}
 		layerDeletions := BitmapLayer{Deletions: deletions}
@@ -296,10 +290,8 @@ func Test_BitmapLayer_Clone(t *testing.T) {
 	})
 
 	t.Run("cloning fully inited BitmapLayer", func(t *testing.T) {
-		additions := sroar.NewBitmap()
-		additions.Set(1)
-		deletions := sroar.NewBitmap()
-		deletions.Set(100)
+		additions := NewBitmap(1)
+		deletions := NewBitmap(100)
 
 		layer := BitmapLayer{Additions: additions, Deletions: deletions}
 

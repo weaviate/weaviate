@@ -14,9 +14,9 @@ package lsmkv
 import (
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 func TestMemtableRoaringSet(t *testing.T) {
@@ -78,11 +78,9 @@ func TestMemtableRoaringSet(t *testing.T) {
 
 		key1, key2 := []byte("key1"), []byte("key2")
 
-		bm1 := sroar.NewBitmap()
-		bm1.SetMany([]uint64{1, 2})
+		bm1 := roaringset.NewBitmap(1, 2)
 		assert.Nil(t, m.roaringSetAddBitmap(key1, bm1))
-		bm2 := sroar.NewBitmap()
-		bm2.SetMany([]uint64{3, 4})
+		bm2 := roaringset.NewBitmap(3, 4)
 		assert.Nil(t, m.roaringSetAddBitmap(key2, bm2))
 		assert.Greater(t, m.Size(), uint64(0))
 

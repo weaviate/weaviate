@@ -14,7 +14,6 @@ package roaringset
 import (
 	"bytes"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 )
@@ -28,19 +27,13 @@ type Insert struct {
 	Deletions []uint64
 }
 
-func newSroarFromList(list []uint64) *sroar.Bitmap {
-	bm := sroar.NewBitmap()
-	bm.SetMany(list)
-	return bm
-}
-
 func (t *BinarySearchTree) Insert(key []byte, values Insert) {
 	if t.root == nil {
 		t.root = &BinarySearchNode{
 			Key: key,
 			Value: BitmapLayer{
-				Additions: newSroarFromList(values.Additions),
-				Deletions: newSroarFromList(values.Deletions),
+				Additions: NewBitmap(values.Additions...),
+				Deletions: NewBitmap(values.Deletions...),
 			},
 			colourIsRed: false, // root node is always black
 		}
@@ -192,8 +185,8 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
 			n.left = &BinarySearchNode{
 				Key: key,
 				Value: BitmapLayer{
-					Additions: newSroarFromList(values.Additions),
-					Deletions: newSroarFromList(values.Deletions),
+					Additions: NewBitmap(values.Additions...),
+					Deletions: NewBitmap(values.Deletions...),
 				},
 				parent:      n,
 				colourIsRed: true,
@@ -207,8 +200,8 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
 			n.right = &BinarySearchNode{
 				Key: key,
 				Value: BitmapLayer{
-					Additions: newSroarFromList(values.Additions),
-					Deletions: newSroarFromList(values.Deletions),
+					Additions: NewBitmap(values.Additions...),
+					Deletions: NewBitmap(values.Deletions...),
 				},
 				parent:      n,
 				colourIsRed: true,

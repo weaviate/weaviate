@@ -19,35 +19,7 @@ import (
 )
 
 func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
-		return err
-	}
-
-	m.Lock()
-	defer m.Unlock()
-
-	// TODO: write into commit log
-
-	m.roaringSet.Insert(key, roaringset.Insert{Additions: []uint64{value}})
-
-	m.roaringSetAdjustMeta(1)
-	return nil
-}
-
-func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
-		return err
-	}
-
-	m.Lock()
-	defer m.Unlock()
-
-	// TODO: write into commit log
-
-	m.roaringSet.Insert(key, roaringset.Insert{Deletions: []uint64{value}})
-
-	m.roaringSetAdjustMeta(1)
-	return nil
+	return m.roaringSetAddList(key, []uint64{value})
 }
 
 func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
@@ -67,6 +39,14 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 }
 
 func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
+	return m.roaringSetAddList(key, bm.ToArray())
+}
+
+func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
+	return m.roaringSetRemoveList(key, []uint64{value})
+}
+
+func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
@@ -76,9 +56,14 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 
 	// TODO: write into commit log
 
-	m.roaringSet.Insert(key, roaringset.Insert{Additions: bm.ToArray()})
-	m.roaringSetAdjustMeta(bm.GetCardinality())
+	m.roaringSet.Insert(key, roaringset.Insert{Deletions: values})
+
+	m.roaringSetAdjustMeta(len(values))
 	return nil
+}
+
+func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
+	return m.roaringSetRemoveList(key, bm.ToArray())
 }
 
 func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {

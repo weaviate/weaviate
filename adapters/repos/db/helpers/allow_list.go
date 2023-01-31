@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"github.com/dgraph-io/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 type AllowList interface {
@@ -31,9 +32,7 @@ type AllowListIterator interface {
 }
 
 func NewAllowList(ids ...uint64) AllowList {
-	bm := sroar.NewBitmap()
-	bm.SetMany(ids)
-	return NewAllowListFromBitmap(bm)
+	return NewAllowListFromBitmap(roaringset.NewBitmap(ids...))
 }
 
 func NewAllowListFromBitmap(bm *sroar.Bitmap) AllowList {
