@@ -109,7 +109,7 @@ func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 
 type term struct {
 	// doubles as max impact (with tf=1, the max impact would be 1*idf), if there
-	// is a boost for a term, simply apply it here once
+	// is a boost for a queryTerm, simply apply it here once
 	idf float64
 
 	idPointer         uint64
@@ -119,6 +119,7 @@ type term struct {
 	k1                float64
 	b                 float64
 	averagePropLength float64
+	queryTerm         string
 }
 
 func (t terms) pivot(minScore float64) {
@@ -269,25 +270,29 @@ func (b *BM25Searcher) wand(
 		fullQueryLen = 1
 	}
 	results := make(terms, len(queryTextTerms)+len(queryStringTerms)+fullQueryLen)
+	indices := make([]map[uint64]int, 0, len(queryTextTerms)+len(queryStringTerms)+fullQueryLen)
 
 	for i, queryTerm := range queryTextTerms {
-		err := b.createTerm(&results[i], N, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[i])
+		docIndices, err := b.createTerm(&results[i], N, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[i])
 		if err != nil {
 			return nil, nil, err
 		}
+		indices = append(indices, docIndices)
 	}
 
 	for i, queryTerm := range queryStringTerms {
-		err := b.createTerm(&results[i+len(queryTextTerms)], N, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[i])
+		docIndices, err := b.createTerm(&results[i+len(queryTextTerms)], N, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[i])
 		if err != nil {
 			return nil, nil, err
 		}
+		indices = append(indices, docIndices)
 	}
 	if len(propertyNamesFullQuery) > 0 {
-		err := b.createTerm(&results[len(queryTextTerms)+len(queryStringTerms)], N, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
+		docIndices, err := b.createTerm(&results[len(queryTextTerms)+len(queryStringTerms)], N, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
 		if err != nil {
 			return nil, nil, err
 		}
+		indices = append(indices, docIndices)
 	}
 
 	topKHeap := priorityqueue.NewMin(limit)
@@ -328,16 +333,31 @@ func (b *BM25Searcher) wand(
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// add score explanation
+		if obj.AdditionalProperties() == nil {
+			obj.Object.Additional = make(map[string]interface{})
+		}
+		for j, result := range results {
+			if termIndice, ok := indices[j][res.ID]; ok {
+				queryTerm := result.queryTerm
+				obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
+				obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
+			}
+		}
+
 		objects = append(objects, obj)
 	}
+
 	return objects, scores, nil
 }
 
-func (b *BM25Searcher) createTerm(termResult *term, N float64, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) error {
+func (b *BM25Searcher) createTerm(termResult *term, N float64, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (map[uint64]int, error) {
 	var docMapPairs []docPointerWithScore = nil
 	docMapPairsIndices := make(map[uint64]int, 0)
 	termResult.k1 = b.config.K1
 	termResult.b = b.config.B
+	termResult.queryTerm = query
 	averagePropLength := float32(0.)
 	for _, propName := range propertyNames {
 		propMean, err := b.propLengths.PropertyMean(propName)
@@ -345,11 +365,11 @@ func (b *BM25Searcher) createTerm(termResult *term, N float64, query string, pro
 
 		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
 		if bucket == nil {
-			return fmt.Errorf("could not find bucket for property %v", propName)
+			return nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
 		m, err := bucket.MapList([]byte(query))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(m) == 0 {
 			continue
@@ -381,7 +401,7 @@ func (b *BM25Searcher) createTerm(termResult *term, N float64, query string, pro
 	}
 	if docMapPairs == nil {
 		termResult.exhausted = true
-		return nil
+		return docMapPairsIndices, nil
 	}
 	termResult.averagePropLength = float64(averagePropLength / float32(len(propertyNames)))
 	termResult.data = docMapPairs
@@ -391,7 +411,7 @@ func (b *BM25Searcher) createTerm(termResult *term, N float64, query string, pro
 
 	termResult.posPointer = 0
 	termResult.idPointer = termResult.data[0].id
-	return nil
+	return docMapPairsIndices, nil
 }
 
 func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, limit int,
