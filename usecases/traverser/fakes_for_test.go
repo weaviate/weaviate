@@ -32,8 +32,8 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeLocks struct{}

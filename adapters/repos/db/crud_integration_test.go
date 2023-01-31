@@ -35,8 +35,8 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func TestCRUD(t *testing.T) {
@@ -2072,7 +2072,6 @@ func TestOverwriteObjects(t *testing.T) {
 		received, err := idx.OverwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, nil, received)
-
 	})
 
 	t.Run("assert data was overwritten", func(t *testing.T) {

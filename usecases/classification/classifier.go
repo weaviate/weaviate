@@ -26,9 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/types/dto"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/types/dto"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 

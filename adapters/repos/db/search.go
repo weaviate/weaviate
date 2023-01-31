@@ -26,9 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/types/dto"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"github.com/weaviate/weaviate/types/dto"
 )
 
 func (db *DB) Aggregate(ctx context.Context,

@@ -30,8 +30,8 @@ import (
 	text2vecadditionalprojector "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/projector"
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecneartext "github.com/weaviate/weaviate/modules/text2vec-contextionary/neartext"
-	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type mockRequestsLog struct{}

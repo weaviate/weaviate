@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // A component-test like test suite that makes sure that every available UC is
