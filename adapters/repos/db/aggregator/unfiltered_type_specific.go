@@ -15,8 +15,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dgraph-io/sroar"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -25,18 +27,21 @@ import (
 func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 	prop aggregation.ParamProperty,
 ) (*aggregation.Property, error) {
-	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolRow)
+	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolRowSet,
+		ua.parseAndAddBoolRowRoaringSet)
 }
 
 func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 	prop aggregation.ParamProperty,
 ) (*aggregation.Property, error) {
-	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolArrayRow)
+	return ua.parseBoolProp(ctx, prop, ua.parseAndAddBoolArrayRowSet,
+		ua.parseAndAddBoolArrayRowRoaringSet)
 }
 
 func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 	prop aggregation.ParamProperty,
-	parseFn func(agg *boolAggregator, k []byte, v [][]byte) error,
+	parseFnSet func(agg *boolAggregator, k []byte, v [][]byte) error,
+	parseFnRoaringSet func(agg *boolAggregator, k []byte, v *sroar.Bitmap) error,
 ) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type: aggregation.PropertyTypeBoolean,
@@ -49,13 +54,26 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 
 	agg := newBoolAggregator()
 
-	c := b.SetCursor() // bool never has a frequency, so it's always a Set
-	defer c.Close()
+	// bool never has a frequency, so it's either a Set or RoaringSet
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		c := b.CursorRoaringSet()
+		defer c.Close()
 
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		err := parseFn(agg, k, v)
-		if err != nil {
-			return nil, err
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			err := parseFnRoaringSet(agg, k, v)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		c := b.SetCursor() // bool never has a frequency, so it's always a Set
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			err := parseFnSet(agg, k, v)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -64,7 +82,7 @@ func (ua unfilteredAggregator) parseBoolProp(ctx context.Context,
 	return &out, nil
 }
 
-func (ua unfilteredAggregator) parseAndAddBoolRow(agg *boolAggregator, k []byte, v [][]byte) error {
+func (ua unfilteredAggregator) parseAndAddBoolRowSet(agg *boolAggregator, k []byte, v [][]byte) error {
 	if len(k) != 1 {
 		// we expect to see a single byte for a marshalled bool
 		return fmt.Errorf("unexpected key length on inverted index, "+
@@ -78,7 +96,36 @@ func (ua unfilteredAggregator) parseAndAddBoolRow(agg *boolAggregator, k []byte,
 	return nil
 }
 
-func (ua unfilteredAggregator) parseAndAddBoolArrayRow(agg *boolAggregator, k []byte, v [][]byte) error {
+func (ua unfilteredAggregator) parseAndAddBoolRowRoaringSet(agg *boolAggregator, k []byte, v *sroar.Bitmap) error {
+	if len(k) != 1 {
+		// we expect to see a single byte for a marshalled bool
+		return fmt.Errorf("unexpected key length on inverted index, "+
+			"expected 1: got %d", len(k))
+	}
+
+	if err := agg.AddBoolRow(k, uint64(v.GetCardinality())); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (ua unfilteredAggregator) parseAndAddBoolArrayRowSet(agg *boolAggregator, k []byte, v [][]byte) error {
+	values := make([][]byte, len(k))
+	for i := range k {
+		values[i] = []byte{k[i]}
+	}
+
+	for i := range values {
+		if err := agg.AddBoolRow(values[i], 1); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (ua unfilteredAggregator) parseAndAddBoolArrayRowRoaringSet(agg *boolAggregator, k []byte, v *sroar.Bitmap) error {
 	values := make([][]byte, len(k))
 	for i := range k {
 		values[i] = []byte{k[i]}
@@ -108,12 +155,24 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 
 	agg := newNumericalAggregator()
 
-	c := b.SetCursor() // flat never has a frequency, so it's always a Set
-	defer c.Close()
+	// flat never has a frequency, so it's either a Set or RoaringSet
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		c := b.CursorRoaringSet()
+		defer c.Close()
 
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if err := ua.parseAndAddFloatRow(agg, k, v); err != nil {
-			return nil, err
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := ua.parseAndAddFloatRowRoaringSet(agg, k, v); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		c := b.SetCursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := ua.parseAndAddFloatRowSet(agg, k, v); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -137,12 +196,25 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 
 	agg := newNumericalAggregator()
 
-	c := b.SetCursor() // int never has a frequency, so it's always a Set
-	defer c.Close()
+	// int never has a frequency, so it's either a Set or RoaringSet
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		c := b.CursorRoaringSet()
+		defer c.Close()
 
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if err := ua.parseAndAddIntRow(agg, k, v); err != nil {
-			return nil, err
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := ua.parseAndAddIntRowRoaringSet(agg, k, v); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+
+		c := b.SetCursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := ua.parseAndAddIntRowSet(agg, k, v); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -166,12 +238,24 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 
 	agg := newDateAggregator()
 
-	c := b.SetCursor() // dates don't have frequency, so it's always a Set
-	defer c.Close()
+	// dates don't have frequency, so it's either a Set or RoaringSet
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		c := b.CursorRoaringSet()
+		defer c.Close()
 
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if err := ua.parseAndAddDateRow(agg, k, v); err != nil {
-			return nil, err
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := ua.parseAndAddDateRowRoaringSet(agg, k, v); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		c := b.SetCursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if err := ua.parseAndAddDateRowSet(agg, k, v); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -180,7 +264,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 	return &out, nil
 }
 
-func (ua unfilteredAggregator) parseAndAddDateRow(agg *dateAggregator, k []byte,
+func (ua unfilteredAggregator) parseAndAddDateRowSet(agg *dateAggregator, k []byte,
 	v [][]byte,
 ) error {
 	if len(k) != 8 {
@@ -190,6 +274,22 @@ func (ua unfilteredAggregator) parseAndAddDateRow(agg *dateAggregator, k []byte,
 	}
 
 	if err := agg.AddTimestampRow(k, uint64(len(v))); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (ua unfilteredAggregator) parseAndAddDateRowRoaringSet(agg *dateAggregator, k []byte,
+	v *sroar.Bitmap,
+) error {
+	if len(k) != 8 {
+		// dates are stored as epoch nanoseconds, we expect to see an int64
+		return fmt.Errorf("unexpected key length on inverted index, "+
+			"expected 8: got %d", len(k))
+	}
+
+	if err := agg.AddTimestampRow(k, uint64(v.GetCardinality())); err != nil {
 		return err
 	}
 
@@ -246,7 +346,7 @@ func (ua unfilteredAggregator) parseAndAddDateArrayRow(agg *dateAggregator,
 	return nil
 }
 
-func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k []byte,
+func (ua unfilteredAggregator) parseAndAddFloatRowSet(agg *numericalAggregator, k []byte,
 	v [][]byte,
 ) error {
 	if len(k) != 8 {
@@ -263,7 +363,24 @@ func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k [
 	return nil
 }
 
-func (ua unfilteredAggregator) parseAndAddIntRow(agg *numericalAggregator, k []byte,
+func (ua unfilteredAggregator) parseAndAddFloatRowRoaringSet(agg *numericalAggregator, k []byte,
+	v *sroar.Bitmap,
+) error {
+	if len(k) != 8 {
+		// we expect to see either an int64 or a float64, so any non-8 length
+		// is unexpected
+		return fmt.Errorf("unexpected key length on inverted index, "+
+			"expected 8: got %d", len(k))
+	}
+
+	if err := agg.AddFloat64Row(k, uint64(v.GetCardinality())); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (ua unfilteredAggregator) parseAndAddIntRowSet(agg *numericalAggregator, k []byte,
 	v [][]byte,
 ) error {
 	if len(k) != 8 {
@@ -274,6 +391,23 @@ func (ua unfilteredAggregator) parseAndAddIntRow(agg *numericalAggregator, k []b
 	}
 
 	if err := agg.AddInt64Row(k, uint64(len(v))); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (ua unfilteredAggregator) parseAndAddIntRowRoaringSet(agg *numericalAggregator, k []byte,
+	v *sroar.Bitmap,
+) error {
+	if len(k) != 8 {
+		// we expect to see either an int64 or a float64, so any non-8 length
+		// is unexpected
+		return fmt.Errorf("unexpected key length on inverted index, "+
+			"expected 8: got %d", len(k))
+	}
+
+	if err := agg.AddInt64Row(k, uint64(v.GetCardinality())); err != nil {
 		return err
 	}
 
