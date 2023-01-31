@@ -116,8 +116,6 @@ type term struct {
 	posPointer uint64
 	data       []docPointerWithScore
 	exhausted  bool
-	k1         float64
-	b          float64
 	queryTerm  string
 }
 
@@ -164,7 +162,7 @@ func (t terms) findFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t terms) scoreNext(averagePropLength float64) (uint64, float64, bool) {
+func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64, bool) {
 	pos, ok := t.findFirstNonExhausted()
 	if !ok {
 		// done, nothing left to score
@@ -177,17 +175,17 @@ func (t terms) scoreNext(averagePropLength float64) (uint64, float64, bool) {
 		if t[i].idPointer != id || t[i].exhausted {
 			continue
 		}
-		_, score := t[i].scoreAndAdvance(averagePropLength)
+		_, score := t[i].scoreAndAdvance(averagePropLength, config)
 		cumScore += score
 	}
 
 	return id, cumScore, true
 }
 
-func (t *term) scoreAndAdvance(averagePropLength float64) (uint64, float64) {
+func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	id := t.idPointer
 	pair := t.data[t.posPointer]
-	tf := pair.frequency / (pair.frequency + t.k1*(1-t.b+t.b*pair.propLength/averagePropLength))
+	tf := pair.frequency / (pair.frequency + config.K1*(1-config.B+config.B*pair.propLength/averagePropLength))
 
 	// advance
 	t.posPointer++
@@ -317,7 +315,7 @@ func (b *BM25Searcher) wand(
 
 		results.pivot(worstDist)
 
-		id, score, ok := results.scoreNext(averagePropLength)
+		id, score, ok := results.scoreNext(averagePropLength, b.config)
 		if !ok {
 			// nothing left to score
 			break
@@ -371,7 +369,7 @@ func (b *BM25Searcher) wand(
 func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
 	var docMapPairs []docPointerWithScore = nil
 	docMapPairsIndices := make(map[uint64]int, 0)
-	termResult := term{k1: b.config.K1, b: b.config.B, queryTerm: query}
+	termResult := term{queryTerm: query}
 	for _, propName := range propertyNames {
 
 		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
