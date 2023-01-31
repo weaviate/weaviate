@@ -434,6 +434,9 @@ func init() {
                 }
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -490,6 +493,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BatchDelete"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -979,6 +985,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1168,6 +1177,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1229,6 +1241,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1343,6 +1358,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1695,6 +1713,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1751,6 +1772,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1853,6 +1877,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -4612,6 +4639,12 @@ func init() {
                 }
               }
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4668,6 +4701,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BatchDelete"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5178,6 +5217,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5376,6 +5421,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5437,6 +5488,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5551,6 +5608,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5906,6 +5969,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5962,6 +6031,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6064,6 +6139,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {

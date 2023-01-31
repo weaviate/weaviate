@@ -1733,6 +1733,54 @@
         }
       }
     },
+    "/.well-known/openid-configuration": {
+      "get": {
+        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "responses": {
+          "200": {
+            "description": "Successful response, inspect body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "href": {
+                  "description": "The Location to redirect to",
+                  "type": "string"
+                },
+                "clientId": {
+                  "description": "OAuth Client ID",
+                  "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, no oidc provider present"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "tags": [
+          "well-known",
+          "oidc",
+          "discovery"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
     "/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
@@ -1819,6 +1867,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1858,57 +1909,6 @@
         "x-available-in-websocket": false
       }
     },
-    "/objects/validate": {
-      "post": {
-        "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
-        "operationId": "objects.validate",
-        "x-serviceIds": [
-          "weaviate.local.query.meta"
-        ],
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Object"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully validated."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Validate an Object based on a schema.",
-        "tags": [
-          "objects"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
     "/objects/{id}": {
       "delete": {
         "description": "Deletes an Object from the system.",
@@ -1924,6 +1924,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2039,6 +2042,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2103,6 +2109,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2284,6 +2293,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2344,6 +2356,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2415,6 +2430,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2934,6 +2952,57 @@
         "x-available-in-websocket": false
       }
     },
+    "/objects/validate": {
+      "post": {
+        "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
+        "operationId": "objects.validate",
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully validated."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Validate an Object based on a schema.",
+        "tags": [
+          "objects"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
     "/batch/objects": {
       "post": {
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
@@ -2972,6 +3041,9 @@
                 }
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -3028,6 +3100,9 @@
             "schema": {
               "$ref": "#/definitions/BatchDelete"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -4088,54 +4163,6 @@
         "tags": [
           "classifications"
         ]
-      }
-    },
-    "/.well-known/openid-configuration": {
-      "get": {
-        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
-        "responses": {
-          "200": {
-            "description": "Successful response, inspect body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "href": {
-                  "description": "The Location to redirect to",
-                  "type": "string"
-                },
-                "clientId": {
-                  "description": "OAuth Client ID",
-                  "type": "string"
-                },
-                "scopes": {
-                  "description": "OAuth Scopes",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "x-omitempty": true
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, no oidc provider present"
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "OIDC discovery information if OIDC auth is enabled",
-        "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
       }
     }
   },
