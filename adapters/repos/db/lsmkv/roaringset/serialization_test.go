@@ -16,16 +16,13 @@ import (
 	"math"
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSerialization_HappyPath(t *testing.T) {
-	additions := sroar.NewBitmap()
-	additions.SetMany([]uint64{1, 2, 3, 4, 6})
-	deletions := sroar.NewBitmap()
-	deletions.SetMany([]uint64{5, 7})
+	additions := NewBitmap(1, 2, 3, 4, 6)
+	deletions := NewBitmap(5, 7)
 	key := []byte("my-key")
 
 	sn, err := NewSegmentNode(key, additions, deletions)
@@ -56,10 +53,8 @@ func TestSerialization_HappyPath(t *testing.T) {
 }
 
 func TestSerialization_InitializingFromBufferTooLarge(t *testing.T) {
-	additions := sroar.NewBitmap()
-	additions.SetMany([]uint64{1, 2, 3, 4, 6})
-	deletions := sroar.NewBitmap()
-	deletions.SetMany([]uint64{5, 7})
+	additions := NewBitmap(1, 2, 3, 4, 6)
+	deletions := NewBitmap(5, 7)
 	key := []byte("my-key")
 
 	sn, err := NewSegmentNode(key, additions, deletions)
@@ -96,10 +91,8 @@ func TestSerialization_KeyIndexAndWriteTo(t *testing.T) {
 	// write some dummy data, so we have an offset
 	buf.Write(make([]byte, offset))
 
-	additions := sroar.NewBitmap()
-	additions.SetMany([]uint64{1, 2, 3, 4, 6})
-	deletions := sroar.NewBitmap()
-	deletions.SetMany([]uint64{5, 7})
+	additions := NewBitmap(1, 2, 3, 4, 6)
+	deletions := NewBitmap(5, 7)
 	key := []byte("my-key")
 
 	sn, err := NewSegmentNode(key, additions, deletions)

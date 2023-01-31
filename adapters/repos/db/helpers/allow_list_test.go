@@ -14,8 +14,8 @@ package helpers
 import (
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 func TestAllowList(t *testing.T) {
@@ -68,8 +68,7 @@ func TestAllowList(t *testing.T) {
 	})
 
 	t.Run("allowlist created from bitmap", func(t *testing.T) {
-		bm := sroar.NewBitmap()
-		bm.SetMany([]uint64{1, 2, 3})
+		bm := roaringset.NewBitmap(1, 2, 3)
 
 		al := NewAllowListFromBitmap(bm)
 		bm.SetMany([]uint64{4, 5})
@@ -78,8 +77,7 @@ func TestAllowList(t *testing.T) {
 	})
 
 	t.Run("allowlist created from bitmap deepcopy", func(t *testing.T) {
-		bm := sroar.NewBitmap()
-		bm.SetMany([]uint64{1, 2, 3})
+		bm := roaringset.NewBitmap(1, 2, 3)
 
 		al := NewAllowListFromBitmapDeepCopy(bm)
 		bm.SetMany([]uint64{4, 5})

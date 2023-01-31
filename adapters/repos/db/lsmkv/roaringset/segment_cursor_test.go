@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -87,10 +86,8 @@ func createDummySegment(t *testing.T, count uint64) ([]byte, []uint64) {
 
 	for i := uint64(0); i < count; i++ {
 		key := []byte(fmt.Sprintf("%05d", i))
-		add := sroar.NewBitmap()
-		add.SetMany([]uint64{i * 4, i*4 + 1})
-		del := sroar.NewBitmap()
-		del.SetMany([]uint64{i*4 + 2, i*4 + 3})
+		add := NewBitmap(i*4, i*4+1)
+		del := NewBitmap(i*4+2, i*4+3)
 		sn, err := NewSegmentNode(key, add, del)
 		require.Nil(t, err)
 		offsets = append(offsets, uint64(len(out)))

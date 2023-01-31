@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -312,10 +311,8 @@ func createSegmentsFromKeys(t *testing.T, keys []keyWithBML) []byte {
 	out := []byte{}
 
 	for _, k := range keys {
-		add := sroar.NewBitmap()
-		add.SetMany(k.additions)
-		del := sroar.NewBitmap()
-		del.SetMany(k.deletions)
+		add := NewBitmap(k.additions...)
+		del := NewBitmap(k.deletions...)
 		sn, err := NewSegmentNode(k.key, add, del)
 		require.Nil(t, err)
 		out = append(out, sn.ToBuffer()...)

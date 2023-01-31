@@ -14,9 +14,9 @@ package inverted
 import (
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -26,28 +26,28 @@ func TestPropValuePairs_MergeAnd(t *testing.T) {
 		children: []*propValuePair{
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 7, 8, 9, 10, 11),
+					docIDs:   roaringset.NewBitmap(7, 8, 9, 10, 11),
 					checksum: []byte{0x01},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 1, 3, 5, 7, 9, 11),
+					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9, 11),
 					checksum: []byte{0x02},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 1, 3, 5, 7, 9),
+					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9),
 					checksum: []byte{0x03},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 1, 3, 5, 7),
+					docIDs:   roaringset.NewBitmap(1, 3, 5, 7),
 					checksum: []byte{0x04},
 				},
 				operator: filters.OperatorEqual,
@@ -69,28 +69,28 @@ func TestPropValuePairs_MergeOr(t *testing.T) {
 		children: []*propValuePair{
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 7, 8, 9, 10, 11),
+					docIDs:   roaringset.NewBitmap(7, 8, 9, 10, 11),
 					checksum: []byte{0x01},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 1, 3, 5, 7, 9, 11),
+					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9, 11),
 					checksum: []byte{0x02},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 1, 3, 5, 7, 9),
+					docIDs:   roaringset.NewBitmap(1, 3, 5, 7, 9),
 					checksum: []byte{0x03},
 				},
 				operator: filters.OperatorEqual,
 			},
 			{
 				docIDs: docBitmap{
-					docIDs:   createBitmap(t, 1, 3, 5, 7),
+					docIDs:   roaringset.NewBitmap(1, 3, 5, 7),
 					checksum: []byte{0x04},
 				},
 				operator: filters.OperatorEqual,
@@ -104,10 +104,4 @@ func TestPropValuePairs_MergeOr(t *testing.T) {
 
 	require.Nil(t, err)
 	assert.ElementsMatch(t, expectedPointers, dbm.IDs())
-}
-
-func createBitmap(t *testing.T, ids ...uint64) *sroar.Bitmap {
-	bm := sroar.NewBitmap()
-	bm.SetMany(ids)
-	return bm
 }
