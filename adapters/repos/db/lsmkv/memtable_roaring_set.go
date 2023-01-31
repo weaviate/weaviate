@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/sroar"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
@@ -30,7 +31,9 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	// TODO: write into commit log
+	if err := m.roaringSetAddCommitLog(key, roaringset.NewBitmap(values...), roaringset.NewBitmap()); err != nil {
+		return err
+	}
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
 
@@ -39,7 +42,21 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 }
 
 func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
-	return m.roaringSetAddList(key, bm.ToArray())
+	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+		return err
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.roaringSetAddCommitLog(key, bm, roaringset.NewBitmap()); err != nil {
+		return err
+	}
+
+	m.roaringSet.Insert(key, roaringset.Insert{Additions: bm.ToArray()})
+
+	m.roaringSetAdjustMeta(bm.GetCardinality())
+	return nil
 }
 
 func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
@@ -54,7 +71,9 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	// TODO: write into commit log
+	if err := m.roaringSetAddCommitLog(key, roaringset.NewBitmap(), roaringset.NewBitmap(values...)); err != nil {
+		return err
+	}
 
 	m.roaringSet.Insert(key, roaringset.Insert{Deletions: values})
 
@@ -63,7 +82,42 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 }
 
 func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
-	return m.roaringSetRemoveList(key, bm.ToArray())
+	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+		return err
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.roaringSetAddCommitLog(key, roaringset.NewBitmap(), bm); err != nil {
+		return err
+	}
+
+	m.roaringSet.Insert(key, roaringset.Insert{Deletions: bm.ToArray()})
+
+	m.roaringSetAdjustMeta(bm.GetCardinality())
+	return nil
+}
+
+func (m *Memtable) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
+	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+		return err
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.roaringSetAddCommitLog(key, additions, deletions); err != nil {
+		return err
+	}
+
+	m.roaringSet.Insert(key, roaringset.Insert{
+		Additions: additions.ToArray(),
+		Deletions: deletions.ToArray(),
+	})
+
+	m.roaringSetAdjustMeta(additions.GetCardinality() + deletions.GetCardinality())
+	return nil
 }
 
 func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
@@ -89,4 +143,13 @@ func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
 	m.size += uint64(entriesChanged * 2)
 	m.metrics.size(m.size)
 	m.lastWrite = time.Now()
+}
+
+func (m *Memtable) roaringSetAddCommitLog(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
+	if node, err := roaringset.NewSegmentNode(key, additions, deletions); err != nil {
+		return errors.Wrap(err, "create node for commit log")
+	} else if err := m.commitlog.add(node); err != nil {
+		return errors.Wrap(err, "add node to commit log")
+	}
+	return nil
 }

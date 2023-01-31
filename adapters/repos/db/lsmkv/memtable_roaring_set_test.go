@@ -99,7 +99,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.True(t, setKey2.Additions.Contains(4))
 	})
 
-	t.Run("deleting entries", func(t *testing.T) {
+	t.Run("removing individual entries", func(t *testing.T) {
 		m, err := newMemtable("fake", StrategyRoaringSet, 0, nil)
 		require.Nil(t, err)
 
@@ -118,5 +118,86 @@ func TestMemtableRoaringSet(t *testing.T) {
 		require.Nil(t, err)
 		assert.False(t, setKey2.Additions.Contains(8))
 		assert.True(t, setKey2.Deletions.Contains(8))
+	})
+
+	t.Run("removing lists", func(t *testing.T) {
+		m, err := newMemtable("fake", StrategyRoaringSet, 0, nil)
+		require.Nil(t, err)
+
+		key1, key2 := []byte("key1"), []byte("key2")
+
+		assert.Nil(t, m.roaringSetRemoveList(key1, []uint64{7, 8}))
+		assert.Nil(t, m.roaringSetRemoveList(key2, []uint64{9, 10}))
+		assert.Greater(t, m.Size(), uint64(0))
+
+		setKey1, err := m.roaringSetGet(key1)
+		require.Nil(t, err)
+		assert.Equal(t, 0, setKey1.Additions.GetCardinality())
+		assert.Equal(t, 2, setKey1.Deletions.GetCardinality())
+		assert.True(t, setKey1.Deletions.Contains(7))
+		assert.True(t, setKey1.Deletions.Contains(8))
+
+		setKey2, err := m.roaringSetGet(key2)
+		require.Nil(t, err)
+		assert.Equal(t, 0, setKey2.Additions.GetCardinality())
+		assert.Equal(t, 2, setKey2.Deletions.GetCardinality())
+		assert.True(t, setKey2.Deletions.Contains(9))
+		assert.True(t, setKey2.Deletions.Contains(10))
+	})
+
+	t.Run("removing bitmaps", func(t *testing.T) {
+		m, err := newMemtable("fake", StrategyRoaringSet, 0, nil)
+		require.Nil(t, err)
+
+		key1, key2 := []byte("key1"), []byte("key2")
+
+		assert.Nil(t, m.roaringSetRemoveBitmap(key1, roaringset.NewBitmap(7, 8)))
+		assert.Nil(t, m.roaringSetRemoveBitmap(key2, roaringset.NewBitmap(9, 10)))
+		assert.Greater(t, m.Size(), uint64(0))
+
+		setKey1, err := m.roaringSetGet(key1)
+		require.Nil(t, err)
+		assert.Equal(t, 0, setKey1.Additions.GetCardinality())
+		assert.Equal(t, 2, setKey1.Deletions.GetCardinality())
+		assert.True(t, setKey1.Deletions.Contains(7))
+		assert.True(t, setKey1.Deletions.Contains(8))
+
+		setKey2, err := m.roaringSetGet(key2)
+		require.Nil(t, err)
+		assert.Equal(t, 0, setKey2.Additions.GetCardinality())
+		assert.Equal(t, 2, setKey2.Deletions.GetCardinality())
+		assert.True(t, setKey2.Deletions.Contains(9))
+		assert.True(t, setKey2.Deletions.Contains(10))
+	})
+
+	t.Run("adding/removing bitmaps", func(t *testing.T) {
+		m, err := newMemtable("fake", StrategyRoaringSet, 0, nil)
+		require.Nil(t, err)
+
+		key1, key2 := []byte("key1"), []byte("key2")
+
+		assert.Nil(t, m.roaringSetAddRemoveBitmaps(key1,
+			roaringset.NewBitmap(1, 2), roaringset.NewBitmap(7, 8)))
+		assert.Nil(t, m.roaringSetAddRemoveBitmaps(key2,
+			roaringset.NewBitmap(3, 4), roaringset.NewBitmap(9, 10)))
+		assert.Greater(t, m.Size(), uint64(0))
+
+		setKey1, err := m.roaringSetGet(key1)
+		require.Nil(t, err)
+		assert.Equal(t, 2, setKey1.Additions.GetCardinality())
+		assert.True(t, setKey1.Additions.Contains(1))
+		assert.True(t, setKey1.Additions.Contains(2))
+		assert.Equal(t, 2, setKey1.Deletions.GetCardinality())
+		assert.True(t, setKey1.Deletions.Contains(7))
+		assert.True(t, setKey1.Deletions.Contains(8))
+
+		setKey2, err := m.roaringSetGet(key2)
+		require.Nil(t, err)
+		assert.Equal(t, 2, setKey2.Additions.GetCardinality())
+		assert.True(t, setKey2.Additions.Contains(3))
+		assert.True(t, setKey2.Additions.Contains(4))
+		assert.Equal(t, 2, setKey2.Deletions.GetCardinality())
+		assert.True(t, setKey2.Deletions.Contains(9))
+		assert.True(t, setKey2.Deletions.Contains(10))
 	})
 }

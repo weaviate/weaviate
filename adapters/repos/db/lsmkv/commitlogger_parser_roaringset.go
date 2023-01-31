@@ -18,10 +18,11 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func (p *commitloggerParser) doCollection() error {
+func (p *commitloggerParser) doRoaringSet() error {
 	f, err := os.Open(p.path)
 	if err != nil {
 		return err
@@ -43,8 +44,8 @@ func (p *commitloggerParser) doCollection() error {
 			return errors.Wrap(err, "read commit type")
 		}
 
-		if CommitTypeCollection.Is(commitType) {
-			if err := p.parseCollectionNode(); err != nil {
+		if CommitTypeRoaringSet.Is(commitType) {
+			if err := p.parseRoaringSetNode(); err != nil {
 				f.Close()
 				return errors.Wrap(err, "read collection node")
 			}
@@ -57,29 +58,23 @@ func (p *commitloggerParser) doCollection() error {
 	return f.Close()
 }
 
-func (p *commitloggerParser) parseCollectionNode() error {
-	n, err := ParseCollectionNode(p.reader)
-	if err != nil {
-		return err
+func (p *commitloggerParser) parseRoaringSetNode() error {
+	lenBuf := make([]byte, 8)
+	if _, err := io.ReadFull(p.reader, lenBuf); err != nil {
+		return errors.Wrap(err, "read segment len")
+	}
+	segmentLen := binary.LittleEndian.Uint64(lenBuf)
+
+	segBuf := make([]byte, segmentLen)
+	copy(segBuf, lenBuf)
+	if _, err := io.ReadFull(p.reader, segBuf[8:]); err != nil {
+		return errors.Wrap(err, "read segment contents")
 	}
 
-	if p.strategy == StrategyMapCollection {
-		return p.parseMapNode(n)
-	}
-	return p.memtable.append(n.primaryKey, n.values)
-}
-
-func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
-	for _, val := range n.values {
-		mp := MapPair{}
-		if err := mp.FromBytes(val.value, false); err != nil {
-			return err
-		}
-		mp.Tombstone = val.tombstone
-
-		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {
-			return err
-		}
+	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
+	key := segment.PrimaryKey()
+	if err := p.memtable.roaringSetAddRemoveBitmaps(key, segment.Additions(), segment.Deletions()); err != nil {
+		return errors.Wrap(err, "add/remove bitmaps")
 	}
 
 	return nil
