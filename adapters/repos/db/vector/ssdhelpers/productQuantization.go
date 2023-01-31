@@ -26,9 +26,10 @@ const (
 )
 
 type DistanceLookUpTable struct {
-	calculated [][]bool
-	distances  [][]float32
-	center     []float32
+	calculated  [][]bool
+	distances   [][]float32
+	center      []float32
+	segmentSize int
 }
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
@@ -40,9 +41,10 @@ func NewDistanceLookUpTable(segments int, centroids int, center []float32) *Dist
 	}
 
 	return &DistanceLookUpTable{
-		distances:  distances,
-		calculated: calculated,
-		center:     center,
+		distances:   distances,
+		calculated:  calculated,
+		center:      center,
+		segmentSize: len(center) / segments,
 	}
 }
 
@@ -57,7 +59,7 @@ func (lut *DistanceLookUpTable) LookUp(
 	for i, c := range encoded {
 		if lut.calculated[i][c] {
 			sum += lut.distances[i][c]
-			k++
+			k += lut.segmentSize
 		} else {
 			centroid := encoders[i].Centroid(c)
 			dist := float32(0)
