@@ -77,17 +77,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 	}
 
-	for _, prop := range class.Properties {
-		if prop.IndexInverted != nil && !*prop.IndexInverted {
-			continue
-		}
-
-		errProps := m.addPropertiesAndNullAndLength(ctx, prop, idx)
-		if errProps != nil {
-			return errors.Wrapf(errProps, "add prop and null state and property length '%v'", prop)
-		}
-	}
-
 	if m.db.config.TrackVectorDimensions {
 		if err := idx.addDimensionsProperty(context.TODO()); err != nil {
 			return errors.Wrap(err, "init id property")

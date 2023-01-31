@@ -9,12 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package main
 
-import "testing"
+import "github.com/weaviate/weaviate/test/benchmark_bm25/cmd"
 
-func TestReplication(t *testing.T) {
-	t.Run("immediate replica CRUD", immediateReplicaCRUD)
-	t.Run("eventual replica CRUD", eventualReplicaCRUD)
-	t.Run("multishard scale out", multiShardScaleOut)
+func main() {
+	cmd.Execute()
 }
