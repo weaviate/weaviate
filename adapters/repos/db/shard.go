@@ -357,7 +357,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -420,7 +420,7 @@ func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) er
 
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -442,7 +442,7 @@ func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
 
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -461,7 +461,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -480,7 +480,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -502,7 +502,7 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategySetCollection), // ref props do not have frequencies -> Set
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
 			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		)
 		if err != nil {
@@ -531,7 +531,7 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
 		}
 	} else {
-		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
