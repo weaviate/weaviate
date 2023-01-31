@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	libschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func TestDeleteJourney(t *testing.T) {
@@ -72,7 +72,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
-			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
 				Pagination: &filters.Pagination{
@@ -137,7 +137,7 @@ func TestDeleteJourney(t *testing.T) {
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -179,7 +179,7 @@ func TestDeleteJourney(t *testing.T) {
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -210,7 +210,7 @@ func TestDeleteJourney(t *testing.T) {
 	})
 
 	t.Run("delete the index", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{

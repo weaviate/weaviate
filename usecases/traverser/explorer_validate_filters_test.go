@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func Test_Explorer_GetClass_WithFilters(t *testing.T) {
@@ -345,7 +346,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 	for _, outertest := range tests {
 		for _, test := range outertest {
 			t.Run(test.name, func(t *testing.T) {
-				params := GetParams{
+				params := dto.GetParams{
 					ClassName: "ClassOne",
 					NearVector: &searchparams.NearVector{
 						Vector: []float32{0.8, 0.2, 0.7},

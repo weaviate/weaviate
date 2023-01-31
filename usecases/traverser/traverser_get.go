@@ -17,10 +17,11 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
-	params GetParams,
+	params dto.GetParams,
 ) (interface{}, error) {
 	before := time.Now()
 

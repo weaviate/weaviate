@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func (db *DB) Aggregate(ctx context.Context,
@@ -51,7 +52,7 @@ func (db *DB) GetQueryMaximumResults() int {
 // Class ClassSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
 func (db *DB) ClassObjectSearch(ctx context.Context,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) ([]*storobj.Object, []float32, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if idx == nil {
@@ -77,7 +78,7 @@ func (db *DB) ClassObjectSearch(ctx context.Context,
 }
 
 func (db *DB) ClassSearch(ctx context.Context,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	res, _, err := db.ClassObjectSearch(ctx, params)
 	if err != nil {
@@ -90,7 +91,7 @@ func (db *DB) ClassSearch(ctx context.Context,
 }
 
 func (db *DB) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	if params.SearchVector == nil {
 		return db.ClassSearch(ctx, params)
@@ -122,7 +123,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 			db.getDists(dists, params.Pagination)), params.Properties, params.AdditionalProperties)
 }
 
-func extractDistanceFromParams(params traverser.GetParams) float32 {
+func extractDistanceFromParams(params dto.GetParams) float32 {
 	certainty := traverser.ExtractCertaintyFromParams(params)
 	if certainty != 0 {
 		return float32(additional.CertaintyToDist(certainty))

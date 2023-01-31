@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func Test_MergingObjects(t *testing.T) {
@@ -646,7 +646,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 
 				for _, tc := range tests {
 					t.Run(tc.name, func(t *testing.T) {
-						params := traverser.GetParams{
+						params := dto.GetParams{
 							ClassName:  "TestClass",
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,

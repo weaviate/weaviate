@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func (t *Traverser) validateExploreDistance(params ExploreParams) error {
@@ -95,7 +96,7 @@ func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType
 	return nil
 }
 
-func (t *Traverser) validateGetDistanceParams(params GetParams) error {
+func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 	sch := t.schemaGetter.GetSchemaSkipAuth()
 	class := sch.GetClass(schema.ClassName(params.ClassName))
 	if class == nil {

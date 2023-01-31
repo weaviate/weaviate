@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -102,7 +102,7 @@ type VectorRepo interface {
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		class string, properties []string, k int,
 		filter *libfilters.LocalFilter) ([]NeighborRef, error)
-	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
+	VectorClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	ZeroShotSearch(ctx context.Context, vector []float32,
 		class string, properties []string,
 		filter *libfilters.LocalFilter) ([]search.Result, error)

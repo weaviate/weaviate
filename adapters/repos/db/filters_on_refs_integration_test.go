@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func TestRefFilters(t *testing.T) {
@@ -769,8 +769,8 @@ func filterAirportsInGermanCitiesOver600k() *filters.LocalFilter {
 	}
 }
 
-func getParamsWithFilter(className string, filter *filters.LocalFilter) traverser.GetParams {
-	return traverser.GetParams{
+func getParamsWithFilter(className string, filter *filters.LocalFilter) dto.GetParams {
+	return dto.GetParams{
 		Filters: filter,
 		// we don't care about actually resolving the ref as long as filtering
 		// on it worked

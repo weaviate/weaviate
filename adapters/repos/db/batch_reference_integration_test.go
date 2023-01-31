@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func Test_AddingReferencesInBatches(t *testing.T) {
@@ -133,7 +133,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	t.Run("verify ref count through filters", func(t *testing.T) {
 		t.Run("count==0 should return the source", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -148,7 +148,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count>0 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, gt, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -187,7 +187,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		// so far we have imported two refs (!)
 		t.Run("count==2 should return the source", func(t *testing.T) {
 			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -202,7 +202,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count==0 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -262,7 +262,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 		// so far we have imported two refs (!)
 		t.Run("count==4 should return the source", func(t *testing.T) {
 			filter := buildFilter("toTarget", 4, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -277,7 +277,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count==0 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 0, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -291,7 +291,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		t.Run("count==2 should not return anything", func(t *testing.T) {
 			filter := buildFilter("toTarget", 2, eq, schema.DataTypeInt)
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Filters:   filter,
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
@@ -322,7 +322,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				},
 			},
 		}
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters:   filter,
 			ClassName: "AddingBatchReferencesTestSource",
 			Pagination: &filters.Pagination{
@@ -347,7 +347,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// correct. However, this test still adds value, since we were now able
 			// to remove the additional storage updates. By still including this
 			// test we verify that such an update is indeed no longer necessary
-			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 				ClassName:    "AddingBatchReferencesTestSource",
 				SearchVector: []float32{0.49},
 				Pagination: &filters.Pagination{

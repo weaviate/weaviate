@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func TestRestartJourney(t *testing.T) {
@@ -150,7 +150,7 @@ func TestRestartJourney(t *testing.T) {
 
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := repo.VectorClassSearch(context.Background(),
-				traverser.GetParams{
+				dto.GetParams{
 					ClassName:    "Class",
 					SearchVector: []float32{0.05, 0.1, 0.15},
 					Pagination: &filters.Pagination{
@@ -234,7 +234,7 @@ func TestRestartJourney(t *testing.T) {
 
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := newRepo.VectorClassSearch(context.Background(),
-				traverser.GetParams{
+				dto.GetParams{
 					ClassName:    "Class",
 					SearchVector: []float32{0.05, 0.1, 0.15},
 					Pagination: &filters.Pagination{

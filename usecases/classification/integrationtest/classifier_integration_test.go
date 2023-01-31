@@ -32,7 +32,7 @@ import (
 	testhelper "github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
@@ -161,7 +161,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName: "Article",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{
@@ -278,7 +278,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 					},
 				},
 			}
-			res, err := vrepo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := vrepo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName: "Recipes",
 				Filters:   &filter,
 				Pagination: &filters.Pagination{

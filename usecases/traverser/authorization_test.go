@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -40,7 +41,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 	tests := []testCase{
 		{
 			methodName:       "GetClass",
-			additionalArgs:   []interface{}{GetParams{}},
+			additionalArgs:   []interface{}{dto.GetParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},

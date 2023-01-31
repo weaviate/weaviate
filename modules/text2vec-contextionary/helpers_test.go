@@ -31,6 +31,7 @@ import (
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecneartext "github.com/weaviate/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 type mockRequestsLog struct{}
@@ -347,7 +348,7 @@ func newExploreMockResolver() *mockResolver {
 }
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
@@ -362,7 +363,7 @@ func (m *mockResolver) Explore(ctx context.Context,
 
 // Resolver is a local abstraction of the required UC resolvers
 type GetResolver interface {
-	GetClass(ctx context.Context, principal *models.Principal, info traverser.GetParams) (interface{}, error)
+	GetClass(ctx context.Context, principal *models.Principal, info dto.GetParams) (interface{}, error)
 }
 
 type ExploreResolver interface {

@@ -71,6 +71,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -94,7 +95,7 @@ type vectorRepo interface {
 }
 
 type explorer interface {
-	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
+	GetClass(ctx context.Context, params dto.GetParams) ([]interface{}, error)
 	CrossClassVectorSearch(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 	SetSchemaGetter(schemaUC.SchemaGetter)
 }

@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 type mockRequestsLog struct{}
@@ -646,7 +646,7 @@ func newMockResolverWithNoModules() *mockResolver {
 }
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)

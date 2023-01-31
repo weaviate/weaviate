@@ -23,19 +23,20 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/types/dto"
 )
 
 func Test_Explorer_GetClass_WithSort(t *testing.T) {
 	type testData struct {
 		name          string
-		params        GetParams
+		params        dto.GetParams
 		expectedError error
 	}
 
 	oneSortFilter := []testData{
 		{
 			name: "invalid order parameter",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: nil, Order: "asce"}},
 			},
@@ -44,7 +45,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "empty path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: nil, Order: "asc"}},
 			},
@@ -53,7 +54,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "non-existent class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "NonExistentClass",
 				Sort:      []filters.Sort{{Path: []string{"property"}, Order: "asc"}},
 			},
@@ -62,7 +63,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "non-existent property in class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: []string{"nonexistentproperty"}, Order: "asc"}},
 			},
@@ -72,7 +73,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference property in class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: []string{"ref_prop"}, Order: "asc"}},
 			},
@@ -82,7 +83,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference property path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: []string{"ref", "prop"}, Order: "asc"}},
 			},
@@ -92,7 +93,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "invalid order parameter",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: nil, Order: "asce"}},
 			},
@@ -104,7 +105,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 	twoSortFilters := []testData{
 		{
 			name: "invalid order parameter",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: nil, Order: "asce"},
@@ -119,7 +120,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "empty path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: nil, Order: "asc"},
@@ -132,7 +133,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "non-existent class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "NonExistentClass",
 				Sort: []filters.Sort{
 					{Path: []string{"property"}, Order: "asc"},
@@ -147,7 +148,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "non-existent property in class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"nonexistentproperty1"}, Order: "asc"},
@@ -164,7 +165,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference property in class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"ref_prop"}, Order: "asc"},
@@ -181,7 +182,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference property path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"ref", "prop"}, Order: "asc"},
@@ -198,7 +199,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference properties path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"ref_prop"}, Order: "asc"},
@@ -215,7 +216,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference properties path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"ref_prop"}, Order: "asc"},
@@ -235,7 +236,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 	oneOfTwoSortFilters := []testData{
 		{
 			name: "invalid order parameter",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"string_prop"}, Order: "asc"},
@@ -248,7 +249,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "empty path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"string_prop"}, Order: "asc"},
@@ -260,7 +261,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "non-existent property in class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"string_prop"}, Order: "asc"},
@@ -274,7 +275,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference property in class",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"string_prop"}, Order: "asc"},
@@ -288,7 +289,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference property path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"string_prop"}, Order: "asc"},
@@ -302,7 +303,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 		},
 		{
 			name: "reference properties path",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				Sort: []filters.Sort{
 					{Path: []string{"string_prop"}, Order: "asc"},
@@ -323,7 +324,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 	properSortFilters := []testData{
 		{
 			name: "sort by string_prop",
-			params: GetParams{
+			params: dto.GetParams{
 				ClassName: "ClassOne",
 				NearVector: &searchparams.NearVector{
 					Vector: []float32{0.8, 0.2, 0.7},
