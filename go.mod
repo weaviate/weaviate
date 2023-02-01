@@ -17,7 +17,7 @@ require (
 	github.com/go-openapi/validate v0.21.0
 	github.com/golang-jwt/jwt/v4 v4.0.0
 	github.com/google/uuid v1.3.0
-	github.com/hashicorp/memberlist v0.4.0
+	github.com/hashicorp/memberlist v0.5.0
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/minio/minio-go/v7 v7.0.31
 	github.com/nyaruka/phonenumbers v1.0.54
