@@ -9,6 +9,9 @@
 //  CONTACT: hello@semi.technology
 //
 
+//go:build benchmarkSiftTests
+// +build benchmarkSiftTests
+
 package hnsw_test
 
 import (
