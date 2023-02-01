@@ -14,5 +14,7 @@ package models
 // GenerateResult used in generative OpenAI module to represent
 // the answer to a given question
 type GenerateResult struct {
-	Result *string `json:"result,omitempty"`
+	SingleResult  *string `json:"singleResult,omitempty"`
+	GroupedResult *string `json:"groupedResult,omitempty"`
+	Error         error   `json:"error,omitempty"`
 }

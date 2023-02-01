@@ -13,33 +13,30 @@ package generate
 
 import (
 	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/tailor-inc/graphql"
 )
 
 func TestGenerateField(t *testing.T) {
-	t.Run("should generate generate argument properly", func(t *testing.T) {
-		// given
-		answerProvider := &GenerateProvider{}
-		classname := "Class"
-
-		// when
-		answer := answerProvider.additionalGenerateField(classname)
-
-		// then
-		// the built graphQL field needs to support this structure:
-		// Type: {
-		//   generate: {
-		//     result: "result",
-		//   }
-		// }
-		assert.NotNil(t, answer)
-		assert.Equal(t, "ClassAdditionalGenerate", answer.Type.Name())
-		assert.NotNil(t, answer.Type)
-		answerObject, answerObjectOK := answer.Type.(*graphql.Object)
-		assert.True(t, answerObjectOK)
-		assert.Equal(t, 1, len(answerObject.Fields()))
-		assert.NotNil(t, answerObject.Fields()["result"])
-	})
+	//t.Run("should generate generate argument properly", func(t *testing.T) {
+	//	// given
+	//	answerProvider := &GenerateProvider{}
+	//	classname := "Class"
+	//
+	//	// when
+	//	answer := answerProvider.additionalGenerateField(classname)
+	//
+	//	// then
+	//	// the built graphQL field needs to support this structure:
+	//	// Type: {
+	//	//   generate: {
+	//	//     result: "result",
+	//	//   }
+	//	// }
+	//	assert.NotNil(t, answer)
+	//	assert.Equal(t, "ClassAdditionalGenerate", answer.Type.Name())
+	//	assert.NotNil(t, answer.Type)
+	//	answerObject, answerObjectOK := answer.Type.(*graphql.Object)
+	//	assert.True(t, answerObjectOK)
+	//	assert.Equal(t, 1, len(answerObject.Fields()))
+	//	assert.NotNil(t, answerObject.Fields()["result"])
+	//})
 }

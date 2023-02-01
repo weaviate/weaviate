@@ -36,11 +36,9 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 				},
 			},
 		}
+		s := "this is a task"
 		fakeParams := &Params{
-			Task:           "this is a task",
-			ResultLanguage: "English",
-			OnSet:          "individualResults",
-			Properties:     nil,
+			Task: &s,
 		}
 		limit := 1
 		argumentModuleParams := map[string]interface{}{}
@@ -57,54 +55,33 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		assert.NotNil(t, answer)
 		answerAdditional, answerAdditionalOK := answer.(*generativemodels.GenerateResult)
 		assert.True(t, answerAdditionalOK)
-		assert.Equal(t, "this is a task", *answerAdditional.Result)
-	})
-
-	t.Run("should answer with property", func(t *testing.T) {
-		// given
-		openaiClient := &fakeOpenAIClient{}
-		answerProvider := New(openaiClient)
-		in := []search.Result{
-			{
-				ID: "some-uuid",
-				Schema: map[string]interface{}{
-					"content":  "content with answer",
-					"content2": "this one is just a title",
-				},
-			},
-		}
-		fakeParams := &Params{
-			Task:           "this is a task",
-			ResultLanguage: "English",
-			OnSet:          "individualResults",
-			Properties:     []string{"content", "content2"},
-		}
-		limit := 1
-		argumentModuleParams := map[string]interface{}{}
-
-		// when
-		out, err := answerProvider.AdditionalPropertyFn(context.Background(), in, fakeParams, &limit, argumentModuleParams, nil)
-
-		// then
-		require.Nil(t, err)
-		require.NotEmpty(t, out)
-		assert.Equal(t, 1, len(in))
-		answer, answerOK := in[0].AdditionalProperties["generate"]
-		assert.True(t, answerOK)
-		assert.NotNil(t, answer)
-		answerAdditional, answerAdditionalOK := answer.(*generativemodels.GenerateResult)
-		assert.True(t, answerAdditionalOK)
-		assert.Equal(t, "this is a task", *answerAdditional.Result)
+		assert.Equal(t, "this is a task", *answerAdditional.GroupedResult)
 	})
 }
 
 type fakeOpenAIClient struct{}
 
-func (c *fakeOpenAIClient) Generate(ctx context.Context, textProperties []map[string]string, task string, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
-	return c.getResult(textProperties, task, language, "generate"), nil
+func (c *fakeOpenAIClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	return c.getResults(textProperties, task), nil
 }
 
-func (c *fakeOpenAIClient) getResult(text []map[string]string, task, language, s string) *ent.GenerateResult {
+func (c *fakeOpenAIClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	return c.getResult(textProperties, prompt), nil
+}
+
+func (c *fakeOpenAIClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
+	return &ent.GenerateResult{
+		Result: &prompt,
+	}, nil
+}
+
+func (c *fakeOpenAIClient) getResults(text []map[string]string, task string) *ent.GenerateResult {
+	return &ent.GenerateResult{
+		Result: &task,
+	}
+}
+
+func (c *fakeOpenAIClient) getResult(text map[string]string, task string) *ent.GenerateResult {
 	return &ent.GenerateResult{
 		Result: &task,
 	}

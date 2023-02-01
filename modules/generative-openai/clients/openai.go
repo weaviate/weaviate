@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -50,9 +51,23 @@ func New(apiKey string, logger logrus.FieldLogger) *openai {
 	}
 }
 
-func (v *openai) Generate(ctx context.Context, textProperties []map[string]string, task, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
-	prompt := v.generatePrompt(textProperties, task, language)
+func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	forPrompt, err := v.generateForPrompt(textProperties, prompt)
+	if err != nil {
+		return nil, err
+	}
+	return v.Generate(ctx, cfg, forPrompt)
+}
 
+func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error) {
+	forTask, err := v.generatePromptForTask(textProperties, task)
+	if err != nil {
+		return nil, err
+	}
+	return v.Generate(ctx, cfg, forTask)
+}
+
+func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
 	body, err := json.Marshal(generateInput{
@@ -120,24 +135,26 @@ func (v *openai) Generate(ctx context.Context, textProperties []map[string]strin
 	}, nil
 }
 
-func (v *openai) generatePrompt(textProperties []map[string]string, question string, language string) string {
+func (v *openai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
-		fmt.Println(err)
+		return "", err
 	}
-	return fmt.Sprintf(`We need your help to complete the task: %v
-	
-	Additional instructions are as follows:
-	- You must base your response on the result in JSON format and nothing else.
-	- The response should be in %v.
-	- You should only base your results on the result in JSON format. If you can't do this, could you explain why you can't do this?
-	- You should only respond with the result to the task, nothing more.
-	- You should be kind and decent.
-	
-	This is the result in JSON format:
+	return fmt.Sprintf(`'%v:
+%v`, task, string(marshal)), nil
+}
 
-	%v
-`, question, language, string(marshal))
+func (v *openai) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
+	for key, value := range textProperties {
+		prompt = strings.ReplaceAll(prompt, fmt.Sprintf("{%v}", key), value)
+	}
+	compile, _ := regexp.Compile(`{\w*}`)
+	leftOverProperties := compile.FindAllString(prompt, -1)
+	if len(leftOverProperties) > 0 {
+		return "", errors.Errorf("Following properties could not be found: %v", leftOverProperties)
+	}
+
+	return prompt, nil
 }
 
 func (v *openai) getApiKey(ctx context.Context) (string, error) {

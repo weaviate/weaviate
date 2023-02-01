@@ -23,7 +23,9 @@ import (
 )
 
 type openAIClient interface {
-	Generate(ctx context.Context, textProperties []map[string]string, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
+	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
+	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
+	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error)
 }
 
 type GenerateProvider struct {

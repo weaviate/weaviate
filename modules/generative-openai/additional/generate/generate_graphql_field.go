@@ -20,8 +20,8 @@ import (
 func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Field {
 	return &graphql.Field{
 		Args: graphql.FieldConfigArgument{
-			"individualResults": &graphql.ArgumentConfig{
-				Description: "individual results",
+			"singleResult": &graphql.ArgumentConfig{
+				Description: "Results per object",
 				Type: graphql.NewInputObject(graphql.InputObjectConfig{
 					Name: fmt.Sprintf("%sIndividualResultsArg", classname),
 					Fields: graphql.InputObjectConfigFieldMap{
@@ -33,8 +33,8 @@ func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Fi
 				}),
 				DefaultValue: nil,
 			},
-			"allResults": &graphql.ArgumentConfig{
-				Description: "all results",
+			"groupedResult": &graphql.ArgumentConfig{
+				Description: "Grouped results of all objects",
 				Type: graphql.NewInputObject(graphql.InputObjectConfig{
 					Name: fmt.Sprintf("%sAllResultsArg", classname),
 					Fields: graphql.InputObjectConfigFieldMap{
@@ -42,66 +42,6 @@ func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Fi
 							Description: "task",
 							Type:        graphql.String,
 						},
-						"language": &graphql.InputObjectFieldConfig{
-							Description: "task",
-							Type: graphql.NewEnum(graphql.EnumConfig{
-								Name: fmt.Sprintf("%sAllResultsLanguageArg", classname),
-								Values: graphql.EnumValueConfigMap{
-									"English":    &graphql.EnumValueConfig{},
-									"Chinese":    &graphql.EnumValueConfig{},
-									"Spanish":    &graphql.EnumValueConfig{},
-									"French":     &graphql.EnumValueConfig{},
-									"Arabic":     &graphql.EnumValueConfig{},
-									"Russian":    &graphql.EnumValueConfig{},
-									"Portuguese": &graphql.EnumValueConfig{},
-									"Japanese":   &graphql.EnumValueConfig{},
-									"German":     &graphql.EnumValueConfig{},
-									"Dutch":      &graphql.EnumValueConfig{},
-									"auto":       &graphql.EnumValueConfig{},
-								},
-							}),
-						},
-					},
-				}),
-				DefaultValue: nil,
-			},
-			"task": &graphql.ArgumentConfig{
-				Description:  "Task to be performed",
-				Type:         graphql.String,
-				DefaultValue: nil,
-			},
-			"resultLanguage": &graphql.ArgumentConfig{
-				Description: "Result language",
-				Type: graphql.NewEnum(graphql.EnumConfig{
-					Name: fmt.Sprintf("%sAdditionalArgumentResultLanguageGenerate", classname),
-					Values: graphql.EnumValueConfigMap{
-						"English":    &graphql.EnumValueConfig{},
-						"Chinese":    &graphql.EnumValueConfig{},
-						"Spanish":    &graphql.EnumValueConfig{},
-						"French":     &graphql.EnumValueConfig{},
-						"Arabic":     &graphql.EnumValueConfig{},
-						"Russian":    &graphql.EnumValueConfig{},
-						"Portuguese": &graphql.EnumValueConfig{},
-						"Japanese":   &graphql.EnumValueConfig{},
-						"German":     &graphql.EnumValueConfig{},
-						"Dutch":      &graphql.EnumValueConfig{},
-						"auto":       &graphql.EnumValueConfig{},
-					},
-				}),
-				DefaultValue: nil,
-			},
-			"properties": &graphql.ArgumentConfig{
-				Description:  "Properties used for the generation",
-				Type:         graphql.NewList(graphql.String),
-				DefaultValue: nil,
-			},
-			"onSet": &graphql.ArgumentConfig{
-				Description: "Generate all over the results",
-				Type: graphql.NewEnum(graphql.EnumConfig{
-					Name: fmt.Sprintf("%sAdditionalArgumentOnSetGenerate", classname),
-					Values: graphql.EnumValueConfigMap{
-						"allResults":        &graphql.EnumValueConfig{},
-						"individualResults": &graphql.EnumValueConfig{},
 					},
 				}),
 				DefaultValue: nil,
@@ -110,7 +50,9 @@ func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Fi
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalGenerate", classname),
 			Fields: graphql.Fields{
-				"result": &graphql.Field{Type: graphql.String},
+				"singleResult":  &graphql.Field{Type: graphql.String},
+				"groupedResult": &graphql.Field{Type: graphql.String},
+				"error":         &graphql.Field{Type: graphql.String},
 			},
 		}),
 	}

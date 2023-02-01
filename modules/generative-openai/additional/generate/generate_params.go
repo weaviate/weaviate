@@ -12,24 +12,14 @@
 package generate
 
 type Params struct {
-	Task           string
-	ResultLanguage string
-	OnSet          string
-	Properties     []string
+	Prompt *string
+	Task   *string
+}
+
+func (n Params) GetPrompt() string {
+	return *n.Prompt
 }
 
 func (n Params) GetTask() string {
-	return n.Task
-}
-
-func (n Params) GetResultLanguage() string {
-	return n.ResultLanguage
-}
-
-func (n Params) GetOnSet() string {
-	return n.OnSet
-}
-
-func (n Params) GetProperties() []string {
-	return n.Properties
+	return *n.Task
 }
