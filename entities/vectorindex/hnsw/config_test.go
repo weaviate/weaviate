@@ -42,8 +42,14 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
 				Distance:               DefaultDistanceMetric,
-				PQEncoderType:          DefaultPQEncoderType,
-				PQEncoderDistribution:  DefaultPQEncoderDistribution,
+				PQ: &PQConfig{
+					Enabled:  DefaultPQEnabled,
+					Segments: DefaultPQSegments,
+					Encoder: &PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
 			},
 		},
 
@@ -63,8 +69,14 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
 				Distance:               DefaultDistanceMetric,
-				PQEncoderType:          DefaultPQEncoderType,
-				PQEncoderDistribution:  DefaultPQEncoderDistribution,
+				PQ: &PQConfig{
+					Enabled:  DefaultPQEnabled,
+					Segments: DefaultPQSegments,
+					Encoder: &PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
 			},
 		},
 
@@ -95,8 +107,14 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Skip:                   true,
 				Distance:               "l2-squared",
-				PQEncoderType:          DefaultPQEncoderType,
-				PQEncoderDistribution:  DefaultPQEncoderDistribution,
+				PQ: &PQConfig{
+					Enabled:  DefaultPQEnabled,
+					Segments: DefaultPQSegments,
+					Encoder: &PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
 			},
 		},
 
@@ -127,8 +145,14 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Skip:                   true,
 				Distance:               "manhattan",
-				PQEncoderType:          DefaultPQEncoderType,
-				PQEncoderDistribution:  DefaultPQEncoderDistribution,
+				PQ: &PQConfig{
+					Enabled:  DefaultPQEnabled,
+					Segments: DefaultPQSegments,
+					Encoder: &PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
 			},
 		},
 
@@ -159,8 +183,14 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Skip:                   true,
 				Distance:               "hamming",
-				PQEncoderType:          DefaultPQEncoderType,
-				PQEncoderDistribution:  DefaultPQEncoderDistribution,
+				PQ: &PQConfig{
+					Enabled:  DefaultPQEnabled,
+					Segments: DefaultPQSegments,
+					Encoder: &PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
 			},
 		},
 
@@ -189,8 +219,14 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
-				PQEncoderType:          DefaultPQEncoderType,
-				PQEncoderDistribution:  DefaultPQEncoderDistribution,
+				PQ: &PQConfig{
+					Enabled:  DefaultPQEnabled,
+					Segments: DefaultPQSegments,
+					Encoder: &PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
 			},
 		},
 		{
@@ -218,8 +254,14 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
-				PQEncoderType:          DefaultPQEncoderType,
-				PQEncoderDistribution:  DefaultPQEncoderDistribution,
+				PQ: &PQConfig{
+					Enabled:  DefaultPQEnabled,
+					Segments: DefaultPQSegments,
+					Encoder: &PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
 			},
 		},
 	}
