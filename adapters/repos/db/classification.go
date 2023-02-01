@@ -19,13 +19,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/classification"
-	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -36,7 +36,7 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 ) ([]search.Result, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorEqual, 0)
-	res, err := db.ClassSearch(ctx, traverser.GetParams{
+	res, err := db.ClassSearch(ctx, dto.GetParams{
 		ClassName: class,
 		Filters:   mergedFilter,
 		Pagination: &libfilters.Pagination{
@@ -60,7 +60,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
-	res, err := db.VectorClassSearch(ctx, traverser.GetParams{
+	res, err := db.VectorClassSearch(ctx, dto.GetParams{
 		ClassName:    class,
 		SearchVector: vector,
 		Pagination: &filters.Pagination{
@@ -83,7 +83,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 ) ([]classification.NeighborRef, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
-	res, err := db.VectorClassSearch(ctx, traverser.GetParams{
+	res, err := db.VectorClassSearch(ctx, dto.GetParams{
 		ClassName:    class,
 		SearchVector: vector,
 		Pagination: &filters.Pagination{

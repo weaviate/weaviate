@@ -22,13 +22,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
@@ -382,7 +382,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		group := extractGroup(p.Args)
 
-		params := traverser.GetParams{
+		params := dto.GetParams{
 			Filters:              filters,
 			ClassName:            className,
 			Pagination:           pagination,
@@ -412,8 +412,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 // and no limit was provided, weaviate will want to execute a vector
 // search by distance. it knows to do this by watching for a limit
 // flag, specifically filters.LimitFlagSearchByDistance
-func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
-	setLimit := func(params *traverser.GetParams) {
+func setLimitBasedOnVectorSearchParams(params *dto.GetParams) {
+	setLimit := func(params *dto.GetParams) {
 		if params.Pagination == nil {
 			// limit was omitted entirely, implicitly
 			// indicating to do unlimited search
@@ -448,7 +448,7 @@ func setLimitBasedOnVectorSearchParams(params *traverser.GetParams) {
 	}
 }
 
-func extractGroup(args map[string]interface{}) *traverser.GroupParams {
+func extractGroup(args map[string]interface{}) *dto.GroupParams {
 	group, ok := args["group"]
 	if !ok {
 		return nil
@@ -457,7 +457,7 @@ func extractGroup(args map[string]interface{}) *traverser.GroupParams {
 	asMap := group.(map[string]interface{}) // guaranteed by graphql
 	strategy := asMap["type"].(string)
 	force := asMap["force"].(float64)
-	return &traverser.GroupParams{
+	return &dto.GroupParams{
 		Strategy: strategy,
 		Force:    float32(force),
 	}

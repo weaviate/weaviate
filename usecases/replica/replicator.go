@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type opID int
@@ -37,7 +36,7 @@ const (
 
 type shardingState interface {
 	NodeName() string
-	ShardingState(class string) *sharding.State
+	ResolveParentNodes(class, shardName string) (hosts, nodes []string, err error)
 }
 
 type nodeResolver interface {
