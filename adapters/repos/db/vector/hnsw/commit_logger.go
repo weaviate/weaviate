@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
