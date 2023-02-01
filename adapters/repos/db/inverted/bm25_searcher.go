@@ -90,8 +90,7 @@ func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 
 	class, err := schema.GetClassByName(b.schema.Objects, string(className))
 	if err != nil {
-		return nil, []float32{}, errors.Wrap(err,
-			"get class by name")
+		return nil, []float32{}, errors.Wrap(err, "get class by name")
 	}
 	property := keywordRanking.Properties[0]
 	p, err := schema.GetPropertyByName(class, property)
@@ -309,6 +308,19 @@ func (b *BM25Searcher) wand(
 		results = append(results, termResult)
 	}
 
+	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
+	if limit == 0 {
+		for _, ind := range indices {
+			limit += len(ind)
+		}
+	}
+
+	// the results are needed in the original order to be able to locate frequency/property length for the top-results
+	resultsOriginalOrder := make(terms, len(results))
+	for i, val := range results {
+		resultsOriginalOrder[i] = val
+	}
+
 	topKHeap := priorityqueue.NewMin(limit)
 	worstDist := float64(0)
 	for {
@@ -352,7 +364,7 @@ func (b *BM25Searcher) wand(
 		if obj.AdditionalProperties() == nil {
 			obj.Object.Additional = make(map[string]interface{})
 		}
-		for j, result := range results {
+		for j, result := range resultsOriginalOrder {
 			if termIndice, ok := indices[j][res.ID]; ok {
 				queryTerm := result.queryTerm
 				obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
