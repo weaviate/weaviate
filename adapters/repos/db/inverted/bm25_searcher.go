@@ -213,10 +213,6 @@ type terms []term
 func (b *BM25Searcher) wand(
 	ctx context.Context, class *models.Class, fullQuery string, properties []string, limit int,
 ) ([]*storobj.Object, []float32, error) {
-	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
-	if objectsBucket == nil {
-		return nil, nil, errors.Errorf("objects bucket not found")
-	}
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
 	// There are currently cases, for different tokenization:
@@ -317,25 +313,14 @@ func (b *BM25Searcher) wand(
 	resultsOriginalOrder := make(terms, len(results))
 	copy(resultsOriginalOrder, results)
 
-	topKHeap := priorityqueue.NewMin(limit)
-	worstDist := float64(0)
-	for {
+	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
+	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices)
+}
 
-		results.pivot(worstDist)
-
-		id, score, ok := results.scoreNext(averagePropLength, b.config)
-		if !ok {
-			// nothing left to score
-			break
-		}
-
-		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
-			topKHeap.Insert(id, float32(score))
-			for topKHeap.Len() > limit {
-				topKHeap.Pop()
-			}
-		}
-		worstDist = float64(topKHeap.Top().Dist)
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []map[uint64]int) ([]*storobj.Object, []float32, error) {
+	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
+	if objectsBucket == nil {
+		return nil, nil, errors.Errorf("objects bucket not found")
 	}
 
 	objects := make([]*storobj.Object, 0, topKHeap.Len())
@@ -360,18 +345,37 @@ func (b *BM25Searcher) wand(
 		if obj.AdditionalProperties() == nil {
 			obj.Object.Additional = make(map[string]interface{})
 		}
-		for j, result := range resultsOriginalOrder {
+		for j, result := range results {
 			if termIndice, ok := indices[j][res.ID]; ok {
 				queryTerm := result.queryTerm
 				obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
 				obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
 			}
 		}
-
 		objects = append(objects, obj)
 	}
-
 	return objects, scores, nil
+}
+
+func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64) *priorityqueue.Queue {
+	topKHeap := priorityqueue.NewMin(limit)
+	worstDist := float64(0)
+	for {
+		results.pivot(worstDist)
+
+		id, score, ok := results.scoreNext(averagePropLength, b.config)
+		if !ok {
+			return topKHeap // nothing left to score
+		}
+
+		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
+			topKHeap.Insert(id, float32(score))
+			for topKHeap.Len() > limit {
+				topKHeap.Pop()
+			}
+		}
+		worstDist = float64(topKHeap.Top().Dist)
+	}
 }
 
 func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
