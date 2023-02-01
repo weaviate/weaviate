@@ -550,12 +550,6 @@ type docPointers struct {
 	checksum []byte // helps us judge if a cached read is still fresh
 }
 
-type docPointersWithScore struct {
-	count    uint64
-	docIDs   []docPointerWithScore
-	checksum []byte // helps us judge if a cached read is still fresh
-}
-
 type docPointerWithScore struct {
 	id         uint64
 	frequency  float64
@@ -565,14 +559,6 @@ type docPointerWithScore struct {
 
 func (d docPointers) IDs() []uint64 {
 	return d.docIDs
-}
-
-func (d docPointersWithScore) IDs() []uint64 {
-	out := make([]uint64, len(d.docIDs))
-	for i, elem := range d.docIDs {
-		out[i] = elem.id
-	}
-	return out
 }
 
 func (d *docPointers) removeDuplicates() {
