@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 

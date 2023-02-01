@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 	helper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 

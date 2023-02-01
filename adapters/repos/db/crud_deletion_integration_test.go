@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	libschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func TestDeleteJourney(t *testing.T) {

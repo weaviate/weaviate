@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 // Resolver is a local abstraction of the required UC resolvers

@@ -30,7 +30,7 @@ import (
 	libschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 // Updates are non trivial, because vector indices are built under the

@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/filters"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"

@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	helper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/types/dto"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
