@@ -53,13 +53,13 @@ func TestRecall(t *testing.T) {
 	distancer := distancer.NewL2SquaredProvider()
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	uc := ent.UserConfig{
-		MaxConnections:        maxNeighbors,
-		EFConstruction:        efConstruction,
-		EF:                    ef,
-		Compressed:            false,
-		VectorCacheMaxObjects: 10e12,
-	}
+	uc := ent.UserConfig{}
+	uc.setDefaults()
+	uc.MaxConnections = maxNeighbors
+	uc.EFConstruction = efConstruction
+	uc.EF = ef
+	uc.VectorCacheMaxObjects = 10e12
+
 	index, _ := hnsw.New(
 		hnsw.Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -79,8 +79,8 @@ func TestRecall(t *testing.T) {
 		}
 	})
 	before = time.Now()
-	uc.Compressed = true
-	index.UpdateUserConfig(uc) /*should have configuration.compressed = true*/
+	uc.PQ.Enabled = true
+	index.UpdateUserConfig(uc) /*should have configuration.pr.enabled = true*/
 	fmt.Printf("Time to compress: %s", time.Since(before))
 	fmt.Println()
 	ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
@@ -142,13 +142,13 @@ func TestHnswPqGist(t *testing.T) {
 	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata/gist/cosine")
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	uc := ent.UserConfig{
-		MaxConnections:        maxNeighbors,
-		EFConstruction:        efConstruction,
-		EF:                    ef,
-		Compressed:            false,
-		VectorCacheMaxObjects: 1000000,
-	}
+	uc := ent.UserConfig{}
+	uc.setDefaults()
+	uc.MaxConnections = maxNeighbors
+	uc.EFConstruction = efConstruction
+	uc.EF = ef
+	uc.VectorCacheMaxObjects = 1000000
+
 	index, _ := hnsw.New(
 		hnsw.Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -168,8 +168,8 @@ func TestHnswPqGist(t *testing.T) {
 		}
 	})
 	before = time.Now()
-	uc.Compressed = true
-	index.UpdateUserConfig(uc) /*should have configuration.compressed = true*/
+	uc.Enabled = true
+	index.UpdateUserConfig(uc) /*should have configuration.pq.enabled = true*/
 	fmt.Printf("Time to compress: %s", time.Since(before))
 	fmt.Println()
 	index.Add(uint64(switch_at), vectors[switch_at])
@@ -224,13 +224,13 @@ func TestHnswPqSift(t *testing.T) {
 	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata")
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	uc := ent.UserConfig{
-		MaxConnections:        maxNeighbors,
-		EFConstruction:        efConstruction,
-		EF:                    ef,
-		Compressed:            false,
-		VectorCacheMaxObjects: 1000000,
-	}
+	uc := ent.UserConfig{}
+	uc.setDefaults()
+	uc.MaxConnections = maxNeighbors
+	uc.EFConstruction = efConstruction
+	uc.EF = ef
+	uc.VectorCacheMaxObjects = 1000000
+
 	index, _ := hnsw.New(
 		hnsw.Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -250,8 +250,8 @@ func TestHnswPqSift(t *testing.T) {
 		}
 	})
 	before = time.Now()
-	uc.Compressed = true
-	index.UpdateUserConfig(uc) /*should have configuration.compressed = true*/
+	uc.Enabled = true
+	index.UpdateUserConfig(uc) /*should have configuration.pq.enabled = true*/
 	fmt.Printf("Time to compress: %s", time.Since(before))
 	fmt.Println()
 	ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
