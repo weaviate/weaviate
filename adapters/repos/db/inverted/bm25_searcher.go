@@ -184,7 +184,8 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	id := t.idPointer
 	pair := t.data[t.posPointer]
-	tf := pair.frequency / (pair.frequency + config.K1*(1-config.B+config.B*pair.propLength/averagePropLength))
+	freq := float64(pair.frequency)
+	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
 
 	// advance
 	t.posPointer++
@@ -401,7 +402,7 @@ func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []strin
 			for k, val := range m {
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
-				docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: float64(math.Float32frombits(freqBits) * propertyBoosts[propName]), propLength: float64(math.Float32frombits(propLenBits))})
+				docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: math.Float32frombits(freqBits) * propertyBoosts[propName], propLength: math.Float32frombits(propLenBits)})
 				docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
 			}
 		} else {
@@ -411,10 +412,10 @@ func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []strin
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				if ok {
-					docMapPairs[ind].propLength += float64(math.Float32frombits(propLenBits))
-					docMapPairs[ind].frequency += float64(math.Float32frombits(freqBits) * propertyBoosts[propName])
+					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
+					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
-					docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: float64(math.Float32frombits(freqBits) * propertyBoosts[propName]), propLength: float64(math.Float32frombits(propLenBits))})
+					docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: math.Float32frombits(freqBits) * propertyBoosts[propName], propLength: math.Float32frombits(propLenBits)})
 					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
 				}
 			}
