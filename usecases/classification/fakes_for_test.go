@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -29,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type fakeSchemaGetter struct {
@@ -181,7 +181,7 @@ func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32
 }
 
 func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
@@ -271,7 +271,7 @@ func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects 
 }
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	if params.SearchVector == nil {
 		filteredTargets := matchClassName(f.targets, params.ClassName)

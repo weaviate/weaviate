@@ -27,13 +27,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func Test_MergingObjects(t *testing.T) {
@@ -646,7 +646,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 
 				for _, tc := range tests {
 					t.Run(tc.name, func(t *testing.T) {
-						params := traverser.GetParams{
+						params := dto.GetParams{
 							ClassName:  "TestClass",
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,
