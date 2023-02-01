@@ -122,6 +122,10 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid 'sort' filter")
 	}
 
+	if err := e.validateScroll(params); err != nil {
+		return nil, errors.Wrap(err, "invalid 'after' filter")
+	}
+
 	if params.KeywordRanking != nil {
 		return e.getClassKeywordBased(ctx, params)
 	}

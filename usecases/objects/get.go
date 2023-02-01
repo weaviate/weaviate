@@ -61,7 +61,8 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	offset, limit *int64, sort, order *string, additional additional.Properties,
+	offset, limit *int64, sort, order *string, after *string,
+	additional additional.Properties,
 ) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
@@ -76,7 +77,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
-	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, additional)
+	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, additional)
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
@@ -134,15 +135,21 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	return res, nil
 }
 
-func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
-	sort, order *string, additional additional.Properties,
+func (m *Manager) getObjectsFromRepo(ctx context.Context,
+	offset, limit *int64, sort, order *string, after *string,
+	additional additional.Properties,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
+	// TODO: after
+	scroll, err := m.getScroll(after, offset, limit)
+	if err != nil {
+		return nil, NewErrInternal("list objects: %v", err)
+	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
-		nil, m.getSort(sort, order), additional)
+		nil, m.getSort(sort, order), scroll, additional)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
@@ -234,4 +241,11 @@ func (m *Manager) trackUsageList(res search.Results) {
 		return
 	}
 	m.metrics.AddUsageDimensions(res[0].ClassName, "get_rest", "list_include_vector", res[0].Dims)
+}
+
+func (m *Manager) getScroll(after *string, offset, limit *int64) (*filters.Scroll, error) {
+	if after != nil && limit != nil {
+		return &filters.Scroll{After: *after, Limit: int(*limit)}, nil
+	}
+	return nil, nil
 }

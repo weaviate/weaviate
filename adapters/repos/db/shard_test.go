@@ -55,7 +55,7 @@ func TestShard_UpdateStatus(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		objs, err := shd.objectList(ctx, amount, nil, additional.Properties{}, shd.index.Config.ClassName)
+		objs, err := shd.objectList(ctx, amount, nil, nil, additional.Properties{}, shd.index.Config.ClassName)
 		require.Nil(t, err)
 		require.Equal(t, amount, len(objs))
 	})
