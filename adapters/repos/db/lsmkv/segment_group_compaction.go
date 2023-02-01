@@ -179,13 +179,8 @@ func (sg *SegmentGroup) compactOnce() error {
 		leftSegment := sg.segmentAtPos(pair[0])
 		rightSegment := sg.segmentAtPos(pair[1])
 
-		leftCursor := roaringset.NewSegmentCursor(
-			leftSegment.contents[leftSegment.dataStartPos:leftSegment.dataEndPos],
-			leftSegment.index)
-
-		rightCursor := roaringset.NewSegmentCursor(
-			rightSegment.contents[rightSegment.dataStartPos:rightSegment.dataEndPos],
-			rightSegment.index)
+		leftCursor := leftSegment.newRoaringSetCursor()
+		rightCursor := rightSegment.newRoaringSetCursor()
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
 			level, scratchSpacePath)
