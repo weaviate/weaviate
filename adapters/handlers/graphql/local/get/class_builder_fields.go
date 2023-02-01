@@ -204,6 +204,10 @@ func buildGetClassField(classObject *graphql.Object,
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
+			"after": &graphql.ArgumentConfig{
+				Description: descriptions.AfterID,
+				Type:        graphql.String,
+			},
 			"limit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
 				Type:        graphql.Int,
@@ -312,6 +316,11 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, err
 		}
 
+		scroll, err := filters.ExtractScrollFromArgs(p.Args)
+		if err != nil {
+			return nil, err
+		}
+
 		// There can only be exactly one ast.Field; it is the class name.
 		if len(p.Info.FieldASTs) != 1 {
 			panic("Only one Field expected here")
@@ -386,6 +395,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			Filters:              filters,
 			ClassName:            className,
 			Pagination:           pagination,
+			Scroll:               scroll,
 			Properties:           properties,
 			Sort:                 sort,
 			NearVector:           nearVectorParams,

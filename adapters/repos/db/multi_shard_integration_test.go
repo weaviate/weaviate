@@ -349,7 +349,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters,
+				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters, nil,
 					nil, additional.Properties{})
 				assert.Nil(t, err)
 
@@ -606,7 +606,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 			}
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
-					res, err := repo.ObjectSearch(context.Background(), 0, 1000, nil, test.sort,
+					res, err := repo.ObjectSearch(context.Background(), 0, 1000, nil, test.sort, nil,
 						additional.Properties{})
 					if len(test.constainsErrorMsgs) > 0 {
 						require.NotNil(t, err)

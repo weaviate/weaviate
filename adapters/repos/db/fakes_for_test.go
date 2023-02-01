@@ -168,7 +168,7 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties,
+	scroll *filters.Scroll, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }

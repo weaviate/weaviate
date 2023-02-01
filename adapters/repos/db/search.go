@@ -69,7 +69,7 @@ func (db *DB) ClassObjectSearch(ctx context.Context,
 	}
 
 	res, dist, err := idx.objectSearch(ctx, totalLimit, params.Filters,
-		params.KeywordRanking, params.Sort, params.AdditionalProperties)
+		params.KeywordRanking, params.Sort, params.Scroll, params.AdditionalProperties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -252,13 +252,17 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 		if err := filters.ValidateSort(scheme, schema.ClassName(q.Class), q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
-
 	}
 	idx := d.GetIndex(schema.ClassName(q.Class))
 	if idx == nil {
 		return nil, &objects.Error{Msg: "class not found " + q.Class, Code: objects.StatusNotFound}
 	}
-	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Additional)
+	if q.Scroll != nil {
+		if err := filters.ValidateScroll(schema.ClassName(q.Class), q.Offset, q.Filters, q.Sort); err != nil {
+			return nil, &objects.Error{Msg: "scroll", Code: objects.StatusBadRequest, Err: err}
+		}
+	}
+	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Scroll, q.Additional)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
@@ -268,13 +272,14 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 // ObjectSearch search each index.
 // Deprecated by Query which searches a specific index
 func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
+	filters *filters.LocalFilter, sort []filters.Sort, scroll *filters.Scroll,
+	additional additional.Properties,
 ) (search.Results, error) {
-	return d.objectSearch(ctx, offset, limit, filters, sort, additional)
+	return d.objectSearch(ctx, offset, limit, filters, sort, scroll, additional)
 }
 
 func (d *DB) objectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter, sort []filters.Sort,
+	filters *filters.LocalFilter, sort []filters.Sort, scroll *filters.Scroll,
 	additional additional.Properties,
 ) (search.Results, error) {
 	var found []*storobj.Object
@@ -289,7 +294,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	d.indexLock.RLock()
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
+		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, scroll, additional)
 		if err != nil {
 			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())

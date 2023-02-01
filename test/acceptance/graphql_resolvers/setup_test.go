@@ -49,6 +49,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (date field class)", addDateFieldClass)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (class without properties)", addTestDataNoProperties)
+	t.Run("import test data (scroll api)", addTestDataScrollSearch)
 
 	// explore tests
 	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
@@ -64,6 +65,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with sort", gettingObjectsWithSort)
 	t.Run("getting objects with hybrid search", getWithHybridSearch)
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
+	t.Run("scroll through results", getWithScrollSearch)
 
 	// aggregate tests
 	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
@@ -98,6 +100,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, arrayClassName)
 	deleteObjectClass(t, duplicatesClassName)
 	deleteObjectClass(t, noPropsClassName)
+	deleteObjectClass(t, "ScrollClass")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -987,6 +990,64 @@ func addTestDataNearObjectSearch(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, "aa44bbee-ca5f-4db7-a412-5fc6a2300011")
+}
+
+const (
+	scrollClassID1 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	scrollClassID2 = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	scrollClassID3 = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+	scrollClassID4 = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+	scrollClassID5 = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+	scrollClassID6 = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+	scrollClassID7 = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+)
+
+func addTestDataScrollSearch(t *testing.T) {
+	className := "ScrollClass"
+	ids := []strfmt.UUID{
+		scrollClassID1,
+		scrollClassID2,
+		scrollClassID3,
+		scrollClassID4,
+		scrollClassID5,
+		scrollClassID6,
+		scrollClassID7,
+	}
+	names := []string{
+		"Mount Everest",
+		"Amsterdam is a cool city",
+		"Football is a game where people run after ball",
+		"Berlin is Germany's capital city",
+		"London is a cool city",
+		"Wroclaw is a really cool city",
+		"Brisbane is a city in Australia",
+	}
+
+	createObjectClass(t, &models.Class{
+		Class: className,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
+	})
+
+	for i, id := range ids {
+		createObject(t, &models.Object{
+			Class: className,
+			ID:    id,
+			Properties: map[string]interface{}{
+				"name": names[i],
+			},
+		})
+		assertGetObjectEventually(t, id)
+	}
 }
 
 func addDateFieldClass(t *testing.T) {

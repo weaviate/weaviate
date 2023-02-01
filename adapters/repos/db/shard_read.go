@@ -162,7 +162,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, scroll *filters.Scroll, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
@@ -214,7 +214,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	}
 
 	if filters == nil {
-		objs, err := s.objectList(ctx, limit, sort, additional, s.index.Config.ClassName)
+		objs, err := s.objectList(ctx, limit, sort, scroll, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -294,7 +294,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, scroll *filters.Scroll, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
@@ -306,6 +306,9 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		return storobj.ObjectsByDocID(bucket, docIDs, additional)
 	}
 
+	if scroll != nil {
+		return s.scrollObjectList(ctx, scroll, additional, className)
+	}
 	return s.allObjectList(ctx, limit, additional, className)
 }
 
@@ -320,6 +323,50 @@ func (s *Shard) allObjectList(ctx context.Context, limit int,
 	defer cursor.Close()
 
 	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
+		}
+
+		out[i] = obj
+		i++
+	}
+
+	return out[:i], nil
+}
+
+func (s *Shard) scrollObjectList(ctx context.Context, scroll *filters.Scroll,
+	additional additional.Properties,
+	className schema.ClassName,
+) ([]*storobj.Object, error) {
+	var idBytes []byte
+	var err error
+	if scroll.After != "" {
+		idBytes, err = uuid.MustParse(scroll.After).MarshalBinary()
+		if err != nil {
+			return nil, errors.Wrap(err, "after argument")
+		}
+	}
+	out := make([]*storobj.Object, scroll.Limit)
+
+	i := 0
+	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+	defer cursor.Close()
+
+	var key, val []byte
+	if len(idBytes) == 0 {
+		// start from the beginning
+		key, val = cursor.First()
+	} else {
+		key, val = cursor.Seek(idBytes)
+		seekID, err := uuid.FromBytes(key)
+		if err == nil && seekID.String() == scroll.After {
+			// move cursor by one if it's the same ID
+			key, val = cursor.Next()
+		}
+	}
+
+	for k, v := key, val; k != nil && i < scroll.Limit; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
