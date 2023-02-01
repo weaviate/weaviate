@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
@@ -861,7 +862,6 @@ func (c *RemoteIndex) FindObject(ctx context.Context, hostName, indexName,
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
 			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
-
 		}
 
 		ct, ok := clusterapi.IndicesPayloads.SingleObject.CheckContentTypeHeader(res)
@@ -881,4 +881,53 @@ func (c *RemoteIndex) FindObject(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 	return obj, c.retry(ctx, 9, try)
+}
+
+func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects:overwrite", index, shard)
+
+	url := url.URL{Scheme: "http", Host: host, Path: path}
+
+	marshalled, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(objects)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		url.String(), bytes.NewReader(marshalled))
+	if err != nil {
+		return nil, fmt.Errorf("open http request: %w", err)
+	}
+
+	clusterapi.IndicesPayloads.VersionedObjectList.SetContentTypeHeaderReq(req)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send http request: %w", err)
+	}
+
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d (%s)",
+			resp.StatusCode, body)
+	}
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	if len(b) == 0 {
+		return nil, nil
+	}
+
+	var rr []replica.RepairResponse
+	err = json.Unmarshal(b, &rr)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal response body: %w", err)
+	}
+	return rr, nil
 }

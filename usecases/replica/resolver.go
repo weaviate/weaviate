@@ -49,23 +49,21 @@ type resolver struct {
 }
 
 // State returns replicas state
-func (r *resolver) State(shardName string) (res rState, err error) {
-	shard, ok := r.schema.ShardingState(r.class).Physical[shardName]
-	if !ok {
-		return res, fmt.Errorf("sharding state not found")
+func (r *resolver) State(shardName string) (rState, error) {
+	res := rState{}
+
+	resolved, unresolved, err := r.schema.ResolveParentNodes(r.class, shardName)
+	if err != nil {
+		return res, err
 	}
-	if len(shard.BelongsToNodes) == 0 {
+
+	if resolved == nil && unresolved == nil {
 		return res, errNoReplicaFound
 	}
-	res.Hosts = make([]string, 0, len(shard.BelongsToNodes))
-	for _, node := range shard.BelongsToNodes {
-		host, ok := r.NodeHostname(node)
-		if ok && host != "" {
-			res.Hosts = append(res.Hosts, host)
-		} else {
-			res.nodes = append(res.nodes, node)
-		}
-	}
+
+	res.Hosts = resolved
+	res.nodes = unresolved
+
 	return res, nil
 }
 

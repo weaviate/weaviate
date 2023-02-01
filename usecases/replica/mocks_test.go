@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
@@ -20,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeRClient struct {
@@ -106,23 +106,37 @@ func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID st
 // Replica finder
 type fakeShardingState struct {
 	ShardToReplicas map[string][]string
+	nodeResolver    *fakeNodeResolver
 }
 
-func newFakeShardingState(shardToReplicas map[string][]string) *fakeShardingState {
-	return &fakeShardingState{ShardToReplicas: shardToReplicas}
-}
-
-func (f *fakeShardingState) ShardingState(class string) *sharding.State {
-	state := sharding.State{}
-	state.Physical = make(map[string]sharding.Physical)
-	for shard, nodes := range f.ShardToReplicas {
-		state.Physical[shard] = sharding.Physical{BelongsToNodes: nodes}
-	}
-	return &state
+func newFakeShardingState(shardToReplicas map[string][]string, resolver *fakeNodeResolver) *fakeShardingState {
+	return &fakeShardingState{ShardToReplicas: shardToReplicas, nodeResolver: resolver}
 }
 
 func (f *fakeShardingState) NodeName() string {
 	return "Coordinator"
+}
+
+func (f *fakeShardingState) ResolveParentNodes(_ string, shard string,
+) ([]string, []string, error) {
+	reps, ok := f.ShardToReplicas[shard]
+	if !ok {
+		return nil, nil, fmt.Errorf("sharding state not found")
+	}
+
+	var resolved []string
+	var unresolved []string
+
+	for _, rep := range reps {
+		host, found := f.nodeResolver.NodeHostname(rep)
+		if found && host != "" {
+			resolved = append(resolved, host)
+		} else {
+			unresolved = append(unresolved, rep)
+		}
+	}
+
+	return resolved, unresolved, nil
 }
 
 // node resolver

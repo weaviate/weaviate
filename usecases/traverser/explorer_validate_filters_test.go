@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -345,7 +346,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 	for _, outertest := range tests {
 		for _, test := range outertest {
 			t.Run(test.name, func(t *testing.T) {
-				params := GetParams{
+				params := dto.GetParams{
 					ClassName: "ClassOne",
 					NearVector: &searchparams.NearVector{
 						Vector: []float32{0.8, 0.2, 0.7},
