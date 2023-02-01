@@ -502,7 +502,7 @@ func (s *Searcher) extractTokenizableProp(propName string, dt schema.DataType, v
 	if len(propValuePairs) == 1 {
 		return propValuePairs[0], nil
 	}
-	return nil, errors.Errorf("invalid search queryTerm, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
+	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
@@ -561,7 +561,6 @@ type docPointerWithScore struct {
 	frequency  float64
 	propLength float64
 	score      float64
-	Additional map[string]interface{}
 }
 
 func (d docPointers) IDs() []uint64 {
