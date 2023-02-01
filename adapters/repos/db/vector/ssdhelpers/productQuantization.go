@@ -15,7 +15,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type Encoder byte

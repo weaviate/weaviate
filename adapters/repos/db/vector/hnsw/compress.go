@@ -19,9 +19,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 const (

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	testinghelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/testingHelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testingHelpers"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distanceros/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 func TestKMeansNNearest(t *testing.T) {

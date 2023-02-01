@@ -24,11 +24,11 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/commitlog"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
-	"github.com/semi-technologies/weaviate/entities/cyclemanager"
-	"github.com/semi-technologies/weaviate/entities/errorcompounder"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
 const defaultCommitLogSize = 500 * 1024 * 1024

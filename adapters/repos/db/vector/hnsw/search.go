@@ -18,13 +18,13 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
