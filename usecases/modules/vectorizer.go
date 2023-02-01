@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modules
@@ -16,13 +16,13 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -80,26 +80,16 @@ func (m *Provider) UsingRef2Vec(className string) bool {
 	return false
 }
 
-func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
+func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	class, err := m.getClass(object.Class)
-	if err != nil {
-		return err
-	}
-
-	vectorizerName, idxCfg, err := m.getClassVectorizer(object.Class)
-	if err != nil {
-		return err
-	}
-
-	hnswConfig, ok := idxCfg.(hnsw.UserConfig)
+	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
 	if !ok {
-		return fmt.Errorf(errorVectorIndexType, idxCfg)
+		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
 	}
 
-	if vectorizerName == config.VectorizerModuleNone {
+	if class.Vectorizer == config.VectorizerModuleNone {
 		if hnswConfig.Skip && len(object.Vector) > 0 {
 			logger.WithField("className", object.Class).
 				Warningf(warningSkipVectorProvided)
@@ -110,12 +100,16 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
 
 	if hnswConfig.Skip {
 		logger.WithField("className", object.Class).
-			WithField("vectorizer", vectorizerName).
-			Warningf(warningSkipVectorGenerated, vectorizerName)
+			WithField("vectorizer", class.Vectorizer).
+			Warningf(warningSkipVectorGenerated, class.Vectorizer)
 	}
 
+	modConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("class %v not present", object.Class)
+	}
 	var found modulecapabilities.Module
-	for modName := range class.ModuleConfig.(map[string]interface{}) {
+	for modName := range modConfig {
 		if err := m.ValidateVectorizer(modName); err == nil {
 			found = m.GetByName(modName)
 			break
@@ -124,7 +118,7 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object,
 
 	if found == nil {
 		return fmt.Errorf(
-			"no vectorizer found for class %q: %w", object.Class, err)
+			"no vectorizer found for class %q", object.Class)
 	}
 
 	cfg := NewClassBasedModuleConfig(class, found.Name())

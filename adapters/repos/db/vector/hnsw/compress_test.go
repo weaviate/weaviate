@@ -9,9 +9,6 @@
 //  CONTACT: hello@semi.technology
 //
 
-//go:build benchmarkSiftRecall
-// +build benchmarkSiftRecall
-
 package hnsw_test
 
 import (
@@ -19,14 +16,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/aybabtme/uniplot/histogram"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
@@ -297,17 +292,6 @@ func TestHnswPqSift(t *testing.T) {
 			assert.True(t, latency < 100000)
 		}
 	}
-}
-
-func TestDist(t *testing.T) {
-	vectors := parseFromTxt("../diskAnn/testdata/deep-image/train.txt", 250000)
-	fmt.Println("********")
-	data := make([]float64, 0, len(vectors))
-	for j := 0; j < len(vectors); j++ {
-		data = append(data, float64(vectors[j][1]))
-	}
-	hist := histogram.Hist(60, data)
-	histogram.Fprint(os.Stdout, hist, histogram.Linear(5))
 }
 
 func TestHnswPqDeepImage(t *testing.T) {

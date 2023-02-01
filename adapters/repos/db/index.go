@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -21,28 +21,28 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/aggregator"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/sorter"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/multi"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/multi"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -85,7 +85,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics,
+	promMetrics *monitoring.PrometheusMetrics, class *models.Class,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -121,7 +121,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index)
+		shard, err := NewShard(ctx, promMetrics, shardName, index, class)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
 		}
@@ -251,6 +251,7 @@ type IndexConfig struct {
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
+	ReplicationFactor         int64
 
 	TrackVectorDimensions bool
 }
@@ -284,7 +285,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.PutObject(ctx, shardName, object)
+		err = i.replicator.PutObject(ctx, shardName, object, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object put across replicas: %w", err)
 		}
@@ -319,7 +320,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	// Parse() would break a lot of code, because it currently
 	// schema-independent. To find out if a field is a date or date[], we need to
 	// involve the schema, thus why we are doing it here. This was discovered as
-	// part of https://github.com/semi-technologies/weaviate/issues/1775
+	// part of https://github.com/weaviate/weaviate/issues/1775
 	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
 		return errors.Wrapf(err, "shard %s", localShard.ID())
 	}
@@ -332,9 +333,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) replicationEnabled() bool {
-	shardingState := i.getSchema.
-		ShardingState(i.Config.ClassName.String())
-	return shardingState.Config.Replicas > 1
+	return i.Config.ReplicationFactor > 1
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -455,7 +454,7 @@ func (i *Index) putObjectBatch(ctx context.Context,
 			defer wg.Done()
 			var errs []error
 			if i.replicationEnabled() {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects)
+				errs = i.replicator.PutObjects(ctx, shardName, group.objects, replica.All)
 			} else if !i.isLocalShard(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
@@ -500,7 +499,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	// Parse() would break a lot of code, because it currently
 	// schema-independent. To find out if a field is a date or date[], we need to
 	// involve the schema, thus why we are doing it here. This was discovered as
-	// part of https://github.com/semi-technologies/weaviate/issues/1775
+	// part of https://github.com/weaviate/weaviate/issues/1775
 	for j := range objects {
 		if err := i.parseDateFieldsInProps(objects[j].Object.Properties); err != nil {
 			return duplicateErr(errors.Wrapf(err, "shard %s", localShard.ID()),
@@ -541,7 +540,7 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs)
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, replica.All)
 		} else if i.isLocalShard(shardName) {
 			shard := i.Shards[shardName]
 			errs = shard.addReferencesBatch(ctx, group.refs)
@@ -586,7 +585,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		if replProps.NodeName != "" {
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, additional)
 		} else if replProps.ConsistencyLevel != "" {
-			obj, err = i.replicator.FindOne(ctx,
+			obj, err = i.replicator.GetOne(ctx,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, additional)
 		} else {
 			err = fmt.Errorf("replication properties are inconsistent: %+v", replProps)
@@ -757,7 +756,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	additional additional.Properties,
-) ([]*storobj.Object, error) {
+) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
@@ -773,35 +772,38 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
-
 			// If the request is a BM25F with no properties selected, use all possible properties
 			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 
 				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 
 				propHash := cl.Properties
 				// Get keys of hash
 				for _, v := range propHash {
-					if v.DataType[0] == "text" || v.DataType[0] == "string" { // Also the array types?
+					if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
 						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 					}
 				}
 
+				// WEAVIATE-471 - error if we can't find a property to search
+				if len(keywordRanking.Properties) == 0 {
+					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
+				}
 			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
-				return nil, errors.Wrapf(err, "shard %s", shard.ID())
+				return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
 
 		} else {
 			objs, scores, err = i.remote.SearchShard(
 				ctx, shardName, nil, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
-				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+				return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
 		}
 		outObjects = append(outObjects, objs...)
@@ -836,11 +838,11 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if len(shardNames) > 1 {
 			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)
 			if err != nil {
-				return nil, errors.Wrap(err, "sort")
+				return nil, nil, errors.Wrap(err, "sort")
 			}
-			return sortedObjs, nil
+			return sortedObjs, nil, nil
 		}
-		return outObjects, nil
+		return outObjects, nil, nil
 	}
 
 	if keywordRanking != nil {
@@ -860,7 +862,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	return outObjects, nil
+	return outObjects, outScores, nil
 }
 
 func (i *Index) sortKeywordRanking(objects []*storobj.Object,
@@ -990,7 +992,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.DeleteObject(ctx, shardName, id)
+		err = i.replicator.DeleteObject(ctx, shardName, id, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object delete across replicas: %w", err)
 		}
@@ -1040,7 +1042,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.MergeObject(ctx, shardName, &merge)
+		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.All)
 		if err != nil {
 			return fmt.Errorf("failed to relay object patch across replicas: %w", err)
 		}
@@ -1294,7 +1296,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun)
+				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun, replica.All)
 			} else if i.isLocalShard(shardName) {
 				shard := i.Shards[shardName]
 				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)

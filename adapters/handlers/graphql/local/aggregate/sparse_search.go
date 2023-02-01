@@ -4,30 +4,16 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
-package get
+package aggregate
 
 import (
-	"fmt"
-
 	"github.com/tailor-inc/graphql"
 )
-
-func bm25Argument(className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("GetObjects%s", className)
-	return &graphql.ArgumentConfig{
-		Type: graphql.NewInputObject(
-			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%sBm25InpObj", prefix),
-				Fields: bm25Fields(prefix),
-			},
-		),
-	}
-}
 
 func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package validation
@@ -16,10 +16,9 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type exists func(_ context.Context, class string, _ strfmt.UUID) (bool, error)
@@ -60,27 +59,25 @@ const (
 )
 
 type Validator struct {
-	schema schema.Schema
 	exists exists
 	config *config.WeaviateConfig
 }
 
-func New(schema schema.Schema, exists exists,
+func New(exists exists,
 	config *config.WeaviateConfig,
 ) *Validator {
 	return &Validator{
-		schema: schema,
 		exists: exists,
 		config: config,
 	}
 }
 
-func (v *Validator) Object(ctx context.Context, object *models.Object) error {
+func (v *Validator) Object(ctx context.Context, object *models.Object, class *models.Class) error {
 	if err := validateClass(object.Class); err != nil {
 		return err
 	}
 
-	return v.properties(ctx, object)
+	return v.properties(ctx, object, class)
 }
 
 func validateClass(class string) error {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package vectorizer
@@ -16,19 +16,8 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/vectorizer"
-	"github.com/semi-technologies/weaviate/modules/text2vec-transformers/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
-
-func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
-	icheck vectorizer.ClassIndexCheck,
-) ([]float32, error) {
-	vector_s, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{}) // FIXME config?
-	if err != nil {
-		return nil, err
-	}
-	return vector_s.Vector, nil
-}
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	settings ClassSettings,

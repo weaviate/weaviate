@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package get
@@ -14,22 +14,21 @@ package get
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
@@ -223,10 +222,7 @@ func buildGetClassField(classObject *graphql.Object,
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
 
-	// hacky way to temporarily check feature flag
-	if os.Getenv("ENABLE_EXPERIMENTAL_BM25") != "" {
-		field.Args["bm25"] = bm25Argument(class.Class)
-	}
+	field.Args["bm25"] = bm25Argument(class.Class)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
@@ -372,89 +368,16 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			keywordRankingParams = &p
 		}
 
+		// Extract hybrid search params from the processed query
+		// Everything hybrid can go in another namespace AFTER modulesprovider is
+		// refactored
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybrid"]; ok {
-
-			// Extract hybrid search params from the processed query
-			// Everything hybrid can go in another namespace AFTER modulesprovider is
-			// refactored
-			var subsearches []interface{}
-			source := hybrid.(map[string]interface{})
-			operands_i := source["operands"]
-			if operands_i != nil {
-				operands := operands_i.([]interface{})
-				for _, operand := range operands {
-					operandMap := operand.(map[string]interface{})
-					subsearches = append(subsearches, operandMap)
-				}
+			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}))
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 			}
-
-			var weightedSearchResults []searchparams.WeightedSearchResult
-			var args searchparams.HybridSearch
-			for _, ss := range subsearches {
-				subsearch := ss.(map[string]interface{})
-				switch {
-				case subsearch["sparseSearch"] != nil:
-					bm25 := subsearch["sparseSearch"].(map[string]interface{})
-					arguments := common_filters.ExtractBM25(bm25)
-
-					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
-						SearchParams: arguments,
-						Weight:       subsearch["weight"].(float64),
-						Type:         "bm25",
-					})
-				case subsearch["nearText"] != nil:
-					nearText := subsearch["nearText"].(map[string]interface{})
-					arguments, _ := common_filters.ExtractNearText(nearText)
-
-					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
-						SearchParams: arguments,
-						Weight:       subsearch["weight"].(float64),
-						Type:         "nearText",
-					})
-
-				case subsearch["nearVector"] != nil:
-					nearVector := subsearch["nearVector"].(map[string]interface{})
-					arguments, _ := common_filters.ExtractNearVector(nearVector)
-
-					weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
-						SearchParams: arguments,
-						Weight:       subsearch["weight"].(float64),
-						Type:         "nearVector",
-					})
-
-				default:
-					panic("unknown subsearch type:" + fmt.Sprintf("%#v", subsearch))
-				}
-			}
-
-			args.SubSearches = weightedSearchResults
-			limit_i := source["limit"]
-			if limit_i != nil {
-				args.Limit = int(limit_i.(int))
-			}
-
-			alpha, ok := source["alpha"]
-			if ok {
-				args.Alpha = alpha.(float64)
-			}
-
-			query, ok := source["query"]
-			if ok {
-				args.Query = query.(string)
-			}
-
-			if _, ok := source["vector"]; ok {
-				vector := source["vector"].([]interface{})
-				args.Vector = make([]float32, len(vector))
-				for i, value := range vector {
-					args.Vector[i] = float32(value.(float64))
-				}
-			}
-
-			args.Type = "hybrid"
-			p := args
-			hybridParams = &p
+			hybridParams = p
 		}
 
 		group := extractGroup(p.Args)

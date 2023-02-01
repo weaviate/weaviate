@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package inverted
@@ -24,15 +24,15 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/entities/storobj"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 type BM25Searcher struct {
@@ -72,8 +72,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 	}
 }
 
-// Object returns a list of full objects
-func (b *BM25Searcher) Object(ctx context.Context, limit int,
+// Objects returns a list of full objects
+func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
@@ -90,15 +90,31 @@ func (b *BM25Searcher) Object(ctx context.Context, limit int,
 	terms := strings.Split(keywordRanking.Query, " ")
 
 	idLists := make([]docPointersWithScore, len(terms))
-
+	c, err := schema.GetClassByName(b.schema.Objects, string(className))
+	if err != nil {
+		return nil, []float32{}, errors.Wrap(err,
+			"get class by name")
+	}
 	for i, term := range terms {
-		ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
-			keywordRanking.Properties[0], term)
+		property := keywordRanking.Properties[0]
+		p, err := schema.GetPropertyByName(c, property)
 		if err != nil {
-			return nil, nil, err
+			return nil, []float32{}, errors.Wrap(err,
+				"read property from class")
 		}
+		indexed := p.IndexInverted
 
-		idLists[i] = ids
+		if indexed == nil || *indexed {
+			ids, err := b.retrieveScoreAndSortForSingleTerm(ctx,
+				property, term)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			idLists[i] = ids
+		} else {
+			idLists[i] = docPointersWithScore{}
+		}
 	}
 
 	before := time.Now()
@@ -207,13 +223,13 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
-	terms := helpers.TokenizeText(keywordRanking.Query)
+	textTerms := helpers.TokenizeText(keywordRanking.Query)
+	stringTerms := helpers.TokenizeString(keywordRanking.Query)
 
-	idLists := make([]docPointersWithScore, len(terms))
+	idLists := make([]docPointersWithScore, len(textTerms)+len(stringTerms))
+	for i, term := range textTerms {
 
-	for i, term := range terms {
-
-		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, term, keywordRanking.Query)
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, term, "", keywordRanking.Query)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -221,8 +237,21 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 		idLists[i] = ids
 	}
 
+	for i, term := range stringTerms {
+
+		ids, err := b.retrieveForSingleTermMultipleProps(ctx, className, objectByIndexID, keywordRanking.Properties, "", term, keywordRanking.Query)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		idLists[len(textTerms)+i] = ids
+	}
+
 	ids := mergeScores(idLists)
 	ids = b.sort(ids)
+	if len(ids.docIDs) > limit {
+		ids.docIDs = ids.docIDs[:limit]
+	}
 	objs, scores, err := b.rankedObjectsByDocID(ids, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "resolve doc ids to objects")
@@ -284,12 +313,20 @@ func (b *BM25Searcher) mergeIdss(idLists []docPointersWithScore, objectByIndexID
 }
 
 // BM25F search each given property for a single term.  Results will be combined later
-func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, className schema.ClassName, objectByIndexID func(index uint64) *storobj.Object, properties []string, term string, query string) (docPointersWithScore, error) {
+func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, className schema.ClassName, objectByIndexID func(index uint64) *storobj.Object, properties []string, textTerm, stringTerm string, query string) (docPointersWithScore, error) {
 	idss := []docPointersWithScore{}
 
-	searchTerm := term
-
+	if textTerm != "" && stringTerm != "" {
+		return docPointersWithScore{}, errors.New("Internal Error: Both textTerm and stringTerm are set")
+	}
 	propNames := []string{}
+
+	// WEAVIATE-471 - If a property is not searchable, return an error
+	for _, property := range properties {
+		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
+			return docPointersWithScore{}, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
+		}
+	}
 
 	for _, propertyWithBoost := range properties {
 		boost := 1
@@ -312,15 +349,24 @@ func (b *BM25Searcher) retrieveForSingleTermMultipleProps(ctx context.Context, c
 			return docPointersWithScore{}, errors.Wrap(err,
 				"read property from class")
 		}
+		indexed := p.IndexInverted
 
-		if p.Tokenization == "word" {
-			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, searchTerm)
-		} else {
-			ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
-		}
-		if err != nil {
-			return docPointersWithScore{}, errors.Wrap(err,
-				"read doc ids and their frequencies from inverted index")
+		// Properties don't have to be indexed, if they are not, they will error on search
+		if indexed == nil || *indexed {
+
+			if p.Tokenization == "word" {
+				if p.DataType[0] == "text" && textTerm != "" {
+					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, textTerm)
+				} else if p.DataType[0] == "string" && stringTerm != "" {
+					ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, stringTerm)
+				}
+			} else {
+				ids, err = b.getIdsWithFrequenciesForTerm(ctx, property, query)
+			}
+			if err != nil {
+				return docPointersWithScore{}, errors.Wrap(err,
+					"read doc ids and their frequencies from inverted index")
+			}
 		}
 
 		for i := range ids.docIDs {

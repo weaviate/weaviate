@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -19,28 +19,16 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/batch"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
-func Test_ObjectHTTP(t *testing.T) {
-	t.Run("GET", findObject)
-	t.Run("HEAD", headObject)
-	t.Run("PUT", putObject)
-	t.Run("PATCH", patchObject)
-	t.Run("DELETE", deleteObject)
-	t.Run("PostReference", postReference)
-	t.Run("PutReferences", putReferences)
-	t.Run("DeleteReference", deleteReference)
-	t.Run("Query", query)
-}
-
-func findObject(t *testing.T) {
+func TestFindObject(t *testing.T) {
 	t.Parallel()
 	var (
 		cls           = "TestObjectHTTPGet"
@@ -97,7 +85,7 @@ func findObject(t *testing.T) {
 	helper.AssertRequestFail(t, resp, err, nil)
 }
 
-func headObject(t *testing.T) {
+func TestHeadObject(t *testing.T) {
 	t.Parallel()
 	cls := "TestObjectHTTPHead"
 	// test setup
@@ -129,7 +117,7 @@ func headObject(t *testing.T) {
 	helper.AssertRequestFail(t, resp, err, nil)
 }
 
-func putObject(t *testing.T) {
+func TestPutObject(t *testing.T) {
 	t.Parallel()
 	var (
 		cls        = "TestObjectHTTPUpdate"
@@ -208,7 +196,7 @@ func putObject(t *testing.T) {
 	assert.Equal(t, expected, actual)
 }
 
-func patchObject(t *testing.T) {
+func TestPatchObject(t *testing.T) {
 	t.Parallel()
 	var (
 		cls        = "TestObjectHTTPPatch"
@@ -307,7 +295,7 @@ func patchObject(t *testing.T) {
 	}
 }
 
-func deleteObject(t *testing.T) {
+func TestDeleteObject(t *testing.T) {
 	t.Parallel()
 	var (
 		id     = strfmt.UUID("21111111-1111-1111-1111-111111111111")
@@ -410,7 +398,7 @@ func deleteObject(t *testing.T) {
 	}
 }
 
-func postReference(t *testing.T) {
+func TestPostReference(t *testing.T) {
 	t.Parallel()
 	var (
 		cls        = "TestObjectHTTPAddReference"
@@ -480,7 +468,7 @@ func postReference(t *testing.T) {
 	}
 }
 
-func putReferences(t *testing.T) {
+func TestPutReferences(t *testing.T) {
 	t.Parallel()
 	var (
 		cls           = "TestObjectHTTPUpdateReferences"
@@ -595,7 +583,7 @@ func putReferences(t *testing.T) {
 	}
 }
 
-func deleteReference(t *testing.T) {
+func TestDeleteReference(t *testing.T) {
 	t.Parallel()
 	var (
 		cls           = "TestObjectHTTPDeleteReference"
@@ -717,7 +705,7 @@ func deleteReference(t *testing.T) {
 	}
 }
 
-func query(t *testing.T) {
+func TestQuery(t *testing.T) {
 	t.Parallel()
 	var (
 		cls          = "TestObjectHTTPQuery"

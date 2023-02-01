@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package traverser
@@ -18,20 +18,21 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeLocks struct{}
@@ -136,6 +137,24 @@ func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	return args.Get(0).(search.Results), args.Error(1)
 }
 
+func (f *fakeVectorSearcher) ClassObjectSearch(ctx context.Context,
+	params GetParams,
+) ([]*storobj.Object, []float32, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeVectorSearcher) ClassObjectVectorSearch(context.Context,
+	string, []float32, int, int, *filters.LocalFilter,
+) ([]*storobj.Object, []float32, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.Results,
+	props search.SelectProperties, additional additional.Properties,
+) (search.Results, error) {
+	return nil, nil
+}
+
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
@@ -235,6 +254,11 @@ func (f *fakeSchemaGetter) NodeName() string {
 }
 
 func (f *fakeSchemaGetter) ClusterHealthScore() int {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
+) ([]string, []string, error) {
 	panic("not implemented")
 }
 

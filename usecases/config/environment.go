@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package config
@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -207,6 +207,16 @@ func FromEnv(config *Config) error {
 		config.Profiling.MutexProfileFraction = asInt
 	}
 
+	if v := os.Getenv("MAXIMUM_CONCURRENT_GET_REQUESTS"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return errors.Wrapf(err, "parse MAXIMUM_CONCURRENT_GET_REQUESTS as int")
+		}
+		config.MaximumConcurrentGetRequests = int(asInt)
+	} else {
+		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
+	}
+
 	return nil
 }
 
@@ -280,6 +290,7 @@ const (
 	DefaultPersistenceMemtablesMaxSize        = 200
 	DefaultPersistenceMemtablesMinDuration    = 15
 	DefaultPersistenceMemtablesMaxDuration    = 45
+	DefaultMaxConcurrentGetRequests           = 0
 )
 
 const VectorizerModuleNone = "none"

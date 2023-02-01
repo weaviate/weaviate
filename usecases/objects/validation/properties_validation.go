@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package validation
@@ -16,11 +16,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 const (
@@ -38,15 +39,10 @@ const (
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 )
 
-func (v *Validator) properties(ctx context.Context, object interface{}) error {
+func (v *Validator) properties(ctx context.Context, object interface{}, class *models.Class) error {
 	className := object.(*models.Object).Class
 	isp := object.(*models.Object).Properties
 	vectorWeights := object.(*models.Object).VectorWeights
-
-	class := v.schema.GetClass(schema.ClassName(className))
-	if class == nil {
-		return fmt.Errorf("class '%s' not present in schema", className)
-	}
 
 	if vectorWeights != nil {
 		res, err := v.validateVectorWeights(vectorWeights)
@@ -69,17 +65,23 @@ func (v *Validator) properties(ctx context.Context, object interface{}) error {
 		if propertyValue == nil {
 			continue // nil values are removed and filtered out
 		}
-		dataType, err := schema.GetPropertyDataType(class, propertyKey)
+
+		// properties in the class are saved with lower case first letter
+		propertyKeyLowerCase := strings.ToLower(propertyKey[:1])
+		if len(propertyKey) > 1 {
+			propertyKeyLowerCase += propertyKey[1:]
+		}
+		dataType, err := schema.GetPropertyDataType(class, propertyKeyLowerCase)
 		if err != nil {
 			return err
 		}
 
-		data, err := v.extractAndValidateProperty(ctx, propertyKey, propertyValue, className, dataType)
+		data, err := v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType)
 		if err != nil {
 			return err
 		}
 
-		returnSchema[propertyKey] = data
+		returnSchema[propertyKeyLowerCase] = data
 	}
 
 	object.(*models.Object).Properties = returnSchema

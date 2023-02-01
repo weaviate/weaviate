@@ -4,22 +4,24 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 // On init we get the current schema and create one index object per class.
@@ -48,6 +50,9 @@ func (d *DB) init(ctx context.Context) error {
 					},
 				}
 			}
+			if err := replica.ValidateConfig(class); err != nil {
+				return fmt.Errorf("replication config: %w", err)
+			}
 
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),
@@ -61,11 +66,12 @@ func (d *DB) init(ctx context.Context) error {
 				MemtablesMinActiveSeconds: d.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds: d.config.MemtablesMaxActiveSeconds,
 				TrackVectorDimensions:     d.config.TrackVectorDimensions,
+				ReplicationFactor:         class.ReplicationConfig.Factor,
 			}, d.schemaGetter.ShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
-
-				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex, d.replicaClient, d.promMetrics)
+				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex,
+				d.replicaClient, d.promMetrics, class)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

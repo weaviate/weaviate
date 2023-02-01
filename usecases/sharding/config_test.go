@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package sharding
@@ -41,7 +41,6 @@ func Test_Config(t *testing.T) {
 				Key:                 DefaultKey,
 				Strategy:            DefaultStrategy,
 				Function:            DefaultFunction,
-				Replicas:            1,
 			},
 		},
 
@@ -62,7 +61,6 @@ func Test_Config(t *testing.T) {
 				DesiredVirtualCount: 192,
 				ActualCount:         3,
 				ActualVirtualCount:  192,
-				Replicas:            3,
 				Key:                 "_id",
 				Strategy:            "hash",
 				Function:            "murmur3",
@@ -86,7 +84,6 @@ func Test_Config(t *testing.T) {
 				DesiredVirtualCount: 192,
 				ActualCount:         3,
 				ActualVirtualCount:  192,
-				Replicas:            4,
 				Key:                 "_id",
 				Strategy:            "hash",
 				Function:            "murmur3",

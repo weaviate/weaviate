@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package objects
@@ -17,15 +17,18 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
 type schemaManager interface {
 	GetSchema(principal *models.Principal) (schema.Schema, error)
 	AddClass(ctx context.Context, principal *models.Principal,
 		class *models.Class) error
+	GetClass(ctx context.Context, principal *models.Principal,
+		name string,
+	) (*models.Class, error)
 	AddClassProperty(ctx context.Context, principal *models.Principal,
 		class string, property *models.Property) error
 }
@@ -96,8 +99,11 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-
-	err = m.modulesProvider.UpdateVector(ctx, object, nil, m.findObject, m.logger)
+	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
+	err = m.modulesProvider.UpdateVector(ctx, object, class, nil, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -116,10 +122,10 @@ func (m *Manager) validateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	s, err := m.schemaManager.GetSchema(principal)
+	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
 	if err != nil {
 		return err
 	}
 
-	return validation.New(s, m.vectorRepo.Exists, m.config).Object(ctx, object)
+	return validation.New(m.vectorRepo.Exists, m.config).Object(ctx, object, class)
 }

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -14,14 +14,16 @@ package test
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/meta"
-	"github.com/semi-technologies/weaviate/client/nodes"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/books"
-	"github.com/semi-technologies/weaviate/test/helper/sample-schema/multishard"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/meta"
+	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
 func Test_NodesAPI(t *testing.T) {
@@ -122,5 +124,60 @@ func Test_NodesAPI(t *testing.T) {
 		require.NotNil(t, nodeStatus.Stats)
 		assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 		assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
+	})
+
+	// This test prevents a regression of
+	// https://github.com/weaviate/weaviate/issues/2454
+	t.Run("validate count with updates", func(t *testing.T) {
+		booksClass := books.ClassContextionaryVectorizer()
+		helper.CreateClass(t, booksClass)
+		defer helper.DeleteClass(t, booksClass.Class)
+
+		_, err := helper.BatchClient(t).BatchObjectsCreate(
+			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+				Objects: []*models.Object{
+					{
+						ID:    strfmt.UUID("2D0D3E3B-54B2-48D4-BFE0-4BE2C060110E"),
+						Class: booksClass.Class,
+						Properties: map[string]interface{}{
+							"title":       "A book that changes",
+							"description": "First iteration",
+						},
+					},
+				},
+			}), nil)
+		require.Nil(t, err)
+
+		// Note that this is the same ID as before, so this is an update!!
+		_, err = helper.BatchClient(t).BatchObjectsCreate(
+			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+				Objects: []*models.Object{
+					{
+						ID:    strfmt.UUID("2D0D3E3B-54B2-48D4-BFE0-4BE2C060110E"),
+						Class: booksClass.Class,
+						Properties: map[string]interface{}{
+							"title":       "A book that changes",
+							"description": "A new (second) iteration",
+						},
+					},
+				},
+			}), nil)
+		require.Nil(t, err)
+
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		require.Nil(t, err)
+
+		nodeStatusResp := resp.GetPayload()
+		require.NotNil(t, nodeStatusResp)
+
+		nodes := nodeStatusResp.Nodes
+		require.NotNil(t, nodes)
+		require.Len(t, nodes, 1)
+
+		nodeStatus := nodes[0]
+		require.NotNil(t, nodeStatus)
+
+		require.NotNil(t, nodeStatus.Stats)
+		assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
 	})
 }

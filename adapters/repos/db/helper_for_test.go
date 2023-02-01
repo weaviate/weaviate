@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
@@ -22,11 +22,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -204,9 +204,10 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	tmpDir := t.TempDir()
 
 	shardState := singleShardState()
+	class := models.Class{Class: className}
 	sch := schema.Schema{
 		Objects: &models.Schema{
-			Classes: []*models.Class{{Class: className}},
+			Classes: []*models.Class{&class},
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
@@ -226,7 +227,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx)
+	shd, err := NewShard(ctx, nil, shardName, idx, &class)
 	if err != nil {
 		panic(err)
 	}

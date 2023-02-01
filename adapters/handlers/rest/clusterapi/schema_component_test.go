@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clusterapi_test
@@ -18,23 +18,23 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/clients"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/scaling"
-	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/scaler"
+	schemauc "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // This is a cross-package test that tests the schema manager in a distributed
 // settings including some of its dependencies, such as the REST API and
 // clients. This setup pretends that replication was one-way for simplicity
-// sake, but uses the same compoenents on either side to make sure that it
+// sake, but uses the same components on either side to make sure that it
 // would work in both directions.
 func TestComponentCluster(t *testing.T) {
 	t.Run("add class", func(t *testing.T) {
@@ -177,10 +177,10 @@ func newSchemaManagerWithClusterStateAndClient(clusterState *fakeClusterState,
 type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
-	className string, old, updated sharding.Config,
+	className string, updated sharding.Config, _, _ int64,
 ) (*sharding.State, error) {
 	return nil, nil
 }
 
-func (f *fakeScaleOutManager) SetSchemaManager(sm scaling.SchemaManager) {
+func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
 }

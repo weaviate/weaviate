@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package searchparams
@@ -31,14 +31,12 @@ type WeightedSearchResult struct {
 }
 
 type HybridSearch struct {
-	SubSearches    interface{}     `json:"subSearches"`
-	Type           string          `json:"type"`
-	Limit          int             `json:"limit"`
-	KeywordRanking *KeywordRanking `json:"keywordRanking"`
-	NearVector     *NearVector     `json:"nearVector"`
-	Alpha          float64         `json:"alpha"`
-	Query          string          `json:"query"`
-	Vector         []float32       `json:"vector"`
+	SubSearches interface{} `json:"subSearches"`
+	Type        string      `json:"type"`
+	Limit       int         `json:"limit"`
+	Alpha       float64     `json:"alpha"`
+	Query       string      `json:"query"`
+	Vector      []float32   `json:"vector"`
 }
 
 type NearObject struct {

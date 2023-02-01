@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package validation
@@ -17,10 +17,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
@@ -159,7 +159,7 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			config := &config.WeaviateConfig{}
-			validator := New(testSchema(), fakeExists, config)
+			validator := New(fakeExists, config)
 
 			obj := &models.Object{
 				Class: "Person",
@@ -167,7 +167,8 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 					"phone": test.phone,
 				},
 			}
-			err := validator.properties(context.Background(), obj)
+			schema := testSchema()
+			err := validator.properties(context.Background(), obj, schema.Objects.Classes[0])
 			assert.Equal(t, test.expectedErr, err)
 			if err != nil {
 				return

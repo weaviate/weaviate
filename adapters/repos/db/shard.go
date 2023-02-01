@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -22,23 +22,23 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/storagestate"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/docid"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const IdLockPoolSize = 128
@@ -68,9 +68,10 @@ type Shard struct {
 	shutDownWg          sync.WaitGroup
 	maxNumberGoroutines int
 
-	status      storagestate.Status
-	statusLock  sync.Mutex
-	stopMetrics chan struct{}
+	status              storagestate.Status
+	statusLock          sync.Mutex
+	propertyIndicesLock sync.RWMutex
+	stopMetrics         chan struct{}
 
 	docIdLock []sync.Mutex
 	// replication
@@ -86,7 +87,7 @@ type job struct {
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index,
+	shardName string, index *Index, class *models.Class,
 ) (*Shard, error) {
 	before := time.Now()
 
@@ -134,7 +135,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		defer s.vectorIndex.PostStartup()
 	}
 
-	if err := s.initNonVector(ctx); err != nil {
+	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
@@ -197,7 +198,7 @@ func (s *Shard) initVectorIndex(
 	return nil
 }
 
-func (s *Shard) initNonVector(ctx context.Context) error {
+func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	err := s.initDBFile(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
@@ -224,7 +225,7 @@ func (s *Shard) initNonVector(ctx context.Context) error {
 	}
 	s.propLengths = propLengths
 
-	if err := s.initProperties(); err != nil {
+	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
@@ -338,8 +339,9 @@ func (s *Shard) drop(force bool) error {
 
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
-
+	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
+	s.propertyIndicesLock.Unlock()
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.DBPathLSM())
 	}
@@ -406,6 +408,14 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
+	}
+	dt := schema.DataType(prop.DataType[0])
+	// some datatypes are not added to the inverted index, so we can skip them here
+	switch dt {
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		return nil
+	default:
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx,
@@ -583,4 +593,13 @@ func (s *Shard) notifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
+}
+
+func (s *Shard) objectCount() int {
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return 0
+	}
+
+	return b.Count()
 }

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -17,9 +17,10 @@ import (
 	"reflect"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
@@ -70,14 +71,19 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "sharding config")
 	}
 
-	oldSharding := initial.ShardingConfig.(sharding.Config)
+	if err := replica.ValidateConfigUpdate(initial, updated, m.clusterState); err != nil {
+		return fmt.Errorf("replication config: %w", err)
+	}
+
 	updatedSharding := updated.ShardingConfig.(sharding.Config)
+	initialRF := initial.ReplicationConfig.Factor
+	updatedRF := updated.ReplicationConfig.Factor
 	var updatedState *sharding.State
-	if oldSharding.Replicas != updatedSharding.Replicas {
-		uss, err := m.scaleOut.Scale(ctx, className, oldSharding, updatedSharding)
+	if initialRF != updatedRF {
+		uss, err := m.scaleOut.Scale(ctx, className, updatedSharding, initialRF, updatedRF)
 		if err != nil {
 			return errors.Wrapf(err, "scale out from %d to %d replicas",
-				oldSharding.Replicas, updatedSharding.Replicas)
+				initialRF, updatedRF)
 		}
 		updatedState = uss
 	}
@@ -124,8 +130,9 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		// the sharding state caches the node name, we must therefore set this
 		// explicitly now.
 		updatedShardingState.SetLocalName(m.clusterState.LocalName())
+		m.shardingStateLock.Lock()
 		m.state.ShardingState[className] = updatedShardingState
-
+		m.shardingStateLock.Unlock()
 	}
 
 	return m.saveSchema(ctx)
@@ -226,10 +233,8 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 		newName = &n
 	}
 
-	semanticSchema := m.state.SchemaFor()
-
 	var err error
-	class, err = schema.GetClassByName(semanticSchema, className)
+	class, err = schema.GetClassByName(m.state.ObjectSchema, className)
 	if err != nil {
 		return err
 	}

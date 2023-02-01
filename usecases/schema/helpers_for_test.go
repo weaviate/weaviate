@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -15,9 +15,9 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type fakeRepo struct {
@@ -137,6 +137,15 @@ func (f *fakeClusterState) NodeCount() int {
 
 func (f *fakeClusterState) ClusterHealthScore() int {
 	return 0
+}
+
+func (f *fakeClusterState) ResolveParentNodes(string, string,
+) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeClusterState) NodeHostname(string) (string, bool) {
+	return "", false
 }
 
 type fakeTxClient struct {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -17,9 +17,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func testGetSchemaWithoutClient(t *testing.T) {
@@ -59,7 +59,9 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"strategy":            "hash",
 					"key":                 "_id",
 					"virtualPerPhysical":  float64(128),
-					"replicas":            float64(1),
+				},
+				"replicationConfig": map[string]interface{}{
+					"factor": float64(1),
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{

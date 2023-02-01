@@ -4,30 +4,31 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package state
 
 import (
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
-	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
-	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
-	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
-	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
-	"github.com/semi-technologies/weaviate/usecases/backup"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/locks"
-	"github.com/semi-technologies/weaviate/usecases/modules"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	"github.com/semi-technologies/weaviate/usecases/scaling"
-	"github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql"
+	"github.com/weaviate/weaviate/adapters/repos/classifications"
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/locks"
+	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // State is the only source of application-wide state
@@ -43,7 +44,7 @@ type State struct {
 	GraphQL               graphql.GraphQL
 	Modules               *modules.Provider
 	SchemaManager         *schema.Manager
-	ScaleOutManager       *scaling.ScaleOutManager
+	Scaler                *scaler.Scaler
 	Cluster               *cluster.State
 	RemoteIndexIncoming   *sharding.RemoteIndexIncoming
 	RemoteNodeIncoming    *sharding.RemoteNodeIncoming
@@ -52,6 +53,7 @@ type State struct {
 	ClassificationRepo *classifications.DistributedRepo
 	Metrics            *monitoring.PrometheusMetrics
 	BackupManager      *backup.Manager
+	DB                 *db.DB
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

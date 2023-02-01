@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clusterapi
@@ -22,18 +22,21 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type indices struct {
 	shards                    shards
+	db                        db
 	regexpObjects             *regexp.Regexp
+	regexpObjectsOverwrite    *regexp.Regexp
 	regexpObjectsSearch       *regexp.Regexp
 	regexpObjectsFind         *regexp.Regexp
 	regexpObjectsAggregations *regexp.Regexp
@@ -48,6 +51,8 @@ type indices struct {
 const (
 	urlPatternObjects = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects`
+	urlPatternObjectsOverwrite = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/objects:overwrite`
 	urlPatternObjectsSearch = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/_search`
 	urlPatternObjectsFind = `\/indices\/([A-Za-z0-9_+-]+)` +
@@ -99,6 +104,8 @@ type shards interface {
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string) error
+	OverwriteObjects(ctx context.Context, indexName, shardName string,
+		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 
 	// Scale-out Replication POC
 	FilePutter(ctx context.Context, indexName, shardName,
@@ -107,9 +114,14 @@ type shards interface {
 	ReInitShard(ctx context.Context, indexName, shardName string) error
 }
 
-func NewIndices(shards shards) *indices {
+type db interface {
+	StartupComplete() bool
+}
+
+func NewIndices(shards shards, db db) *indices {
 	return &indices{
 		regexpObjects:             regexp.MustCompile(urlPatternObjects),
+		regexpObjectsOverwrite:    regexp.MustCompile(urlPatternObjectsOverwrite),
 		regexpObjectsSearch:       regexp.MustCompile(urlPatternObjectsSearch),
 		regexpObjectsFind:         regexp.MustCompile(urlPatternObjectsFind),
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
@@ -120,6 +132,7 @@ func NewIndices(shards shards) *indices {
 		regexpShard:               regexp.MustCompile(urlPatternShard),
 		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
 		shards:                    shards,
+		db:                        db,
 	}
 }
 
@@ -151,6 +164,12 @@ func (i *indices) Indices() http.Handler {
 
 			i.postAggregateObjects().ServeHTTP(w, r)
 			return
+		case i.regexpObjectsOverwrite.MatchString(path):
+			if r.Method != http.MethodPut {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			}
+
+			i.putOverwriteObjects().ServeHTTP(w, r)
 		case i.regexpObject.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getObject().ServeHTTP(w, r)
@@ -373,7 +392,10 @@ func (i *indices) getObject() http.Handler {
 				http.StatusBadRequest)
 			return
 		}
-
+		if !i.db.StartupComplete() {
+			http.Error(w, "startup is not complete", http.StatusServiceUnavailable)
+			return
+		}
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional)
 		if err != nil {
@@ -709,6 +731,54 @@ func (i *indices) postFindDocIDs() http.Handler {
 		}
 
 		IndicesPayloads.FindDocIDsResults.SetContentTypeHeader(w)
+		w.Write(resBytes)
+	})
+}
+
+func (i *indices) putOverwriteObjects() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpObjectsOverwrite.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		ct, ok := IndicesPayloads.VersionedObjectList.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		vobjs, err := IndicesPayloads.VersionedObjectList.Unmarshal(reqPayload)
+		if err != nil {
+			http.Error(w, "unmarshal overwrite objects params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		results, err := i.shards.OverwriteObjects(r.Context(), index, shard, vobjs)
+		if err != nil {
+			http.Error(w, "overwrite objects: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(results)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		w.Write(resBytes)
 	})
 }

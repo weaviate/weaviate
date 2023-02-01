@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -16,18 +16,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
-
-type schemaProperties struct {
-	Schema *models.Schema
-}
-
-// WeaviateSchema represents the used schema's
-type WeaviateSchema struct {
-	ActionSchema schemaProperties
-	ThingSchema  schemaProperties
-}
 
 // GetClassByName returns the class by its name
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {

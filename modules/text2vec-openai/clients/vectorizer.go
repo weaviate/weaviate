@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clients
@@ -21,8 +21,8 @@ import (
 	"net/url"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/ent"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 )
 
 type embeddingsRequest struct {
@@ -70,13 +70,13 @@ func New(apiKey string, logger logrus.FieldLogger) *vectorizer {
 func (v *vectorizer) Vectorize(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document"))
+	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document", config.ModelVersion))
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query"))
+	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion))
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input string,
@@ -155,7 +155,15 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under OPENAI_APIKEY")
 }
 
-func (v *vectorizer) getModelString(docType, model, action string) string {
+func (v *vectorizer) getModelString(docType, model, action, version string) string {
+	if version == "002" {
+		return v.getModel002String(model)
+	}
+
+	return v.getModel001String(docType, model, action)
+}
+
+func (v *vectorizer) getModel001String(docType, model, action string) string {
 	modelBaseString := "%s-search-%s-%s-001"
 	if action == "document" {
 		if docType == "code" {
@@ -169,4 +177,9 @@ func (v *vectorizer) getModelString(docType, model, action string) string {
 		}
 		return fmt.Sprintf(modelBaseString, docType, model, "query")
 	}
+}
+
+func (v *vectorizer) getModel002String(model string) string {
+	modelBaseString := "text-embedding-%s-002"
+	return fmt.Sprintf(modelBaseString, model)
 }

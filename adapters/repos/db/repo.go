@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -14,28 +14,30 @@ package db
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type DB struct {
-	logger        logrus.FieldLogger
-	schemaGetter  schemaUC.SchemaGetter
-	config        Config
-	indices       map[string]*Index
-	remoteIndex   sharding.RemoteIndexClient
-	replicaClient replica.Client
-	nodeResolver  nodeResolver
-	remoteNode    *sharding.RemoteNode
-	promMetrics   *monitoring.PrometheusMetrics
-	shutdown      chan struct{}
+	logger          logrus.FieldLogger
+	schemaGetter    schemaUC.SchemaGetter
+	config          Config
+	indices         map[string]*Index
+	remoteIndex     sharding.RemoteIndexClient
+	replicaClient   replica.Client
+	nodeResolver    nodeResolver
+	remoteNode      *sharding.RemoteNode
+	promMetrics     *monitoring.PrometheusMetrics
+	shutdown        chan struct{}
+	startupComplete atomic.Bool
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modifaction at a time. R/W can be a bit confusing here,
@@ -55,7 +57,7 @@ type DB struct {
 	// hopefully very short).
 	//
 	//
-	// See also: https://github.com/semi-technologies/weaviate/issues/2351
+	// See also: https://github.com/weaviate/weaviate/issues/2351
 	indexLock sync.RWMutex
 }
 
@@ -69,10 +71,13 @@ func (d *DB) WaitForStartup(ctx context.Context) error {
 		return err
 	}
 
+	d.startupComplete.Store(true)
 	d.scanResourceUsage()
 
 	return nil
 }
+
+func (d *DB) StartupComplete() bool { return d.startupComplete.Load() }
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
@@ -125,19 +130,6 @@ func (d *DB) GetIndex(className schema.ClassName) *Index {
 
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
 func (d *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	d.indexLock.RLock()
-	defer d.indexLock.RUnlock()
-
-	id := indexID(className)
-	index, ok := d.indices[id]
-	if !ok {
-		return nil
-	}
-
-	return index
-}
-
-func (d *DB) GetReplicatedIndex(className schema.ClassName) Replicator {
 	d.indexLock.RLock()
 	defer d.indexLock.RUnlock()
 

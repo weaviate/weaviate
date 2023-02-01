@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package hnsw
@@ -18,8 +18,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type shardedLockCache struct {
@@ -33,6 +33,7 @@ type shardedLockCache struct {
 	logger              logrus.FieldLogger
 	dims                int32
 	trackDimensionsOnce sync.Once
+	deletionInterval    time.Duration
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -41,19 +42,22 @@ type shardedLockCache struct {
 
 var shardFactor = uint64(512)
 
+const defaultDeletionInterval = 3 * time.Second
+
 func newShardedLockCache(vecForID VectorForID, maxSize int,
-	logger logrus.FieldLogger, normalizeOnRead bool,
+	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 ) *shardedLockCache {
 	vc := &shardedLockCache{
-		vectorForID:     vecForID,
-		cache:           make([][]float32, initialSize),
-		normalizeOnRead: normalizeOnRead,
-		count:           0,
-		maxSize:         int64(maxSize),
-		cancel:          make(chan bool),
-		logger:          logger,
-		shardedLocks:    make([]sync.RWMutex, shardFactor),
-		maintenanceLock: sync.Mutex{},
+		vectorForID:      vecForID,
+		cache:            make([][]float32, initialSize),
+		normalizeOnRead:  normalizeOnRead,
+		count:            0,
+		maxSize:          int64(maxSize),
+		cancel:           make(chan bool),
+		logger:           logger,
+		shardedLocks:     make([]sync.RWMutex, shardFactor),
+		maintenanceLock:  sync.Mutex{},
+		deletionInterval: deletionInterval,
 	}
 
 	for i := uint64(0); i < shardFactor; i++ {
@@ -198,6 +202,8 @@ func (n *shardedLockCache) deleteAllVectors() {
 	n.obtainAllLocks()
 	defer n.releaseAllLocks()
 
+	n.logger.WithField("action", "hnsw_delete_vector_cache").
+		Debug("deleting full vector cache")
 	for i := range n.cache {
 		n.cache[i] = nil
 	}
@@ -207,7 +213,7 @@ func (n *shardedLockCache) deleteAllVectors() {
 
 func (c *shardedLockCache) watchForDeletion() {
 	go func() {
-		t := time.NewTicker(3 * time.Second)
+		t := time.NewTicker(c.deletionInterval)
 		defer t.Stop()
 		for {
 			select {
@@ -223,16 +229,8 @@ func (c *shardedLockCache) watchForDeletion() {
 func (c *shardedLockCache) replaceIfFull() {
 	if atomic.LoadInt64(&c.count) >= atomic.LoadInt64(&c.maxSize) {
 		c.maintenanceLock.Lock()
-		defer c.maintenanceLock.Unlock()
-
-		c.obtainAllLocks()
-		c.logger.WithField("action", "hnsw_delete_vector_cache").
-			Debug("deleting full vector cache")
-		for i := range c.cache {
-			c.cache[i] = nil
-		}
-		c.releaseAllLocks()
-		atomic.StoreInt64(&c.count, 0)
+		c.deleteAllVectors()
+		c.maintenanceLock.Unlock()
 	}
 }
 

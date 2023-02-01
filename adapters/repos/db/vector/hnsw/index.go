@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package hnsw
@@ -22,15 +22,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
-	"github.com/semi-technologies/weaviate/entities/cyclemanager"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type hnsw struct {
@@ -138,10 +135,10 @@ type hnsw struct {
 	// single-threadedness of deletes is not a big problem.
 	//
 	// This lock was introduced as part of
-	// https://github.com/semi-technologies/weaviate/issues/2194
+	// https://github.com/weaviate/weaviate/issues/2194
 	//
 	// See
-	// https://github.com/semi-technologies/weaviate/pull/2191#issuecomment-1242726787
+	// https://github.com/weaviate/weaviate/pull/2191#issuecomment-1242726787
 	// where we ran performance tests to make sure introducing this lock has no
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
@@ -212,7 +209,7 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 	}
 
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead)
+		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
 
 	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
@@ -582,7 +579,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	defer h.RUnlock()
 
 	if id >= uint64(len(h.nodes)) {
-		// See https://github.com/semi-technologies/weaviate/issues/1838 for details.
+		// See https://github.com/weaviate/weaviate/issues/1838 for details.
 		// This could be after a crash recovery when the object store is "further
 		// ahead" than the hnsw index and we receive a delete request
 		return nil
