@@ -18,12 +18,8 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
-<<<<<<< HEAD
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
-	"github.com/semi-technologies/weaviate/entities/schema"
-=======
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
->>>>>>> master
 )
 
 const (

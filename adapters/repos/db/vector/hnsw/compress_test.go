@@ -22,13 +22,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {

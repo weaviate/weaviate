@@ -18,8 +18,8 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/sirupsen/logrus"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type Deserializer struct {
