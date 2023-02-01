@@ -16,7 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type Logger struct {
@@ -40,6 +40,7 @@ const (
 	ResetIndex
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
+	AddPQ
 )
 
 func NewLogger(fileName string) *Logger {
