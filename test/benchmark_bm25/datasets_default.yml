@@ -1,6 +1,6 @@
 datasets:
   - id: msmarco
-    path: /Users/dirkkulawiak/Downloads/msmarco
+    path: ./datasets/msmarco
     corpus:
       indexed_properties:
         - title
