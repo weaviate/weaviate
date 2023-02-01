@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -111,6 +112,17 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
+	}
+
+	// Actual strategy is stored in segment files. In case it is SetCollection,
+	// while new implementation uses bitmaps and supposed to be RoaringSet,
+	// bucket and segmentgroup strategy is changed back to SetCollection
+	// (memtables will be created later on, with already modified strategy)
+	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategySetCollection {
+		b.strategy = StrategySetCollection
+		sg.strategy = StrategySetCollection
 	}
 
 	b.disk = sg
