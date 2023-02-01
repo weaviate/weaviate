@@ -206,8 +206,6 @@ func (t *term) advanceAtLeast(minID uint64) {
 		}
 		t.idPointer = t.data[t.posPointer].id
 	}
-
-	return
 }
 
 type terms []term
@@ -317,9 +315,7 @@ func (b *BM25Searcher) wand(
 
 	// the results are needed in the original order to be able to locate frequency/property length for the top-results
 	resultsOriginalOrder := make(terms, len(results))
-	for i, val := range results {
-		resultsOriginalOrder[i] = val
-	}
+	copy(resultsOriginalOrder, results)
 
 	topKHeap := priorityqueue.NewMin(limit)
 	worstDist := float64(0)
@@ -446,6 +442,9 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 		}
 	}
 	class, err := schema.GetClassByName(b.schema.Objects, string(className))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	objs, scores, err := b.wand(ctx, class, keywordRanking.Query, keywordRanking.Properties, limit)
 	if err != nil {
