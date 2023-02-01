@@ -14,8 +14,8 @@ package get
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Resolver is a local abstraction of the required UC resolvers

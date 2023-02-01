@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 	helper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 

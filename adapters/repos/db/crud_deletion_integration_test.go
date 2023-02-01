@@ -24,10 +24,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	libschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func TestDeleteJourney(t *testing.T) {

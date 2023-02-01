@@ -24,12 +24,12 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	helper "github.com/weaviate/weaviate/test/helper"
-	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {

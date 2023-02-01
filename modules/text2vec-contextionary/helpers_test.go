@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -30,7 +31,6 @@ import (
 	text2vecadditionalprojector "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/projector"
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecneartext "github.com/weaviate/weaviate/modules/text2vec-contextionary/neartext"
-	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
