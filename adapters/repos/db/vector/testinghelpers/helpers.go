@@ -151,13 +151,13 @@ func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFu
 
 	distances := make([]distanceAndIndex, len(vectors))
 
-	for i, vec := range vectors {
-		dist := distance(query, vec)
+	ssdhelpers.Concurrently(uint64(len(vectors)), func(_, i uint64, _ *sync.Mutex) {
+		dist := distance(query, vectors[i])
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
 		}
-	}
+	})
 
 	sort.Slice(distances, func(a, b int) bool {
 		return distances[a].distance < distances[b].distance

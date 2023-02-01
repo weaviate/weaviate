@@ -14,6 +14,7 @@ package ssdhelpers
 import (
 	"encoding/binary"
 	"math"
+	"sync/atomic"
 
 	"gonum.org/v1/gonum/stat/distuv"
 )
@@ -79,7 +80,7 @@ func (d *normalDistribution) Quantile(x float64) float64 {
 
 type Centroid struct {
 	Center     []float32
-	Calculated bool
+	Calculated atomic.Bool
 }
 
 type EncoderDistribution byte
@@ -192,10 +193,10 @@ func (te *TileEncoder) centroid(b byte) []float32 {
 }
 
 func (te *TileEncoder) Centroid(b byte) []float32 {
-	if te.centroids[b].Calculated {
+	if te.centroids[b].Calculated.Load() {
 		return te.centroids[b].Center
 	}
 	te.centroids[b].Center = te.centroid(b)
-	te.centroids[b].Calculated = true
+	te.centroids[b].Calculated.Store(true)
 	return te.centroids[b].Center
 }
