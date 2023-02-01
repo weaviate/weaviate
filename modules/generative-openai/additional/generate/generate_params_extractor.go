@@ -22,19 +22,12 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument) *Params 
 
 	for _, arg := range args {
 		switch arg.Name.Value {
-		case "task":
-			out.Task = arg.Value.(*ast.StringValue).Value
-		case "resultLanguage":
-			out.ResultLanguage = arg.Value.(*ast.EnumValue).Value
-		case "onSet":
-			out.OnSet = arg.Value.(*ast.EnumValue).Value
-		case "properties":
-			inp := arg.Value.GetValue().([]ast.Value)
-			out.Properties = make([]string, len(inp))
-
-			for i, value := range inp {
-				out.Properties[i] = value.(*ast.StringValue).Value
-			}
+		case "singleResult":
+			obj := arg.Value.(*ast.ObjectValue).Fields
+			out.Prompt = &obj[0].Value.(*ast.StringValue).Value
+		case "groupedResult":
+			obj := arg.Value.(*ast.ObjectValue).Fields
+			out.Task = &obj[0].Value.(*ast.StringValue).Value
 
 		default:
 			// ignore what we don't recognize

@@ -38,8 +38,9 @@ type GenerativeOpenAIModule struct {
 }
 
 type generativeClient interface {
-	Generate(ctx context.Context, text []map[string]string, question, language string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
-	MetaInfo() (map[string]interface{}, error)
+	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
+	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
+	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error)
 }
 
 func (m *GenerativeOpenAIModule) Name() string {
@@ -80,10 +81,6 @@ func (m *GenerativeOpenAIModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *GenerativeOpenAIModule) MetaInfo() (map[string]interface{}, error) {
-	return m.generative.MetaInfo()
-}
-
 func (m *GenerativeOpenAIModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
@@ -92,5 +89,4 @@ func (m *GenerativeOpenAIModule) AdditionalProperties() map[string]modulecapabil
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.AdditionalProperties(New())
-	_ = modulecapabilities.MetaProvider(New())
 )
