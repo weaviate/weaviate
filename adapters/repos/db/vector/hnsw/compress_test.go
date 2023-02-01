@@ -17,8 +17,8 @@ package hnsw_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -208,7 +208,6 @@ func TestHnswPqGist(t *testing.T) {
 		assert.True(t, recall > 0.9)
 		assert.True(t, latency < 100000)
 	}
-
 }
 
 func TestHnswPqSift(t *testing.T) {
@@ -382,7 +381,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 }
 
 func parseFromTxt(file string, size int) [][]float32 {
-	content, _ := ioutil.ReadFile(file)
+	content, _ := os.ReadFile(file)
 	strContent := string(content)
 	testArray := strings.Split(strContent, "\n")
 	test := make([][]float32, 0, len(testArray))
@@ -390,7 +389,7 @@ func parseFromTxt(file string, size int) [][]float32 {
 		elementArray := strings.Split(testArray[j], " ")
 		test = append(test, make([]float32, len(elementArray)))
 		for i := range elementArray {
-			f, _ := strconv.ParseFloat(elementArray[i], 16)
+			f, _ := strconv.ParseFloat(elementArray[i], 32)
 			test[j][i] = float32(f)
 		}
 	}

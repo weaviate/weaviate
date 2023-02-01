@@ -213,7 +213,6 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 
 	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
-	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
 
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s", cfg.RootPath, cfg.ClassName), "", cfg.Logger, nil)
 	if err != nil {
@@ -224,7 +223,7 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		return nil, errors.Wrapf(err, "init hnsw")
 	}
 
-	compressedVectorsCache = newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
+	compressedVectorsCache := newCompressedShardedLockCache(uc.VectorCacheMaxObjects, cfg.Logger)
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
