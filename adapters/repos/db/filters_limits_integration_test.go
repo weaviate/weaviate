@@ -25,10 +25,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // This test aims to prevent a regression on
@@ -93,7 +93,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 			buildFilter("price", 100, lt, dtInt),
 		)
 
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -186,7 +186,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify all with ref count 0 are found", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("makesProduct", 0, eq, dtInt)
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -201,7 +201,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify a non refcount prop", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("price", float64(0), gte, dtNumber)
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -229,7 +229,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify all with ref count 0 are found", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("makesProduct", 0, eq, dtInt)
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{
@@ -244,7 +244,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	t.Run("verify a non refcount prop", func(t *testing.T) {
 		limit := 100
 		filter := buildFilter("price", float64(0), gte, dtNumber)
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: companyClass.Class,
 			Filters:   filter,
 			Pagination: &filters.Pagination{

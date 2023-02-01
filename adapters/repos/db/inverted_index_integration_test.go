@@ -25,12 +25,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
@@ -236,7 +236,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				},
 			}
 
-			res1, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res1, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "TestClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    createTimeStringFilter,
@@ -261,7 +261,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				},
 			},
 		}
-		res1, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res1, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    PropLengthFilter,
@@ -392,7 +392,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			},
 		}
 
-		res1, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res1, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    createTimeStringFilter,
@@ -401,7 +401,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		assert.Len(t, res1, 1)
 		assert.Equal(t, testID, res1[0].ID)
 
-		res2, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res2, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    updateTimeStringFilter,
@@ -410,7 +410,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		assert.Len(t, res2, 1)
 		assert.Equal(t, testID, res2[0].ID)
 
-		res3, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res3, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    createTimeDateFilter,
@@ -419,7 +419,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		assert.Len(t, res3, 1)
 		assert.Equal(t, testID, res3[0].ID)
 
-		res4, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res4, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    updateTimeDateFilter,
@@ -458,7 +458,7 @@ func TestFilterPropertyLengthError(t *testing.T) {
 		},
 	}
 
-	params := traverser.GetParams{
+	params := dto.GetParams{
 		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 		ClassName:    class.Class,
 		Pagination:   &filters.Pagination{Limit: 5},
