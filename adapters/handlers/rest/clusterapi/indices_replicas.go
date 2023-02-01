@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clusterapi
@@ -20,10 +20,10 @@ import (
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 type replicator interface {
@@ -45,14 +45,14 @@ type replicator interface {
 		shardName, requestID string) interface{}
 }
 
-type scaler interface {
+type localScaler interface {
 	LocalScaleOut(ctx context.Context, className string,
-		ssBefore, ssAfter *sharding.State) error
+		dist scaler.ShardDist) error
 }
 
 type replicatedIndices struct {
 	shards replicator
-	scaler scaler
+	scaler localScaler
 }
 
 var (
@@ -68,7 +68,7 @@ var (
 		`\/shards\/([A-Za-z0-9]+):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler scaler) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler) *replicatedIndices {
 	return &replicatedIndices{
 		shards: shards,
 		scaler: scaler,
@@ -197,13 +197,13 @@ func (i *replicatedIndices) increaseReplicationFactor() http.Handler {
 			return
 		}
 
-		ssBefore, ssAfter, err := IndicesPayloads.IncreaseReplicationFactor.Unmarshal(bodyBytes)
+		dist, err := IndicesPayloads.IncreaseReplicationFactor.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if err := i.scaler.LocalScaleOut(r.Context(), index, ssBefore, ssAfter); err != nil {
+		if err := i.scaler.LocalScaleOut(r.Context(), index, dist); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -276,6 +276,10 @@ func (i *replicatedIndices) patchObject() http.Handler {
 		}
 
 		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc)
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -307,6 +311,10 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 		defer r.Body.Close()
 
 		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id))
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -348,6 +356,10 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 
 		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, docIDs, dryRun)
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -375,6 +387,10 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 	}
 
 	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj)
+	if localIndexNotReady(resp) {
+		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+		return
+	}
 
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -402,6 +418,10 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 	}
 
 	resp := i.shards.ReplicateObjects(r.Context(), index, shard, requestID, objs)
+	if localIndexNotReady(resp) {
+		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+		return
+	}
 
 	b, err := json.Marshal(resp)
 	if err != nil {
@@ -441,6 +461,10 @@ func (i *replicatedIndices) postRefs() http.Handler {
 		}
 
 		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs)
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
 
 		b, err := json.Marshal(resp)
 		if err != nil {
@@ -451,4 +475,14 @@ func (i *replicatedIndices) postRefs() http.Handler {
 
 		w.Write(b)
 	})
+}
+
+func localIndexNotReady(resp replica.SimpleResponse) bool {
+	if err := resp.FirstError(); err != nil {
+		re, ok := err.(*replica.Error)
+		if ok && re.IsStatusCode(replica.StatusNotReady) {
+			return true
+		}
+	}
+	return false
 }

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package replication
@@ -17,14 +17,25 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/objects"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
+
+func getClass(t *testing.T, host, class string) *models.Class {
+	helper.SetupClient(host)
+	return helper.GetClass(t, class)
+}
+
+func updateClass(t *testing.T, host string, class *models.Class) {
+	helper.SetupClient(host)
+	helper.UpdateClass(t, class)
+}
 
 func createObject(t *testing.T, host string, obj *models.Object) {
 	helper.SetupClient(host)
@@ -100,4 +111,12 @@ func gqlGet(t *testing.T, host, class string, fields ...string) []interface{} {
 
 	result := resp.Get("Get").Get(class)
 	return result.Result.([]interface{})
+}
+
+func getNodes(t *testing.T, host string) *models.NodesStatusResponse {
+	helper.SetupClient(host)
+
+	resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+	return resp.Payload
 }

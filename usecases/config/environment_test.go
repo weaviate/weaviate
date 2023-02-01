@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package config
@@ -16,9 +16,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const DefaultGoroutineFactor = 1.5
@@ -309,4 +309,34 @@ func TestEnvironmentSetDefaultVectorDistanceMetric(t *testing.T) {
 		FromEnv(&conf)
 		require.Equal(t, "l2-squared", conf.DefaultVectorDistanceMetric)
 	})
+}
+
+func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"100"}, 100, false},
+		{"not given", []string{}, DefaultMaxConcurrentGetRequests, false},
+		{"unlimited", []string{"-1"}, -1, false},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("MAXIMUM_CONCURRENT_GET_REQUESTS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.MaximumConcurrentGetRequests)
+			}
+		})
+	}
 }

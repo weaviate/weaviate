@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -16,15 +16,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/noop"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	hnswent "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type Replicator interface {
@@ -135,6 +137,12 @@ func (db *DB) AbortReplication(class,
 }
 
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
+	if !db.StartupComplete() {
+		return nil, &replica.SimpleResponse{Errors: []replica.Error{
+			*replica.NewError(replica.StatusNotReady, name),
+		}}
+	}
+
 	if idx = db.GetIndex(schema.ClassName(name)); idx == nil {
 		return nil, &replica.SimpleResponse{Errors: []replica.Error{
 			*replica.NewError(replica.StatusClassNotFound, name),
@@ -244,7 +252,7 @@ func (i *Index) IncomingCreateShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i)
+	s, err := NewShard(ctx, nil, shardName, i, nil)
 	if err != nil {
 		return err
 	}
@@ -272,6 +280,11 @@ func (s *Shard) filePutter(ctx context.Context,
 	// TODO: validate file prefix to rule out that we're accidentally writing
 	// into another shard
 	finalPath := filepath.Join(s.index.Config.RootPath, filePath)
+	dir := path.Dir(finalPath)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
+	}
+
 	f, err := os.Create(finalPath)
 	if err != nil {
 		return nil, fmt.Errorf("open file %q for writing: %w", filePath, err)
@@ -301,9 +314,64 @@ func (s *Shard) reinit(ctx context.Context) error {
 		defer s.vectorIndex.PostStartup()
 	}
 
-	if err := s.initNonVector(ctx); err != nil {
+	if err := s.initNonVector(ctx, nil); err != nil {
 		return fmt.Errorf("init non-vector: %w", err)
 	}
 
 	return nil
+}
+
+// OverwriteObjects overwrite objects if their state didn't change in the meantime
+// It returns nil if all object have been successfully overwritten and otherwise a list of failed operations.
+func (i *Index) OverwriteObjects(ctx context.Context,
+	shard string, list []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	result := make([]replica.RepairResponse, 0, len(list)/2)
+	s := i.Shards[shard]
+	if s == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shard)
+	}
+	for _, update := range list {
+		id := update.LatestObject.ID
+		found, err := s.objectByID(ctx, id, nil, additional.Properties{})
+		if err != nil || found == nil {
+			result = append(result, replica.RepairResponse{
+				ID:  id.String(),
+				Err: "not found",
+			})
+			continue
+		}
+		// the stored object is not the most recent version. in
+		// this case, we overwrite it with the more recent one.
+		if found.LastUpdateTimeUnix() == update.StaleUpdateTime {
+			err := s.putObject(ctx, storobj.FromObject(update.LatestObject, update.LatestObject.Vector))
+			if err != nil {
+				result = append(result, replica.RepairResponse{
+					ID:         id.String(),
+					UpdateTime: found.LastUpdateTimeUnix(),
+					// Version: , todo
+					Err: fmt.Sprintf("overwrite stale object: %v", err),
+				})
+				continue
+			}
+		} else {
+			// todo set version once implemented
+			result = append(result, replica.RepairResponse{
+				ID:         id.String(),
+				UpdateTime: found.LastUpdateTimeUnix(),
+				// Version: , todo
+				Err: "conflict",
+			})
+		}
+	}
+	if len(result) == 0 {
+		return nil, nil
+	}
+	return result, nil
+}
+
+func (i *Index) IncomingOverwriteObjects(ctx context.Context,
+	shard string, vobjects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	return i.OverwriteObjects(ctx, shard, vobjects)
 }

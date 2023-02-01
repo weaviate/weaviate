@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package rest
@@ -28,49 +28,49 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/semi-technologies/weaviate/adapters/clients"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
-	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/search"
-	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
-	modstggcs "github.com/semi-technologies/weaviate/modules/backup-gcs"
-	modstgs3 "github.com/semi-technologies/weaviate/modules/backup-s3"
-	modimage "github.com/semi-technologies/weaviate/modules/img2vec-neural"
-	modclip "github.com/semi-technologies/weaviate/modules/multi2vec-clip"
-	modner "github.com/semi-technologies/weaviate/modules/ner-transformers"
-	modqnaopenai "github.com/semi-technologies/weaviate/modules/qna-openai"
-	modqna "github.com/semi-technologies/weaviate/modules/qna-transformers"
-	modcentroid "github.com/semi-technologies/weaviate/modules/ref2vec-centroid"
-	modsum "github.com/semi-technologies/weaviate/modules/sum-transformers"
-	modspellcheck "github.com/semi-technologies/weaviate/modules/text-spellcheck"
-	modcohere "github.com/semi-technologies/weaviate/modules/text2vec-cohere"
-	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
-	modhuggingface "github.com/semi-technologies/weaviate/modules/text2vec-huggingface"
-	modopenai "github.com/semi-technologies/weaviate/modules/text2vec-openai"
-	modtransformers "github.com/semi-technologies/weaviate/modules/text2vec-transformers"
-	"github.com/semi-technologies/weaviate/usecases/backup"
-	"github.com/semi-technologies/weaviate/usecases/classification"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/modules"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/replica"
-	"github.com/semi-technologies/weaviate/usecases/scaling"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/classifications"
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
+	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/search"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
+	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
+	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
+	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
+	modner "github.com/weaviate/weaviate/modules/ner-transformers"
+	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
+	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
+	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
+	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
+	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
+	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
+	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
+	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
+	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/scaler"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -87,7 +87,7 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
-	scaling.BackerUpper
+	scaler.BackUpper
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
@@ -179,6 +179,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
 		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
+	appState.DB = repo
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -207,16 +208,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Cluster, localClassifierRepo, appState.Logger)
 	appState.ClassificationRepo = classifierRepo
 
-	scaleoutManager := scaling.NewScaleOutManager(appState.Cluster, vectorRepo,
-		remoteIndexClient, appState.ServerConfig.Config.Persistence.DataPath)
-	appState.ScaleOutManager = scaleoutManager
+	scaler := scaler.New(appState.Cluster, vectorRepo,
+		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
+	appState.Scaler = scaler
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient, scaleoutManager,
+		appState.Modules, appState.Cluster, schemaTxClient, scaler,
 	)
 	if err != nil {
 		appState.Logger.
@@ -267,7 +268,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
-		appState.Modules, traverser.NewMetrics(appState.Metrics))
+		appState.Modules, traverser.NewMetrics(appState.Metrics),
+		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package aggregator
@@ -16,9 +16,9 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // unfilteredAggregator allows for relatively efficient whole-dataset
@@ -67,14 +67,6 @@ func (ua *unfilteredAggregator) addMetaCount(ctx context.Context,
 	if b == nil {
 		return errors.Errorf("objects bucket is nil")
 	}
-
-	// c := b.Cursor()
-	// defer c.Close()
-
-	// // TODO: can this be optimized?
-	// for k, _ := c.First(); k != nil; k, _ = c.Next() {
-	// 	count++
-	// }
 
 	out.Groups[0].Count = b.Count()
 

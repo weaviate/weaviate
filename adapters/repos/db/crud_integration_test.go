@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
@@ -23,20 +23,20 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/multi"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	enthnsw "github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/multi"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestCRUD(t *testing.T) {
@@ -1943,7 +1943,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			Class: classNameWithRefs,
 			Properties: map[string]interface{}{
 				"stringProp": "some prop",
-				// due to the fix introduced in https://github.com/semi-technologies/weaviate/pull/2320,
+				// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
 				// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
 				// an object's reference property.
 				//
@@ -1984,6 +1984,102 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		require.Nil(t, err)
 		assert.NotNil(t, res)
 		assert.Equal(t, obj2.Properties, res.ObjectWithVector(false).Properties)
+	})
+}
+
+func TestOverwriteObjects(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "SomeClass",
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{},
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	t.Run("create the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	})
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	now := time.Now()
+	later := now.Add(time.Hour) // time-traveling ;)
+	stale := &models.Object{
+		ID:                 "981c09f9-67f3-4e6e-a988-c53eaefbd58e",
+		Class:              class.Class,
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: now.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+		},
+		Vector:        []float32{1, 2, 3},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	fresh := &models.Object{
+		ID:                 "981c09f9-67f3-4e6e-a988-c53eaefbd58e",
+		Class:              class.Class,
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: later.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+			"newValue": "how they are now",
+		},
+		Vector:        []float32{4, 5, 6},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	t.Run("insert stale object", func(t *testing.T) {
+		err := repo.PutObject(context.Background(), stale, stale.Vector)
+		require.Nil(t, err)
+	})
+
+	t.Run("overwrite with fresh object", func(t *testing.T) {
+		input := []*objects.VObject{
+			{LatestObject: fresh, StaleUpdateTime: stale.LastUpdateTimeUnix},
+		}
+
+		idx := repo.GetIndex(schema.ClassName(class.Class))
+		shd, err := idx.shardFromUUID(fresh.ID)
+		require.Nil(t, err)
+
+		received, err := idx.OverwriteObjects(context.Background(), shd, input)
+		assert.Nil(t, err)
+		assert.ElementsMatch(t, nil, received)
+
+	})
+
+	t.Run("assert data was overwritten", func(t *testing.T) {
+		found, err := repo.Object(context.Background(), stale.Class,
+			stale.ID, nil, additional.Properties{}, nil)
+		assert.Nil(t, err)
+		assert.EqualValues(t, fresh, found.Object())
 	})
 }
 

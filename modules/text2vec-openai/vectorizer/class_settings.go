@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package vectorizer
@@ -17,9 +17,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const (
@@ -32,7 +32,12 @@ const (
 
 var availableOpenAITypes = []string{"text", "code"}
 
-var availableOpenAIModels = []string{"ada", "babbage", "curie", "davinci"}
+var availableOpenAIModels = []string{
+	"ada",     // supports 001 and 002
+	"babbage", // only suppports 001
+	"curie",   // only suppports 001
+	"davinci", // only suppports 001
+}
 
 type classSettings struct {
 	cfg moduletools.ClassConfig
@@ -87,6 +92,11 @@ func (ic *classSettings) Type() string {
 	return ic.getProperty("type", DefaultOpenAIDocumentType)
 }
 
+func (ic *classSettings) ModelVersion() string {
+	defaultVersion := PickDefaultModelVersion(ic.Model(), ic.Type())
+	return ic.getProperty("modelVersion", defaultVersion)
+}
+
 func (ic *classSettings) VectorizeClassName() bool {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
@@ -122,9 +132,44 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
 	}
 
+	version := ic.ModelVersion()
+	if err := ic.validateModelVersion(version, model, docType); err != nil {
+		return err
+	}
+
 	err := ic.validateIndexState(class, ic)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (ic *classSettings) validateModelVersion(version, model, docType string) error {
+	if version == "001" {
+		// no restrictions
+		return nil
+	}
+
+	if version == "002" {
+		// only ada/davinci 002
+		if model != "ada" && model != "davinci" {
+			return fmt.Errorf("unsupported version %s", version)
+		}
+	}
+
+	if version == "003" && model != "davinci" {
+		// only davinci 003
+		return fmt.Errorf("unsupported version %s", version)
+	}
+
+	if version != "002" && version != "003" {
+		// all other fallback
+		return fmt.Errorf("model %s is only available in version 001", model)
+	}
+
+	if docType != "text" {
+		return fmt.Errorf("ada-002 no longer distinguishes between text/code, use 'text' for all use cases")
 	}
 
 	return nil
@@ -191,4 +236,13 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings ClassS
 		"to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from " +
 		"indexing.")
+}
+
+func PickDefaultModelVersion(model, docType string) string {
+	if model == "ada" && docType == "text" {
+		return "002"
+	}
+
+	// for all other combinations stick with "001"
+	return "001"
 }

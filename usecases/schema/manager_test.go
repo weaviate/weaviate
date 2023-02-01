@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -16,14 +16,14 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/scaling"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // TODO: These tests don't match the overall testing style in Weaviate.
@@ -427,7 +427,7 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, lsm *Ma
 }
 
 func testDropProperty(t *testing.T, lsm *Manager) {
-	// TODO: https://github.com/semi-technologies/weaviate/issues/973
+	// TODO: https://github.com/weaviate/weaviate/issues/973
 	// Remove skip
 
 	t.Skip()
@@ -544,13 +544,58 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 	}, classes[0].VectorIndexConfig)
 }
 
+func Test_ExtendSchemaWithExistingPropName(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	repo := newFakeRepo()
+	repo.schema = &State{
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{{
+				Class:             "Foo",
+				VectorIndexConfig: "parse me, i should be in some sort of an object",
+				VectorIndexType:   "hnsw", // will always be set when loading from disk
+				Properties: []*models.Property{{
+					Name:     "my_prop",
+					DataType: []string{"string"},
+				}},
+			}},
+		},
+	}
+	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
+		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		dummyParseVectorConfig, // only option for now
+		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
+		&fakeTxClient{}, &fakeScaleOutManager{},
+	)
+	require.Nil(t, err)
+
+	// exactly identical name
+	err = sm.AddClassProperty(context.Background(), nil, "Foo", &models.Property{
+		Name:     "my_prop",
+		DataType: []string{"int"},
+	})
+
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "conflict for property")
+
+	// identical if case insensitive
+	err = sm.AddClassProperty(context.Background(), nil, "Foo", &models.Property{
+		Name:     "mY_pROp",
+		DataType: []string{"int"},
+	})
+
+	require.NotNil(t, err)
+	assert.Contains(t, err.Error(), "conflict for property")
+}
+
 type fakeScaleOutManager struct{}
 
 func (f *fakeScaleOutManager) Scale(ctx context.Context,
-	className string, old, updated sharding.Config,
+	className string, updated sharding.Config, _, _ int64,
 ) (*sharding.State, error) {
 	return nil, nil
 }
 
-func (f *fakeScaleOutManager) SetSchemaManager(sm scaling.SchemaManager) {
+func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
 }

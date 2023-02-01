@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package config
@@ -19,10 +19,10 @@ import (
 
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/deprecations"
-	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/deprecations"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
 )
 
@@ -48,7 +48,7 @@ const (
 	DefaultBM25b  = float32(0.75)
 
 	// These hybrid tuning params can be overwritten on a per-class basis
-	DefaultAlpha = float32(0.75)
+	DefaultAlpha = float64(0.75)
 )
 
 const (
@@ -89,6 +89,7 @@ type Config struct {
 	Profiling                        Profiling      `json:"profiling" yaml:"profiling"`
 	ResourceUsage                    ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
 	MaxImportGoroutinesFactor        float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests     int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 }

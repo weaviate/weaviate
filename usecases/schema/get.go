@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // GetSchema retrieves a locally cached copy of the schema
@@ -36,6 +36,12 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 // could leak the schema to an unauthorized user, is intended to be used for
 // non-user triggered processes, such as regular updates / maintenance / etc
 func (m *Manager) GetSchemaSkipAuth() schema.Schema {
+	return schema.Schema{
+		Objects: m.state.ObjectSchema,
+	}
+}
+
+func (m *Manager) getSchema() schema.Schema {
 	return schema.Schema{
 		Objects: m.state.ObjectSchema,
 	}
@@ -67,7 +73,6 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
-
 	return m.getClassByName(name), nil
 }
 
@@ -80,7 +85,36 @@ func (m *Manager) getClassByName(name string) *models.Class {
 }
 
 func (m *Manager) ShardingState(className string) *sharding.State {
-	return m.state.ShardingState[className]
+	m.shardingStateLock.RLock()
+	copiedState := m.state.ShardingState[className].DeepCopy()
+	m.shardingStateLock.RUnlock()
+	return &copiedState
+}
+
+// ResolveParentNodes resolves the hostname for each node a shard belongs to
+//
+// If the hostname cannot be resolved for a given node, the name of the node
+// is returned instead.
+func (m *Manager) ResolveParentNodes(class, shardName string,
+) (resolved, unresolved []string, err error) {
+	shard, ok := m.ShardingState(class).Physical[shardName]
+	if !ok {
+		return nil, nil, fmt.Errorf("sharding state not found")
+	}
+
+	if len(shard.BelongsToNodes) == 0 {
+		return nil, nil, nil
+	}
+
+	for _, node := range shard.BelongsToNodes {
+		host, ok := m.clusterState.NodeHostname(node)
+		if ok && host != "" {
+			resolved = append(resolved, host)
+		} else {
+			unresolved = append(unresolved, node)
+		}
+	}
+	return
 }
 
 func (m *Manager) Nodes() []string {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package rest
@@ -20,11 +20,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/swagger_middleware"
-	"github.com/semi-technologies/weaviate/usecases/modules"
-	"github.com/semi-technologies/weaviate/usecases/monitoring"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -96,7 +96,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
 		handler = addPreflight(handler)
-		handler = addLiveAndReadyness(handler)
+		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
@@ -171,7 +171,7 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 	})
 }
 
-func addLiveAndReadyness(next http.Handler) http.Handler {
+func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() == "/v1/.well-known/live" {
 			w.WriteHeader(http.StatusOK)
@@ -179,7 +179,11 @@ func addLiveAndReadyness(next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
-			w.WriteHeader(http.StatusOK)
+			code := http.StatusServiceUnavailable
+			if state.DB.StartupComplete() && state.Cluster.ClusterHealthScore() == 0 {
+				code = http.StatusOK
+			}
+			w.WriteHeader(code)
 			return
 		}
 

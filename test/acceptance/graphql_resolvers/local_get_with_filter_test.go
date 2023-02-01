@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -16,13 +16,13 @@ import (
 	"fmt"
 	"testing"
 
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 func gettingObjectsWithFilters(t *testing.T) {
@@ -47,6 +47,56 @@ func gettingObjectsWithFilters(t *testing.T) {
 		}
 
 		assert.ElementsMatch(t, expected, airports)
+	})
+
+	t.Run("nearText with prop length", func(t *testing.T) {
+		query := `
+		{
+			  Get {
+				City (
+					nearText: {
+						concepts: ["hi"],
+						distance: 0.9
+					},
+					where: {
+						path: "len(name)"
+						operator: GreaterThanEqual
+						valueInt: 0
+					}
+				) {
+				  name
+				}
+			  }
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		cities := result.Get("Get", "City").AsSlice()
+		assert.Len(t, cities, 5)
+	})
+
+	t.Run("nearText with null filter", func(t *testing.T) {
+		query := `
+		{
+			  Get {
+				City (
+					nearText: {
+						concepts: ["hi"],
+						distance: 0.9
+					},
+					where: {
+						path: "name"
+						operator: IsNull
+						valueBoolean: true
+					}
+				) {
+				  name
+				}
+			  }
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		cities := result.Get("Get", "City").AsSlice()
+		assert.Len(t, cities, 1)
 	})
 
 	t.Run("with filters applied", func(t *testing.T) {

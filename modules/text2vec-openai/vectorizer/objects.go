@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package vectorizer
@@ -18,9 +18,9 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 )
 
 type Vectorizer struct {
@@ -47,6 +47,7 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 	Model() string
 	Type() string
+	ModelVersion() string
 }
 
 func sortStringKeys(schema_map map[string]interface{}) []string {
@@ -132,8 +133,9 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 	text := strings.Join(corpi, " ")
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		Type:  icheck.Type(),
-		Model: icheck.Model(),
+		Type:         icheck.Type(),
+		Model:        icheck.Model(),
+		ModelVersion: icheck.ModelVersion(),
 	})
 	if err != nil {
 		return nil, err

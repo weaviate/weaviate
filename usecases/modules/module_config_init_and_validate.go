@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modules
@@ -15,9 +15,9 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // SetClassDefaults sets the module-specific defaults for the class itself, but
@@ -96,7 +96,7 @@ func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
 	prop *models.Property, cfg *ClassBasedModuleConfig,
 	cc modulecapabilities.ClassConfigurator,
 ) {
-	dt, _ := schema.GetPropertyDataType(class, prop.Name)
+	dt, _ := schema.GetValueDataTypeFromString(prop.DataType[0])
 	modDefaults := cc.PropertyConfigDefaults(dt)
 	userSpecified := cfg.Property(prop.Name)
 	mergedConfig := map[string]interface{}{}

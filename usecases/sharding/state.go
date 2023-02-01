@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package sharding
@@ -18,8 +18,8 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/usecases/cluster"
 	"github.com/spaolacci/murmur3"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const shardNameLength = 12
@@ -39,7 +39,7 @@ type State struct {
 // created before v1.17
 func (s *State) MigrateFromOldFormat() {
 	for shardName, shard := range s.Physical {
-		if len(shard.LegacyBelongsToNodeForBackwardCompat) > 0 && len(shard.BelongsToNodes) == 0 {
+		if shard.LegacyBelongsToNodeForBackwardCompat != "" && len(shard.BelongsToNodes) == 0 {
 			shard.BelongsToNodes = []string{
 				shard.LegacyBelongsToNodeForBackwardCompat,
 			}
@@ -78,13 +78,6 @@ func (p Physical) BelongsToNode() string {
 // some kind of node bias while scaling in the future, it would probably go
 // here.
 func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
-	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
-	if err != nil {
-		return err
-	}
-
-	it.SetStartNode(p.BelongsToNodes[len(p.BelongsToNodes)-1])
-
 	if count < len(p.BelongsToNodes) {
 		if count < 0 {
 			return errors.Errorf("cannot scale below 0, got %d", count)
@@ -92,7 +85,12 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 		p.BelongsToNodes = p.BelongsToNodes[:count]
 		return nil
 	}
+	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
+	if err != nil {
+		return err
+	}
 
+	it.SetStartNode(p.BelongsToNodes[len(p.BelongsToNodes)-1])
 	for len(p.BelongsToNodes) < count {
 		p.BelongsToNodes = append(p.BelongsToNodes, it.Next())
 	}
@@ -105,10 +103,10 @@ type nodes interface {
 	LocalName() string
 }
 
-func InitState(id string, config Config, nodes nodes) (*State, error) {
+func InitState(id string, config Config, nodes nodes, replFactor int64) (*State, error) {
 	out := &State{Config: config, IndexID: id, localNodeName: nodes.LocalName()}
 
-	if err := out.initPhysical(nodes); err != nil {
+	if err := out.initPhysical(nodes, replFactor); err != nil {
 		return nil, err
 	}
 
@@ -211,7 +209,7 @@ func (s *State) IsShardLocal(name string) bool {
 // Shard 1: Node7, Node8, Node9, Node10, Node 11
 // Shard 2: Node8, Node9, Node10, Node 11, Node 12
 // Shard 3: Node9, Node10, Node11, Node 12, Node 1
-func (s *State) initPhysical(nodes nodes) error {
+func (s *State) initPhysical(nodes nodes, replFactor int64) error {
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartRandom)
 	if err != nil {
 		return err
@@ -224,7 +222,7 @@ func (s *State) initPhysical(nodes nodes) error {
 		shard := Physical{Name: name}
 		node := it.Next()
 		shard.BelongsToNodes = []string{node}
-		if s.Config.Replicas > 1 {
+		if replFactor > 1 {
 			// create a second node iterator and start after the already assigned
 			// one, this way we can identify our next n right neighbors without
 			// affecting the root iterator which will determine the next shard
@@ -236,7 +234,7 @@ func (s *State) initPhysical(nodes nodes) error {
 			replicationIter.SetStartNode(node)
 			// the first node is already assigned, we only need to assign the
 			// additional nodes
-			for i := s.Config.Replicas; i > 1; i-- {
+			for i := replFactor; i > 1; i-- {
 				shard.BelongsToNodes = append(shard.BelongsToNodes, replicationIter.Next())
 			}
 		}
@@ -373,7 +371,6 @@ func (c Config) DeepCopy() Config {
 		Key:                 c.Key,
 		Strategy:            c.Strategy,
 		Function:            c.Function,
-		Replicas:            c.Replicas,
 	}
 }
 

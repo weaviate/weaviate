@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modcohere
@@ -17,14 +17,14 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/additional"
-	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/additional/projector"
-	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/clients"
-	"github.com/semi-technologies/weaviate/modules/text2vec-cohere/vectorizer"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/additional"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/additional/projector"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/vectorizer"
 )
 
 const Name = "text2vec-cohere"
@@ -134,6 +134,12 @@ func (m *CohereModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
+func (m *CohereModule) VectorizeInput(ctx context.Context,
+	input string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+}
+
 func (m *CohereModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
@@ -145,4 +151,5 @@ var (
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 	_ = modulecapabilities.GraphQLArguments(New())
+	_ = modulecapabilities.InputVectorizer(New())
 )

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package aggregator
@@ -16,13 +16,14 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/lsmkv"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type vectorIndex interface {
@@ -32,6 +33,7 @@ type vectorIndex interface {
 }
 
 type Aggregator struct {
+	logger           logrus.FieldLogger
 	store            *lsmkv.Store
 	params           aggregation.Params
 	getSchema        schemaUC.SchemaGetter
@@ -41,15 +43,18 @@ type Aggregator struct {
 	vectorIndex      vectorIndex
 	stopwords        stopwords.StopwordDetector
 	shardVersion     uint16
+	propLengths      *inverted.PropertyLengthTracker
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
 	classSearcher inverted.ClassSearcher,
 	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
-	shardVersion uint16, vectorIndex vectorIndex,
+	shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger,
+	propLengths *inverted.PropertyLengthTracker,
 ) *Aggregator {
 	return &Aggregator{
+		logger:           logger,
 		store:            store,
 		params:           params,
 		getSchema:        getSchema,
@@ -59,6 +64,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		stopwords:        stopwords,
 		shardVersion:     shardVersion,
 		vectorIndex:      vectorIndex,
+		propLengths:      propLengths,
 	}
 }
 
@@ -67,7 +73,7 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 		return newGroupedAggregator(a).Do(ctx)
 	}
 
-	if a.params.Filters != nil || len(a.params.SearchVector) > 0 {
+	if a.params.Filters != nil || len(a.params.SearchVector) > 0 || a.params.Hybrid != nil {
 		return newFilteredAggregator(a).Do(ctx)
 	}
 

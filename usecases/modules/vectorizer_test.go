@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modules
@@ -18,12 +18,12 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/vectorindex/hnsw"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestProvider_ValidateVectorizer(t *testing.T) {
@@ -154,15 +154,18 @@ func TestProvider_UpdateVector(t *testing.T) {
 		modName := "some-vzr"
 		className := "SomeClass"
 		mod := newDummyModule(modName, modulecapabilities.Text2Vec)
-		sch := schema.Schema{Objects: &models.Schema{
-			Classes: []*models.Class{{
-				Class: className,
-				ModuleConfig: map[string]interface{}{
-					modName: struct{}{},
-				},
-				VectorIndexConfig: hnsw.UserConfig{},
-			}},
-		}}
+		class := models.Class{
+			Class: className,
+			ModuleConfig: map[string]interface{}{
+				modName: struct{}{},
+			},
+			VectorIndexConfig: hnsw.UserConfig{},
+		}
+		sch := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{&class},
+			},
+		}
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
 
@@ -171,7 +174,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, &class, nil, repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
@@ -180,14 +183,16 @@ func TestProvider_UpdateVector(t *testing.T) {
 		modName := "some-vzr"
 		className := "SomeClass"
 		mod := newDummyModule(modName, modulecapabilities.Ref2Vec)
+		class := &models.Class{
+			Class: className,
+			ModuleConfig: map[string]interface{}{
+				modName: struct{}{},
+			},
+			VectorIndexConfig: hnsw.UserConfig{},
+		}
+
 		sch := schema.Schema{Objects: &models.Schema{
-			Classes: []*models.Class{{
-				Class: className,
-				ModuleConfig: map[string]interface{}{
-					modName: struct{}{},
-				},
-				VectorIndexConfig: hnsw.UserConfig{},
-			}},
+			Classes: []*models.Class{class},
 		}}
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
@@ -197,13 +202,16 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, class, nil, repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
 	t.Run("with nonexistent class", func(t *testing.T) {
 		ctx := context.Background()
-		className := "SomeClass"
+		class := &models.Class{
+			Class:             "SomeClass",
+			VectorIndexConfig: hnsw.UserConfig{},
+		}
 		mod := newDummyModule("", "")
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
@@ -212,9 +220,9 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.Register(mod)
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
 
-		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
-		expectedErr := fmt.Sprintf("class %q not found in schema", className)
+		obj := &models.Object{Class: "Other Class", ID: newUUID()}
+		err := p.UpdateVector(ctx, obj, class, nil, repo.Object, logger)
+		expectedErr := fmt.Sprintf("class %v not present", obj.Class)
 		assert.EqualError(t, err, expectedErr)
 	})
 
@@ -223,14 +231,15 @@ func TestProvider_UpdateVector(t *testing.T) {
 		modName := "some-vzr"
 		className := "SomeClass"
 		mod := newDummyModule(modName, modulecapabilities.Ref2Vec)
+		class := &models.Class{
+			Class: className,
+			ModuleConfig: map[string]interface{}{
+				modName: struct{}{},
+			},
+			VectorIndexConfig: struct{}{},
+		}
 		sch := schema.Schema{Objects: &models.Schema{
-			Classes: []*models.Class{{
-				Class: className,
-				ModuleConfig: map[string]interface{}{
-					modName: struct{}{},
-				},
-				VectorIndexConfig: struct{}{},
-			}},
+			Classes: []*models.Class{class},
 		}}
 		repo := &fakeObjectsRepo{}
 		logger, _ := test.NewNullLogger()
@@ -240,7 +249,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, nil, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, class, nil, repo.Object, logger)
 		expectedErr := "vector index config (struct {}) is not of type HNSW, " +
 			"but objects manager is restricted to HNSW"
 		assert.EqualError(t, err, expectedErr)

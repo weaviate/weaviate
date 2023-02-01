@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package hnsw
@@ -18,13 +18,12 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
@@ -238,14 +237,14 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			// How is it possible that we could ever have more connections than the
 			// allowed maximum? It is not anymore, but there was a bug that allowed
 			// this to happen in versions prior to v1.12.0:
-			// https://github.com/semi-technologies/weaviate/issues/1868
+			// https://github.com/weaviate/weaviate/issues/1868
 			//
 			// As a result the length of this slice is entirely unpredictable and we
 			// can no longer retrieve it from the pool. Instead we need to fallback
 			// to allocating a new slice.
 			//
 			// This was discovered as part of
-			// https://github.com/semi-technologies/weaviate/issues/1897
+			// https://github.com/weaviate/weaviate/issues/1897
 			c := make([]uint64, len(candidateNode.connections[level]))
 			connections = &c
 		} else {

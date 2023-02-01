@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
@@ -24,17 +24,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/semi-technologies/weaviate/adapters/clients"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/entities/backup"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	modstgfs "github.com/semi-technologies/weaviate/modules/backup-filesystem"
-	ubak "github.com/semi-technologies/weaviate/usecases/backup"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/adapters/clients"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
+	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type node struct {
@@ -96,7 +96,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo))
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
@@ -154,6 +154,11 @@ func (f *fakeSchemaManager) NodeName() string {
 
 func (f *fakeSchemaManager) ClusterHealthScore() int {
 	return 0
+}
+
+func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
+) ([]string, []string, error) {
+	return nil, nil, nil
 }
 
 type nodeResolver struct {

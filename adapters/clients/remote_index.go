@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clients
@@ -23,15 +23,16 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 type RemoteIndex retryClient
@@ -629,8 +630,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
-			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -648,7 +648,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 		}
 		return false, nil
 	}
-	return status, c.retry(ctx, 5, try)
+	return status, c.retry(ctx, 9, try)
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -678,14 +678,13 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 
 		if code := res.StatusCode; code != http.StatusOK {
 			body, _ := io.ReadAll(res.Body)
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
-			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
 		}
 
 		return false, nil
 	}
 
-	return c.retry(ctx, 7, try)
+	return c.retry(ctx, 9, try)
 }
 
 func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
@@ -710,7 +709,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusNoContent {
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
+			shouldRetry := shouldRetry(code)
 			if shouldRetry {
 				_, err := payload.Seek(0, 0)
 				shouldRetry = (err == nil)
@@ -721,7 +720,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		return false, nil
 	}
 
-	return c.retry(ctx, 7, try)
+	return c.retry(ctx, 12, try)
 }
 
 func (c *RemoteIndex) CreateShard(ctx context.Context,
@@ -744,14 +743,13 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusCreated {
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
 		}
 		return false, nil
 	}
 
-	return c.retry(ctx, 7, try)
+	return c.retry(ctx, 9, try)
 }
 
 func (c *RemoteIndex) ReInitShard(ctx context.Context,
@@ -774,26 +772,25 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusNoContent {
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
 			body, _ := io.ReadAll(res.Body)
-			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
 
 		}
 		return false, nil
 	}
 
-	return c.retry(ctx, 7, try)
+	return c.retry(ctx, 9, try)
 }
 
 func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
-	hostName, indexName string, ssBefore, ssAfter *sharding.State,
+	hostName, indexName string, dist scaler.ShardDist,
 ) error {
 	path := fmt.Sprintf("/replicas/indices/%s/replication-factor:increase", indexName)
 
 	method := http.MethodPut
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
-	body, err := clusterapi.IndicesPayloads.IncreaseReplicationFactor.Marshall(ssBefore, ssAfter)
+	body, err := clusterapi.IndicesPayloads.IncreaseReplicationFactor.Marshall(dist)
 	if err != nil {
 		return err
 	}
@@ -811,10 +808,126 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 
 		if code := res.StatusCode; code != http.StatusNoContent {
 			body, _ := io.ReadAll(res.Body)
-			shouldRetry := (code == http.StatusInternalServerError || code == http.StatusTooManyRequests)
-			return shouldRetry, fmt.Errorf("status code: %v body: (%s)", code, body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 7, try)
+	return c.retry(ctx, 34, try)
+}
+
+// FindObject extends GetObject with retries
+// It exists to not alter the behavior of GetObject when replication is not enabled
+func (c *RemoteIndex) FindObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, selectProps search.SelectProperties,
+	additional additional.Properties,
+) (*storobj.Object, error) {
+	selectPropsBytes, err := json.Marshal(selectProps)
+	if err != nil {
+		return nil, fmt.Errorf("marshal selectProps props: %w", err)
+	}
+
+	additionalBytes, err := json.Marshal(additional)
+	if err != nil {
+		return nil, fmt.Errorf("marshal additional props: %w", err)
+	}
+
+	url := url.URL{
+		Scheme: "http",
+		Host:   hostName,
+		Path:   fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id),
+	}
+	q := url.Query()
+	q.Set("additional", base64.StdEncoding.EncodeToString(additionalBytes))
+	q.Set("selectProperties", base64.StdEncoding.EncodeToString(selectPropsBytes))
+	url.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	var obj *storobj.Object
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+
+		defer res.Body.Close()
+		if res.StatusCode == http.StatusNotFound {
+			// this is a legitimate case - the requested ID doesn't exist, don't try
+			// to unmarshal anything
+			return false, nil
+		}
+		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+
+		ct, ok := clusterapi.IndicesPayloads.SingleObject.CheckContentTypeHeader(res)
+		if !ok {
+			return false, fmt.Errorf("unknown content type %s", ct)
+		}
+
+		objBytes, err := io.ReadAll(res.Body)
+		if err != nil {
+			return false, fmt.Errorf("read body: %w", err)
+		}
+
+		obj, err = clusterapi.IndicesPayloads.SingleObject.Unmarshal(objBytes)
+		if err != nil {
+			return false, fmt.Errorf("unmarshal body: %w", err)
+		}
+		return false, nil
+	}
+	return obj, c.retry(ctx, 9, try)
+}
+
+func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects:overwrite", index, shard)
+
+	url := url.URL{Scheme: "http", Host: host, Path: path}
+
+	marshalled, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(objects)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		url.String(), bytes.NewReader(marshalled))
+	if err != nil {
+		return nil, fmt.Errorf("open http request: %w", err)
+	}
+
+	clusterapi.IndicesPayloads.VersionedObjectList.SetContentTypeHeaderReq(req)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send http request: %w", err)
+	}
+
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d (%s)",
+			resp.StatusCode, body)
+	}
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	if len(b) == 0 {
+		return nil, nil
+	}
+
+	var rr []replica.RepairResponse
+	err = json.Unmarshal(b, &rr)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal response body: %w", err)
+	}
+	return rr, nil
 }

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -21,9 +21,8 @@ import (
 func (m *Manager) UpdateMeta(ctx context.Context,
 	atContext strfmt.URI, maintainer strfmt.Email, name string,
 ) error {
-	semanticSchema := m.state.SchemaFor()
-	semanticSchema.Maintainer = maintainer
-	semanticSchema.Name = name
+	m.state.ObjectSchema.Maintainer = maintainer
+	m.state.ObjectSchema.Name = name
 
 	return m.saveSchema(ctx)
 }

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package traverser
@@ -14,15 +14,29 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params GetParams,
 ) (interface{}, error) {
+	before := time.Now()
+
+	ok := t.ratelimiter.TryInc()
+	if !ok {
+		// we currently have no concept of error status code or typed errors in
+		// GraphQL, so there is no other way then to send a message containing what
+		// we want to convey
+		return nil, fmt.Errorf("429 Too many requests")
+	}
+
+	defer t.ratelimiter.Dec()
+
 	t.metrics.QueriesGetInc(params.ClassName)
 	defer t.metrics.QueriesGetDec(params.ClassName)
+	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())
 
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package modopenai
@@ -17,14 +17,14 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/modulecapabilities"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/additional"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/additional/projector"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/clients"
-	"github.com/semi-technologies/weaviate/modules/text2vec-openai/vectorizer"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/additional"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/additional/projector"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
 )
 
 func New() *OpenAIModule {
@@ -51,7 +51,6 @@ type textVectorizer interface {
 	MoveTo(source, target []float32, weight float32) ([]float32, error)
 	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
 	CombineVectors([][]float32) []float32
-	VectorizeInput(ctx context.Context, input, tiipe, model string) ([]float32, error)
 }
 
 type metaProvider interface {
@@ -141,7 +140,8 @@ func (m *OpenAIModule) AdditionalProperties() map[string]modulecapabilities.Addi
 func (m *OpenAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.VectorizeInput(ctx, input, cfg.Class()["type"].(string), cfg.Class()["model"].(string)) // FIXME config?
+	icheck := vectorizer.NewClassSettings(cfg)
+	return m.vectorizer.Texts(ctx, []string{input}, icheck)
 }
 
 // verify we implement the modules.Module interface

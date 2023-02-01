@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
@@ -15,22 +15,20 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"golang.org/x/sync/errgroup"
 )
 
-func (s *Shard) initProperties() error {
+func (s *Shard) initProperties(class *models.Class) error {
 	s.propertyIndices = propertyspecific.Indices{}
-	sch := s.index.getSchema.GetSchemaSkipAuth()
-	c := sch.FindClassByName(s.index.Config.ClassName)
-	if c == nil {
+	if class == nil {
 		return nil
 	}
 
 	eg := &errgroup.Group{}
-	for _, prop := range c.Properties {
+	for _, prop := range class.Properties {
 		if prop.IndexInverted != nil && !*prop.IndexInverted {
 			continue
 		}

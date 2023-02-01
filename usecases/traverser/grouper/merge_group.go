@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package grouper
@@ -16,9 +16,9 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
 type valueType int
@@ -171,7 +171,7 @@ func valueTypeOf(in interface{}) valueType {
 	case *models.GeoCoordinates:
 		return geo
 	// reference properties can be represented as either of these types.
-	// see https://github.com/semi-technologies/weaviate/pull/2320
+	// see https://github.com/weaviate/weaviate/pull/2320
 	case models.MultipleRef, []interface{}:
 		return reference
 	default:
@@ -273,7 +273,7 @@ func mergeReferenceProps(in []interface{}) ([]interface{}, error) {
 		// because reference properties can be represented both as
 		// models.MultipleRef and []interface{}, we have to handle
 		// parsing both cases accordingly.
-		// see https://github.com/semi-technologies/weaviate/pull/2320
+		// see https://github.com/weaviate/weaviate/pull/2320
 		if asMultiRef, ok := elem.(models.MultipleRef); ok {
 			if err := parseRefTypeMultipleRef(asMultiRef, &out, seenID); err != nil {
 				return nil, fmt.Errorf("element %d: %w", i, err)

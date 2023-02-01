@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package sharding
@@ -44,13 +44,6 @@ func TestConfigUpdates(t *testing.T) {
 				expectedError: fmt.Errorf(
 					"virtual shards per physical is immutable: " +
 						"attempted change from \"128\" to \"256\""),
-			},
-			{
-				name:    "attempting to increase replicas beyond cluster size",
-				initial: Config{Replicas: 3},
-				update:  Config{Replicas: 4},
-				expectedError: fmt.Errorf(
-					"cannot scale to 4 replicas, cluster has only 3 nodes"),
 			},
 		}
 

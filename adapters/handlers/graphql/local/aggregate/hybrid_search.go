@@ -4,31 +4,29 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
-package get
+package aggregate
 
 import (
 	"fmt"
 	"os"
 
 	"github.com/tailor-inc/graphql"
-
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func hybridArgument(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("GetObjects%s", class.Class)
+	prefix := fmt.Sprintf("AggregateObjects%s", class.Class)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("%shybridInpObj", prefix),
+				Name:        fmt.Sprintf("%sHybridInpObj", prefix),
 				Fields:      hybridOperands(classObject, class, modulesProvider),
 				Description: "Hybrid search",
 			},
@@ -85,18 +83,6 @@ func hybridSubSearch(classObject *graphql.Object,
 					Name:        fmt.Sprintf("%sBM25InpObj", prefixName),
 					Fields:      bm25Fields(prefixName),
 					Description: "BM25f search",
-				},
-			),
-		},
-
-		"nearText": &graphql.InputObjectFieldConfig{
-			Description: "nearText element",
-
-			Type: graphql.NewInputObject(
-				graphql.InputObjectConfig{
-					Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
-					Fields:      nearTextFields(prefixName),
-					Description: descriptions.GetWhereInpObj,
 				},
 			),
 		},

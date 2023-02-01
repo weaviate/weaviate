@@ -9,7 +9,6 @@ export GO111MODULE=on
 export LOG_LEVEL=${LOG_LEVEL:-"debug"}
 export LOG_FORMAT=${LOG_FORMAT:-"text"}
 export PROMETHEUS_MONITORING_ENABLED=${PROMETHEUS_MONITORING_ENABLED:-"true"}
-export ENABLE_EXPERIMENTAL_BM25=${ENABLE_EXPERIMENTAL_BM25:-"true"}
 export GO_BLOCK_PROFILE_RATE=${GO_BLOCK_PROFILE_RATE:-"20"}
 export GO_MUTEX_PROFILE_FRACTION=${GO_MUTEX_PROFILE_FRACTION:-"20"}
 export PERSISTENCE_DATA_PATH=${PERSISTENCE_DATA_PATH:-"./data"}
@@ -21,7 +20,7 @@ export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node1"}
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -ldflags "-X github.com/semi-technologies/weaviate/usecases/config.GitHash=$GIT_HASH" $@
+  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" $@
 }
 
 case $CONFIG in

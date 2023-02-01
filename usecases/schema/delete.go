@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // DeleteClass from the schema
@@ -50,7 +50,7 @@ func (m *Manager) deleteClass(ctx context.Context, className string) error {
 }
 
 func (m *Manager) deleteClassApplyChanges(ctx context.Context, className string) error {
-	semanticSchema := m.state.SchemaFor()
+	semanticSchema := m.state.ObjectSchema
 	classIdx := -1
 	for idx, class := range semanticSchema.Classes {
 		if class.Class == className {

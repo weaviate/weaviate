@@ -4,25 +4,27 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package db
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type Migrator struct {
@@ -33,6 +35,10 @@ type Migrator struct {
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State,
 ) error {
+	if err := replica.ValidateConfig(class); err != nil {
+		return fmt.Errorf("replication config: %w", err)
+	}
+
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                 schema.ClassName(class.Class),
@@ -46,6 +52,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMinActiveSeconds: m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds: m.db.config.MemtablesMaxActiveSeconds,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
+			ReplicationFactor:         class.ReplicationConfig.Factor,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -53,7 +60,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics)
+		m.db.replicaClient, m.db.promMetrics, class)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -70,38 +77,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		}
 	}
 
-	for _, prop := range class.Properties {
-		if prop.IndexInverted != nil && !*prop.IndexInverted {
-			continue
-		}
-
-		err := idx.addProperty(ctx, prop)
-		if err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
-		}
-
-		if class.InvertedIndexConfig.IndexNullState {
-			err = idx.addNullStateProperty(ctx, prop)
-			if err != nil {
-				return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
-			}
-		}
-
-		if class.InvertedIndexConfig.IndexPropertyLength {
-			dt := schema.DataType(prop.DataType[0])
-			// some datatypes are not added to the inverted index, so we can skip them here
-			switch dt {
-			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
-				schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
-			default:
-				err = idx.addPropertyLength(ctx, prop)
-				if err != nil {
-					return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
-				}
-			}
-		}
-	}
-
 	if m.db.config.TrackVectorDimensions {
 		if err := idx.addDimensionsProperty(context.TODO()); err != nil {
 			return errors.Wrap(err, "init id property")
@@ -113,6 +88,35 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	idx.notifyReady()
 	m.db.indexLock.Unlock()
 
+	return nil
+}
+
+func (m *Migrator) addPropertiesAndNullAndLength(ctx context.Context, prop *models.Property, idx *Index) error {
+	err := idx.addProperty(ctx, prop)
+	if err != nil {
+		return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
+	}
+
+	if idx.invertedIndexConfig.IndexNullState {
+		err = idx.addNullStateProperty(ctx, prop)
+		if err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with nullstate properties", idx.ID())
+		}
+	}
+
+	if idx.invertedIndexConfig.IndexPropertyLength {
+		dt := schema.DataType(prop.DataType[0])
+		// some datatypes are not added to the inverted index, so we can skip them here
+		switch dt {
+		case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+			schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		default:
+			err = idx.addPropertyLength(ctx, prop)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with property length", idx.ID())
+			}
+		}
+	}
 	return nil
 }
 
@@ -139,7 +143,7 @@ func (m *Migrator) AddProperty(ctx context.Context, className string, prop *mode
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	return idx.addProperty(ctx, prop)
+	return m.addPropertiesAndNullAndLength(ctx, prop, idx)
 }
 
 // DropProperty is ignored, API compliant change

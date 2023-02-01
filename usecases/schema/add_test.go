@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package schema
@@ -15,9 +15,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
+
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -602,5 +604,49 @@ func TestAddClass(t *testing.T) {
 		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
 		require.Equal(t, "NewClass", mgr.state.ObjectSchema.Classes[0].Class)
 		require.Equal(t, expected, mgr.state.ObjectSchema.Classes[0].VectorIndexConfig)
+	})
+
+	t.Run("with two identical prop names", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{
+				Class: "NewClass",
+				Properties: []*models.Property{
+					{
+						Name:     "my_prop",
+						DataType: []string{"text"},
+					},
+					{
+						Name:     "my_prop",
+						DataType: []string{"int"},
+					},
+				},
+			})
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "conflict for property")
+	})
+
+	// To prevent a regression on
+	// https://github.com/semi-technologies/weaviate/issues/2530
+	t.Run("with two props that are identical when ignoring casing", func(t *testing.T) {
+		mgr := newSchemaManager()
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{
+				Class: "NewClass",
+				Properties: []*models.Property{
+					{
+						Name:     "my_prop",
+						DataType: []string{"text"},
+					},
+					{
+						Name:     "mY_PrOP",
+						DataType: []string{"int"},
+					},
+				},
+			})
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "conflict for property")
 	})
 }

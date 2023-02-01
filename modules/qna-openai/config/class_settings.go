@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package config
@@ -15,8 +15,8 @@ import (
 	"encoding/json"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 const (
@@ -42,8 +42,16 @@ var maxTokensForModel = map[string]float64{
 	"text-babbage-001": 2048,
 	"text-curie-001":   2048,
 	"text-davinci-002": 4000,
+	"text-davinci-003": 4000,
 }
-var availableOpenAIModels = []string{"text-ada-001", "text-babbage-001", "text-curie-001", "text-davinci-002"}
+
+var availableOpenAIModels = []string{
+	"text-ada-001",
+	"text-babbage-001",
+	"text-curie-001",
+	"text-davinci-002",
+	"text-davinci-003",
+}
 
 type classSettings struct {
 	cfg moduletools.ClassConfig

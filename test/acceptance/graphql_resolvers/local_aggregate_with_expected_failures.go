@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package test
@@ -15,11 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/helper"
-	graphqlhelper "github.com/semi-technologies/weaviate/test/helper/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
 func aggregatesWithExpectedFailures(t *testing.T) {
@@ -291,7 +291,7 @@ func aggregatesWithExpectedFailures(t *testing.T) {
 
 		require.NotEmpty(t, result)
 		require.Len(t, result, 1)
-		assert.True(t, strings.Contains(result[0].Message, "objectLimit can only be used with a near<Media> filter"))
+		assert.True(t, strings.Contains(result[0].Message, "objectLimit can only be used with a near<Media> or hybrid filter"))
 	})
 }
 

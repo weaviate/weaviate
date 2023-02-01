@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package objects
@@ -16,8 +16,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // UpdateObject updates object of class.
@@ -48,13 +48,13 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	class string, id strfmt.UUID, updates *models.Object,
+	className string, id strfmt.UUID, updates *models.Object,
 ) (*models.Object, error) {
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	obj, err := m.getObjectFromRepo(ctx, class, id, additional.Properties{}, nil)
+	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.modulesProvider.UpdateVector(ctx, updates, nil, m.findObject, m.logger)
+	class, err := m.schemaManager.GetClass(ctx, principal, className)
+	if err != nil {
+		return nil, err
+	}
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, nil, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}

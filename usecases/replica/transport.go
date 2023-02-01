@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package replica
@@ -16,10 +16,10 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 const (
@@ -35,6 +35,7 @@ const (
 	StatusShardNotFound
 	StatusNotFound
 	StatusAlreadyExisted
+	StatusNotReady
 	StatusConflict = iota + 300
 	StatusPreconditionFailed
 	StatusReadOnly
@@ -66,6 +67,10 @@ func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err) }
 
+func (e *Error) IsStatusCode(sc StatusCode) bool {
+	return e.Code == sc
+}
+
 // statusText returns a text for the status code. It returns the empty
 // string if the code is unknown.
 func statusText(code StatusCode) string {
@@ -84,6 +89,8 @@ func statusText(code StatusCode) string {
 		return "precondition failed"
 	case StatusAlreadyExisted:
 		return "already existed"
+	case StatusNotReady:
+		return "local index not ready"
 	case StatusReadOnly:
 		return "read only"
 	default:
@@ -150,7 +157,21 @@ type Client interface {
 
 // RClient is the client used to read from remote replicas
 type RClient interface {
-	GetObject(ctx context.Context, host, index, shard string,
+	FindObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
+
+	Exists(_ context.Context, host, index, shard string, id strfmt.UUID) (bool, error)
+
+	MultiGetObjects(_ context.Context, host, index, shard string,
+		ids []strfmt.UUID) ([]*storobj.Object, error)
 }
+
+type RepairResponse struct {
+	ID         string // object id
+	Version    uint64 // sender's current version of the object
+	UpdateTime int64  // sender's current update time
+	Err        string
+}
+
+// Ticket: Extend adapter/client with retry strategy for exists() and getobjects()

@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package sharding
@@ -30,14 +30,6 @@ func ValidateConfigUpdate(old, updated Config, nodeCounter nodeCounter) error {
 		return fmt.Errorf("virtual shards per physical is immutable: "+
 			"attempted change from \"%d\" to \"%d\"", old.VirtualPerPhysical,
 			updated.VirtualPerPhysical)
-	}
-
-	if old.Replicas != updated.Replicas {
-		nc := nodeCounter.NodeCount()
-		if updated.Replicas > nc {
-			return fmt.Errorf("cannot scale to %d replicas, cluster has only %d nodes",
-				updated.Replicas, nc)
-		}
 	}
 
 	return nil

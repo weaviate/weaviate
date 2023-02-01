@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package clusterapi
@@ -21,13 +21,13 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/aggregation"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/searchparams"
-	"github.com/semi-technologies/weaviate/entities/storobj"
-	"github.com/semi-technologies/weaviate/usecases/objects"
-	"github.com/semi-technologies/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 var IndicesPayloads = indicesPayloads{}
@@ -37,6 +37,7 @@ type indicesPayloads struct {
 	SingleObject              singleObjectPayload
 	MergeDoc                  mergeDocPayload
 	ObjectList                objectListPayload
+	VersionedObjectList       versionedObjectListPayload
 	SearchResults             searchResultsPayload
 	SearchParams              searchParamsPayload
 	ReferenceList             referenceListPayload
@@ -56,28 +57,26 @@ type indicesPayloads struct {
 
 type increaseReplicationFactorPayload struct{}
 
-func (p increaseReplicationFactorPayload) Marshall(ssBefore, ssAfter *sharding.State) ([]byte, error) {
+func (p increaseReplicationFactorPayload) Marshall(dist scaler.ShardDist) ([]byte, error) {
 	type payload struct {
-		OldShardingState *sharding.State `json:"oldShardingState"`
-		NewShardingState *sharding.State ` json:"newShardingState"`
+		ShardDist scaler.ShardDist `json:"shard_distribution"`
 	}
 
-	pay := payload{ssBefore, ssAfter}
+	pay := payload{ShardDist: dist}
 	return json.Marshal(pay)
 }
 
-func (p increaseReplicationFactorPayload) Unmarshal(in []byte) (*sharding.State, *sharding.State, error) {
+func (p increaseReplicationFactorPayload) Unmarshal(in []byte) (scaler.ShardDist, error) {
 	type payload struct {
-		OldShardingState *sharding.State `json:"oldShardingState"`
-		NewShardingState *sharding.State ` json:"newShardingState"`
+		ShardDist scaler.ShardDist `json:"shard_distribution"`
 	}
 
 	pay := payload{}
 	if err := json.Unmarshal(in, &pay); err != nil {
-		return nil, nil, fmt.Errorf("unmarshal replication factor resp: %w", err)
+		return nil, fmt.Errorf("unmarshal replication factor payload: %w", err)
 	}
 
-	return pay.OldShardingState, pay.NewShardingState, nil
+	return pay.ShardDist, nil
 }
 
 type errorListPayload struct{}
@@ -220,6 +219,86 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 		}
 
 		out = append(out, obj)
+	}
+
+	return out, nil
+}
+
+type versionedObjectListPayload struct{}
+
+func (p versionedObjectListPayload) MIME() string {
+	return "application/vnd.weaviate.vobject.list+octet-stream"
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	reusableLengthBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := r.Read(reusableLengthBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		ln := binary.LittleEndian.Uint64(reusableLengthBuf)
+		payloadBytes := make([]byte, ln)
+		_, err = r.Read(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		var vobj objects.VObject
+		err = vobj.UnmarshalBinary(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, &vobj)
 	}
 
 	return out, nil

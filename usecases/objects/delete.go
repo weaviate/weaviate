@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package objects
@@ -16,8 +16,8 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/additional"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // DeleteObject Class Instance from the conncected DB
@@ -69,7 +69,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 	// There might be a situation to have UUIDs which are not unique across classes.
 	// Added loop in order to delete all of the objects with given UUID across all classes.
 	// This change is added in response to this issue:
-	// https://github.com/semi-technologies/weaviate/issues/1836
+	// https://github.com/weaviate/weaviate/issues/1836
 	deleteCounter := 0
 	for {
 		objectRes, err := m.getObjectFromRepo(ctx, "", id, additional.Properties{}, nil)

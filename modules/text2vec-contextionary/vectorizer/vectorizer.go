@@ -4,9 +4,9 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2022 SeMI Technologies B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
-//  CONTACT: hello@semi.technology
+//  CONTACT: hello@weaviate.io
 //
 
 package vectorizer
@@ -22,9 +22,9 @@ import (
 	"strings"
 
 	"github.com/fatih/camelcase"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/moduletools"
-	txt2vecmodels "github.com/semi-technologies/weaviate/modules/text2vec-contextionary/additional/models"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
 )
 
 // Vectorizer turns objects into vectors
@@ -87,16 +87,6 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	}
 
 	return nil
-}
-
-func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
-	icheck ClassIndexCheck,
-) ([]float32, error) {
-	vector, _, err := v.client.VectorForCorpi(ctx, []string{input}, nil)
-	if err != nil {
-		return nil, err
-	}
-	return vector, nil
 }
 
 func sortStringKeys(schema_map map[string]interface{}) []string {
