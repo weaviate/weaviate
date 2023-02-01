@@ -552,8 +552,8 @@ type docPointers struct {
 
 type docPointerWithScore struct {
 	id         uint64
-	frequency  float64
-	propLength float64
+	frequency  float32
+	propLength float32
 }
 
 func (d docPointers) IDs() []uint64 {
