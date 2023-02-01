@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -36,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestCRUD(t *testing.T) {
@@ -267,7 +267,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("finding the updated object by querying for an updated value",
 		func(t *testing.T) {
 			// This is to verify the inverted index was updated correctly
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -294,7 +294,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("NOT finding the previous version by querying for an outdated value",
 		func(t *testing.T) {
 			// This is to verify the inverted index was cleaned up correctly
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -320,7 +320,7 @@ func TestCRUD(t *testing.T) {
 			// This is to verify that while we're adding new links and cleaning up
 			// old ones, we don't actually touch those that were present and still
 			// should be
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -443,7 +443,7 @@ func TestCRUD(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		params := traverser.GetParams{
+		params := dto.GetParams{
 			SearchVector: searchVector,
 			ClassName:    "TheBestThingClass",
 			Pagination:   &filters.Pagination{Limit: 10},
@@ -472,7 +472,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching by class type", func(t *testing.T) {
-		params := traverser.GetParams{
+		params := dto.GetParams{
 			SearchVector: nil,
 			ClassName:    "TheBestThingClass",
 			Pagination:   &filters.Pagination{Limit: 10},
@@ -925,7 +925,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the thing is indexed in the inverted index", func(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName:  "TheBestThingClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -949,7 +949,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the action is indexed in the inverted index", func(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName:  "TheBestActionClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -994,7 +994,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("verifying the thing is NOT indexed in the inverted index",
 		func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -1017,7 +1017,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("verifying the action is NOT indexed in the inverted index",
 		func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "TheBestActionClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -1055,7 +1055,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("searching by vector for a single thing class again after deletion",
 		func(t *testing.T) {
 			searchVector := []float32{2.9, 1.1, 0.5, 8.01}
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				SearchVector: searchVector,
 				ClassName:    "TheBestThingClass",
 				Pagination:   &filters.Pagination{Limit: 10},
@@ -1070,7 +1070,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
-		params := traverser.GetParams{
+		params := dto.GetParams{
 			SearchVector: searchVector,
 			ClassName:    "TheBestActionClass",
 			Pagination:   &filters.Pagination{Limit: 10},
@@ -1165,7 +1165,7 @@ func TestCRUD(t *testing.T) {
 
 		t.Run("query every action for its referenced thing", func(t *testing.T) {
 			for i := range createdActionIDs {
-				resp, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				resp, err := repo.ClassSearch(context.Background(), dto.GetParams{
 					ClassName:            "TheBestActionClass",
 					Pagination:           &filters.Pagination{Limit: 5},
 					AdditionalProperties: additional.Properties{ID: true},
@@ -1241,7 +1241,7 @@ func TestCRUD(t *testing.T) {
 		})
 
 		t.Run("perform search with id filter", func(t *testing.T) {
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				Pagination: &filters.Pagination{Limit: 10},
 				ClassName:  "TheBestActionClass",
 				Filters: &filters.LocalFilter{
@@ -1369,7 +1369,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("verify inverted index works correctly", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters:   buildFilter("int_prop", total+1, lte, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1382,7 +1382,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("perform unfiltered vector search and verify there are no matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			Filters:   nil,
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1408,7 +1408,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("perform unfiltered vector search and verify correct matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			Filters:   nil,
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1422,7 +1422,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	})
 
 	t.Run("perform filtered vector search and verify correct matches", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			Filters:   buildFilter("int_prop", 50, lt, dtInt),
 			ClassName: className,
 			Pagination: &filters.Pagination{
@@ -1522,7 +1522,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	})
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
@@ -1548,7 +1548,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	})
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
@@ -1659,7 +1659,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	})
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
@@ -1685,7 +1685,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	})
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
-		results, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		results, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:  className,
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
@@ -2072,7 +2072,6 @@ func TestOverwriteObjects(t *testing.T) {
 		received, err := idx.OverwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, nil, received)
-
 	})
 
 	t.Run("assert data was overwritten", func(t *testing.T) {

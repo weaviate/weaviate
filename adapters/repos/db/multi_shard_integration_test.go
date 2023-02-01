@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -40,7 +41,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
@@ -258,7 +258,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:      className,
 				Pagination:     &filters.Pagination{Limit: 10},
 				KeywordRanking: test.rankingParams,
@@ -383,7 +383,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 					Filters: filter,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -409,7 +409,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+				res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 					SearchVector: queryVec,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -700,7 +700,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 				}
 			}
 			performClassSearch := func(className string) ([]search.Result, error) {
-				return repo.ClassSearch(context.Background(), traverser.GetParams{
+				return repo.ClassSearch(context.Background(), dto.GetParams{
 					ClassName:  className,
 					Pagination: &filters.Pagination{Limit: 10000},
 				})

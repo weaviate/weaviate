@@ -28,13 +28,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestBatchPutObjectsWithDimensions(t *testing.T) {
@@ -393,7 +393,7 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 				assert.Nil(t, batchRes[2].Err)
 			})
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -478,7 +478,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				assert.Nil(t, batchRes[2].Err)
 			})
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -500,7 +500,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 
 			t.Run("can be queried through the inverted index", func(t *testing.T) {
 				filter := buildFilter("stringProp", "third", eq, dtString)
-				params := traverser.GetParams{
+				params := dto.GetParams{
 					ClassName:  "ThingForBatching",
 					Pagination: &filters.Pagination{Limit: 10},
 					Filters:    filter,
@@ -565,7 +565,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				})
 			})
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -661,7 +661,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				})
 			})
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters:    nil,
@@ -802,7 +802,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
-					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+					res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -866,7 +866,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 						*queryGeo.Longitude,
 					}, maxDist*km)
 
-					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+					res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 						ClassName:  "ThingForBatching",
 						Pagination: &filters.Pagination{Limit: 500},
 						Filters: buildFilter("location", filters.GeoRange{
@@ -923,7 +923,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			}
 		}
 		performClassSearch := func() ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), traverser.GetParams{
+			return repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 10000},
 			})
@@ -1074,7 +1074,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			}
 		}
 		performClassSearch := func() ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), traverser.GetParams{
+			return repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  "ThingForBatching",
 				Pagination: &filters.Pagination{Limit: 20},
 			})

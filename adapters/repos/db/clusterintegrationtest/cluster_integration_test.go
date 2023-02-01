@@ -29,13 +29,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 const (
@@ -192,7 +192,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			groundTruth := bruteForceObjectsByQuery(data, query)
 
 			node := nodes[rand.Intn(len(nodes))]
-			res, err := node.repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			res, err := node.repo.VectorClassSearch(context.Background(), dto.GetParams{
 				SearchVector: query,
 				Pagination: &filters.Pagination{
 					Limit: 25,
@@ -329,7 +329,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				Properties: []string{"description"},
 			}
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				ClassName:      distributedClass,
 				KeywordRanking: keywordRanking,
 				Pagination:     &filters.Pagination{Limit: 100},
@@ -401,7 +401,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -431,7 +431,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -561,7 +561,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		}
 		for _, td := range testData {
 			t.Run(td.name, func(t *testing.T) {
-				params := traverser.GetParams{
+				params := dto.GetParams{
 					ClassName:  distributedClass,
 					Sort:       td.sort,
 					Pagination: &filters.Pagination{Limit: 100},
@@ -641,7 +641,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 		}
 		performClassSearch := func(repo *db.DB, className string) ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), traverser.GetParams{
+			return repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  className,
 				Pagination: &filters.Pagination{Limit: 10000},
 			})
