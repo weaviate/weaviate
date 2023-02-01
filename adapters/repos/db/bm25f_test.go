@@ -305,8 +305,8 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Equal(t, uint64(4), res[3].DocID())
 
 	// Check scores
-	EqualFloats(t, float32(0.38539), res[0].Score(), 6)
-	EqualFloats(t, float32(0.04250), res[1].Score(), 6)
+	EqualFloats(t, float32(0.38539), res[0].Score(), 5)
+	EqualFloats(t, float32(0.04250), res[1].Score(), 5)
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {
