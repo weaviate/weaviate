@@ -198,7 +198,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 	case UseTileEncoder:
 		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
-			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i), NormalEncoderDistribution)
+			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i), pq.encoderDistribution)
 			for j := 0; j < len(data); j++ {
 				pq.kms[i].Add(data[j])
 			}
