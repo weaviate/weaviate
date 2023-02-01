@@ -16,8 +16,8 @@ import (
 	"math/rand"
 	"testing"
 
-	ssdhelpers "github.com/semi-technologies/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/stretchr/testify/assert"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 func TestTileEncoderEncode(t *testing.T) {
