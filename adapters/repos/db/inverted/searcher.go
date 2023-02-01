@@ -94,7 +94,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return s.sortedObjectsByDocID(ctx, limit, sort, dbm.IDs(), additional, className)
 	}
 
-	return s.allObjectsByDocID(dbm.IDs(), limit, additional)
+	return s.allObjectsByDocID(dbm.IDsWithLimit(limit), limit, additional)
 }
 
 func (s *Searcher) allObjectsByDocID(ids []uint64, limit int,
@@ -556,6 +556,22 @@ func (dbm *docBitmap) IDs() []uint64 {
 		return []uint64{}
 	}
 	return dbm.docIDs.ToArray()
+}
+
+func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
+	card := dbm.docIDs.GetCardinality()
+	if limit >= card {
+		return dbm.IDs()
+	}
+
+	out := make([]uint64, limit)
+	for i := range out {
+		// safe to ignore error, it can only error if the index is >= cardinality
+		// which we have already ruled out
+		out[i], _ = dbm.docIDs.Select(uint64(i))
+	}
+
+	return out
 }
 
 // func (dbm *docBitmap) toDocPointers() *docPointers {
