@@ -14,6 +14,7 @@ package ssdhelpers
 import (
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -26,7 +27,7 @@ const (
 )
 
 type DistanceLookUpTable struct {
-	calculated  [][]bool
+	calculated  [][]atomic.Bool
 	distances   [][]float32
 	center      []float32
 	segmentSize int
@@ -34,10 +35,10 @@ type DistanceLookUpTable struct {
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
 	distances := make([][]float32, segments)
-	calculated := make([][]bool, segments)
+	calculated := make([][]atomic.Bool, segments)
 	for m := 0; m < segments; m++ {
 		distances[m] = make([]float32, centroids)
-		calculated[m] = make([]bool, centroids)
+		calculated[m] = make([]atomic.Bool, centroids)
 	}
 
 	return &DistanceLookUpTable{
@@ -57,7 +58,7 @@ func (lut *DistanceLookUpTable) LookUp(
 
 	k := 0
 	for i, c := range encoded {
-		if lut.calculated[i][c] {
+		if lut.calculated[i][c].Load() {
 			sum += lut.distances[i][c]
 			k += lut.segmentSize
 		} else {
@@ -68,7 +69,7 @@ func (lut *DistanceLookUpTable) LookUp(
 				k++
 			}
 			lut.distances[i][c] = dist
-			lut.calculated[i][c] = true
+			lut.calculated[i][c].Store(true)
 			sum += dist
 		}
 	}
