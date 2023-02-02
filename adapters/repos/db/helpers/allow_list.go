@@ -25,10 +25,12 @@ type AllowList interface {
 	IsEmpty() bool
 	Size() uint64
 	Iterator() AllowListIterator
+	LimitedIterator(limit int) AllowListIterator
 }
 
 type AllowListIterator interface {
 	Next() (uint64, bool)
+	Len() int
 }
 
 func NewAllowList(ids ...uint64) AllowList {
@@ -77,37 +79,42 @@ func (al *bitmapAllowList) Size() uint64 {
 }
 
 func (al *bitmapAllowList) Iterator() AllowListIterator {
-	return newBitmapAllowListIterator(al.bm)
+	return al.LimitedIterator(0)
+}
+
+func (al *bitmapAllowList) LimitedIterator(limit int) AllowListIterator {
+	return newBitmapAllowListIterator(al.bm, limit)
 }
 
 type bitmapAllowListIterator struct {
-	// bitmap's iterator returns 0 when there is no more values to iterate through
-	// but since 0 is allowed value, it has to be distinguished if returned 0
-	// belongs to bitmap or it marks end of iteration
-	// since bitmap returns values in incremental order
-	// valid 0 has to be returned first (provided cardinality > 0), all other 0
-	// mark end of iteration
-	passed0  bool
-	finished bool
-	bmEmpty  bool
-	it       *sroar.Iterator
+	len     int
+	counter int
+	it      *sroar.Iterator
 }
 
-func newBitmapAllowListIterator(bm *sroar.Bitmap) AllowListIterator {
-	return &bitmapAllowListIterator{bmEmpty: bm.IsEmpty(), it: bm.NewIterator()}
+func newBitmapAllowListIterator(bm *sroar.Bitmap, limit int) AllowListIterator {
+	len := bm.GetCardinality()
+	if limit > 0 && limit < len {
+		len = limit
+	}
+
+	return &bitmapAllowListIterator{
+		len:     len,
+		counter: 0,
+		it:      bm.NewIterator(),
+	}
 }
 
 func (i *bitmapAllowListIterator) Next() (uint64, bool) {
-	if i.bmEmpty || i.finished {
+	if i.counter >= i.len {
 		return 0, false
 	}
+	i.counter++
+	return i.it.Next(), true
+}
 
-	next := i.it.Next()
-	if next == 0 && i.passed0 {
-		i.finished = true
-	}
-	i.passed0 = true
-	return next, !i.finished
+func (i *bitmapAllowListIterator) Len() int {
+	return i.len
 }
 
 // // AllowList groups a list of possible indexIDs to be passed to a secondary
