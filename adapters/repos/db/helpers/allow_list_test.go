@@ -93,6 +93,7 @@ func TestAllowList_Iterator(t *testing.T) {
 		id1, ok1 := it.Next()
 		id2, ok2 := it.Next()
 
+		assert.Equal(t, 0, it.Len())
 		assert.False(t, ok1)
 		assert.Equal(t, uint64(0), id1)
 		assert.False(t, ok2)
@@ -107,6 +108,7 @@ func TestAllowList_Iterator(t *testing.T) {
 		id3, ok3 := it.Next()
 		id4, ok4 := it.Next()
 
+		assert.Equal(t, 3, it.Len())
 		assert.True(t, ok1)
 		assert.Equal(t, uint64(1), id1)
 		assert.True(t, ok2)
@@ -115,25 +117,9 @@ func TestAllowList_Iterator(t *testing.T) {
 		assert.Equal(t, uint64(3), id3)
 		assert.False(t, ok4)
 		assert.Equal(t, uint64(0), id4)
-
-		itWith0 := NewAllowList(2, 1, 0).Iterator()
-
-		id1, ok1 = itWith0.Next()
-		id2, ok2 = itWith0.Next()
-		id3, ok3 = itWith0.Next()
-		id4, ok4 = itWith0.Next()
-
-		assert.True(t, ok1)
-		assert.Equal(t, uint64(0), id1)
-		assert.True(t, ok2)
-		assert.Equal(t, uint64(1), id2)
-		assert.True(t, ok3)
-		assert.Equal(t, uint64(2), id3)
-		assert.False(t, ok4)
-		assert.Equal(t, uint64(0), id4)
 	})
 
-	t.Run("iterating with for loop", func(t *testing.T) {
+	t.Run("iterating in loop", func(t *testing.T) {
 		it := NewAllowList(3, 2, 1).Iterator()
 		ids := []uint64{}
 
@@ -141,15 +127,113 @@ func TestAllowList_Iterator(t *testing.T) {
 			ids = append(ids, id)
 		}
 
+		assert.Equal(t, 3, it.Len())
 		assert.Equal(t, []uint64{1, 2, 3}, ids)
+	})
+}
 
-		itWith0 := NewAllowList(2, 1, 0).Iterator()
-		ids = []uint64{}
+func TestAllowList_LimitedIterator(t *testing.T) {
+	t.Run("empty bitmap iterator", func(t *testing.T) {
+		it := NewAllowList().LimitedIterator(2)
 
-		for id, ok := itWith0.Next(); ok; id, ok = itWith0.Next() {
+		id1, ok1 := it.Next()
+		id2, ok2 := it.Next()
+
+		assert.Equal(t, 0, it.Len())
+		assert.False(t, ok1)
+		assert.Equal(t, uint64(0), id1)
+		assert.False(t, ok2)
+		assert.Equal(t, uint64(0), id2)
+	})
+
+	t.Run("iterating step by step (higher limit)", func(t *testing.T) {
+		it := NewAllowList(3, 2, 1).LimitedIterator(4)
+
+		id1, ok1 := it.Next()
+		id2, ok2 := it.Next()
+		id3, ok3 := it.Next()
+		id4, ok4 := it.Next()
+
+		assert.Equal(t, 3, it.Len())
+		assert.True(t, ok1)
+		assert.Equal(t, uint64(1), id1)
+		assert.True(t, ok2)
+		assert.Equal(t, uint64(2), id2)
+		assert.True(t, ok3)
+		assert.Equal(t, uint64(3), id3)
+		assert.False(t, ok4)
+		assert.Equal(t, uint64(0), id4)
+	})
+
+	t.Run("iterating step by step (equal limit)", func(t *testing.T) {
+		it := NewAllowList(3, 2, 1).LimitedIterator(3)
+
+		id1, ok1 := it.Next()
+		id2, ok2 := it.Next()
+		id3, ok3 := it.Next()
+		id4, ok4 := it.Next()
+
+		assert.Equal(t, 3, it.Len())
+		assert.True(t, ok1)
+		assert.Equal(t, uint64(1), id1)
+		assert.True(t, ok2)
+		assert.Equal(t, uint64(2), id2)
+		assert.True(t, ok3)
+		assert.Equal(t, uint64(3), id3)
+		assert.False(t, ok4)
+		assert.Equal(t, uint64(0), id4)
+	})
+
+	t.Run("iterating step by step (lower limit)", func(t *testing.T) {
+		it := NewAllowList(3, 2, 1).LimitedIterator(2)
+
+		id1, ok1 := it.Next()
+		id2, ok2 := it.Next()
+		id3, ok3 := it.Next()
+
+		assert.Equal(t, 2, it.Len())
+		assert.True(t, ok1)
+		assert.Equal(t, uint64(1), id1)
+		assert.True(t, ok2)
+		assert.Equal(t, uint64(2), id2)
+		assert.False(t, ok3)
+		assert.Equal(t, uint64(0), id3)
+	})
+
+	t.Run("iterating in loop (higher limit)", func(t *testing.T) {
+		it := NewAllowList(3, 2, 1).LimitedIterator(4)
+		ids := []uint64{}
+
+		for id, ok := it.Next(); ok; id, ok = it.Next() {
 			ids = append(ids, id)
 		}
 
-		assert.Equal(t, []uint64{0, 1, 2}, ids)
+		assert.Equal(t, 3, it.Len())
+		assert.Equal(t, []uint64{1, 2, 3}, ids)
+	})
+
+	t.Run("iterating in loop (equal limit)", func(t *testing.T) {
+		it := NewAllowList(3, 2, 1).LimitedIterator(3)
+		ids := []uint64{}
+
+		for id, ok := it.Next(); ok; id, ok = it.Next() {
+			ids = append(ids, id)
+		}
+
+		assert.Equal(t, 3, it.Len())
+		assert.Equal(t, []uint64{1, 2, 3}, ids)
+	})
+
+	t.Run("iterating in loop (lower limit)", func(t *testing.T) {
+		it := NewAllowList(3, 2, 1).LimitedIterator(2)
+		ids := []uint64{}
+
+		for id, ok := it.Next(); ok; id, ok = it.Next() {
+			ids = append(ids, id)
+		}
+
+		assert.Equal(t, 2, it.Len())
+		assert.Equal(t, []uint64{1, 2}, ids)
+
 	})
 }
