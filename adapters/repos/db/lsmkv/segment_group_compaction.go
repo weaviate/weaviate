@@ -51,7 +51,7 @@ func (sg *SegmentGroup) eligibleForCompaction() bool {
 	return false
 }
 
-func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
+func (sg *SegmentGroup) bestCompactionCandidatePair() (*segment, *segment) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -59,7 +59,9 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	levels := map[uint16]int{}
 
 	for _, segment := range sg.segments {
-		levels[segment.level]++
+		if !segment.ongoingCompaction {
+			levels[segment.level]++
+		}
 	}
 
 	currLowestLevel := uint16(math.MaxUint16)
@@ -76,31 +78,23 @@ func (sg *SegmentGroup) bestCompactionCandidatePair() []int {
 	}
 
 	if !found {
-		return nil
+		return nil, nil
 	}
 
 	// now pick any two segements which match the level
-	var res []int
-
-	for i, segment := range sg.segments {
-		if len(res) >= 2 {
-			break
+	res := make([]*segment, 2)
+	i := 0
+	for _, segment := range sg.segments {
+		if !segment.ongoingCompaction && segment.level == currLowestLevel {
+			res[i] = segment
+			i++
 		}
-
-		if segment.level == currLowestLevel {
-			res = append(res, i)
+		if i > 1 {
+			break
 		}
 	}
 
-	return res
-}
-
-// segmentAtPos retrieves the segment for the given position using a read-lock
-func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	return sg.segments[pos]
+	return res[0], res[1]
 }
 
 func (sg *SegmentGroup) compactOnce() error {
@@ -110,35 +104,55 @@ func (sg *SegmentGroup) compactOnce() error {
 	// that the array contents stay stable over the duration of an entire
 	// compaction. We do however need to protect against a read-while-write (race
 	// condition) on the array. Thus any read from sg.segments need to protected
-	pair := sg.bestCompactionCandidatePair()
-	if pair == nil {
+	leftSegment, rightSegment := sg.bestCompactionCandidatePair()
+	if leftSegment == nil || rightSegment == nil {
 		// nothing to do
 		return nil
 	}
 
-	path := fmt.Sprintf("%s.tmp", sg.segmentAtPos(pair[1]).path)
+	// mark segments as being compacted
+	sg.maintenanceLock.Lock()
+	// make sure flags didn't change in between locking
+	if leftSegment.ongoingCompaction || rightSegment.ongoingCompaction {
+		sg.maintenanceLock.Unlock()
+		return nil
+	}
+	leftSegment.ongoingCompaction = true
+	rightSegment.ongoingCompaction = true
+	sg.maintenanceLock.Unlock()
+
+	// mark segments as not being compacted in case of error.
+	// it is safe to change flag on success as well, as segments are
+	// removed from segments' slice already and will not be picked up again
+	defer func() {
+		sg.maintenanceLock.Lock()
+		leftSegment.ongoingCompaction = false
+		rightSegment.ongoingCompaction = false
+		sg.maintenanceLock.Unlock()
+	}()
+
+	path := rightSegment.path + ".tmp"
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 
-	scratchSpacePath := sg.segmentAtPos(pair[1]).path + "compaction.scratch.d"
+	scratchSpacePath := rightSegment.path + "compaction.scratch.d"
 
 	// the assumption is that both pairs are of the same level, so we can just
 	// take either value. If we want to support asymmetric compaction, then we
 	// might have to choose this value more intelligently
-	level := sg.segmentAtPos(pair[0]).level
-	secondaryIndices := sg.segmentAtPos(pair[0]).secondaryIndexCount
-
-	strategy := sg.segmentAtPos(pair[0]).strategy
+	level := leftSegment.level
+	secondaryIndices := leftSegment.secondaryIndexCount
+	strategy := leftSegment.strategy
 
 	switch strategy {
 
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
-		c := newCompactorReplace(f, sg.segmentAtPos(pair[0]).newCursor(),
-			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath)
+		c := newCompactorReplace(f, leftSegment.newCursor(),
+			rightSegment.newCursor(), level, secondaryIndices, scratchSpacePath)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": sg.dir}).Set(1)
@@ -149,8 +163,8 @@ func (sg *SegmentGroup) compactOnce() error {
 			return err
 		}
 	case segmentindex.StrategySetCollection:
-		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
-			sg.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
+		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
+			rightSegment.newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath)
 
 		if sg.metrics != nil {
@@ -163,8 +177,8 @@ func (sg *SegmentGroup) compactOnce() error {
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f,
-			sg.segmentAtPos(pair[0]).newCollectionCursorReusable(),
-			sg.segmentAtPos(pair[1]).newCollectionCursorReusable(),
+			leftSegment.newCollectionCursorReusable(),
+			rightSegment.newCollectionCursorReusable(),
 			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting)
 
 		if sg.metrics != nil {
@@ -176,14 +190,8 @@ func (sg *SegmentGroup) compactOnce() error {
 			return err
 		}
 	case segmentindex.StrategyRoaringSet:
-		leftSegment := sg.segmentAtPos(pair[0])
-		rightSegment := sg.segmentAtPos(pair[1])
-
-		leftCursor := leftSegment.newRoaringSetCursor()
-		rightCursor := rightSegment.newRoaringSetCursor()
-
-		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath)
+		c := roaringset.NewCompactor(f, leftSegment.newRoaringSetCursor(),
+			rightSegment.newRoaringSetCursor(), level, scratchSpacePath)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(1)
@@ -202,19 +210,19 @@ func (sg *SegmentGroup) compactOnce() error {
 		return errors.Wrap(err, "close compacted segment file")
 	}
 
-	if err := sg.replaceCompactedSegments(pair[0], pair[1], path); err != nil {
+	if err := sg.replaceCompactedSegments(leftSegment, rightSegment, path); err != nil {
 		return errors.Wrap(err, "replace compacted segments")
 	}
 
 	return nil
 }
 
-func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
+func (sg *SegmentGroup) replaceCompactedSegments(leftSegment, rightSegment *segment,
 	newPathTmp string,
 ) error {
 	sg.maintenanceLock.RLock()
-	updatedCountNetAdditions := sg.segments[old1].countNetAdditions +
-		sg.segments[old2].countNetAdditions
+	updatedCountNetAdditions := leftSegment.countNetAdditions +
+		rightSegment.countNetAdditions
 	sg.maintenanceLock.RUnlock()
 
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
@@ -226,24 +234,37 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
-	if err := sg.segments[old1].close(); err != nil {
+	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
 	}
 
-	if err := sg.segments[old2].close(); err != nil {
+	if err := rightSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
 	}
 
-	if err := sg.segments[old1].drop(); err != nil {
+	if err := leftSegment.drop(); err != nil {
 		return errors.Wrap(err, "drop disk segment")
 	}
 
-	if err := sg.segments[old2].drop(); err != nil {
+	if err := rightSegment.drop(); err != nil {
 		return errors.Wrap(err, "drop disk segment")
 	}
 
-	sg.segments[old1] = nil
-	sg.segments[old2] = nil
+	// find segments' positions in segments slice
+	leftPos, rightPos := -1, -1
+	for pos, segment := range sg.segments {
+		if leftSegment.path == segment.path {
+			leftPos = pos
+		} else if rightSegment.path == segment.path {
+			rightPos = pos
+		}
+	}
+	if leftPos == -1 || rightPos == -1 {
+		return errors.New("segments positions not found")
+	}
+
+	sg.segments[leftPos] = nil
+	sg.segments[rightPos] = nil
 
 	var newPath string
 	// the old segments have been deleted, we can now safely remove the .tmp
@@ -266,9 +287,9 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return errors.Wrap(err, "create new segment")
 	}
 
-	sg.segments[old2] = seg
+	sg.segments[rightPos] = seg
 
-	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
+	sg.segments = append(sg.segments[:leftPos], sg.segments[leftPos+1:]...)
 
 	return nil
 }
