@@ -395,7 +395,7 @@ func TestManagerCreateBackup(t *testing.T) {
 		backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.NewErrNotFound(errors.New("not found")))
 
 		backend.On("Initialize", ctx, nodeHome).Return(nil)
-		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Once()
+		backend.On("PutObject", mock.Anything, nodeHome, BackupFile, mock.Anything).Return(nil).Twice()
 		backend.On("PutFile", mock.Anything, nodeHome, mock.Anything, mock.Anything).Return(nil)
 		m := createManager(sourcer, nil, backend, nil)
 
