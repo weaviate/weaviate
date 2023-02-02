@@ -16,7 +16,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.20
+          go-version: "1.20"
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -37,7 +37,7 @@ jobs:
       - name: Scan for Vulnerabilities in Code
         uses: Templum/govulncheck-action@v0.0.8
         with:
-          go-version: 1.20
+          go-version: "1.20"
           vulncheck-version: latest
           package: ./...
           fail-on-vuln: true
@@ -49,7 +49,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.20
+          go-version: "1.20"
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -69,7 +69,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.20
+          go-version: "1.20"
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
@@ -89,7 +89,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.20
+          go-version: "1.20"
           cache: true
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
@@ -101,7 +101,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.20
+          go-version: "1.20"
           cache: true
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-only
