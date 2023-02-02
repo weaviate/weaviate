@@ -12,7 +12,6 @@
 package inverted
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -90,40 +89,22 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
+	allowList := helpers.NewAllowListFromBitmap(dbm.docIDs)
+	var it docIDsIterator
 	if len(sort) > 0 {
-		return s.sortedObjectsByDocID(ctx, limit, sort, dbm.IDs(), additional, className)
+		docIDs, err := s.sort(ctx, limit, sort, allowList, additional, className)
+		if err != nil {
+			return nil, errors.Wrap(err, "sort doc ids")
+		}
+		it = newSliceDocIDsIterator(docIDs)
+	} else {
+		it = allowList.LimitedIterator(limit)
 	}
 
-	return s.allObjectsByDocID(dbm.IDsWithLimit(limit), limit, additional)
+	return s.objectsByDocID(it, additional)
 }
 
-func (s *Searcher) allObjectsByDocID(ids []uint64, limit int,
-	additional additional.Properties,
-) ([]*storobj.Object, error) {
-	// cutoff if required, e.g. after merging unlimted filters
-	docIDs := ids
-	if len(docIDs) > limit {
-		docIDs = docIDs[:limit]
-	}
-
-	res, err := s.objectsByDocID(docIDs, additional)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve doc ids to objects")
-	}
-	return res, nil
-}
-
-func (s *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
-	additional additional.Properties, className schema.ClassName,
-) ([]*storobj.Object, error) {
-	docIDs, err := s.sort(ctx, limit, sort, ids, additional, className)
-	if err != nil {
-		return nil, errors.Wrap(err, "sort doc ids")
-	}
-	return s.objectsByDocID(docIDs, additional)
-}
-
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,
 	additional additional.Properties, className schema.ClassName,
 ) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
@@ -133,22 +114,20 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(ids []uint64,
+func (s *Searcher) objectsByDocID(it docIDsIterator,
 	additional additional.Properties,
 ) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, len(ids))
-
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
 	}
 
-	i := 0
+	out := make([]*storobj.Object, it.Len())
+	docIDBytes := make([]byte, 8)
 
-	for _, id := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
+	i := 0
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		res, err := bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
 			return nil, err
@@ -533,6 +512,33 @@ func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	default:
 		return false
 	}
+}
+
+type docIDsIterator interface {
+	Next() (uint64, bool)
+	Len() int
+}
+
+type sliceDocIDsIterator struct {
+	docIDs []uint64
+	pos    int
+}
+
+func newSliceDocIDsIterator(docIDs []uint64) docIDsIterator {
+	return &sliceDocIDsIterator{docIDs: docIDs, pos: 0}
+}
+
+func (it *sliceDocIDsIterator) Next() (uint64, bool) {
+	if it.pos >= len(it.docIDs) {
+		return 0, false
+	}
+	pos := it.pos
+	it.pos++
+	return it.docIDs[pos], true
+}
+
+func (it *sliceDocIDsIterator) Len() int {
+	return len(it.docIDs)
 }
 
 type docBitmap struct {
