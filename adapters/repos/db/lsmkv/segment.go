@@ -44,6 +44,9 @@ type segment struct {
 
 	// the net addition this segment adds with respect to all previous segments
 	countNetAdditions int
+
+	// flag indicating segment is being merged with other segment atm
+	ongoingCompaction bool
 }
 
 type diskIndex interface {
