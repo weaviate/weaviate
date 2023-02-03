@@ -427,8 +427,8 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 
 // return value []error gives the error for the index with the positions
 // matching the inputs
-func (i *Index) putObjectBatch(ctx context.Context,
-	objects []*storobj.Object,
+func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
+	replProps *additional.ReplicationProperties,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -461,7 +461,13 @@ func (i *Index) putObjectBatch(ctx context.Context,
 			defer wg.Done()
 			var errs []error
 			if i.replicationEnabled() {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects, replica.All)
+				if replProps == nil {
+					replProps = &additional.ReplicationProperties{
+						ConsistencyLevel: string(replica.All),
+					}
+				}
+				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
+					replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if !i.isLocalShard(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
@@ -1009,7 +1015,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 				ConsistencyLevel: string(replica.All),
 			}
 		}
-		err = i.replicator.DeleteObject(ctx, shardName, id, replica.All)
+		err = i.replicator.DeleteObject(ctx, shardName, id,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
 			return fmt.Errorf("failed to relay object delete across replicas: %w", err)
 		}

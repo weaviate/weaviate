@@ -28,8 +28,14 @@ type batchObjectHandlers struct {
 func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Objects, params.Body.Fields)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		return batch.NewBatchObjectsCreateBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(),
+		principal, params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

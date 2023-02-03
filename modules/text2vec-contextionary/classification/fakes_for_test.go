@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/additional"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -186,7 +187,9 @@ func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
 	return nil, fmt.Errorf("vector class search not implemented in fake")
 }
 
-func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context,
+	objects objects.BatchObjects, _ *additional.ReplicationProperties,
+) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -259,7 +262,9 @@ func (f *fakeVectorRepoContextual) ZeroShotSearch(ctx context.Context, vector []
 	panic("not implemented")
 }
 
-func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context,
+	objects objects.BatchObjects, _ *additional.ReplicationProperties,
+) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 	for _, batchObject := range objects {

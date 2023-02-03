@@ -187,7 +187,9 @@ func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object,
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects) (BatchObjects, error) {
+func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
+	repl *additional.ReplicationProperties,
+) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }

@@ -449,6 +449,12 @@ func init() {
               }
             }
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -4694,6 +4700,12 @@ func init() {
               "items": {
                 "$ref": "#/definitions/ObjectsGetResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {

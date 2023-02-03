@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -25,7 +26,9 @@ type batchQueue struct {
 	originalIndex []int
 }
 
-func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
+func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
+	repl *additional.ReplicationProperties,
+) (objects.BatchObjects, error) {
 	byIndex := map[string]batchQueue{}
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
@@ -50,7 +53,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects)
 	}
 
 	for indexID, queue := range byIndex {
-		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects)
+		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects, repl)
 		for index, err := range errs {
 			if err != nil {
 				objects[queue.originalIndex[index]].Err = err

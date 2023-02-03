@@ -208,8 +208,11 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		// },
 
 		{
-			methodName:       "AddObjects",
-			additionalArgs:   []interface{}{[]*models.Object{}, []*string{}},
+			methodName: "AddObjects",
+			additionalArgs: []interface{}{
+				[]*models.Object{},
+				[]*string{},
+				&additional.ReplicationProperties{}},
 			expectedVerb:     "create",
 			expectedResource: "batch/objects",
 		},
