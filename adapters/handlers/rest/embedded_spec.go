@@ -511,6 +511,12 @@ func init() {
               "$ref": "#/definitions/BatchDeleteResponse"
             }
           },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -4774,6 +4780,12 @@ func init() {
             "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "$ref": "#/definitions/BatchDeleteResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {

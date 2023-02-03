@@ -1312,8 +1312,8 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 	return docIDs, nil
 }
 
-func (i *Index) batchDeleteObjects(ctx context.Context,
-	shardDocIDs map[string][]uint64, dryRun bool,
+func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
+	dryRun bool, replProps *additional.ReplicationProperties,
 ) (objects.BatchSimpleObjects, error) {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -1333,7 +1333,13 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun, replica.All)
+				if replProps == nil {
+					replProps = &additional.ReplicationProperties{
+						ConsistencyLevel: string(replica.All),
+					}
+				}
+				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
+					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if i.isLocalShard(shardName) {
 				shard := i.Shards[shardName]
 				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)

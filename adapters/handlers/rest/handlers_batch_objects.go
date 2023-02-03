@@ -132,8 +132,14 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Match, params.Body.DryRun, params.Body.Output)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		return batch.NewBatchObjectsDeleteBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(),
+		principal, params.Body.Match, params.Body.DryRun, params.Body.Output, repl)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

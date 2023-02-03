@@ -99,7 +99,9 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	return references, nil
 }
 
-func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams) (objects.BatchDeleteResult, error) {
+func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
+	repl *additional.ReplicationProperties,
+) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	idx := db.GetIndex(params.ClassName)
 	// find all DocIDs in all shards that match the filter
@@ -124,7 +126,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		matches += docIDsLength
 	}
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}
