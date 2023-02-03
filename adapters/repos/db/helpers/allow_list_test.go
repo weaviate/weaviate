@@ -234,6 +234,5 @@ func TestAllowList_LimitedIterator(t *testing.T) {
 
 		assert.Equal(t, 2, it.Len())
 		assert.Equal(t, []uint64{1, 2}, ids)
-
 	})
 }
