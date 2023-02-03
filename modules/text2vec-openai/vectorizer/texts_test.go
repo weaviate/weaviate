@@ -145,7 +145,7 @@ func TestVectorizingTexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, nil)
 
 			settings := &fakeSettings{
 				openAIType:         test.openAIType,

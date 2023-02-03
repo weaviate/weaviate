@@ -14,6 +14,7 @@ package vectorizer
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
@@ -22,6 +23,7 @@ import (
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	settings ClassSettings,
 ) ([]float32, error) {
+	startMs := time.Now()
 	res, err := v.client.VectorizeQuery(ctx, v.joinSentences(inputs), ent.VectorizationConfig{
 		Type:         settings.Type(),
 		Model:        settings.Model(),
@@ -33,6 +35,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
+	v.metricVectorizeDuration("text2vec-openai", "query", "", startMs.UnixMilli())
 
 	return res.Vector, nil
 }

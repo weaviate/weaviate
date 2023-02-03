@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/fatih/camelcase"
 	"github.com/weaviate/weaviate/entities/models"
@@ -24,12 +25,14 @@ import (
 )
 
 type Vectorizer struct {
-	client Client
+	client  Client
+	metrics moduletools.Metrics
 }
 
-func New(client Client) *Vectorizer {
+func New(client Client, metrics moduletools.Metrics) *Vectorizer {
 	return &Vectorizer{
-		client: client,
+		client:  client,
+		metrics: metrics,
 	}
 }
 
@@ -65,13 +68,21 @@ func sortStringKeys(schemaMap map[string]interface{}) []string {
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	objDiff *moduletools.ObjectDiff, settings ClassSettings,
 ) error {
+	startMs := time.Now()
 	vec, err := v.object(ctx, object.Class, object.Properties, objDiff, settings)
 	if err != nil {
 		return err
 	}
+	v.metricVectorizeDuration("text2vec-openai", "object", object.Class, startMs.UnixMilli())
 
 	object.Vector = vec
 	return nil
+}
+
+func (v *Vectorizer) metricVectorizeDuration(moduleName, operation, className string, startMs int64) {
+	if v.metrics != nil {
+		v.metrics.VectorizeRequestDurations(moduleName, operation, className, startMs)
+	}
 }
 
 func appendPropIfText(icheck ClassSettings, list *[]string, propName string,

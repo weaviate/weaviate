@@ -181,7 +181,7 @@ func TestVectorizingObjects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, nil)
 
 			ic := &fakeSettings{
 				excludedProperty:   test.excludedProperty,
@@ -347,7 +347,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 			}
 
 			client := &fakeClient{}
-			v := New(client)
+			v := New(client, nil)
 
 			err := v.Object(context.Background(), test.input, test.diff, ic)
 

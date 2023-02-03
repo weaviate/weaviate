@@ -690,7 +690,7 @@ func initModules(ctx context.Context, appState *state.State) error {
 	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
 	moduleParams := moduletools.NewInitParams(storageProvider, appState,
-		appState.Logger)
+		appState.Logger, appState.Metrics)
 
 	appState.Logger.
 		WithField("action", "startup").

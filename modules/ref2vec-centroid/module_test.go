@@ -36,7 +36,7 @@ func TestRef2VecCentroid(t *testing.T) {
 	defer cancel()
 	sp := newFakeStorageProvider(t)
 	logger, _ := test.NewNullLogger()
-	params := moduletools.NewInitParams(sp, nil, logger)
+	params := moduletools.NewInitParams(sp, nil, logger, nil)
 
 	mod := New()
 	classConfig := fakeClassConfig(mod.ClassConfigDefaults())

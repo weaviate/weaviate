@@ -11,24 +11,30 @@
 
 package moduletools
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+)
 
 type ModuleInitParams interface {
 	GetStorageProvider() StorageProvider
 	GetAppState() interface{}
 	GetLogger() logrus.FieldLogger
+	GetMetrics() Metrics
 }
 
 type InitParams struct {
 	storageProvider StorageProvider
 	appState        interface{}
 	logger          logrus.FieldLogger
+	metrics         *moduleMetrics
 }
 
 func NewInitParams(storageProvider StorageProvider, appState interface{},
 	logger logrus.FieldLogger,
+	metrics *monitoring.PrometheusMetrics,
 ) ModuleInitParams {
-	return &InitParams{storageProvider, appState, logger}
+	return &InitParams{storageProvider, appState, logger, newModuleMetrics(metrics)}
 }
 
 func (p *InitParams) GetStorageProvider() StorageProvider {
@@ -41,4 +47,8 @@ func (p *InitParams) GetAppState() interface{} {
 
 func (p *InitParams) GetLogger() logrus.FieldLogger {
 	return p.logger
+}
+
+func (p *InitParams) GetMetrics() Metrics {
+	return p.metrics
 }

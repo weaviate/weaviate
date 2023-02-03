@@ -53,6 +53,8 @@ type PrometheusMetrics struct {
 	BackupStoreDataTransferred         *prometheus.CounterVec
 	VectorDimensionsSum                *prometheus.GaugeVec
 
+	VectorizeRequestDurations *prometheus.HistogramVec
+
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
@@ -229,6 +231,12 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+		// Modules
+		VectorizeRequestDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "vectorize_request_durations_ms",
+			Help:    "vectorize request time",
+			Buckets: prometheus.ExponentialBuckets(200, 2, 5),
+		}, []string{"module_name", "operation", "class_name"}),
 	}
 }
 

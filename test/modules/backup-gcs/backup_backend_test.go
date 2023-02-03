@@ -257,6 +257,10 @@ func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
 	return f.logger
 }
 
+func (f *fakeModuleParams) GetMetrics() moduletools.Metrics {
+	return nil
+}
+
 type fakeStorageProvider struct {
 	dataPath string
 }

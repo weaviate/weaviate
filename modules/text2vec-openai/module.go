@@ -32,6 +32,7 @@ func New() *OpenAIModule {
 }
 
 type OpenAIModule struct {
+	metrics                      moduletools.Metrics
 	vectorizer                   textVectorizer
 	metaProvider                 metaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -69,8 +70,9 @@ func (m *OpenAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
+	m.metrics = params.GetMetrics()
 
-	if err := m.initVectorizer(ctx, m.logger); err != nil {
+	if err := m.initVectorizer(ctx, m.logger, m.metrics); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -101,13 +103,14 @@ func (m *OpenAIModule) InitExtension(modules []modulecapabilities.Module) error 
 
 func (m *OpenAIModule) initVectorizer(ctx context.Context,
 	logger logrus.FieldLogger,
+	metrics moduletools.Metrics,
 ) error {
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
 
 	client := clients.New(openAIApiKey, azureApiKey, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, metrics)
 	m.metaProvider = client
 
 	return nil
