@@ -25,12 +25,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestCRUD_NoIndexProp(t *testing.T) {
@@ -126,7 +126,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	})
 
 	t.Run("class search on the noindex prop errors", func(t *testing.T) {
-		_, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		_, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,
@@ -140,7 +140,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	})
 
 	t.Run("class search on timestamp prop with no timestamp indexing error", func(t *testing.T) {
-		_, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		_, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: "ThingClassWithNoIndexProps",
 			Pagination: &filters.Pagination{
 				Limit: 10,

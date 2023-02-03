@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -108,14 +109,14 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
-	params GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
-	params GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
@@ -138,7 +139,7 @@ func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 }
 
 func (f *fakeVectorSearcher) ClassObjectSearch(ctx context.Context,
-	params GetParams,
+	params dto.GetParams,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -207,7 +208,7 @@ func (f *fakeVectorRepo) GetObject(ctx context.Context, uuid strfmt.UUID,
 
 type fakeExplorer struct{}
 
-func (f *fakeExplorer) GetClass(ctx context.Context, p GetParams) ([]interface{}, error) {
+func (f *fakeExplorer) GetClass(ctx context.Context, p dto.GetParams) ([]interface{}, error) {
 	return nil, nil
 }
 

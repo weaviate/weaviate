@@ -40,9 +40,16 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 		region = os.Getenv("AWS_DEFAULT_REGION")
 	}
 
-	creds := credentials.NewIAM("")
-	if _, err := creds.Get(); err != nil {
+	var creds *credentials.Credentials
+	if (os.Getenv("AWS_ACCESS_KEY_ID") != "" || os.Getenv("AWS_ACCESS_KEY") != "") &&
+		(os.Getenv("AWS_SECRET_ACCESS_KEY") != "" || os.Getenv("AWS_SECRET_KEY") != "") {
 		creds = credentials.NewEnvAWS()
+	} else {
+		creds = credentials.NewIAM("")
+		if _, err := creds.Get(); err != nil {
+			// can be anonymous access
+			creds = credentials.NewEnvAWS()
+		}
 	}
 
 	client, err := minio.New(config.Endpoint, &minio.Options{

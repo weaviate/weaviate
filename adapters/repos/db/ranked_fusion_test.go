@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -390,7 +391,7 @@ func TestRFJourney(t *testing.T) {
 		Doing searches like this is not working correctly, possibly due to my configuration of the repo?
 
 		// Check basic search with one property
-		results_set_1, err := repo.VectorClassSearch(context.TODO(), traverser.GetParams{
+		results_set_1, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
 			ClassName:    "MyClass",
 			SearchVector: peanutsVector(),
 			Pagination: &filters.Pagination{
@@ -399,7 +400,7 @@ func TestRFJourney(t *testing.T) {
 		})
 
 		require.Nil(t, err)
-		results_set_2, err := repo.VectorClassSearch(context.TODO(), traverser.GetParams{
+		results_set_2, err := repo.VectorClassSearch(context.TODO(), dto.GetParams{
 			ClassName:    "MyClass",
 			SearchVector: journeyVector(),
 			Pagination: &filters.Pagination{
@@ -422,7 +423,7 @@ func TestRFJourney(t *testing.T) {
 
 	*/
 	t.Run("Hybrid", func(t *testing.T) {
-		params := traverser.GetParams{
+		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
@@ -455,7 +456,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	t.Run("Hybrid with negative limit", func(t *testing.T) {
-		params := traverser.GetParams{
+		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",

@@ -26,11 +26,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestFilters(t *testing.T) {
@@ -476,7 +476,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				if test.limit == 0 {
 					test.limit = 100
 				}
-				params := traverser.GetParams{
+				params := dto.GetParams{
 					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 					ClassName:    carClass.Class,
 					Pagination:   &filters.Pagination{Limit: test.limit},
@@ -506,7 +506,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 		t.Run("greater than", func(t *testing.T) {
 			limit := 1
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
@@ -520,7 +520,7 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 		t.Run("less than", func(t *testing.T) {
 			limit := 1
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 				ClassName:    carClass.Class,
 				Pagination:   &filters.Pagination{Limit: limit},
@@ -602,7 +602,7 @@ func testChainedPrimitiveProps(repo *DB,
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				params := traverser.GetParams{
+				params := dto.GetParams{
 					// SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 					ClassName:  carClass.Class,
 					Pagination: &filters.Pagination{Limit: 100},
@@ -1199,7 +1199,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 				if test.limit == 0 {
 					test.limit = 100
 				}
-				params := traverser.GetParams{
+				params := dto.GetParams{
 					ClassName:  class.Class,
 					Pagination: &filters.Pagination{Limit: test.limit},
 					Filters:    test.filter,
@@ -1368,7 +1368,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 		}
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				params := traverser.GetParams{
+				params := dto.GetParams{
 					ClassName:  carClass.Class,
 					Pagination: &filters.Pagination{Limit: 100},
 					Sort:       test.sort,
@@ -1465,7 +1465,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 
 	t.Run("Filter before deletion", func(t *testing.T) {
 		filterNil := buildFilter("other", true, null, dtBool)
-		paramsNil := traverser.GetParams{
+		paramsNil := dto.GetParams{
 			ClassName:  class.Class,
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterNil,
@@ -1476,7 +1476,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		assert.Equal(t, UUID2, resNil[0].ID)
 
 		filterLen := buildFilter("len(name)", 9, eq, dtInt)
-		paramsLen := traverser.GetParams{
+		paramsLen := dto.GetParams{
 			ClassName:  class.Class,
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterLen,
@@ -1491,7 +1491,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, nil)
 
 		filterNil := buildFilter("other", true, null, dtBool)
-		paramsNil := traverser.GetParams{
+		paramsNil := dto.GetParams{
 			ClassName:  class.Class,
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterNil,
@@ -1501,7 +1501,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		assert.Equal(t, 0, len(resNil))
 
 		filterLen := buildFilter("len(name)", 9, eq, dtInt)
-		paramsLen := traverser.GetParams{
+		paramsLen := dto.GetParams{
 			ClassName:  class.Class,
 			Pagination: &filters.Pagination{Limit: 2},
 			Filters:    filterLen,

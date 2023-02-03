@@ -17,9 +17,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -61,7 +61,7 @@ func TestFilterNullStateError(t *testing.T) {
 		},
 	}
 
-	params := traverser.GetParams{
+	params := dto.GetParams{
 		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 		ClassName:    class.Class,
 		Pagination:   &filters.Pagination{Limit: 5},

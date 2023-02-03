@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
@@ -61,7 +62,7 @@ type VectorSearcher interface {
 }
 
 type explorer interface {
-	GetClass(ctx context.Context, params GetParams) ([]interface{}, error)
+	GetClass(ctx context.Context, params dto.GetParams) ([]interface{}, error)
 	CrossClassVectorSearch(ctx context.Context, params ExploreParams) ([]search.Result, error)
 }
 
@@ -90,7 +91,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 // TraverserRepo describes the dependencies of the Traverser UC to the
 // connected database
 type TraverserRepo interface {
-	GetClass(context.Context, *GetParams) (interface{}, error)
+	GetClass(context.Context, *dto.GetParams) (interface{}, error)
 	Aggregate(context.Context, *aggregation.Params) (interface{}, error)
 }
 
