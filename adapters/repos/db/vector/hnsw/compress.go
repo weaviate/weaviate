@@ -29,7 +29,7 @@ const (
 )
 
 func (h *hnsw) initCompressedStore() error {
-	store, err := lsmkv.New(fmt.Sprintf("%s/%s", h.rootPath, h.className), "", h.logger, nil)
+	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName), "", h.logger, nil)
 	if err != nil {
 		return errors.Wrapf(err, "init hnsw")
 	}
