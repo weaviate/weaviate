@@ -77,7 +77,13 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		return batch.NewBatchReferencesCreateBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body, repl)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

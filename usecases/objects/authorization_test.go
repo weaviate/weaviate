@@ -212,14 +212,18 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			additionalArgs: []interface{}{
 				[]*models.Object{},
 				[]*string{},
-				&additional.ReplicationProperties{}},
+				&additional.ReplicationProperties{},
+			},
 			expectedVerb:     "create",
 			expectedResource: "batch/objects",
 		},
 
 		{
-			methodName:       "AddReferences",
-			additionalArgs:   []interface{}{[]*models.BatchReference{}},
+			methodName: "AddReferences",
+			additionalArgs: []interface{}{
+				[]*models.BatchReference{},
+				&additional.ReplicationProperties{},
+			},
 			expectedVerb:     "update",
 			expectedResource: "batch/*",
 		},

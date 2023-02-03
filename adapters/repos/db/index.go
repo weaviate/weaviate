@@ -524,8 +524,8 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 }
 
 // return value map[int]error gives the error for the index as it received it
-func (i *Index) addReferencesBatch(ctx context.Context,
-	refs objects.BatchReferences,
+func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchReferences,
+	replProps *additional.ReplicationProperties,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -553,7 +553,13 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs, replica.All)
+			if replProps == nil {
+				replProps = &additional.ReplicationProperties{
+					ConsistencyLevel: string(replica.All),
+				}
+			}
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
+				replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		} else if i.isLocalShard(shardName) {
 			shard := i.Shards[shardName]
 			errs = shard.addReferencesBatch(ctx, group.refs)

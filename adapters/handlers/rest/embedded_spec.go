@@ -561,6 +561,9 @@ func init() {
                 "$ref": "#/definitions/BatchReference"
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -571,6 +574,12 @@ func init() {
               "items": {
                 "$ref": "#/definitions/BatchReferenceResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -4817,6 +4826,12 @@ func init() {
                 "$ref": "#/definitions/BatchReference"
               }
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4827,6 +4842,12 @@ func init() {
               "items": {
                 "$ref": "#/definitions/BatchReferenceResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {

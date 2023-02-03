@@ -3207,6 +3207,9 @@
                 "$ref": "#/definitions/BatchReference"
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -3217,6 +3220,12 @@
               "items": {
                 "$ref": "#/definitions/BatchReferenceResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {

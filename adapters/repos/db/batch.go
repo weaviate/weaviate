@@ -64,7 +64,9 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 	return objects, nil
 }
 
-func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences) (objects.BatchReferences, error) {
+func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
+	repl *additional.ReplicationProperties,
+) (objects.BatchReferences, error) {
 	byIndex := map[string]objects.BatchReferences{}
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
@@ -86,7 +88,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	}
 
 	for indexID, queue := range byIndex {
-		errs := db.indices[indexID].addReferencesBatch(ctx, queue)
+		errs := db.indices[indexID].addReferencesBatch(ctx, queue, repl)
 		for index, err := range errs {
 			if err != nil {
 				references[queue[index].OriginalIndex].Err = err
