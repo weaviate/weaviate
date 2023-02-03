@@ -123,6 +123,10 @@ func (h *hnsw) restoreFromDisk() error {
 	h.compressed.Store(state.Compressed)
 
 	if state.Compressed {
+		err := h.initCompressedStore()
+		if err != nil {
+			return err
+		}
 		h.cache.drop()
 		h.pq = ssdhelpers.NewProductQuantizerWithEncoders(
 			int(state.PQData.M),

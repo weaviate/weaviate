@@ -28,12 +28,7 @@ const (
 	centroids = 256
 )
 
-func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) error {
-	h.compressActionLock.Lock()
-	defer h.compressActionLock.Unlock()
-	if h.nodes[0] == nil {
-		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
-	}
+func (h *hnsw) initCompressedStore() error {
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s", h.rootPath, h.className), "", h.logger, nil)
 	if err != nil {
 		return errors.Wrapf(err, "init hnsw")
@@ -43,6 +38,19 @@ func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) 
 		return errors.Wrapf(err, "init hnsw")
 	}
 	h.compressedStore = store
+	return nil
+}
+
+func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) error {
+	h.compressActionLock.Lock()
+	defer h.compressActionLock.Unlock()
+	if h.nodes[0] == nil {
+		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
+	}
+	err := h.initCompressedStore()
+	if err != nil {
+		return err
+	}
 
 	vec, _ := h.vectorForID(context.Background(), h.nodes[0].id)
 	dims := len(vec)
@@ -75,7 +83,6 @@ func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) 
 
 	h.compressed.Store(true)
 	h.cache.drop()
-	// ToDo: clear cache
 	return nil
 }
 
