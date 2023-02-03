@@ -68,16 +68,10 @@ type objectsManager interface {
 func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	cl, err := getConsistencyLevel(params.ConsistencyLevel)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-	repl := &additional.ReplicationProperties{}
-	if cl != "" {
-		repl.ConsistencyLevel = cl
-	} else {
-		repl.ConsistencyLevel = string(replica.All)
 	}
 
 	object, err := h.manager.AddObject(params.HTTPRequest.Context(), principal, params.Body, repl)
@@ -150,7 +144,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		}
 	}
 
-	replProps, err := getReplicationParams(params.NodeName, params.ConsistencyLevel)
+	replProps, err := getReplicationProperties(params.ConsistencyLevel, params.NodeName)
 	if err != nil {
 		return objects.NewObjectsClassGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -273,16 +267,10 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	cl, err := getConsistencyLevel(params.ConsistencyLevel)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-	repl := &additional.ReplicationProperties{}
-	if cl != "" {
-		repl.ConsistencyLevel = cl
-	} else {
-		repl.ConsistencyLevel = string(replica.All)
 	}
 
 	err = h.manager.DeleteObject(params.HTTPRequest.Context(),
@@ -306,16 +294,10 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	cl, err := getConsistencyLevel(params.ConsistencyLevel)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-	repl := &additional.ReplicationProperties{}
-	if cl != "" {
-		repl.ConsistencyLevel = cl
-	} else {
-		repl.ConsistencyLevel = string(replica.All)
 	}
 
 	object, err := h.manager.UpdateObject(
@@ -371,16 +353,10 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 	updates.ID = params.ID
 	updates.Class = params.ClassName
 
-	cl, err := getConsistencyLevel(params.ConsistencyLevel)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-	repl := &additional.ReplicationProperties{}
-	if cl != "" {
-		repl.ConsistencyLevel = cl
-	} else {
-		repl.ConsistencyLevel = string(replica.All)
 	}
 
 	objErr := h.manager.MergeObject(params.HTTPRequest.Context(), principal, updates, repl)
@@ -414,16 +390,10 @@ func (h *objectHandlers) addObjectReference(
 		Ref:      *params.Body,
 	}
 
-	cl, err := getConsistencyLevel(params.ConsistencyLevel)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-	repl := &additional.ReplicationProperties{}
-	if cl != "" {
-		repl.ConsistencyLevel = cl
-	} else {
-		repl.ConsistencyLevel = string(replica.All)
 	}
 
 	objErr := h.manager.AddObjectReference(
@@ -457,16 +427,10 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 		Refs:     params.Body,
 	}
 
-	cl, err := getConsistencyLevel(params.ConsistencyLevel)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-	repl := &additional.ReplicationProperties{}
-	if cl != "" {
-		repl.ConsistencyLevel = cl
-	} else {
-		repl.ConsistencyLevel = string(replica.All)
 	}
 
 	objErr := h.manager.UpdateObjectReferences(params.HTTPRequest.Context(), principal, &input, repl)
@@ -499,16 +463,10 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 		Reference: *params.Body,
 	}
 
-	cl, err := getConsistencyLevel(params.ConsistencyLevel)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-	repl := &additional.ReplicationProperties{}
-	if cl != "" {
-		repl.ConsistencyLevel = cl
-	} else {
-		repl.ConsistencyLevel = string(replica.All)
 	}
 
 	objErr := h.manager.DeleteObjectReference(params.HTTPRequest.Context(), principal, &input, repl)
@@ -764,7 +722,7 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 	return moduleParams
 }
 
-func getReplicationParams(nodeName, consistencyLvl *string) (*additional.ReplicationProperties, error) {
+func getReplicationProperties(consistencyLvl, nodeName *string) (*additional.ReplicationProperties, error) {
 	if nodeName == nil && consistencyLvl == nil {
 		return nil, nil
 	}
