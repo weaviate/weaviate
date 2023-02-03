@@ -206,8 +206,7 @@ func TestNestedReferences(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutObject(context.Background(), &thing,
-					[]float32{1, 2, 3, 4, 5, 6, 7})
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil)
 				require.Nil(t, err)
 			})
 		}
@@ -381,7 +380,7 @@ func TestNestedReferences(t *testing.T) {
 			CreationTimeUnix: 1566464912,
 		}
 
-		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7})
+		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7}, nil)
 		require.Nil(t, err)
 	})
 }
@@ -613,7 +612,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "source item",
 			},
-		}, []float32{0.5})
+		}, []float32{0.5}, nil)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -622,7 +621,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "target item",
 			},
-		}, []float32{0.5})
+		}, []float32{0.5}, nil)
 
 		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    target2ID,
@@ -630,7 +629,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "another target item",
 			},
-		}, []float32{0.5})
+		}, []float32{0.5}, nil)
 		require.Nil(t, err)
 	})
 
@@ -639,10 +638,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		sourceShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
 		targetShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
 
-		err := repo.AddReference(context.Background(),
-			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", targetID)),
-			})
+		err := repo.AddReference(context.Background(), "AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", targetID)),
+		}, nil)
 		assert.Nil(t, err)
 
 		// Check dimensions after adding reference
@@ -678,10 +676,9 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("reference a second target", func(t *testing.T) {
-		err := repo.AddReference(context.Background(),
-			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
-				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", target2ID)),
-			})
+		err := repo.AddReference(context.Background(), "AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", target2ID)),
+		}, nil)
 		assert.Nil(t, err)
 	})
 

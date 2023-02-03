@@ -180,8 +180,8 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 	return res, err
 }
 
-func (f *fakeVectorRepo) PutObject(ctx context.Context,
-	concept *models.Object, vector []float32,
+func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object,
+	vector []float32, repl *additional.ReplicationProperties,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
@@ -202,21 +202,21 @@ func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDel
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument) error {
+func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties) error {
 	args := f.Called(merge)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) DeleteObject(ctx context.Context,
-	className string, id strfmt.UUID,
+func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
+	id strfmt.UUID, repl *additional.ReplicationProperties,
 ) error {
 	args := f.Called(className, id)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context,
-	class string, source strfmt.UUID, prop string,
-	ref *models.SingleRef,
+func (f *fakeVectorRepo) AddReference(ctx context.Context, class string,
+	source strfmt.UUID, prop string, ref *models.SingleRef,
+	repl *additional.ReplicationProperties,
 ) error {
 	args := f.Called(class, source, prop, ref)
 	return args.Error(0)

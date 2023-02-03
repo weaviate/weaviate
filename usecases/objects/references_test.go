@@ -54,7 +54,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		m.repo.On("AddReference", cls, mock.Anything, expectedRefProperty, expectedRef).Return(nil)
 		m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
-		err := m.AddObjectReference(context.Background(), nil, &req)
+		err := m.AddObjectReference(context.Background(), nil, &req, nil)
 		require.Nil(t, err)
 		m.repo.AssertExpectations(t)
 	})
@@ -68,7 +68,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		}
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-		err := m.AddObjectReference(context.Background(), nil, &req)
+		err := m.AddObjectReference(context.Background(), nil, &req, nil)
 		require.NotNil(t, err)
 		if !err.BadRequest() {
 			t.Errorf("error expected: not found error got: %v", err)
@@ -84,7 +84,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		}
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("any"))
-		err := m.AddObjectReference(context.Background(), nil, &req)
+		err := m.AddObjectReference(context.Background(), nil, &req, nil)
 		require.NotNil(t, err)
 		if err.Code != StatusInternalServerError {
 			t.Errorf("error expected: internal error, got: %v", err)
@@ -219,7 +219,7 @@ func Test_ReferenceAdd(t *testing.T) {
 				m.repo.On("AddReference", cls, id, prop, &expectedRef).Return(tc.ErrAddRef).Once()
 			}
 
-			err := m.AddObjectReference(context.Background(), nil, &tc.Req)
+			err := m.AddObjectReference(context.Background(), nil, &tc.Req, nil)
 			if tc.WantCode != 0 {
 				code := 0
 				if err != nil {
@@ -367,7 +367,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
 			}
 
-			err := m.UpdateObjectReferences(context.Background(), nil, &tc.Req)
+			err := m.UpdateObjectReferences(context.Background(), nil, &tc.Req, nil)
 			if tc.WantCode != 0 {
 				code := 0
 				if err != nil {
@@ -553,7 +553,7 @@ func Test_ReferenceDelete(t *testing.T) {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
 			}
 
-			err := m.DeleteObjectReference(context.Background(), nil, &tc.Req)
+			err := m.DeleteObjectReference(context.Background(), nil, &tc.Req, nil)
 			if tc.WantCode != 0 {
 				code := 0
 				if err != nil {
@@ -619,7 +619,7 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 		Return(ref1.Vector, nil)
 	m.repo.On("PutObject", mock.Anything, ref1.Vector).Return(nil)
 
-	err := m.Manager.AddObjectReference(ctx, nil, &req)
+	err := m.Manager.AddObjectReference(ctx, nil, &req, nil)
 	assert.Nil(t, err)
 }
 
@@ -658,7 +658,7 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 	m.repo.On("PutObject", parent.Object(), []float32(nil)).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
 
-	err := m.Manager.DeleteObjectReference(ctx, nil, &req)
+	err := m.Manager.DeleteObjectReference(ctx, nil, &req, nil)
 	assert.Nil(t, err)
 }
 

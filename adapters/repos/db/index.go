@@ -272,7 +272,9 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
-func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
+func (i *Index) putObject(ctx context.Context, object *storobj.Object,
+	replProps *additional.ReplicationProperties,
+) error {
 	if i.Config.ClassName != object.Class() {
 		return errors.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
@@ -284,10 +286,14 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	if i.replicationEnabled() {
-		err = i.replicator.PutObject(ctx, shardName, object, replica.All)
-		if err != nil {
-			return fmt.Errorf("failed to relay object put across replicas: %w", err)
+	if i.replicationEnabled() && replProps != nil {
+		if replProps.ConsistencyLevel != "" {
+			err = i.replicator.PutObject(ctx, shardName, object, replica.ConsistencyLevel(replProps.ConsistencyLevel))
+			if err != nil {
+				return fmt.Errorf("failed to relay object put across replicas: %w", err)
+			}
+		} else {
+			return fmt.Errorf("replication properties are inconsistent: %+v", replProps)
 		}
 	} else if i.isLocalShard(shardName) {
 		shard := i.Shards[shardName]
@@ -983,7 +989,9 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	return res, resDists, nil
 }
 
-func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
+func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
+	replProps *additional.ReplicationProperties,
+) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(id)
@@ -991,10 +999,14 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	if i.replicationEnabled() {
-		err = i.replicator.DeleteObject(ctx, shardName, id, replica.All)
-		if err != nil {
-			return fmt.Errorf("failed to relay object delete across replicas: %w", err)
+	if i.replicationEnabled() && replProps != nil {
+		if replProps.ConsistencyLevel != "" {
+			err = i.replicator.DeleteObject(ctx, shardName, id, replica.All)
+			if err != nil {
+				return fmt.Errorf("failed to relay object delete across replicas: %w", err)
+			}
+		} else {
+			return fmt.Errorf("replication properties are inconsistent: %+v", replProps)
 		}
 	} else if i.isLocalShard(shardName) {
 		shard := i.Shards[shardName]
@@ -1033,7 +1045,9 @@ func (i *Index) isLocalShard(shard string) bool {
 	return i.getSchema.ShardingState(i.Config.ClassName.String()).IsShardLocal(shard)
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
+	replProps *additional.ReplicationProperties,
+) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(merge.ID)
@@ -1041,10 +1055,14 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return err
 	}
 
-	if i.replicationEnabled() {
-		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.All)
-		if err != nil {
-			return fmt.Errorf("failed to relay object patch across replicas: %w", err)
+	if i.replicationEnabled() && replProps != nil {
+		if replProps.ConsistencyLevel != "" {
+			err = i.replicator.MergeObject(ctx, shardName, &merge, replica.ConsistencyLevel(replProps.ConsistencyLevel))
+			if err != nil {
+				return fmt.Errorf("failed to relay object patch across replicas: %w", err)
+			}
+		} else {
+			return fmt.Errorf("replication properties are inconsistent: %+v", replProps)
 		}
 	} else if i.isLocalShard(shardName) {
 		shard := i.Shards[shardName]

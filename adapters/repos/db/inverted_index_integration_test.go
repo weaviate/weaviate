@@ -126,7 +126,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Properties: map[string]interface{}{"name": "objectarooni", "OtherProp": "whatever"},
 		}
 		vec := []float32{1, 2, 3}
-		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec))
+		require.Nil(t, repo.PutObject(context.Background(), objWithProperty, vec, nil))
 
 		testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
 		objWithoutProperty := &models.Object{
@@ -134,7 +134,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Class:      "TestClass",
 			Properties: map[string]interface{}{"name": nil, "OtherProp": nil},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec))
+		require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, vec, nil))
 	})
 
 	t.Run("delete class", func(t *testing.T) {
@@ -203,7 +203,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		Class:      "TestClass",
 		Properties: map[string]interface{}{"name": "objectarooni", "number array": []float64{0.5, 1.4}},
 	}
-	require.Nil(t, repo.PutObject(context.Background(), objWithProperty, []float32{1, 2, 3}))
+	require.Nil(t, repo.PutObject(context.Background(), objWithProperty, []float32{1, 2, 3}, nil))
 
 	testID2 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a63")
 	objWithoutProperty := &models.Object{
@@ -211,7 +211,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		Class:      "TestClass",
 		Properties: map[string]interface{}{"name": nil, "number array": nil},
 	}
-	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}))
+	require.Nil(t, repo.PutObject(context.Background(), objWithoutProperty, []float32{1, 2, 4}, nil))
 
 	require.Equal(t, 1, len(migrator.db.indices["testclass"].Shards))
 	for _, shd := range migrator.db.indices["testclass"].Shards {
@@ -331,7 +331,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			Properties:         map[string]interface{}{"name": "objectarooni"},
 		}
 		vec := []float32{1, 2, 3}
-		err := repo.PutObject(context.Background(), obj, vec)
+		err := repo.PutObject(context.Background(), obj, vec, nil)
 		require.Nil(t, err)
 	})
 

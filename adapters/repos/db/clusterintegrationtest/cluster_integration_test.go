@@ -136,7 +136,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			for _, obj := range data {
 				node := nodes[rand.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -145,7 +145,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			for _, obj := range refData {
 				node := nodes[rand.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -377,7 +377,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			PrimitiveSchema: map[string]interface{}{
 				"other_property": "a-value-inserted-through-merge",
 			},
-		})
+		}, nil)
 
 		require.Nil(t, err)
 	})
@@ -601,7 +601,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			node := nodes[rand.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID)
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil)
 			require.Nil(t, err)
 		}
 	})

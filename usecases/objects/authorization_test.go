@@ -83,8 +83,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResource: "objects/foo",
 		},
 		{
-			methodName:       "MergeObject",
-			additionalArgs:   []interface{}{&models.Object{Class: "class", ID: "foo"}},
+			methodName: "MergeObject",
+			additionalArgs: []interface{}{
+				&models.Object{Class: "class", ID: "foo"},
+				(*additional.ReplicationProperties)(nil),
+			},
 			expectedVerb:     "update",
 			expectedResource: "objects/class/foo",
 		},
