@@ -74,6 +74,30 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 	}
 }
 
+func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, limit int,
+	keywordRanking *searchparams.KeywordRanking,
+	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
+	objectByIndexID func(index uint64) *storobj.Object,
+) ([]*storobj.Object, []float32, error) {
+	// WEAVIATE-471 - If a property is not searchable, return an error
+	for _, property := range keywordRanking.Properties {
+		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
+			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
+		}
+	}
+	class, err := schema.GetClassByName(b.schema.Objects, string(className))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	objs, scores, err := b.wand(ctx, class, keywordRanking.Query, keywordRanking.Properties, limit)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "wand")
+	}
+
+	return objs, scores, nil
+}
+
 // Objects returns a list of full objects
 func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 	keywordRanking *searchparams.KeywordRanking,
@@ -106,111 +130,6 @@ func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 	}
 }
 
-type term struct {
-	// doubles as max impact (with tf=1, the max impact would be 1*idf), if there
-	// is a boost for a queryTerm, simply apply it here once
-	idf float64
-
-	idPointer  uint64
-	posPointer uint64
-	data       []docPointerWithScore
-	exhausted  bool
-	queryTerm  string
-}
-
-func (t terms) pivot(minScore float64) {
-	minID, pivotPoint := t.findMinID(minScore)
-	if pivotPoint == 0 {
-		return
-	}
-
-	t.advanceAllAtLeast(minID)
-	t.sort()
-}
-
-func (t terms) advanceAllAtLeast(minID uint64) {
-	for i := range t {
-		t[i].advanceAtLeast(minID)
-	}
-}
-
-func (t terms) findMinID(minScore float64) (uint64, int) {
-	cumScore := float64(0)
-
-	for i, term := range t {
-		cumScore += term.idf
-		if cumScore >= minScore {
-			return term.idPointer, i
-		}
-	}
-
-	panic(fmt.Sprintf("score of %f is unreachable", minScore))
-}
-
-func (t terms) sort() {
-	sort.Slice(t, func(a, b int) bool { return t[a].idPointer < t[b].idPointer })
-}
-
-func (t terms) findFirstNonExhausted() (int, bool) {
-	for i := range t {
-		if !t[i].exhausted {
-			return i, true
-		}
-	}
-
-	return -1, false
-}
-
-func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64, bool) {
-	pos, ok := t.findFirstNonExhausted()
-	if !ok {
-		// done, nothing left to score
-		return 0, 0, false
-	}
-
-	id := t[pos].idPointer
-	var cumScore float64
-	for i := pos; i < len(t); i++ {
-		if t[i].idPointer != id || t[i].exhausted {
-			continue
-		}
-		_, score := t[i].scoreAndAdvance(averagePropLength, config)
-		cumScore += score
-	}
-
-	return id, cumScore, true
-}
-
-func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
-	id := t.idPointer
-	pair := t.data[t.posPointer]
-	freq := float64(pair.frequency)
-	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
-
-	// advance
-	t.posPointer++
-	if t.posPointer >= uint64(len(t.data)) {
-		t.exhausted = true
-	} else {
-		t.idPointer = t.data[t.posPointer].id
-	}
-
-	return id, tf * t.idf
-}
-
-func (t *term) advanceAtLeast(minID uint64) {
-	for t.idPointer < minID {
-		t.posPointer++
-		if t.posPointer >= uint64(len(t.data)) {
-			t.exhausted = true
-			return
-		}
-		t.idPointer = t.data[t.posPointer].id
-	}
-}
-
-type terms []term
-
 func (b *BM25Searcher) wand(
 	ctx context.Context, class *models.Class, fullQuery string, properties []string, limit int,
 ) ([]*storobj.Object, []float32, error) {
@@ -230,7 +149,6 @@ func (b *BM25Searcher) wand(
 	propertyBoosts := make(map[string]float32, len(properties))
 
 	averagePropLength := 0.
-
 	for _, propertyWithBoost := range properties {
 		property := propertyWithBoost
 		propBoost := 1
@@ -435,26 +353,107 @@ func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []strin
 	return termResult, docMapPairsIndices, nil
 }
 
-func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, limit int,
-	keywordRanking *searchparams.KeywordRanking,
-	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	objectByIndexID func(index uint64) *storobj.Object,
-) ([]*storobj.Object, []float32, error) {
-	// WEAVIATE-471 - If a property is not searchable, return an error
-	for _, property := range keywordRanking.Properties {
-		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
-			return nil, nil, errors.New("Property " + property + " is not indexed.  Please choose another property or add an index to this property")
+type term struct {
+	// doubles as max impact (with tf=1, the max impact would be 1*idf), if there
+	// is a boost for a queryTerm, simply apply it here once
+	idf float64
+
+	idPointer  uint64
+	posPointer uint64
+	data       []docPointerWithScore
+	exhausted  bool
+	queryTerm  string
+}
+
+func (t terms) pivot(minScore float64) {
+	minID, pivotPoint := t.findMinID(minScore)
+	if pivotPoint == 0 {
+		return
+	}
+
+	t.advanceAllAtLeast(minID)
+	t.sort()
+}
+
+func (t terms) advanceAllAtLeast(minID uint64) {
+	for i := range t {
+		t[i].advanceAtLeast(minID)
+	}
+}
+
+func (t terms) findMinID(minScore float64) (uint64, int) {
+	cumScore := float64(0)
+
+	for i, term := range t {
+		cumScore += term.idf
+		if cumScore >= minScore {
+			return term.idPointer, i
 		}
 	}
-	class, err := schema.GetClassByName(b.schema.Objects, string(className))
-	if err != nil {
-		return nil, nil, err
-	}
 
-	objs, scores, err := b.wand(ctx, class, keywordRanking.Query, keywordRanking.Properties, limit)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "wand")
-	}
-
-	return objs, scores, nil
+	panic(fmt.Sprintf("score of %f is unreachable", minScore))
 }
+
+func (t terms) sort() {
+	sort.Slice(t, func(a, b int) bool { return t[a].idPointer < t[b].idPointer })
+}
+
+func (t terms) findFirstNonExhausted() (int, bool) {
+	for i := range t {
+		if !t[i].exhausted {
+			return i, true
+		}
+	}
+
+	return -1, false
+}
+
+func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64, bool) {
+	pos, ok := t.findFirstNonExhausted()
+	if !ok {
+		// done, nothing left to score
+		return 0, 0, false
+	}
+
+	id := t[pos].idPointer
+	var cumScore float64
+	for i := pos; i < len(t); i++ {
+		if t[i].idPointer != id || t[i].exhausted {
+			continue
+		}
+		_, score := t[i].scoreAndAdvance(averagePropLength, config)
+		cumScore += score
+	}
+
+	return id, cumScore, true
+}
+
+func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+	id := t.idPointer
+	pair := t.data[t.posPointer]
+	freq := float64(pair.frequency)
+	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
+
+	// advance
+	t.posPointer++
+	if t.posPointer >= uint64(len(t.data)) {
+		t.exhausted = true
+	} else {
+		t.idPointer = t.data[t.posPointer].id
+	}
+
+	return id, tf * t.idf
+}
+
+func (t *term) advanceAtLeast(minID uint64) {
+	for t.idPointer < minID {
+		t.posPointer++
+		if t.posPointer >= uint64(len(t.data)) {
+			t.exhausted = true
+			return
+		}
+		t.idPointer = t.data[t.posPointer].id
+	}
+}
+
+type terms []term
