@@ -122,6 +122,10 @@ type fakeClassConfig struct {
 	classConfig map[string]interface{}
 }
 
+func (f fakeClassConfig) ClassName() string {
+	return ""
+}
+
 func (f fakeClassConfig) Class() map[string]interface{} {
 	return f.classConfig
 }

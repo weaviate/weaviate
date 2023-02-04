@@ -22,6 +22,10 @@ import (
 
 type fakeClassConfig map[string]interface{}
 
+func (cfg fakeClassConfig) ClassName() string {
+	return ""
+}
+
 func (cfg fakeClassConfig) Class() map[string]interface{} {
 	return cfg
 }

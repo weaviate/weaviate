@@ -35,7 +35,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
-	v.metricVectorizeDuration("text2vec-openai", "query", "", startMs.UnixMilli())
+	v.metricVectorizeDuration("text2vec-openai", "query", settings.ClassName(), startMs.UnixMilli())
 
 	return res.Vector, nil
 }

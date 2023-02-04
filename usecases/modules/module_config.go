@@ -30,6 +30,10 @@ func NewClassBasedModuleConfig(class *models.Class,
 	}
 }
 
+func (cbmc *ClassBasedModuleConfig) ClassName() string {
+	return cbmc.class.Class
+}
+
 func (cbmc *ClassBasedModuleConfig) Class() map[string]interface{} {
 	return cbmc.ClassByModuleName(cbmc.moduleName)
 }

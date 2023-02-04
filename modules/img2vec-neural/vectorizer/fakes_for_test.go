@@ -40,6 +40,10 @@ type fakeClassConfig struct {
 	config map[string]interface{}
 }
 
+func (c fakeClassConfig) ClassName() string {
+	return ""
+}
+
 func (c fakeClassConfig) Class() map[string]interface{} {
 	return c.config
 }

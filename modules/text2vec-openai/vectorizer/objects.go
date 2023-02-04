@@ -45,6 +45,7 @@ type Client interface {
 
 // IndexCheck returns whether a property of a class should be indexed
 type ClassSettings interface {
+	ClassName() string
 	PropertyIndexed(property string) bool
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
