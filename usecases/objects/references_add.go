@@ -29,6 +29,7 @@ func (m *Manager) AddObjectReference(
 	ctx context.Context,
 	principal *models.Principal,
 	input *AddReferenceInput,
+	repl *additional.ReplicationProperties,
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
@@ -70,8 +71,7 @@ func (m *Manager) AddObjectReference(
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(
-		ctx, input.Class, input.ID, input.Property, &input.Ref); err != nil {
+	if err := m.vectorRepo.AddReference(ctx, input.Class, input.ID, input.Property, &input.Ref, repl); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 

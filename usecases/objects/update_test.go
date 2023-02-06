@@ -99,7 +99,7 @@ func Test_UpdateAction(t *testing.T) {
 			ID:         id,
 			Properties: map[string]interface{}{"foo": "baz"},
 		}
-		res, err := manager.UpdateObject(context.Background(), &models.Principal{}, "", id, payload)
+		res, err := manager.UpdateObject(context.Background(), &models.Principal{}, "", id, payload, nil)
 		require.Nil(t, err)
 		expected := &models.Object{
 			Class:            "ActionClass",
@@ -153,7 +153,7 @@ func Test_UpdateObject(t *testing.T) {
 	}
 	// the object might not exist
 	m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(nil, anyErr).Once()
-	_, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload)
+	_, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload, nil)
 	if err == nil {
 		t.Fatalf("must return an error if object() fails")
 	}
@@ -177,7 +177,7 @@ func Test_UpdateObject(t *testing.T) {
 		CreationTimeUnix: beforeUpdate,
 		Vector:           vec,
 	}
-	res, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload)
+	res, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload, nil)
 	require.Nil(t, err)
 	if res.LastUpdateTimeUnix <= beforeUpdate {
 		t.Error("time after update must be greather than time before update ")
