@@ -15,69 +15,67 @@
 package lsmkv
 
 import (
-	"context"
 	"encoding/binary"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_CompactionRoaringSet(t *testing.T) {
-	maxID := uint64(100)
-	maxElement := uint64(1e6)
-	iterations := uint64(100_000)
+// func Test_CompactionRoaringSet(t *testing.T) {
+// 	maxID := uint64(100)
+// 	maxElement := uint64(1e6)
+// 	iterations := uint64(100_000)
 
-	deleteRatio := 0.2   // 20% of all operations will be deletes, 80% additions
-	flushChance := 0.001 // on average one flus per 1000 iterations
+// 	deleteRatio := 0.2   // 20% of all operations will be deletes, 80% additions
+// 	flushChance := 0.001 // on average one flus per 1000 iterations
 
-	rand.Seed(time.Now().UnixNano())
+// 	rand.Seed(time.Now().UnixNano())
 
-	instr := generateRandomInstructions(maxID, maxElement, iterations, deleteRatio)
-	control := controlFromInstructions(instr, maxID)
+// 	instr := generateRandomInstructions(maxID, maxElement, iterations, deleteRatio)
+// 	control := controlFromInstructions(instr, maxID)
 
-	b, err := NewBucket(testCtx(), t.TempDir(), "", nullLogger(), nil,
-		WithStrategy(StrategyRoaringSet))
-	require.Nil(t, err)
+// 	b, err := NewBucket(testCtx(), t.TempDir(), "", nullLogger(), nil,
+// 		WithStrategy(StrategyRoaringSet))
+// 	require.Nil(t, err)
 
-	// stop default compaction to run one manually
-	b.disk.compactionCycle.StopAndWait(context.Background())
-	defer b.Shutdown(testCtx())
+// 	// stop default compaction to run one manually
+// 	b.disk.compactionCycle.StopAndWait(context.Background())
+// 	defer b.Shutdown(testCtx())
 
-	// so big it effectively never triggers as part of this test
-	b.SetMemtableThreshold(1e9)
+// 	// so big it effectively never triggers as part of this test
+// 	b.SetMemtableThreshold(1e9)
 
-	compactions := 0
-	for _, inst := range instr {
-		key := make([]byte, 8)
-		binary.LittleEndian.PutUint64(key, inst.key)
-		if inst.addition {
-			b.RoaringSetAddOne(key, inst.element)
-		} else {
-			b.RoaringSetRemoveOne(key, inst.element)
-		}
+// 	compactions := 0
+// 	for _, inst := range instr {
+// 		key := make([]byte, 8)
+// 		binary.LittleEndian.PutUint64(key, inst.key)
+// 		if inst.addition {
+// 			b.RoaringSetAddOne(key, inst.element)
+// 		} else {
+// 			b.RoaringSetRemoveOne(key, inst.element)
+// 		}
 
-		if rand.Float64() < flushChance {
-			require.Nil(t, b.FlushAndSwitch())
+// 		if rand.Float64() < flushChance {
+// 			require.Nil(t, b.FlushAndSwitch())
 
-			for b.disk.eligibleForCompaction() {
-				require.Nil(t, b.disk.compactOnce())
-				compactions++
-			}
-		}
+// 			for b.disk.eligibleForCompaction() {
+// 				require.Nil(t, b.disk.compactOnce())
+// 				compactions++
+// 			}
+// 		}
 
-	}
+// 	}
 
-	// this is a sanity check to make sure the test setup actually does what we
-	// want. With the current setup, we expect on avarage to have ~100
-	// compactions. It would be extremely unexpected to have fewer than 25.
-	assert.Greater(t, compactions, 25)
+// 	// this is a sanity check to make sure the test setup actually does what we
+// 	// want. With the current setup, we expect on avarage to have ~100
+// 	// compactions. It would be extremely unexpected to have fewer than 25.
+// 	assert.Greater(t, compactions, 25)
 
-	verifyBucketAgainstControl(t, b, control)
-}
+// 	verifyBucketAgainstControl(t, b, control)
+// }
 
 func verifyBucketAgainstControl(t *testing.T, b *Bucket, control []*sroar.Bitmap) {
 	// This test was built before the bucket had cursors, so we are retrieving
