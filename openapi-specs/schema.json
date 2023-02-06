@@ -241,6 +241,9 @@
             "properties": {
               "message": {
                 "type": "string"
+              },
+              "code": {
+                "type": "number"
               }
             },
             "type": "object"
@@ -271,6 +274,9 @@
         },
         "message": {
           "type": "string"
+        },
+        "code": {
+          "type": "number"
         },
         "path": {
           "items": {

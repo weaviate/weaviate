@@ -3256,6 +3256,9 @@ func init() {
             "properties": {
               "message": {
                 "type": "string"
+              },
+              "code": {
+                "type": "number"
               }
             }
           }
@@ -3299,6 +3302,9 @@ func init() {
         },
         "message": {
           "type": "string"
+        },
+        "code": {
+          "type": "number"
         },
         "path": {
           "type": "array",
@@ -7626,6 +7632,9 @@ func init() {
       "properties": {
         "message": {
           "type": "string"
+        },
+        "code": {
+          "type": "number"
         }
       }
     },
@@ -7656,6 +7665,9 @@ func init() {
         },
         "message": {
           "type": "string"
+        },
+        "code": {
+          "type": "number"
         },
         "path": {
           "type": "array",
