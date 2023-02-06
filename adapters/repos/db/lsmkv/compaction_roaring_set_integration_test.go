@@ -15,6 +15,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/binary"
 	"math/rand"
 	"testing"
@@ -42,6 +43,8 @@ func Test_CompactionRoaringSet(t *testing.T) {
 		WithStrategy(StrategyRoaringSet))
 	require.Nil(t, err)
 
+	// stop default compaction to run one manually
+	b.disk.compactionCycle.StopAndWait(context.Background())
 	defer b.Shutdown(testCtx())
 
 	// so big it effectively never triggers as part of this test
