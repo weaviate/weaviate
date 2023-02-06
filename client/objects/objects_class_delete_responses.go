@@ -40,6 +40,12 @@ func (o *ObjectsClassDeleteReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewObjectsClassDeleteBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewObjectsClassDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -88,6 +94,40 @@ func (o *ObjectsClassDeleteNoContent) Error() string {
 }
 
 func (o *ObjectsClassDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsClassDeleteBadRequest creates a ObjectsClassDeleteBadRequest with default headers values
+func NewObjectsClassDeleteBadRequest() *ObjectsClassDeleteBadRequest {
+	return &ObjectsClassDeleteBadRequest{}
+}
+
+/*
+ObjectsClassDeleteBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type ObjectsClassDeleteBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *ObjectsClassDeleteBadRequest) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}][%d] objectsClassDeleteBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsClassDeleteBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

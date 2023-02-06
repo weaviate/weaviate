@@ -42,6 +42,7 @@ func (m *Manager) UpdateObjectReferences(
 	ctx context.Context,
 	principal *models.Principal,
 	input *PutReferenceInput,
+	repl *additional.ReplicationProperties,
 ) *Error {
 	m.metrics.UpdateReferenceInc()
 	defer m.metrics.UpdateReferenceDec()
@@ -81,7 +82,7 @@ func (m *Manager) UpdateObjectReferences(
 		obj.Properties.(map[string]interface{})[input.Property] = input.Refs
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

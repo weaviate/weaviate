@@ -49,6 +49,51 @@ func (o *ObjectsClassDeleteNoContent) WriteResponse(rw http.ResponseWriter, prod
 	rw.WriteHeader(204)
 }
 
+// ObjectsClassDeleteBadRequestCode is the HTTP code returned for type ObjectsClassDeleteBadRequest
+const ObjectsClassDeleteBadRequestCode int = 400
+
+/*
+ObjectsClassDeleteBadRequest Malformed request.
+
+swagger:response objectsClassDeleteBadRequest
+*/
+type ObjectsClassDeleteBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassDeleteBadRequest creates ObjectsClassDeleteBadRequest with default headers values
+func NewObjectsClassDeleteBadRequest() *ObjectsClassDeleteBadRequest {
+
+	return &ObjectsClassDeleteBadRequest{}
+}
+
+// WithPayload adds the payload to the objects class delete bad request response
+func (o *ObjectsClassDeleteBadRequest) WithPayload(payload *models.ErrorResponse) *ObjectsClassDeleteBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class delete bad request response
+func (o *ObjectsClassDeleteBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassDeleteBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsClassDeleteUnauthorizedCode is the HTTP code returned for type ObjectsClassDeleteUnauthorized
 const ObjectsClassDeleteUnauthorizedCode int = 401
 

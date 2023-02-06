@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,7 +37,7 @@ type schemaManager interface {
 
 // AddObject Class Instance to the connected DB.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
-	object *models.Object,
+	object *models.Object, repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "create", "objects")
 	if err != nil {
@@ -51,7 +53,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
 
-	return m.addObjectToConnectorAndSchema(ctx, principal, object)
+	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }
 
 func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
@@ -75,7 +77,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object,
+	object *models.Object, repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID)
 	if err != nil {
@@ -108,7 +110,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %s", err)
 	}

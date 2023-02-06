@@ -40,6 +40,12 @@ func (o *ObjectsClassReferencesCreateReader) ReadResponse(response runtime.Clien
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewObjectsClassReferencesCreateBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewObjectsClassReferencesCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -94,6 +100,40 @@ func (o *ObjectsClassReferencesCreateOK) Error() string {
 }
 
 func (o *ObjectsClassReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsClassReferencesCreateBadRequest creates a ObjectsClassReferencesCreateBadRequest with default headers values
+func NewObjectsClassReferencesCreateBadRequest() *ObjectsClassReferencesCreateBadRequest {
+	return &ObjectsClassReferencesCreateBadRequest{}
+}
+
+/*
+ObjectsClassReferencesCreateBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type ObjectsClassReferencesCreateBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *ObjectsClassReferencesCreateBadRequest) Error() string {
+	return fmt.Sprintf("[POST /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesCreateBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsClassReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassReferencesCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

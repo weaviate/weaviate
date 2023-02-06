@@ -40,6 +40,12 @@ func (o *BatchReferencesCreateReader) ReadResponse(response runtime.ClientRespon
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewBatchReferencesCreateBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewBatchReferencesCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -96,6 +102,40 @@ func (o *BatchReferencesCreateOK) readResponse(response runtime.ClientResponse, 
 
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewBatchReferencesCreateBadRequest creates a BatchReferencesCreateBadRequest with default headers values
+func NewBatchReferencesCreateBadRequest() *BatchReferencesCreateBadRequest {
+	return &BatchReferencesCreateBadRequest{}
+}
+
+/*
+BatchReferencesCreateBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type BatchReferencesCreateBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *BatchReferencesCreateBadRequest) Error() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *BatchReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *BatchReferencesCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
 

@@ -55,6 +55,10 @@ type ObjectsClassReferencesPutParams struct {
 	  In: path
 	*/
 	ClassName string
+	/*Determines how many replicas must acknowledge a request before it is considered successful
+	  In: query
+	*/
+	ConsistencyLevel *string
 	/*Unique ID of the Object.
 	  Required: true
 	  In: path
@@ -75,6 +79,8 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 	var res []error
 
 	o.HTTPRequest = r
+
+	qs := runtime.Values(r.URL.Query())
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -100,6 +106,11 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 	}
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
+	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -130,6 +141,24 @@ func (o *ObjectsClassReferencesPutParams) bindClassName(rawData []string, hasKey
 	// Parameter is provided by construction from the route
 
 	o.ClassName = raw
+
+	return nil
+}
+
+// bindConsistencyLevel binds and validates parameter ConsistencyLevel from query.
+func (o *ObjectsClassReferencesPutParams) bindConsistencyLevel(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.ConsistencyLevel = &raw
 
 	return nil
 }

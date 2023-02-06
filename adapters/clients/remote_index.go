@@ -84,7 +84,7 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
-	shardName string, objs []*storobj.Object,
+	shardName string, objs []*storobj.Object, _ *additional.ReplicationProperties,
 ) []error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodPost

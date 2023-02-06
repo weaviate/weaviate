@@ -101,7 +101,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batchObjs := dataAsBatch(data)
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -113,7 +113,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batchObjs := dataAsBatchWithProps(refData, []string{"description"})
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -125,7 +125,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batch := refsAsBatch(refData, "toFirst")
-			res, err := node.repo.AddBatchReferences(context.Background(), batch)
+			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -136,7 +136,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			for _, obj := range data {
 				node := nodes[rand.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -145,7 +145,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			for _, obj := range refData {
 				node := nodes[rand.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -377,7 +377,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			PrimitiveSchema: map[string]interface{}{
 				"other_property": "a-value-inserted-through-merge",
 			},
-		})
+		}, nil)
 
 		require.Nil(t, err)
 	})
@@ -601,7 +601,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			node := nodes[rand.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID)
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -653,8 +653,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
-		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(),
-			getParams(distributedClass, false))
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil)
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
