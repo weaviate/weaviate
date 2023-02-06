@@ -39,9 +39,6 @@ type compressedShardedLockCache struct {
 	maintenanceLock sync.Mutex
 }
 
-//nolint:unused
-var compressedShardFactor = uint64(512)
-
 func newCompressedShardedLockCache(maxSize int, logger logrus.FieldLogger) *compressedShardedLockCache {
 	vc := &compressedShardedLockCache{
 		cache:           make([][]byte, initialSize),
