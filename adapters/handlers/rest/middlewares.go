@@ -96,7 +96,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
 		handler = addPreflight(handler)
-		handler = addLiveAndReadyness(handler)
+		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
@@ -171,7 +171,7 @@ func addInjectHeadersIntoContext(next http.Handler) http.Handler {
 	})
 }
 
-func addLiveAndReadyness(next http.Handler) http.Handler {
+func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() == "/v1/.well-known/live" {
 			w.WriteHeader(http.StatusOK)
@@ -179,7 +179,11 @@ func addLiveAndReadyness(next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
-			w.WriteHeader(http.StatusOK)
+			code := http.StatusServiceUnavailable
+			if state.DB.StartupComplete() && state.Cluster.ClusterHealthScore() == 0 {
+				code = http.StatusOK
+			}
+			w.WriteHeader(code)
 			return
 		}
 
