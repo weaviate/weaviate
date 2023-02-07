@@ -896,7 +896,8 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 							Longitude: &coordinates[i][1],
 						},
 					},
-			}, []float32{0.5}, nil)
+				}, []float32{0.5}, nil)
+			}
 		}
 	}
 
