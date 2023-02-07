@@ -30,6 +30,8 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
+var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
+
 type openai struct {
 	apiKey     string
 	host       string
@@ -42,7 +44,6 @@ func New(apiKey string, logger logrus.FieldLogger) *openai {
 	return &openai{
 		apiKey: apiKey,
 		httpClient: &http.Client{
-			//nolint:gofumpt    //todo check if we need longer than this!
 			Timeout: 60 * time.Second,
 		},
 		host:   "https://api.openai.com",
@@ -124,7 +125,6 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
-		//nolint:gofumpt    //todo [@marcin, should we do this? seems like OpenAI returns the \n from the prompt I think for some reason]
 		replaceAll := strings.ReplaceAll(textResponse, "\n", "")
 		return &ent.GenerateResult{
 			Result: &replaceAll,
@@ -145,15 +145,17 @@ func (v *openai) generatePromptForTask(textProperties []map[string]string, task 
 }
 
 func (v *openai) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
-	for key, value := range textProperties {
-		prompt = strings.ReplaceAll(prompt, fmt.Sprintf("{%v}", key), value)
+	all := compile.FindAll([]byte(prompt), -1)
+	for _, match := range all {
+		originalProperty := string(match)
+		replacedProperty := compile.FindStringSubmatch(originalProperty)[1]
+		replacedProperty = strings.TrimSpace(replacedProperty)
+		value := textProperties[replacedProperty]
+		if value == "" {
+			return "", errors.Errorf("Following property has empty value: '%v'. Make sure you spell the property name correctly, verify that the property exists and has a value", replacedProperty)
+		}
+		prompt = strings.ReplaceAll(prompt, originalProperty, value)
 	}
-	compile, _ := regexp.Compile(`{\w*}`)
-	leftOverProperties := compile.FindAllString(prompt, -1)
-	if len(leftOverProperties) > 0 {
-		return "", errors.Errorf("Following properties could not be found: %v", leftOverProperties)
-	}
-
 	return prompt, nil
 }
 
