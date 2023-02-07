@@ -45,6 +45,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
@@ -514,6 +515,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "qna-openai").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativeopenai.Name]; ok {
+		appState.Modules.Register(modgenerativeopenai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeopenai.Name).
 			Debug("enabled module")
 	}
 
