@@ -21,6 +21,7 @@ import (
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vectohub.comnghelpats/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/stretchr/testify/assert"
 )
 
 type IndexAndDistance struct {
