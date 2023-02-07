@@ -68,7 +68,7 @@ func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) 
 		}
 		cleanData = append(cleanData, point)
 	}
-	h.compressedVectorsCache.grow(uint64(len(cleanData)))
+	h.compressedVectorsCache.grow(uint64(len(data)))
 	h.pq.Fit(cleanData)
 	ssdhelpers.Concurrently(uint64(len(cleanData)),
 		func(_, index uint64, _ *sync.Mutex) {
