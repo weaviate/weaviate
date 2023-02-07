@@ -357,7 +357,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
 	if err != nil {
 		return err
 	}
@@ -523,10 +523,11 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	var mapOpts []lsmkv.BucketOption
+	mapOpts := []lsmkv.BucketOption{
+		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
+	}
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
 		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		mapOpts = append(mapOpts, lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second))
 		if s.versioner.Version() < 2 {
 			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
 		}
