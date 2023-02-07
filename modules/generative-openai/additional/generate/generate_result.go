@@ -13,8 +13,10 @@ package generate
 
 import (
 	"context"
+	"regexp"
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
@@ -22,31 +24,52 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
+var maximumNumberOfGoroutines = 10
+
 func (p *GenerateProvider) generateResult(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
 	if len(in) == 0 {
 		return in, nil
 	}
 	prompt := params.Prompt
 	task := params.Task
-
 	var err error
+
 	if task != nil {
 		_, err = p.generateForAllSearchResults(ctx, in, *task, cfg)
 	}
 	if prompt != nil {
+		prompt, err = validatePrompt(prompt)
+		if err != nil {
+			return nil, err
+		}
 		_, err = p.generatePerSearchResult(ctx, in, *prompt, cfg)
 	}
 
 	return in, err
 }
 
+func validatePrompt(prompt *string) (*string, error) {
+	matched, err := regexp.MatchString("{([\\s\\w]*)}", *prompt)
+	if err != nil {
+		return nil, err
+	}
+	if !matched {
+		return nil, errors.Errorf("Prompt does not contain any properties. Use {PROPERTY_NAME} in the prompt to instuct Weaviate which data to use")
+	}
+
+	return prompt, err
+}
+
 func (p *GenerateProvider) generatePerSearchResult(ctx context.Context, in []search.Result, prompt string, cfg moduletools.ClassConfig) ([]search.Result, error) {
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maximumNumberOfGoroutines)
 	for i, result := range in {
 		wg.Add(1)
 		textProperties := p.getTextProperties(result)
 		go func(result search.Result, textProperties map[string]string, i int) {
+			sem <- struct{}{}
 			defer wg.Done()
+			defer func() { <-sem }()
 			generateResult, err := p.client.GenerateSingleResult(ctx, textProperties, prompt, cfg)
 			p.setIndividualResult(in, i, generateResult, err)
 		}(result, textProperties, i)

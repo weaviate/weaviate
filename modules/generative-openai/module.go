@@ -41,6 +41,7 @@ type generativeClient interface {
 	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
 	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
 	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error)
+	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *GenerativeOpenAIModule) Name() string {
@@ -74,6 +75,10 @@ func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context,
 	m.additionalPropertiesProvider = generativeadditional.New(generateProvider)
 
 	return nil
+}
+
+func (m *GenerativeOpenAIModule) MetaInfo() (map[string]interface{}, error) {
+	return m.generative.MetaInfo()
 }
 
 func (m *GenerativeOpenAIModule) RootHandler() http.Handler {
