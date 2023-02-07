@@ -77,9 +77,9 @@ func (lut *DistanceLookUpTable) LookUp(
 }
 
 type ProductQuantizer struct {
-	ks                  int
-	m                   int
-	ds                  int
+	ks                  int //centroids
+	m                   int //segments
+	ds                  int //dimensions per segment
 	distance            distancer.Provider
 	dimensions          int
 	kms                 []PQEncoder
@@ -174,11 +174,9 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []
 }
 
 type PQDistancer struct {
-	x []float32
-	// nolint:unused
-	distancer distancer.Provider
-	pq        *ProductQuantizer
-	lut       *DistanceLookUpTable
+	x   []float32
+	pq  *ProductQuantizer
+	lut *DistanceLookUpTable
 }
 
 func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {

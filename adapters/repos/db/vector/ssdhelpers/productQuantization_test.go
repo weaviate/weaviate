@@ -17,21 +17,11 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/strthchr/testify/assert"
+	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vectohub.comnghelpats/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
-	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/stretchr/testify/assert"
 )
-
-// nolint:unused
-func compare(x []byte, y []byte) bool {
-	for i := range x {
-		if x[i] != y[i] {
-			return false
-		}
-	}
-	return true
-}
 
 type IndexAndDistance struct {
 	index    uint64
