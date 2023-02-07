@@ -69,28 +69,20 @@ func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
+	//Leave this
 	settings := config.NewClassSettings(cfg)
+	fmt.Sprintf("%v", settings)
 
-	body, err := json.Marshal(generateInput{
-		Prompt:           prompt,
-		Model:            settings.Model(),
-		MaxTokens:        settings.MaxTokens(),
-		Temperature:      settings.Temperature(),
-		FrequencyPenalty: settings.FrequencyPenalty(),
-		PresencePenalty:  settings.PresencePenalty(),
-		TopP:             settings.TopP(),
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
-	}
+	//Create request
 
 	oaiUrl, err := url.JoinPath(v.host, v.path)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
 
+	//todo put body back
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
-		bytes.NewReader(body))
+		bytes.NewReader(nil))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
