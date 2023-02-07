@@ -37,7 +37,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{},
 			},
 			wantModel:            "text-davinci-003",
-			wantMaxTokens:        100,
+			wantMaxTokens:        1200,
 			wantTemperature:      0.0,
 			wantTopP:             1,
 			wantFrequencyPenalty: 0.0,
@@ -48,39 +48,21 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":            "text-babbage-001",
-					"maxTokens":        100,
+					"model":            "text-davinci-003",
+					"maxTokens":        1200,
 					"temperature":      0.5,
 					"topP":             3,
 					"frequencyPenalty": 0.1,
 					"presencePenalty":  0.9,
 				},
 			},
-			wantModel:            "text-babbage-001",
-			wantMaxTokens:        100,
+			wantModel:            "text-davinci-003",
+			wantMaxTokens:        1200,
 			wantTemperature:      0.5,
 			wantTopP:             3,
 			wantFrequencyPenalty: 0.1,
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
-		},
-		{
-			name: "Wrong model data type configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": true,
-				},
-			},
-			wantErr: errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels),
-		},
-		{
-			name: "Wrong model data type configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "this-is-a-non-existing-model",
-				},
-			},
-			wantErr: errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels),
 		},
 		{
 			name: "Wrong maxTokens configured",

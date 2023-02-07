@@ -31,27 +31,14 @@ const (
 var (
 	DefaultOpenAIModel                    = "text-davinci-003"
 	DefaultOpenAITemperature      float64 = 0.0
-	DefaultOpenAIMaxTokens        float64 = 100
+	DefaultOpenAIMaxTokens        float64 = 1200
 	DefaultOpenAIFrequencyPenalty float64 = 0.0
 	DefaultOpenAIPresencePenalty  float64 = 0.0
 	DefaultOpenAITopP             float64 = 1.0
 )
 
 var maxTokensForModel = map[string]float64{
-	"text-ada-001":     2048,
-	"text-babbage-001": 2048,
-	"text-curie-001":   2048,
-	"text-davinci-002": 4000,
-	"text-davinci-003": 4000,
-}
-
-var availableOpenAIModels = []string{
-	"text-ada-001",
-	"text-ada-002",
-	"text-babbage-001",
-	"text-curie-001",
-	"text-davinci-002",
-	"text-davinci-003",
+	"text-davinci-003": 1200,
 }
 
 type classSettings struct {
@@ -68,18 +55,13 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
-	if model == nil || !ic.validateOpenAISetting(*model, availableOpenAIModels) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
-	}
-
 	temperature := ic.getFloatProperty(temperatureProperty, &DefaultOpenAITemperature)
 	if temperature == nil || (*temperature < 0 || *temperature > 1) {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
 	maxTokens := ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
-	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > getMaxTokensForModel(*model)) {
+	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > getMaxTokensForModel(DefaultOpenAIModel)) {
 		return errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used")
 	}
 
@@ -153,15 +135,6 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *f
 
 func getMaxTokensForModel(model string) float64 {
 	return maxTokensForModel[model]
-}
-
-func (ic *classSettings) validateOpenAISetting(value string, availableValues []string) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
 }
 
 func (ic *classSettings) Model() string {
