@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
+const maximumNumberOfGoroutines = 10
+
 type openAIClient interface {
 	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
 	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*ent.GenerateResult, error)
@@ -29,11 +31,12 @@ type openAIClient interface {
 }
 
 type GenerateProvider struct {
-	client openAIClient
+	client                    openAIClient
+	maximumNumberOfGoroutines int
 }
 
 func New(openai openAIClient) *GenerateProvider {
-	return &GenerateProvider{openai}
+	return &GenerateProvider{openai, maximumNumberOfGoroutines}
 }
 
 func (p *GenerateProvider) AdditonalPropertyDefaultValue() interface{} {

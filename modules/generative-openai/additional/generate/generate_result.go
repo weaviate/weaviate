@@ -24,8 +24,6 @@ import (
 	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )
 
-var maximumNumberOfGoroutines = 10
-
 func (p *GenerateProvider) generateResult(ctx context.Context, in []search.Result, params *Params, limit *int, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig) ([]search.Result, error) {
 	if len(in) == 0 {
 		return in, nil
@@ -62,7 +60,7 @@ func validatePrompt(prompt *string) (*string, error) {
 
 func (p *GenerateProvider) generatePerSearchResult(ctx context.Context, in []search.Result, prompt string, cfg moduletools.ClassConfig) ([]search.Result, error) {
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, maximumNumberOfGoroutines)
+	sem := make(chan struct{}, p.maximumNumberOfGoroutines)
 	for i, result := range in {
 		wg.Add(1)
 		textProperties := p.getTextProperties(result)
