@@ -103,7 +103,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name:    "queries_durations_ms",
 			Help:    "Duration of queries in milliseconds",
 			Buckets: []float64{1, 10, 25, 50, 75, 100, 250, 500, 1000, 2500, 5000, 10000},
-		}, []string{"class_name", "shard_name", "query_type"}),
+		}, []string{"class_name", "query_type"}),
 
 		QueriesFilteredVectorDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "queries_filtered_vector_durations_ms",
