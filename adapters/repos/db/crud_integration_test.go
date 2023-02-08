@@ -17,7 +17,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"github.com/weaviate/weaviate/usecases/replica"
 	"math/rand"
 	"testing"
 	"time"
@@ -38,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestCRUD(t *testing.T) {
