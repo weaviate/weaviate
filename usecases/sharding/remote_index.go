@@ -99,6 +99,13 @@ type RemoteIndexClient interface {
 	// detects that a set of nodes contains an outdated version of an object
 	OverwriteObjects(ctx context.Context, host, index, shard string,
 		objects []*objects.VObject) ([]replica.RepairResponse, error)
+
+	// DigestObjects finds a list of objects and returns a compact representation
+	// of a list of the objects. This is used by the replicator to optimize the
+	// number of bytes transferred over the network when fetching a replicated
+	// object
+	DigestObjects(ctx context.Context, hostName, indexName, shardName string,
+		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,

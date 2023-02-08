@@ -37,6 +37,7 @@ type indices struct {
 	db                        db
 	regexpObjects             *regexp.Regexp
 	regexpObjectsOverwrite    *regexp.Regexp
+	regexObjectsDigest        *regexp.Regexp
 	regexpObjectsSearch       *regexp.Regexp
 	regexpObjectsFind         *regexp.Regexp
 	regexpObjectsAggregations *regexp.Regexp
@@ -53,6 +54,8 @@ const (
 		`\/shards\/([A-Za-z0-9]+)\/objects`
 	urlPatternObjectsOverwrite = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects:overwrite`
+	urlPatternObjectsDigest = `\/indices\/([A-Za-z0-9_+-]+)` +
+		`\/shards\/([A-Za-z0-9]+)\/objects:digest`
 	urlPatternObjectsSearch = `\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects\/_search`
 	urlPatternObjectsFind = `\/indices\/([A-Za-z0-9_+-]+)` +
@@ -106,6 +109,8 @@ type shards interface {
 		targetStatus string) error
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
+	DigestObjects(ctx context.Context, indexName, shardName string,
+		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
 
 	// Scale-out Replication POC
 	FilePutter(ctx context.Context, indexName, shardName,
@@ -122,6 +127,7 @@ func NewIndices(shards shards, db db) *indices {
 	return &indices{
 		regexpObjects:             regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite:    regexp.MustCompile(urlPatternObjectsOverwrite),
+		regexObjectsDigest:        regexp.MustCompile(urlPatternObjectsDigest),
 		regexpObjectsSearch:       regexp.MustCompile(urlPatternObjectsSearch),
 		regexpObjectsFind:         regexp.MustCompile(urlPatternObjectsFind),
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
@@ -170,6 +176,12 @@ func (i *indices) Indices() http.Handler {
 			}
 
 			i.putOverwriteObjects().ServeHTTP(w, r)
+		case i.regexObjectsDigest.MatchString(path):
+			if r.Method != http.MethodGet {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			}
+
+			i.getObjectsDigest().ServeHTTP(w, r)
 		case i.regexpObject.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getObject().ServeHTTP(w, r)
@@ -769,6 +781,47 @@ func (i *indices) putOverwriteObjects() http.Handler {
 		results, err := i.shards.OverwriteObjects(r.Context(), index, shard, vobjs)
 		if err != nil {
 			http.Error(w, "overwrite objects: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(results)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(resBytes)
+	})
+}
+
+func (i *indices) getObjectsDigest() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexObjectsDigest.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var ids []strfmt.UUID
+		if err := json.Unmarshal(reqPayload, &ids); err != nil {
+			http.Error(w, "unmarshal digest objects params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
+		if err != nil {
+			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusInternalServerError)
 			return
 		}

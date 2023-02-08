@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"math/rand"
 	"testing"
 	"time"
@@ -2066,7 +2067,7 @@ func TestOverwriteObjects(t *testing.T) {
 		shd, err := idx.shardFromUUID(fresh.ID)
 		require.Nil(t, err)
 
-		received, err := idx.OverwriteObjects(context.Background(), shd, input)
+		received, err := idx.overwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, nil, received)
 	})
@@ -2076,6 +2077,104 @@ func TestOverwriteObjects(t *testing.T) {
 			stale.ID, nil, additional.Properties{}, nil)
 		assert.Nil(t, err)
 		assert.EqualValues(t, fresh, found.Object())
+	})
+}
+
+func TestIndexDigestObjects(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "SomeClass",
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{},
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	t.Run("create the class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	})
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	now := time.Now()
+	later := now.Add(time.Hour) // time-traveling ;)
+	obj1 := &models.Object{
+		ID:                 "ae48fda2-866a-4c90-94fc-fce40d5f3767",
+		Class:              class.Class,
+		CreationTimeUnix:   now.UnixMilli(),
+		LastUpdateTimeUnix: now.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+		},
+		Vector:        []float32{1, 2, 3},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	obj2 := &models.Object{
+		ID:                 "b71ffac8-6534-4368-9718-5410ca89ce16",
+		Class:              class.Class,
+		CreationTimeUnix:   later.UnixMilli(),
+		LastUpdateTimeUnix: later.UnixMilli(),
+		Properties: map[string]interface{}{
+			"oldValue": "how things used to be",
+		},
+		Vector:        []float32{1, 2, 3},
+		VectorWeights: (map[string]string)(nil),
+		Additional:    models.AdditionalProperties{},
+	}
+
+	t.Run("insert test objects", func(t *testing.T) {
+		err := repo.PutObject(context.Background(), obj1, obj1.Vector, nil)
+		require.Nil(t, err)
+		err = repo.PutObject(context.Background(), obj2, obj2.Vector, nil)
+		require.Nil(t, err)
+	})
+
+	t.Run("get digest object", func(t *testing.T) {
+		idx := repo.GetIndex(schema.ClassName(class.Class))
+		shd, err := idx.shardFromUUID(obj1.ID)
+		require.Nil(t, err)
+
+		input := []strfmt.UUID{obj1.ID, obj2.ID}
+
+		expected := []replica.RepairResponse{
+			{
+				ID:         obj1.ID.String(),
+				UpdateTime: obj1.LastUpdateTimeUnix,
+			},
+			{
+				ID:         obj2.ID.String(),
+				UpdateTime: obj2.LastUpdateTimeUnix,
+			},
+		}
+
+		res, err := idx.digestObjects(context.Background(), shd, input)
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
 	})
 }
 
