@@ -141,24 +141,25 @@ func TestBM25FJourney(t *testing.T) {
 	require.NotNil(t, idx)
 
 	// Check basic search
-	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
-
-	// Print results
-	t.Log("--- Start results for basic search ---")
-	for _, r := range res {
-		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-	}
 
 	t.Run("bm25f journey", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		// Print results
+		t.Log("--- Start results for basic search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
 
-		//// Check explainScore
-		//require.Contains(t, res[0].Object.Additional["explainScore"], "BM25F")
+		// Check explainScore
+		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25F")
 	})
 
 	// Check non-alpha search on string field
@@ -179,8 +180,8 @@ func TestBM25FJourney(t *testing.T) {
 		// Check results in correct order
 		require.Equal(t, uint64(7), resStringField[0].DocID())
 
-		//// Check explainScore
-		//require.Contains(t, resStringField[0].Object.Additional["explainScore"], "BM25F")
+		// Check explainScore
+		require.Contains(t, resStringField[0].Object.Additional["explainScore"], "BM25F")
 	})
 
 	// String and text fields are indexed differently, so this checks the string indexing and searching.  In particular,
@@ -203,9 +204,8 @@ func TestBM25FJourney(t *testing.T) {
 
 	// Check basic text search WITH CAPS
 	t.Run("bm25f text with caps", func(t *testing.T) {
-		kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-		addit = additional.Properties{}
-		res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 		// Print results
 		t.Log("--- Start results for search with caps ---")
 		for _, r := range res {
@@ -217,31 +217,29 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
 	})
-	// Check boosted
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
-	addit = additional.Properties{}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-
-	require.Nil(t, err)
-	// Print results
-	t.Log("--- Start results for boosted search ---")
-	for _, r := range res {
-		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-	}
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+
+		require.Nil(t, err)
+		// Print results
+		t.Log("--- Start results for boosted search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
 		require.Equal(t, uint64(6), res[2].DocID())
 		require.Equal(t, uint64(0), res[3].DocID())
 	})
-	// Check search with two terms
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
 
-	t.Run("bm25f journey somewhere", func(t *testing.T) {
+	t.Run("Check search with two terms", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
 		// Check results in correct order
 		require.Equal(t, uint64(1), res[0].DocID())
 		require.Equal(t, uint64(4), res[1].DocID())
@@ -249,13 +247,13 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[3].DocID())
 		require.Equal(t, uint64(2), res[4].DocID())
 	})
-	t.Log("Search with no properties")
-	// Check search with no properties (should include all properties)
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
 
 	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
+		// Check search with no properties (should include all properties)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
 		// Check results in correct order
 		require.Equal(t, uint64(1), res[0].DocID())
 		require.Equal(t, uint64(4), res[1].DocID())
@@ -263,13 +261,11 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[3].DocID())
 	})
 
-	t.Log("Search with non alphanums")
-	// Check search with no properties (should include all properties)
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
-
 	t.Run("bm25f non alphanums", func(t *testing.T) {
+		// Check search with no properties (should include all properties)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
 		require.Equal(t, uint64(7), res[0].DocID())
 	})
 }
