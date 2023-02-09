@@ -34,7 +34,7 @@ type coordinator[T any] struct {
 	Resolver *resolver // node-name -> host-address
 	Class    string
 	Shard    string
-	TID      string // transaction ID
+	TxID     string // transaction ID
 }
 
 func newCoordinator[T any](r *Replicator, shard, requestID string) *coordinator[T] {
@@ -47,7 +47,7 @@ func newCoordinator[T any](r *Replicator, shard, requestID string) *coordinator[
 		},
 		Class: r.class,
 		Shard: shard,
-		TID:   requestID,
+		TxID:  requestID,
 	}
 }
 
@@ -71,7 +71,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context, replicas []string, op re
 	for i, replica := range replicas {
 		i, replica := i, replica
 		g.Go(func() error {
-			errs[i] = op(ctx, replica, c.TID)
+			errs[i] = op(ctx, replica, c.TxID)
 			return errs[i]
 		})
 	}
@@ -89,7 +89,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context, replicas []string, op re
 
 	if firstErr != nil {
 		for _, node := range replicas {
-			c.Abort(ctx, node, c.Class, c.Shard, c.TID)
+			c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 		}
 	}
 
@@ -106,7 +106,7 @@ func (c *coordinator[T]) commitAll(ctx context.Context, replicas []string, op co
 		for _, replica := range replicas {
 			go func(replica string) {
 				defer wg.Done()
-				resp, err := op(ctx, replica, c.TID)
+				resp, err := op(ctx, replica, c.TxID)
 				replyCh <- simpleResult[T]{resp, err}
 			}(replica)
 		}
