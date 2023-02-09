@@ -394,9 +394,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	return nil, nil, nil
 }
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName,
-	shardName string, obj []*storobj.Object,
-) []error {
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
 	return nil
 }
 

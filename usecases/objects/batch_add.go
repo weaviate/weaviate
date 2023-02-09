@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -26,7 +27,7 @@ import (
 
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
 	err := b.authorizer.Authorize(principal, "create", "batch/objects")
 	if err != nil {
@@ -44,11 +45,11 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())
 	defer b.metrics.BatchDec()
 
-	return b.addObjects(ctx, principal, objects, fields)
+	return b.addObjects(ctx, principal, objects, fields, repl)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string,
+	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
 	if err := b.validateObjectForm(classes); err != nil {
@@ -65,7 +66,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 

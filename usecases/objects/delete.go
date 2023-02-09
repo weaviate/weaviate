@@ -24,7 +24,9 @@ import (
 //
 // if class == "" it will delete all object with same id regardless of the class name.
 // This is due to backward compatibility reasons and should be removed in the future
-func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID) error {
+func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
+	class string, id strfmt.UUID, repl *additional.ReplicationProperties,
+) error {
 	path := fmt.Sprintf("objects/%s/%s", class, id)
 	if class == "" {
 		path = fmt.Sprintf("objects/%s", id)
@@ -55,7 +57,7 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
-	err = m.vectorRepo.DeleteObject(ctx, class, id)
+	err = m.vectorRepo.DeleteObject(ctx, class, id, repl)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
@@ -85,7 +87,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 		}
 
 		object := objectRes.Object()
-		err = m.vectorRepo.DeleteObject(ctx, object.Class, id)
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil)
 		if err != nil {
 			return NewErrInternal("could not delete object from vector repo: %v", err)
 		}

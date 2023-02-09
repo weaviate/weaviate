@@ -163,7 +163,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector, nil)
 
 		assert.Nil(t, err)
 	})
@@ -186,7 +186,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector, nil)
 		assert.Equal(t,
 			fmt.Errorf("import into non-existing index for WrongClass"), err)
 	})
@@ -224,7 +224,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector, nil)
 		assert.Nil(t, err)
 	})
 
@@ -369,7 +369,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector, nil)
 		assert.Nil(t, err)
 	})
 
@@ -412,7 +412,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{3, 1, 0.3, 12}
 
-		err := repo.PutObject(context.Background(), action, vector)
+		err := repo.PutObject(context.Background(), action, vector, nil)
 
 		assert.Nil(t, err)
 	})
@@ -531,7 +531,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector, nil)
 
 		assert.Nil(t, err)
 	})
@@ -838,7 +838,7 @@ func TestCRUD(t *testing.T) {
 				},
 			}
 			vector := []float32{1.1, 1.3, 1.5, 1.4}
-			err := repo.PutObject(context.Background(), object, vector)
+			err := repo.PutObject(context.Background(), object, vector, nil)
 			assert.Nil(t, err)
 		}
 		// run sorting tests
@@ -917,7 +917,7 @@ func TestCRUD(t *testing.T) {
 		}
 		// clean up
 		for _, td := range testData {
-			err := repo.DeleteObject(context.Background(), td.className, td.id)
+			err := repo.DeleteObject(context.Background(), td.className, td.id, nil)
 			assert.Nil(t, err)
 		}
 	})
@@ -971,22 +971,19 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(),
-			"TheBestThingClass", thingID)
+		err := repo.DeleteObject(context.Background(), "TheBestThingClass", thingID, nil)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("deleting a action again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(),
-			"TheBestActionClass", actionID)
+		err := repo.DeleteObject(context.Background(), "TheBestActionClass", actionID, nil)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("trying to delete from a non-existing class", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(),
-			"WrongClass", thingID)
+		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, nil)
 
 		assert.Equal(t, fmt.Errorf(
 			"delete from non-existing index for WrongClass"), err)
@@ -1104,7 +1101,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdActionIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil)
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1128,7 +1125,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdThingIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil)
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1155,7 +1152,7 @@ func TestCRUD(t *testing.T) {
 				}
 				refBatch[i] = ref
 			}
-			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch)
+			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch, nil)
 			require.Nil(t, err)
 			require.Len(t, batchRefResp, numThings)
 			for _, r := range batchRefResp {
@@ -1237,7 +1234,7 @@ func TestCRUD(t *testing.T) {
 				Class:  "TheBestActionClass",
 				Vector: vec,
 			}
-			require.Nil(t, repo.PutObject(context.Background(), obj, vec))
+			require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil))
 		})
 
 		t.Run("perform search with id filter", func(t *testing.T) {
@@ -1342,7 +1339,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("import individual objects without vector", func(t *testing.T) {
 		for i := 0; i < individual; i++ {
-			err := repo.PutObject(context.Background(), data[i], nil) // nil vector !
+			err := repo.PutObject(context.Background(), data[i], nil, nil) // nil vector !
 			require.Nil(t, err)
 		}
 	})
@@ -1360,7 +1357,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}
 		}
 
-		res, err := repo.BatchPutObjects(context.Background(), batch)
+		res, err := repo.BatchPutObjects(context.Background(), batch, nil)
 		require.Nil(t, err)
 
 		for _, obj := range res {
@@ -1402,7 +1399,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}
 
 			data[i].Vector = randomVector(7)
-			err := repo.PutObject(context.Background(), data[i], data[i].Vector)
+			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -1516,7 +1513,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -1653,7 +1650,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -1762,7 +1759,7 @@ func Test_PutPatchRestart(t *testing.T) {
 			ID:         testID,
 			Class:      testClass.Class,
 			Properties: map[string]interface{}{"description": "test object init"},
-		}, testVec)
+		}, testVec, nil)
 		require.Nil(t, err)
 	})
 
@@ -1774,7 +1771,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				Properties: map[string]interface{}{
 					"description": fmt.Sprintf("test object, put #%d", i+1),
 				},
-			}, nil)
+			}, nil, nil)
 			require.Nil(t, err)
 
 			err = repo.Merge(ctx, objects.MergeDocument{
@@ -1785,7 +1782,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				},
 				Vector:     testVec,
 				UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
-			})
+			}, nil)
 			require.Nil(t, err)
 
 			require.Nil(t, repo.Shutdown(ctx))
@@ -1917,8 +1914,8 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
 
 		res, err := repo.ObjectByID(context.Background(), objID, nil,
 			additional.Properties{})
@@ -1935,7 +1932,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 				"stringProp": "string prop value",
 			},
 		}
-		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}, nil))
 
 		obj1ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 		obj1 := &models.Object{
@@ -1970,8 +1967,8 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
 
 		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
 			additional.Properties{}, nil)
@@ -2056,7 +2053,7 @@ func TestOverwriteObjects(t *testing.T) {
 	}
 
 	t.Run("insert stale object", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), stale, stale.Vector)
+		err := repo.PutObject(context.Background(), stale, stale.Vector, nil)
 		require.Nil(t, err)
 	})
 

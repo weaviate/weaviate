@@ -134,6 +134,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 	if prevID := c.lastOp.renew(req.ID, store.HomeDir()); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
+
 	c.descriptor = &backup.DistributedBackupDescriptor{
 		StartedAt:     time.Now().UTC(),
 		Status:        backup.Started,
@@ -142,6 +143,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		Version:       Version,
 		ServerVersion: config.ServerVersion,
 	}
+
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
@@ -150,6 +152,11 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 	if err != nil {
 		c.lastOp.reset()
 		return err
+	}
+
+	if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+		c.lastOp.reset()
+		return fmt.Errorf("cannot init meta file: %w", err)
 	}
 
 	statusReq := StatusRequest{
@@ -269,7 +276,7 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 
 			host, found := c.nodeResolver.NodeHostname(node)
 			if !found {
-				return fmt.Errorf("failed to find hostname for node %q", node)
+				return fmt.Errorf("cannot resolve hostname for %q", node)
 			}
 
 			reqChan <- pair{
