@@ -277,6 +277,19 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(0), res[0].DocID())
 		require.Len(t, res, 4) // four results have one of the terms
 	})
+
+	t.Run("More results than limit", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		require.Equal(t, uint64(4), res[0].DocID())
+		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[2].DocID())
+		require.Equal(t, uint64(3), res[3].DocID())
+		require.Equal(t, uint64(2), res[4].DocID())
+		require.Len(t, res, 5) // four results have one of the terms
+	})
 }
 
 func TestBM25FSingleProp(t *testing.T) {
