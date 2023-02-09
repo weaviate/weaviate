@@ -278,7 +278,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 
 func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64) *priorityqueue.Queue {
 	topKHeap := priorityqueue.NewMin(limit)
-	worstDist := float64(0)
+	worstDist := float64(-10000) // tf score can be negative
 	for {
 		results.pivot(worstDist)
 
@@ -291,9 +291,12 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 			topKHeap.Insert(id, float32(score))
 			for topKHeap.Len() > limit {
 				topKHeap.Pop()
+
+				// only update the worst distance when the queue is full, otherwise results can be missing if the first
+				// entry that is checked already has a very high score
+				worstDist = float64(topKHeap.Top().Dist)
 			}
 		}
-		worstDist = float64(topKHeap.Top().Dist)
 	}
 }
 

@@ -268,6 +268,15 @@ func TestBM25FJourney(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, uint64(7), res[0].DocID())
 	})
+
+	t.Run("First result has high score", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "about BM25F"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		require.Equal(t, uint64(0), res[0].DocID())
+		require.Len(t, res, 5)
+	})
 }
 
 func TestBM25FSingleProp(t *testing.T) {
