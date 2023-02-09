@@ -28,8 +28,14 @@ type batchObjectHandlers struct {
 func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Objects, params.Body.Fields)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		return batch.NewBatchObjectsCreateBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	objs, err := h.manager.AddObjects(params.HTTPRequest.Context(),
+		principal, params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -71,7 +77,13 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		return batch.NewBatchReferencesCreateBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body, repl)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -120,8 +132,14 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Match, params.Body.DryRun, params.Body.Output)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		return batch.NewBatchObjectsDeleteBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(),
+		principal, params.Body.Match, params.Body.DryRun, params.Body.Output, repl)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

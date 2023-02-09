@@ -93,7 +93,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector, nil)
 
 		assert.Nil(t, err)
 	})

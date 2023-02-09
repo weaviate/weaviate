@@ -33,7 +33,7 @@ type Config struct {
 }
 
 func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
-	cfg := memberlist.DefaultLocalConfig()
+	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 
 	if userConfig.Hostname != "" {
@@ -46,6 +46,11 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 
 	list, err := memberlist.Create(cfg)
 	if err != nil {
+		logger.WithField("action", "memberlist_init").
+			WithField("hostname", userConfig.Hostname).
+			WithField("bind_port", userConfig.GossipBindPort).
+			WithError(err).
+			Error("memberlist not created")
 		return nil, errors.Wrap(err, "create member list")
 	}
 
@@ -66,6 +71,10 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 		} else {
 			_, err := list.Join(joinAddr)
 			if err != nil {
+				logger.WithField("action", "memberlist_init").
+					WithField("remote_hostname", joinAddr).
+					WithError(err).
+					Error("memberlist join not successful")
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}
