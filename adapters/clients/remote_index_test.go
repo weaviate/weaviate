@@ -374,6 +374,38 @@ func TestRemoteIndexOverwriteObjects(t *testing.T) {
 	})
 }
 
+func TestRemoteIndexDigestObjects(t *testing.T) {
+	t.Parallel()
+	var (
+		ctx  = context.Background()
+		path = "/indices/C1/shards/S1/objects:digest"
+		ids  = []strfmt.UUID{
+			"96c37599-52a5-43e3-87ad-ff9b9e3a62c9",
+			"a7175c24-6a11-4f18-83f3-7275112c55fb",
+			"c0409d59-6f00-4128-9fda-4802143cb98a",
+		}
+	)
+	fs := newFakeRemoteIndexServer(t, http.MethodGet, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		response := []replica.RepairResponse{
+			{ID: "96c37599-52a5-43e3-87ad-ff9b9e3a62c9"},
+			{ID: "a7175c24-6a11-4f18-83f3-7275112c55fb"},
+			{ID: "c0409d59-6f00-4128-9fda-4802143cb98a"},
+		}
+		b, _ := json.Marshal(response)
+		w.Write(b)
+	}
+	t.Run("Success", func(t *testing.T) {
+		payload, err := client.DigestObjects(
+			ctx, fs.host, "C1", "S1", ids)
+		assert.Nil(t, err)
+		assert.NotNil(t, payload)
+	})
+}
+
 func newRemoteIndex(httpClient *http.Client) *RemoteIndex {
 	ri := NewRemoteIndex(httpClient)
 	ri.minBackOff = time.Millisecond * 1

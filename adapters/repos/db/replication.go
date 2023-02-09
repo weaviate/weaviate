@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -321,9 +322,10 @@ func (s *Shard) reinit(ctx context.Context) error {
 	return nil
 }
 
-// OverwriteObjects overwrite objects if their state didn't change in the meantime
-// It returns nil if all object have been successfully overwritten and otherwise a list of failed operations.
-func (i *Index) OverwriteObjects(ctx context.Context,
+// overwrite objects if their state didn't change in the meantime
+// It returns nil if all object have been successfully overwritten
+// and otherwise a list of failed operations.
+func (i *Index) overwriteObjects(ctx context.Context,
 	shard string, list []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	result := make([]replica.RepairResponse, 0, len(list)/2)
@@ -371,7 +373,44 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 }
 
 func (i *Index) IncomingOverwriteObjects(ctx context.Context,
-	shard string, vobjects []*objects.VObject,
+	shardName string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	return i.OverwriteObjects(ctx, shard, vobjects)
+	return i.overwriteObjects(ctx, shardName, vobjects)
+}
+
+func (i *Index) digestObjects(ctx context.Context,
+	shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	result = make([]replica.RepairResponse, len(ids))
+	s := i.Shards[shardName]
+	if s == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shardName)
+	}
+
+	multiIDs := make([]multi.Identifier, len(ids))
+	for j := range multiIDs {
+		multiIDs[j] = multi.Identifier{ID: ids[j].String()}
+	}
+
+	objs, err := s.multiObjectByID(ctx, multiIDs)
+	if err != nil {
+		return nil, fmt.Errorf("shard objects digest: %w", err)
+	}
+
+	for j := range result {
+		result[j] = replica.RepairResponse{
+			ID:         objs[j].ID().String(),
+			UpdateTime: objs[j].LastUpdateTimeUnix(),
+			// TODO: use version when supported
+			Version: 0,
+		}
+	}
+
+	return
+}
+
+func (i *Index) IncomingDigestObjects(ctx context.Context,
+	shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return i.digestObjects(ctx, shardName, ids)
 }

@@ -228,6 +228,12 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
+func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
