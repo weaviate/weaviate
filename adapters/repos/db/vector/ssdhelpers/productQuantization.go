@@ -77,9 +77,9 @@ func (lut *DistanceLookUpTable) LookUp(
 }
 
 type ProductQuantizer struct {
-	ks                  int //centroids
-	m                   int //segments
-	ds                  int //dimensions per segment
+	ks                  int // centroids
+	m                   int // segments
+	ds                  int // dimensions per segment
 	distance            distancer.Provider
 	dimensions          int
 	kms                 []PQEncoder
