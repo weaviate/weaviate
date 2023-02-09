@@ -279,6 +279,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64) *priorityqueue.Queue {
 	topKHeap := priorityqueue.NewMin(limit)
 	worstDist := float64(-10000) // tf score can be negative
+	results.sort()
 	for {
 		results.pivot(worstDist)
 
@@ -427,6 +428,8 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 		_, score := t[i].scoreAndAdvance(averagePropLength, config)
 		cumScore += score
 	}
+
+	t.sort() // pointer was advanced in scoreAndAdvance
 
 	return id, cumScore, true
 }

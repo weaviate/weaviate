@@ -487,3 +487,94 @@ func Test_propertyIsIndexed(t *testing.T) {
 		}
 	})
 }
+
+func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
+) {
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		Class:               "Documents",
+
+		Properties: []*models.Property{
+			{
+				Name:          "document",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+		},
+	}
+
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	schemaGetter.schema = schema
+
+	migrator := NewMigrator(repo, logger)
+	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+	testData := []map[string]interface{}{}
+	testData = append(testData, map[string]interface{}{"document": "No matter what you do, the question of \"\"what is income\"\" is *always* going to be an extremely complex question.   To use this particular example, is paying a royalty fee to an external party a legitimate business expense that is part of the cost of doing business and which subtracts from your \"\"income\"\"?"})
+	testData = append(testData, map[string]interface{}{"document": "test"})
+	testData = append(testData, map[string]interface{}{"document": "As long as the losing business is not considered \"\"passive activity\"\" or \"\"hobby\"\", then yes. Passive Activity is an activity where you do not have to actively do anything to generate income. For example - royalties or rentals. Hobby is an activity that doesn't generate profit. Generally, if your business doesn't consistently generate profit (the IRS looks at 3 out of the last 5 years), it may be characterized as hobby. For hobby, loss deduction is limited by the hobby income and the 2% AGI threshold."})
+	testData = append(testData, map[string]interface{}{"document": "So you're basically saying that average market fluctuations have an affect on individual stocks, because individual stocks are often priced in relation to the growth of the market as a whole?  Also, what kinds of investments would be considered \"\"risk free\"\" in this nomenclature?"})
+
+	for i, data := range testData {
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+
+		obj := &models.Object{Class: "Documents", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+		vector := []float32{1, 3, 5, 0.4}
+		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
+		err := repo.PutObject(context.Background(), obj, vector)
+		require.Nil(t, err)
+	}
+}
+
+func TestBM25F_ComplexDocuments(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75)
+
+	idx := repo.GetIndex("Documents")
+	require.NotNil(t, idx)
+
+	t.Run("single term", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
+		addit := additional.Properties{}
+		res, _, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		// Print results
+		t.Log("--- Start results for boosted search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, \n", r.DocID(), r.Score())
+		}
+
+		// Check results in correct order
+		require.Equal(t, uint64(3), res[0].DocID())
+		require.Equal(t, uint64(0), res[1].DocID())
+		require.Equal(t, uint64(2), res[2].DocID())
+		require.Len(t, res, 3)
+
+		// Check scores
+		EqualFloats(t, float32(0.89207935), res[0].Score(), 5)
+		EqualFloats(t, float32(0.5427927), res[1].Score(), 5)
+		EqualFloats(t, float32(0.39563084), res[2].Score(), 5)
+	})
+}
