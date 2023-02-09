@@ -18,7 +18,6 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -42,39 +41,22 @@ const (
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine
-	DefaultPQEnabled              = false
-	DefaultPQSegments             = 0
-	DefaultPQEncoderType          = int(ssdhelpers.UseKMeansEncoder)
-	DefaultPQEncoderDistribution  = int(ssdhelpers.LogNormalEncoderDistribution)
 )
-
-// Product Quantization encoder configuration
-type PQEncoder struct {
-	Type         int `json:"type"`
-	Distribution int `json:"distribution,omitempty"`
-}
-
-// Product Quantization configuration
-type PQConfig struct {
-	Enabled  bool       `json:"enabled"`
-	Segments int        `json:"segments"`
-	Encoder  *PQEncoder `json:"encoder"`
-}
 
 // UserConfig bundles all values settable by a user in the per-class settings
 type UserConfig struct {
-	Skip                   bool      `json:"skip"`
-	CleanupIntervalSeconds int       `json:"cleanupIntervalSeconds"`
-	MaxConnections         int       `json:"maxConnections"`
-	EFConstruction         int       `json:"efConstruction"`
-	EF                     int       `json:"ef"`
-	DynamicEFMin           int       `json:"dynamicEfMin"`
-	DynamicEFMax           int       `json:"dynamicEfMax"`
-	DynamicEFFactor        int       `json:"dynamicEfFactor"`
-	VectorCacheMaxObjects  int       `json:"vectorCacheMaxObjects"`
-	FlatSearchCutoff       int       `json:"flatSearchCutoff"`
-	Distance               string    `json:"distance"`
-	PQ                     *PQConfig `json:"pq"`
+	Skip                   bool     `json:"skip"`
+	CleanupIntervalSeconds int      `json:"cleanupIntervalSeconds"`
+	MaxConnections         int      `json:"maxConnections"`
+	EFConstruction         int      `json:"efConstruction"`
+	EF                     int      `json:"ef"`
+	DynamicEFMin           int      `json:"dynamicEfMin"`
+	DynamicEFMax           int      `json:"dynamicEfMax"`
+	DynamicEFFactor        int      `json:"dynamicEfFactor"`
+	VectorCacheMaxObjects  int      `json:"vectorCacheMaxObjects"`
+	FlatSearchCutoff       int      `json:"flatSearchCutoff"`
+	Distance               string   `json:"distance"`
+	PQ                     PQConfig `json:"pq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -96,10 +78,10 @@ func (c *UserConfig) SetDefaults() {
 	c.Skip = DefaultSkip
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
 	c.Distance = DefaultDistanceMetric
-	c.PQ = &PQConfig{}
+	c.PQ = PQConfig{}
 	c.PQ.Enabled = DefaultPQEnabled
 	c.PQ.Segments = DefaultPQSegments
-	c.PQ.Encoder = &PQEncoder{}
+	c.PQ.Encoder = PQEncoder{}
 	c.PQ.Encoder.Type = DefaultPQEncoderType
 	c.PQ.Encoder.Distribution = DefaultPQEncoderDistribution
 }
@@ -185,7 +167,7 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 		return uc, err
 	}
 
-	if err := parsePQMap(asMap, uc.PQ); err != nil {
+	if err := parsePQMap(asMap, &uc.PQ); err != nil {
 		return uc, err
 	}
 
@@ -259,54 +241,6 @@ func optionalStringFromMap(in map[string]interface{}, name string,
 	}
 
 	setFn(asString)
-	return nil
-}
-
-func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
-	pqConfigValue, ok := in["pq"]
-	if !ok {
-		return nil
-	}
-
-	pqConfigMap, ok := pqConfigValue.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	if err := optionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
-		pq.Enabled = v
-	}); err != nil {
-		return err
-	}
-
-	if err := optionalIntFromMap(pqConfigMap, "segments", func(v int) {
-		pq.Segments = v
-	}); err != nil {
-		return err
-	}
-
-	pqEncoderValue, ok := pqConfigMap["encoder"]
-	if !ok {
-		return nil
-	}
-
-	pqEncoderMap, ok := pqEncoderValue.(map[string]interface{})
-	if !ok {
-		return nil
-	}
-
-	if err := optionalIntFromMap(pqEncoderMap, "type", func(v int) {
-		pq.Encoder.Type = v
-	}); err != nil {
-		return err
-	}
-
-	if err := optionalIntFromMap(pqEncoderMap, "distribution", func(v int) {
-		pq.Encoder.Distribution = v
-	}); err != nil {
-		return err
-	}
-
 	return nil
 }
 
