@@ -16,17 +16,29 @@ import "fmt"
 type huggingFaceUrlBuilder struct {
 	origin   string
 	pathMask string
+	customOrigin string
+	customPathMask string
 }
 
-func newHuggingFaceUrlBuilder() *huggingFaceUrlBuilder {
+func newHuggingFaceUrlBuilder(customOrigin string, customPathMask string) *huggingFaceUrlBuilder {
 	return &huggingFaceUrlBuilder{
 		origin:   "https://api-inference.huggingface.co",
 		pathMask: "/pipeline/feature-extraction/%s",
+		customOrigin: customOrigin,
+		customPathMask: customPathMask,
 	}
 }
 
 func (o *huggingFaceUrlBuilder) url(model string) string {
-	return fmt.Sprintf("%s%s", o.origin, o.getPath(model))
+	origin := o.origin
+	pathMask := o.getPath(model)
+	if o.customOrigin != "" {
+		origin = o.customOrigin
+	}
+	if o.customPathMask != "" {
+		pathMask = o.customPathMask
+	}
+	return fmt.Sprintf("%s%s", origin, pathMask)
 }
 
 func (o *huggingFaceUrlBuilder) getPath(model string) string {
