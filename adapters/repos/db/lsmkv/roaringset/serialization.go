@@ -17,7 +17,7 @@ import (
 	"io"
 	"math"
 
-	"github.com/dgraph-io/sroar"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/byte_operations"
 )

@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -175,24 +176,23 @@ func (sg *SegmentGroup) compactOnce() error {
 			return err
 		}
 	case segmentindex.StrategyRoaringSet:
-		// temporarily disabled
-		// leftSegment := sg.segmentAtPos(pair[0])
-		// rightSegment := sg.segmentAtPos(pair[1])
+		leftSegment := sg.segmentAtPos(pair[0])
+		rightSegment := sg.segmentAtPos(pair[1])
 
-		// leftCursor := leftSegment.newRoaringSetCursor()
-		// rightCursor := rightSegment.newRoaringSetCursor()
+		leftCursor := leftSegment.newRoaringSetCursor()
+		rightCursor := rightSegment.newRoaringSetCursor()
 
-		// c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-		// 	level, scratchSpacePath)
+		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
+			level, scratchSpacePath)
 
-		// if sg.metrics != nil {
-		// 	sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(1)
-		// 	defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(0)
-		// }
+		if sg.metrics != nil {
+			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(1)
+			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": sg.dir}).Set(0)
+		}
 
-		// if err := c.Do(); err != nil {
-		// 	return err
-		// }
+		if err := c.Do(); err != nil {
+			return err
+		}
 
 	default:
 		return errors.Errorf("unrecognized strategy %v", strategy)

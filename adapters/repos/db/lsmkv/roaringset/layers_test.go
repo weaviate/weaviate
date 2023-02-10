@@ -14,9 +14,9 @@ package roaringset
 import (
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 )
 
 func Test_BitmapLayers_Flatten(t *testing.T) {

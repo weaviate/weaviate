@@ -28,11 +28,11 @@
 //     converting them to a Roaring Bitmap at query time. This resulting bitmap
 //     can then be cached. However, the cost to initially convert a posting list
 //     to a roaring bitmap is quite huge. In our own tests, inserting 90M out of
-//     100M possible ids into a [github.com/dgraph-io/sroar.Bitmap] takes about
+//     100M possible ids into a [github.com/weaviate/sroar.Bitmap] takes about
 //     3.5s.
 //
 //   - You could store a regular roaring bitmap, such as
-//     [github.com/dgraph-io/sroar.Bitmap] in a regular LSM store, such as
+//     [github.com/weaviate/sroar.Bitmap] in a regular LSM store, such as
 //     RocksDB. This would fix the retrieval issue and you should be able to
 //     retrieve and initialize a bitmap containing 90M objects in a few
 //     milliseconds. However, the cost to incrementally update this bitmap would
@@ -54,7 +54,7 @@
 //
 // # Internals
 //
-// The public-facing methods make use of [github.com/dgraph-io/sroar.Bitmap].
+// The public-facing methods make use of [github.com/weaviate/sroar.Bitmap].
 // This serialized bitmap already fulfills many of the criteria needed in
 // Weaviate. It can be initialized at almost no cost (sharing memory) or very
 // little cost (copying some memory). Furthermore, its set, remove, and

@@ -11,7 +11,7 @@
 
 package roaringset
 
-import "github.com/dgraph-io/sroar"
+import "github.com/weaviate/sroar"
 
 func NewBitmap(values ...uint64) *sroar.Bitmap {
 	bm := sroar.NewBitmap()

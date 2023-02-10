@@ -14,7 +14,7 @@ package lsmkv
 import (
 	"fmt"
 
-	"github.com/dgraph-io/sroar"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
