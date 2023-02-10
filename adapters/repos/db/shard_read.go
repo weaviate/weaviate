@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -223,6 +225,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 func (s *Shard) objectVectorSearch(ctx context.Context,
 	searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties,
+	groupBy *dto.GroupByParams,
 ) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
@@ -272,6 +275,18 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		if filters != nil {
 			s.metrics.FilteredVectorSort(time.Since(beforeSort))
 		}
+	}
+
+	// temp hard-coded params until we have an API
+	groupBy = &dto.GroupByParams{
+		Prop:            "modulo_30",
+		ObjectsPerGroup: 5,
+		GroupsLimit:     5,
+	}
+	fmt.Println(groupBy)
+
+	if groupBy != nil {
+		return s.groupResults(ctx, ids, dists, groupBy)
 	}
 
 	beforeObjects := time.Now()

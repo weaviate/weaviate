@@ -1014,7 +1014,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			if local {
 				shard := i.Shards[shardName]
 				res, resDists, err = shard.objectVectorSearch(
-					ctx, searchVector, dist, limit, filters, sort, additional)
+					ctx, searchVector, dist, limit, filters, sort, additional, nil)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
@@ -1078,7 +1078,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.objectVectorSearch(
-		ctx, searchVector, distance, limit, filters, sort, additional)
+		ctx, searchVector, distance, limit, filters, sort, additional, nil)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
