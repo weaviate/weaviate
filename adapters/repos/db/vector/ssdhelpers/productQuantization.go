@@ -12,6 +12,7 @@
 package ssdhelpers
 
 import (
+	"errors"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -105,9 +106,12 @@ type PQEncoder interface {
 }
 
 // ToDo: Add a settings struct. Already necessary!!
-func NewProductQuantizer(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder, encoderDistribution EncoderDistribution) *ProductQuantizer {
+func NewProductQuantizer(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder, encoderDistribution EncoderDistribution) (*ProductQuantizer, error) {
+	if segments <= 0 {
+		return nil, errors.New("Segments cannot be 0 nor negative")
+	}
 	if dimensions%segments != 0 {
-		panic("dimension must be a multiple of m")
+		return nil, errors.New("Segments should be an integer divisor of dimensions")
 	}
 	pq := &ProductQuantizer{
 		ks:                  centroids,
@@ -118,23 +122,17 @@ func NewProductQuantizer(segments int, centroids int, distance distancer.Provide
 		encoderType:         encoderType,
 		encoderDistribution: encoderDistribution,
 	}
-	return pq
+	return pq, nil
 }
 
-func NewProductQuantizerWithEncoders(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder, encoders []PQEncoder) *ProductQuantizer {
-	if dimensions%segments != 0 {
-		panic("dimension must be a multiple of m")
+func NewProductQuantizerWithEncoders(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder, encoders []PQEncoder) (*ProductQuantizer, error) {
+	pq, err := NewProductQuantizer(segments, centroids, distance, dimensions, encoderType, LogNormalEncoderDistribution)
+	if err != nil {
+		return nil, err
 	}
-	pq := &ProductQuantizer{
-		ks:          centroids,
-		m:           segments,
-		ds:          int(dimensions / segments),
-		distance:    distance,
-		dimensions:  dimensions,
-		encoderType: encoderType,
-		kms:         encoders,
-	}
-	return pq
+
+	pq.kms = encoders
+	return pq, nil
 }
 
 func (pq *ProductQuantizer) ExposeFields() PQData {

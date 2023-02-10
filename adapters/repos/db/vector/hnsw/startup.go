@@ -128,13 +128,16 @@ func (h *hnsw) restoreFromDisk() error {
 			return err
 		}
 		h.cache.drop()
-		h.pq = ssdhelpers.NewProductQuantizerWithEncoders(
+		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
 			int(state.PQData.M),
 			int(state.PQData.Ks),
 			h.distancerProvider,
 			int(state.PQData.Dimensions), state.PQData.EncoderType,
 			state.PQData.Encoders,
 		)
+		if err != nil {
+			return errors.Wrap(err, "Restoring PQ data.")
+		}
 	} else {
 		// make sure the cache fits the current size
 		h.cache.grow(uint64(len(h.nodes)))
