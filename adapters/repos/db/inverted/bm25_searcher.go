@@ -279,7 +279,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64) *priorityqueue.Queue {
 	topKHeap := priorityqueue.NewMin(limit)
 	worstDist := float64(-10000) // tf score can be negative
-	results.sort()
+	sort.Sort(results)
 	for {
 		results.pivot(worstDist)
 
@@ -376,7 +376,7 @@ func (t terms) pivot(minScore float64) {
 	}
 
 	t.advanceAllAtLeast(minID)
-	t.sort()
+	sort.Sort(t)
 }
 
 func (t terms) advanceAllAtLeast(minID uint64) {
@@ -396,10 +396,6 @@ func (t terms) findMinID(minScore float64) (uint64, int) {
 	}
 
 	panic(fmt.Sprintf("score of %f is unreachable", minScore))
-}
-
-func (t terms) sort() {
-	sort.Slice(t, func(a, b int) bool { return t[a].idPointer < t[b].idPointer })
 }
 
 func (t terms) findFirstNonExhausted() (int, bool) {
@@ -429,7 +425,7 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 		cumScore += score
 	}
 
-	t.sort() // pointer was advanced in scoreAndAdvance
+	sort.Sort(t) // pointer was advanced in scoreAndAdvance
 
 	return id, cumScore, true
 }
@@ -463,3 +459,16 @@ func (t *term) advanceAtLeast(minID uint64) {
 }
 
 type terms []term
+
+// provide sort interface
+func (t terms) Len() int {
+	return len(t)
+}
+
+func (t terms) Less(i, j int) bool {
+	return t[i].idPointer < t[j].idPointer
+}
+
+func (t terms) Swap(i, j int) {
+	t[i], t[j] = t[j], t[i]
+}
