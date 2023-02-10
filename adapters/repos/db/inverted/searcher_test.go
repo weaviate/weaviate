@@ -14,8 +14,8 @@ package inverted
 import (
 	"testing"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/sroar"
 )
 
 func TestDocBitmap(t *testing.T) {

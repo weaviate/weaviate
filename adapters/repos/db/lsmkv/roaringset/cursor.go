@@ -14,8 +14,8 @@ package roaringset
 import (
 	"bytes"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 )
 

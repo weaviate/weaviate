@@ -45,6 +45,7 @@ require (
 require (
 	github.com/coreos/go-oidc/v3 v3.4.0
 	github.com/tailor-inc/graphql v0.1.0
+	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	golang.org/x/text v0.5.0
 )
 
@@ -64,7 +65,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/containerd/cgroups v1.0.3 // indirect
 	github.com/containerd/containerd v1.5.16 // indirect
-	github.com/dgraph-io/sroar v0.0.0-20220527172339-b92b7eaaf6e0 // indirect
 	github.com/docker/distribution v2.8.0+incompatible // indirect
 	github.com/docker/docker v20.10.11+incompatible // indirect
 	github.com/docker/go-units v0.4.0 // indirect

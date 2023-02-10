@@ -15,8 +15,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dgraph-io/sroar"
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/aggregation"

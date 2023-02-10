@@ -14,7 +14,7 @@ package roaringset
 import (
 	"fmt"
 
-	"github.com/dgraph-io/sroar"
+	"github.com/weaviate/sroar"
 )
 
 // A BitmapLayer contains all the bitmap related delta-information stored for a
