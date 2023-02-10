@@ -305,3 +305,24 @@ func Test_BitmapLayer_Clone(t *testing.T) {
 		assert.ElementsMatch(t, []uint64{100}, clonedLayer.Deletions.ToArray())
 	})
 }
+
+// This test aims to prevent a regression on
+// https://github.com/weaviate/sroar/issues/1
+// found in Serialized Roaring Bitmaps library
+func Test_BitmapLayers_Merge_PanicSliceBoundOutOfRange(t *testing.T) {
+	genSlice := func(fromInc, toExc uint64) []uint64 {
+		slice := []uint64{}
+		for i := fromInc; i < toExc; i++ {
+			slice = append(slice, i)
+		}
+		return slice
+	}
+
+	leftLayer := BitmapLayer{Deletions: NewBitmap(genSlice(289_800, 290_100)...)}
+	rightLayer := BitmapLayer{Additions: NewBitmap(genSlice(290_000, 293_000)...)}
+
+	failingDeletionsLayer, err := BitmapLayers{leftLayer, rightLayer}.Merge()
+	assert.Nil(t, err)
+
+	assert.ElementsMatch(t, genSlice(289_800, 290_000), failingDeletionsLayer.Deletions.ToArray())
+}
