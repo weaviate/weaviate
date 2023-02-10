@@ -55,7 +55,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 							"distribution": "log-normal",
 							"type":         "kmeans",
 						},
-						"segments": 0,
+						"segments": float64(0),
 					},
 				},
 				"shardingConfig": map[string]interface{}{
