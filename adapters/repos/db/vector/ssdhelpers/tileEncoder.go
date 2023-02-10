@@ -161,6 +161,7 @@ func (te *TileEncoder) setEncoderDistribution() {
 	}
 }
 
+//calculate mean and stddev iteratively
 func (te *TileEncoder) Add(x []float32) {
 	x64 := te.distribution.Transform(float64(x[te.segment]))
 	te.s1 += x64
