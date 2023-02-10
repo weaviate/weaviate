@@ -58,7 +58,10 @@ func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) 
 	if segments <= 0 {
 		segments = dims
 	}
-	h.pq = ssdhelpers.NewProductQuantizer(segments, centroids, h.distancerProvider, dims, ssdhelpers.Encoder(encoderType), ssdhelpers.EncoderDistribution(encoderDistribution))
+	h.pq, err = ssdhelpers.NewProductQuantizer(segments, centroids, h.distancerProvider, dims, ssdhelpers.Encoder(encoderType), ssdhelpers.EncoderDistribution(encoderDistribution))
+	if err != nil {
+		return errors.Wrap(err, "Compressing vectors.")
+	}
 
 	data := h.cache.all()
 	cleanData := make([][]float32, 0, len(data))
