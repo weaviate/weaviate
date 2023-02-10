@@ -256,8 +256,11 @@ func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
 	copy(key, n.Key)
 
 	right = append([]*BinarySearchNode{{
-		Key:   key,
-		Value: n.Value.Clone(),
+		Key: key,
+		Value: BitmapLayer{
+			Additions: Condense(n.Value.Additions),
+			Deletions: Condense(n.Value.Deletions),
+		},
 	}}, right...)
 	return append(left, right...)
 }
