@@ -98,7 +98,17 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	// ToDo: check atomic operation
 	if !h.compressed.Load() && parsed.PQ.Enabled {
 		h.logger.WithField("action", "compress").Info("switching to compressed vectors")
-		if err := h.Compress(parsed.PQ.Segments, parsed.PQ.Encoder.Type, parsed.PQ.Encoder.Distribution); err != nil {
+
+		encoder, err := ent.ValidEncoder(parsed.PQ.Encoder.Type)
+		if err != nil {
+			return err
+		}
+		encoderDistribution, err := ent.ValidEncoderDistribution(parsed.PQ.Encoder.Distribution)
+		if err != nil {
+			return err
+		}
+
+		if err := h.Compress(parsed.PQ.Segments, int(encoder), int(encoderDistribution)); err != nil {
 			h.logger.Error(err)
 			return err
 		}
