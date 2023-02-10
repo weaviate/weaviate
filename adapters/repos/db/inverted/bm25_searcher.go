@@ -303,7 +303,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 
 func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
 	var docMapPairs []docPointerWithScore = nil
-	docMapPairsIndices := make(map[uint64]int, 0)
+	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}
 	for _, propName := range propertyNames {
 
@@ -321,6 +321,7 @@ func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []strin
 
 		if docMapPairs == nil {
 			docMapPairs = make([]docPointerWithScore, 0, len(m))
+			docMapPairsIndices = make(map[uint64]int, len(m))
 			for k, val := range m {
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
