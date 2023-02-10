@@ -15,12 +15,10 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/weaviate/weaviate/usecases/byte_operations"
-
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/usecases/byte_operations"
 )
-
-var NotFound = errors.Errorf("not found")
 
 // DiskTree is a read-only wrapper around a marshalled index search tree, which
 // can be used for reading, but cannot change the underlying structure. It is
@@ -46,7 +44,7 @@ func NewDiskTree(data []byte) *DiskTree {
 
 func (t *DiskTree) Get(key []byte) (Node, error) {
 	if len(t.data) == 0 {
-		return Node{}, NotFound
+		return Node{}, lsmkv.NotFound
 	}
 	var out Node
 	byteOps := byte_operations.ByteOperations{Buffer: t.data}
@@ -58,7 +56,7 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	for {
 		// detect if there is no node with the wanted key.
 		if byteOps.Position+4 > uint64(len(t.data)) || byteOps.Position+4 < 4 {
-			return out, NotFound
+			return out, lsmkv.NotFound
 		}
 
 		keyLen := byteOps.ReadUint32()
@@ -119,7 +117,7 @@ func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
 
 func (t *DiskTree) Seek(key []byte) (Node, error) {
 	if len(t.data) == 0 {
-		return Node{}, NotFound
+		return Node{}, lsmkv.NotFound
 	}
 
 	return t.seekAt(0, key)
@@ -151,14 +149,14 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 			return left, nil
 		}
 
-		if err == NotFound {
+		if err == lsmkv.NotFound {
 			return self, nil
 		}
 
 		return Node{}, err
 	} else {
 		if node.rightChild < 0 {
-			return Node{}, NotFound
+			return Node{}, lsmkv.NotFound
 		}
 
 		return t.seekAt(node.rightChild, key)

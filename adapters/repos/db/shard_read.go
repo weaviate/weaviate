@@ -384,7 +384,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	var docID uint64
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	existing, err := bucket.Get([]byte(idBytes))
+	existing, err := bucket.Get(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "unexpected error on previous lookup")
 	}
