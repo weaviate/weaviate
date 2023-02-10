@@ -319,13 +319,19 @@ func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []strin
 			continue
 		}
 
+		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
 			docMapPairs = make([]docPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
 			for k, val := range m {
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
-				docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: math.Float32frombits(freqBits) * propertyBoosts[propName], propLength: math.Float32frombits(propLenBits)})
+				docMapPairs = append(docMapPairs,
+					docPointerWithScore{
+						id:         binary.BigEndian.Uint64(val.Key),
+						frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
+						propLength: math.Float32frombits(propLenBits),
+					})
 				docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
 			}
 		} else {
@@ -338,7 +344,12 @@ func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []strin
 					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
 					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
-					docMapPairs = append(docMapPairs, docPointerWithScore{id: binary.BigEndian.Uint64(val.Key), frequency: math.Float32frombits(freqBits) * propertyBoosts[propName], propLength: math.Float32frombits(propLenBits)})
+					docMapPairs = append(docMapPairs,
+						docPointerWithScore{
+							id:         binary.BigEndian.Uint64(val.Key),
+							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
+							propLength: math.Float32frombits(propLenBits),
+						})
 					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
 				}
 			}
@@ -369,6 +380,36 @@ type term struct {
 	exhausted  bool
 	queryTerm  string
 }
+
+func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+	id := t.idPointer
+	pair := t.data[t.posPointer]
+	freq := float64(pair.frequency)
+	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
+
+	// advance
+	t.posPointer++
+	if t.posPointer >= uint64(len(t.data)) {
+		t.exhausted = true
+	} else {
+		t.idPointer = t.data[t.posPointer].id
+	}
+
+	return id, tf * t.idf
+}
+
+func (t *term) advanceAtLeast(minID uint64) {
+	for t.idPointer < minID {
+		t.posPointer++
+		if t.posPointer >= uint64(len(t.data)) {
+			t.exhausted = true
+			return
+		}
+		t.idPointer = t.data[t.posPointer].id
+	}
+}
+
+type terms []term
 
 func (t terms) pivot(minScore float64) {
 	minID, pivotPoint := t.findMinID(minScore)
@@ -430,36 +471,6 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 
 	return id, cumScore, true
 }
-
-func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
-	id := t.idPointer
-	pair := t.data[t.posPointer]
-	freq := float64(pair.frequency)
-	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
-
-	// advance
-	t.posPointer++
-	if t.posPointer >= uint64(len(t.data)) {
-		t.exhausted = true
-	} else {
-		t.idPointer = t.data[t.posPointer].id
-	}
-
-	return id, tf * t.idf
-}
-
-func (t *term) advanceAtLeast(minID uint64) {
-	for t.idPointer < minID {
-		t.posPointer++
-		if t.posPointer >= uint64(len(t.data)) {
-			t.exhausted = true
-			return
-		}
-		t.idPointer = t.data[t.posPointer].id
-	}
-}
-
-type terms []term
 
 // provide sort interface
 func (t terms) Len() int {
