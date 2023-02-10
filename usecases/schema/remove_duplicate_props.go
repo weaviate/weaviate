@@ -3,13 +3,14 @@ package schema
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 func (m *Manager) removeDuplicatePropsIfPresent(ctx context.Context) error {
 	for _, c := range m.state.ObjectSchema.Classes {
 		if hasDuplicateProps(c.Properties) {
-			c.Properties = m.deduplicateProps(c.Properties)
+			c.Properties = m.deduplicateProps(c.Properties, c.Class)
 		}
 	}
 
@@ -32,7 +33,9 @@ func hasDuplicateProps(props []*models.Property) bool {
 	return false
 }
 
-func (m *Manager) deduplicateProps(orig []*models.Property) []*models.Property {
+func (m *Manager) deduplicateProps(orig []*models.Property,
+	className string,
+) []*models.Property {
 	out := make([]*models.Property, len(orig))
 	seen := map[string]struct{}{}
 
@@ -40,6 +43,11 @@ func (m *Manager) deduplicateProps(orig []*models.Property) []*models.Property {
 
 	for _, prop := range orig {
 		if _, ok := seen[prop.Name]; ok {
+			m.logger.WithFields(logrus.Fields{
+				"action": "startup_repair_schema",
+				"prop":   prop.Name,
+				"class":  className,
+			}).Warningf("removing duplicate proprty %s", prop.Name)
 			continue
 		}
 
