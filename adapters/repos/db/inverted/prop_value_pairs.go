@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -153,7 +154,7 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	}
 
 	return &docBitmap{
-		docIDs:   mergeRes,
+		docIDs:   roaringset.Condense(mergeRes),
 		checksum: combineChecksums(checksums, pv.operator),
 	}, nil
 }
