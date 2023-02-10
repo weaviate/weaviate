@@ -206,6 +206,15 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
 
+	// There was a bug that allowed adding the same prop multiple times. This
+	// leads to a race at startup. If an instance is already affected by this,
+	// this step can remove the duplicate ones.
+	//
+	// See https://github.com/weaviate/weaviate/issues/2609
+	if err := m.removeDuplicatePropsIfPresent(ctx); err != nil {
+		return fmt.Errorf("remove duplicate props: %w", err)
+	}
+
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
