@@ -34,8 +34,30 @@ func NewRowCacher(maxSize uint64) *RowCacher {
 }
 
 type CacheEntry struct {
-	Type      CacheEntryType
-	Hash      []byte
+	Type CacheEntryType
+	Hash []byte
+
+	// Prior to v1.17.4 "Partial" was a *docPointers instead of a docPointers
+	// which lead to an interesting memory-leak-like situation: If the
+	// propValuePairs struct which was returned from fetchDocIDs contained a lot
+	// of nested data structures, e.g., because it had a nested filter each with a
+	// lot of doc ids, then this pointer prevented cleaning up the entire
+	// propValuePairs. However, if we make this a non-pointer type as it is now,
+	// then a new struct is created (or rather the struct is copied) when we
+	// create a cache entry. This means the CacheEntry has no more association
+	// with the original propValuePairs and it can therefore be cleaned up
+	// correctly.
+	//
+	// Especially when there were few doc ids at the root layer, but many doc ids
+	// "hidden inside", this led to a massive leak-like behavior. Because of the
+	// small size of the outer ids, many of those entries would fit in the cache.
+	// But because each entry prevented a cleanup of the original propValuePair,
+	// each with large allocations in its children, memory kept piling up. There
+	// is now a chaos-pipeline that makes sure this bug does not return.
+	//
+	// The leak was first described in
+	// https://github.com/weaviate/weaviate/issues/1917 almost a year before
+	// this fix.
 	Partial   docPointers
 	AllowList helpers.AllowList
 }
