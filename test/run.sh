@@ -121,7 +121,13 @@ function run_acceptance_tests() {
   # needed for test/docker package during replication tests
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' ); do
+    for pkg in $(go list ./... | grep 'test/acceptance\|test/acceptance_tests_with_client' | grep -v 'test/acceptance/stress_tests' ); do
+      if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+    for pkg in $(go list 'test/acceptance_tests_with_client' ); do
       if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
