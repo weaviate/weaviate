@@ -36,7 +36,7 @@ func NewRowCacher(maxSize uint64) *RowCacher {
 type CacheEntry struct {
 	Type      CacheEntryType
 	Hash      []byte
-	Partial   *docPointers
+	Partial   docPointers
 	AllowList helpers.AllowList
 }
 
