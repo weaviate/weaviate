@@ -418,6 +418,36 @@ func Test_MergeObject(t *testing.T) {
 			},
 			stage: stageCount,
 		},
+		{
+			name: "Clear nil properties on update",
+			previous: &models.Object{
+				Class: "NotVectorized",
+				Properties: map[string]interface{}{
+					"description": "this description was set initially",
+					"other":       "this will be cleared",
+				},
+				Vector: []float32{0.7, 0.3},
+			},
+			updated: &models.Object{
+				Class: "NotVectorized",
+				ID:    uuid,
+				Properties: map[string]interface{}{
+					"description": "this description was updated",
+					"other":       nil,
+				},
+			},
+			vectorizerCalledWith: nil,
+			expectedOutput: &MergeDocument{
+				UpdateTime: lastTime,
+				Class:      "NotVectorized",
+				ID:         uuid,
+				Vector:     []float32{0.7, 0.3},
+				PrimitiveSchema: map[string]interface{}{
+					"description": "this description was updated",
+				},
+			},
+			stage: stageCount,
+		},
 	}
 
 	for _, tc := range tests {

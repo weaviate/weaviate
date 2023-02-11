@@ -6,6 +6,7 @@ data/
 data-node2/
 data_wiki/
 logs/
+backups/
 snapshots/
 snapshots-fs/
 snapshots-node2/
