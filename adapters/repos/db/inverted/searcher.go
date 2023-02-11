@@ -239,7 +239,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
 			Type:      CacheTypeAllowList,
 			AllowList: out,
-			Partial:   &pv.docIDs,
+			Partial:   pv.docIDs,
 			Hash:      pv.docIDs.checksum,
 		})
 	}
