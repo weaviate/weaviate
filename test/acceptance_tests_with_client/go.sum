@@ -832,6 +832,7 @@ github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df/go.mod h1:JP3t17
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=
 github.com/weaviate/weaviate v1.17.2-0.20230118094121-abf30eac8656 h1:HA/GgZEqsL0rjMJgZf97kuZoVXZYbJ1QamDx+qPND2Q=
 github.com/weaviate/weaviate v1.17.2-0.20230118094121-abf30eac8656/go.mod h1:qK+KLW5a/5lKPkIW9Fp6ZISWuZCzUFEaUc1U3KMUSSA=
+github.com/weaviate/weaviate v1.17.4-0.20230211110603-8d8f4ec35666 h1:5UXwX2MplV2uOhybDLsHQWUHcwunjdB3kxj4vYqv5bM=
 github.com/weaviate/weaviate v1.17.4-0.20230211110603-8d8f4ec35666/go.mod h1:zk+kMSJQhNV9Fvda1oeqnx8xVVpgzFCkLe9KkmY7Ask=
 github.com/weaviate/weaviate-go-client/v4 v4.6.1 h1:FZk5QbKQOiUsCpHrOSpLQVkDSsdrG5eybwJs5TFxLX8=
 github.com/weaviate/weaviate-go-client/v4 v4.6.1/go.mod h1:iikOvX/JfRQOF0ToytCHAq3ZssW2rEfjawCPEo7inRo=
