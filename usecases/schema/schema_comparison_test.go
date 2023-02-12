@@ -96,11 +96,21 @@ func Test_SchemaComparison_MismatchInClasses(t *testing.T) {
 	assert.Contains(t, msgs, "class Foo exists in left schema, but not in right schema")
 }
 
-func Test_SchemaComparison_ClassesMatchButPropertiesDont(t *testing.T) {
+func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 	left := &State{
 		ShardingState: map[string]*sharding.State{
 			"Foo": {
 				IndexID: "Foo",
+			},
+			"Foo2": {
+				Physical: map[string]sharding.Physical{
+					"abcd": {},
+				},
+			},
+			"Foo4": {
+				Physical: map[string]sharding.Physical{
+					"abcd": {},
+				},
 			},
 		},
 
@@ -138,6 +148,9 @@ func Test_SchemaComparison_ClassesMatchButPropertiesDont(t *testing.T) {
 					},
 					VectorIndexType: "age-n-ass-double-u",
 				},
+				{Class: "Foo2"},
+				{Class: "Foo3"},
+				{Class: "Foo4"},
 			},
 		},
 	}
@@ -146,6 +159,16 @@ func Test_SchemaComparison_ClassesMatchButPropertiesDont(t *testing.T) {
 		ShardingState: map[string]*sharding.State{
 			"Foo": {
 				IndexID: "Foo",
+			},
+			"Foo2": {
+				Physical: map[string]sharding.Physical{
+					"xyz": {},
+				},
+			},
+			"Foo3": {
+				Physical: map[string]sharding.Physical{
+					"abcd": {},
+				},
 			},
 		},
 
@@ -175,6 +198,9 @@ func Test_SchemaComparison_ClassesMatchButPropertiesDont(t *testing.T) {
 					},
 					Vectorizer: "gpt-9",
 				},
+				{Class: "Foo2"},
+				{Class: "Foo3"},
+				{Class: "Foo4"},
 			},
 		},
 	}
@@ -204,6 +230,11 @@ func Test_SchemaComparison_ClassesMatchButPropertiesDont(t *testing.T) {
 			"L has \"age-n-ass-double-u\", but R has \"\"",
 		"class Foo: vectorizer mismatch: " +
 			"L has \"\", but R has \"gpt-9\"",
+		"class Foo3: missing sharding state in L",
+		"class Foo4: missing sharding state in R",
+		"class Foo2: sharding state mismatch: " +
+			"L has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"abcd\":{\"name\":\"\",\"ownsVirtual\":null,\"ownsPercentage\":0,\"belongsToNodes\":null}},\"virtual\":null}, " +
+			"but R has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"xyz\":{\"name\":\"\",\"ownsVirtual\":null,\"ownsPercentage\":0,\"belongsToNodes\":null}},\"virtual\":null}",
 	}
 
 	for _, exp := range expected {
