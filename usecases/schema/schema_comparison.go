@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // Diff creates human-readable information about the difference in two schemas,
@@ -47,6 +48,15 @@ func Diff(
 				rightLabel: rightLabel,
 			}
 			msgs = append(msgs, cc.diff()...)
+
+			ssc := shardingStateComparison{
+				left:       left.ShardingState[className],
+				right:      right.ShardingState[className],
+				leftLabel:  leftLabel,
+				rightLabel: rightLabel,
+				className:  className,
+			}
+			msgs = append(msgs, ssc.diff()...)
 		}
 	}
 
@@ -203,4 +213,45 @@ func (ccc *classConfigComparison) compare(
 	msg := fmt.Sprintf("class %s: %s mismatch: %s has %s, but %s has %s",
 		ccc.className, label, ccc.leftLabel, lj, ccc.rightLabel, rj)
 	ccc.addMsg(msg)
+}
+
+type shardingStateComparison struct {
+	left, right           *sharding.State
+	leftLabel, rightLabel string
+	className             string
+	msgs                  []string
+}
+
+func (ssc *shardingStateComparison) addMsg(msg ...string) {
+	ssc.msgs = append(ssc.msgs, msg...)
+}
+
+func (ssc *shardingStateComparison) diff() []string {
+	if ssc.left == nil && ssc.right != nil {
+		msg := fmt.Sprintf("class %s: missing sharding state in %s",
+			ssc.className, ssc.leftLabel)
+		ssc.addMsg(msg)
+		return ssc.msgs
+	}
+
+	if ssc.left != nil && ssc.right == nil {
+		msg := fmt.Sprintf("class %s: missing sharding state in %s",
+			ssc.className, ssc.rightLabel)
+		ssc.addMsg(msg)
+		return ssc.msgs
+	}
+
+	lj, _ := json.Marshal(ssc.left)
+	rj, _ := json.Marshal(ssc.right)
+
+	if bytes.Equal(lj, rj) {
+		return ssc.msgs
+	}
+
+	msg := fmt.Sprintf("class %s: sharding state mismatch: "+
+		"%s has %s, but %s has %s",
+		ssc.className, ssc.leftLabel, lj, ssc.rightLabel, rj)
+	ssc.addMsg(msg)
+
+	return ssc.msgs
 }
