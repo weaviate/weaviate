@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"testing"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -252,7 +253,8 @@ func TestReadConsensus(t *testing.T) {
 				parser = test.parser
 			}
 
-			out, err := newReadConsensus(parser)(context.Background(), test.in)
+			logger, _ := logrustest.NewNullLogger()
+			out, err := newReadConsensus(parser, logger)(context.Background(), test.in)
 
 			if test.expectError {
 				require.NotNil(t, err, "must error")

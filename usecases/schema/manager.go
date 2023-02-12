@@ -131,7 +131,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 
 	m.cluster.SetCommitFn(m.handleCommit)
 	m.cluster.SetResponseFn(m.handleTxResponse)
-	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs))
+	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs, m.logger))
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
