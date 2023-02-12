@@ -4,8 +4,8 @@ go 1.19
 
 require (
 	github.com/stretchr/testify v1.8.0
-	github.com/weaviate/weaviate v1.17.4-0.20230211172223-33dfd91508b9
-	github.com/weaviate/weaviate-go-client/v4 v4.6.2-0.20230212101814-d7c35abc6b37
+	github.com/weaviate/weaviate v1.17.4-0.20230212102020-d14a4ad4a0ea
+	github.com/weaviate/weaviate-go-client/v4 v4.6.2-0.20230212102617-e042be46d6ad
 )
 
 require (
