@@ -1,0 +1,212 @@
+package schema
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
+)
+
+func Test_SchemaComparison_Identical(t *testing.T) {
+	left := &State{
+		ShardingState: map[string]*sharding.State{
+			"Foo": {
+				IndexID: "Foo",
+			},
+		},
+
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: "Foo",
+					Properties: []*models.Property{
+						{
+							DataType: []string{"int"},
+							Name:     "prop_1",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	right := &State{
+		ShardingState: map[string]*sharding.State{
+			"Foo": {
+				IndexID: "Foo",
+			},
+		},
+
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: "Foo",
+					Properties: []*models.Property{
+						{
+							DataType: []string{"int"},
+							Name:     "prop_1",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	assert.Len(t, Diff("left schema", left, "right schema", right), 0)
+}
+
+func Test_SchemaComparison_MismatchInClasses(t *testing.T) {
+	left := &State{
+		ShardingState: map[string]*sharding.State{
+			"Foo": {
+				IndexID: "Foo",
+			},
+		},
+
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: "Foo",
+					Properties: []*models.Property{
+						{
+							DataType: []string{"int"},
+							Name:     "prop_1",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	right := &State{
+		ShardingState: map[string]*sharding.State{
+			"Foo": {
+				IndexID: "Foo",
+			},
+		},
+
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{},
+		},
+	}
+
+	msgs := Diff("left schema", left, "right schema", right)
+	assert.Greater(t, len(msgs), 0)
+	assert.Contains(t, msgs, "class Foo exists in left schema, but not in right schema")
+}
+
+func Test_SchemaComparison_ClassesMatchButPropertiesDont(t *testing.T) {
+	left := &State{
+		ShardingState: map[string]*sharding.State{
+			"Foo": {
+				IndexID: "Foo",
+			},
+		},
+
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: "Foo",
+					Properties: []*models.Property{
+						{
+							DataType: []string{"int"},
+							Name:     "prop_1",
+						},
+						{
+							DataType: []string{"text"},
+							Name:     "prop_2",
+						},
+						{
+							DataType: []string{"string"},
+							Name:     "prop_4",
+						},
+					},
+					Description: "foo",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: true,
+					},
+					ModuleConfig: "bar",
+					ReplicationConfig: &models.ReplicationConfig{
+						Factor: 7,
+					},
+					ShardingConfig: map[string]interface{}{
+						"desiredCount": 7,
+					},
+					VectorIndexConfig: map[string]interface{}{
+						"ef": 1000,
+					},
+					VectorIndexType: "age-n-ass-double-u",
+				},
+			},
+		},
+	}
+
+	right := &State{
+		ShardingState: map[string]*sharding.State{
+			"Foo": {
+				IndexID: "Foo",
+			},
+		},
+
+		ObjectSchema: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: "Foo",
+					Properties: []*models.Property{
+						{
+							DataType: []string{"int"},
+							Name:     "prop_1",
+						},
+						{
+							DataType: []string{"bool"},
+							Name:     "prop_3",
+						},
+						{
+							DataType: []string{"text"},
+							Name:     "prop_4",
+						},
+					},
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{
+						Factor: 8,
+					},
+					Vectorizer: "gpt-9",
+				},
+			},
+		},
+	}
+
+	actual := Diff("L", left, "R", right)
+
+	expected := []string{
+		"class Foo: property prop_2 exists in L, but not in R",
+		"class Foo: property prop_3 exists in R, but not in L",
+		"class Foo: property prop_4: mismatch: " +
+			"L has {\"dataType\":[\"string\"],\"name\":\"prop_4\"}, but " +
+			"R has {\"dataType\":[\"text\"],\"name\":\"prop_4\"}",
+		"class Foo: description mismatch: " +
+			"L has \"foo\", but R has \"\"",
+		"class Foo: inverted index config mismatch: " +
+			"L has {\"indexPropertyLength\":true}, " +
+			"but R has {\"indexTimestamps\":true}",
+		"class Foo: module config mismatch: " +
+			"L has \"bar\", but R has null",
+		"class Foo: replication config mismatch: " +
+			"L has {\"factor\":7}, but R has {\"factor\":8}",
+		"class Foo: sharding config mismatch: " +
+			"L has {\"desiredCount\":7}, but R has null",
+		"class Foo: vector index config mismatch: " +
+			"L has {\"ef\":1000}, but R has null",
+		"class Foo: vector index type mismatch: " +
+			"L has \"age-n-ass-double-u\", but R has \"\"",
+		"class Foo: vectorizer mismatch: " +
+			"L has \"\", but R has \"gpt-9\"",
+	}
+
+	for _, exp := range expected {
+		assert.Contains(t, actual, exp)
+	}
+}
