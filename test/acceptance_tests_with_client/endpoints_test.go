@@ -24,7 +24,7 @@ import (
 func TestUpdates(t *testing.T) {
 	ctx := context.Background()
 	client := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
-	require.Nil(t, client.Schema().ClassDeleter().WithClassName("SomeClass").Do(ctx))
+	defer require.Nil(t, client.Schema().ClassDeleter().WithClassName("SomeClass").Do(ctx))
 	classCreator := client.Schema().ClassCreator()
 	class := models.Class{
 		Class: "SomeClass",
