@@ -97,6 +97,43 @@ func TestBSTRoaringSet(t *testing.T) {
 		// check Deletions
 		assert.False(t, res.Deletions.Contains(9))
 	})
+
+	t.Run("get is snapshot of underlying bitmaps", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		key := []byte("my-key")
+
+		for i := uint64(1); i <= 3; i++ {
+			bst.Insert(key, Insert{
+				Additions: []uint64{10 + i},
+				Deletions: []uint64{10 - i},
+			})
+		}
+
+		getBeforeUpdate, err := bst.Get(key)
+		require.Nil(t, err)
+
+		expectedAdditionsBeforeUpdate := []uint64{11, 12, 13}
+		expectedDeletionsBeforeUpdate := []uint64{7, 8, 9}
+
+		assert.ElementsMatch(t, expectedAdditionsBeforeUpdate, getBeforeUpdate.Additions.ToArray())
+		assert.ElementsMatch(t, expectedDeletionsBeforeUpdate, getBeforeUpdate.Deletions.ToArray())
+
+		t.Run("gotten layer does not change on bst update", func(t *testing.T) {
+			bst.Insert(key, Insert{Additions: []uint64{100}, Deletions: []uint64{1}})
+
+			getAfterUpdate, err := bst.Get(key)
+			require.Nil(t, err)
+
+			expectedAdditionsAfterUpdate := []uint64{11, 12, 13, 100}
+			expectedDeletionsAfterUpdate := []uint64{1, 7, 8, 9}
+
+			assert.ElementsMatch(t, expectedAdditionsBeforeUpdate, getBeforeUpdate.Additions.ToArray())
+			assert.ElementsMatch(t, expectedDeletionsBeforeUpdate, getBeforeUpdate.Deletions.ToArray())
+
+			assert.ElementsMatch(t, expectedAdditionsAfterUpdate, getAfterUpdate.Additions.ToArray())
+			assert.ElementsMatch(t, expectedDeletionsAfterUpdate, getAfterUpdate.Deletions.ToArray())
+		})
+	})
 }
 
 func TestBSTRoaringSet_Flatten(t *testing.T) {

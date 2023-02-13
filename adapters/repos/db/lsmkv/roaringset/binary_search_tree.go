@@ -45,10 +45,11 @@ func (t *BinarySearchTree) Insert(key []byte, values Insert) {
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 }
-
-func (t *BinarySearchTree) Get(key []byte) (*BitmapLayer, error) {
+// Get creates copies of underlying bitmaps to prevent future (concurrent)
+// read and writes after layer being returned
+func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {
 	if t.root == nil {
-		return nil, entities.NotFound
+		return BitmapLayer{}, entities.NotFound
 	}
 
 	return t.root.get(key)
@@ -211,20 +212,20 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
 	}
 }
 
-func (n *BinarySearchNode) get(key []byte) (*BitmapLayer, error) {
+func (n *BinarySearchNode) get(key []byte) (BitmapLayer, error) {
 	if bytes.Equal(n.Key, key) {
-		return &n.Value, nil
+		return n.Value.Clone(), nil
 	}
 
 	if bytes.Compare(key, n.Key) < 0 {
 		if n.left == nil {
-			return nil, entities.NotFound
+			return BitmapLayer{}, entities.NotFound
 		}
 
 		return n.left.get(key)
 	} else {
 		if n.right == nil {
-			return nil, entities.NotFound
+			return BitmapLayer{}, entities.NotFound
 		}
 
 		return n.right.get(key)
