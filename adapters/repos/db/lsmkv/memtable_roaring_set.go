@@ -128,12 +128,7 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	s, err := m.roaringSet.Get(key)
-	if err != nil {
-		return roaringset.BitmapLayer{}, err
-	}
-
-	return *s, nil
+	return m.roaringSet.Get(key)
 }
 
 func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
