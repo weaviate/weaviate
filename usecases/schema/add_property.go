@@ -65,7 +65,8 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
-		return errors.Wrap(err, "commit cluster-wide transaction")
+		// return errors.Wrap(err, "commit cluster-wide transaction")
+		m.logger.WithError(err).Errorf("commit TODO")
 	}
 
 	return m.addClassPropertyApplyChanges(ctx, className, prop)

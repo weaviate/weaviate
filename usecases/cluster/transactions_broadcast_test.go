@@ -110,6 +110,10 @@ func (f *fakeState) Hostnames() []string {
 	return f.hosts
 }
 
+func (f *fakeState) AllNames() []string {
+	return f.hosts
+}
+
 type fakeClient struct {
 	sync.Mutex
 	openCalled   []string
