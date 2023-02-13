@@ -1,0 +1,82 @@
+package cluster
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+type IdealClusterState struct {
+	memberNames  []string
+	currentState MemberLister
+	persistence  icsPersistence
+	lock         sync.Mutex
+}
+
+func NewIdealClusterState(s MemberLister, p icsPersistence) *IdealClusterState {
+	ics := &IdealClusterState{currentState: s, persistence: p}
+	go ics.startPolling()
+	return ics
+}
+
+// Validate returns an error if the actual state does not match the assumed
+// ideal state, e.g. because a node has died, or left unexpectedly.
+func (ics *IdealClusterState) Validate() error {
+	ics.lock.Lock()
+	defer ics.lock.Unlock()
+
+	actual := map[string]struct{}{}
+	for _, name := range ics.currentState.AllNames() {
+		actual[name] = struct{}{}
+	}
+
+	var missing []string
+	for _, name := range ics.memberNames {
+		if _, ok := actual[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("node(s) %s unhealthy or unavailable",
+			strings.Join(missing, ", "))
+	}
+
+	return nil
+}
+
+func (ics *IdealClusterState) startPolling() {
+	t := time.NewTicker(1 * time.Second)
+	for {
+		<-t.C
+		current := ics.currentState.AllNames()
+		ics.extendList(current)
+	}
+}
+
+func (ics *IdealClusterState) extendList(current []string) {
+	ics.lock.Lock()
+	defer ics.lock.Unlock()
+
+	var unknown []string
+	known := map[string]struct{}{}
+	for _, name := range ics.memberNames {
+		known[name] = struct{}{}
+	}
+
+	for _, name := range current {
+		if _, ok := known[name]; !ok {
+			unknown = append(unknown, name)
+		}
+	}
+
+	ics.memberNames = append(ics.memberNames, unknown...)
+	sort.Sort(sort.StringSlice(ics.memberNames))
+}
+
+type icsPersistence interface {
+	Store([]string) error
+	Load() ([]string, error)
+}

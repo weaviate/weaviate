@@ -160,7 +160,8 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
-		return nil, errors.Wrap(err, "commit cluster-wide transaction")
+		// return nil, errors.Wrap(err, "commit cluster-wide transaction")
+		m.logger.WithError(err).Errorf("commit TODO")
 	}
 	if err := m.addClassApplyChanges(ctx, class, shardState); err != nil {
 		return nil, err

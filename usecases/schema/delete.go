@@ -43,7 +43,8 @@ func (m *Manager) deleteClass(ctx context.Context, className string, force bool)
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
-		return errors.Wrap(err, "commit cluster-wide transaction")
+		// return errors.Wrap(err, "commit cluster-wide transaction")
+		m.logger.WithError(err).Errorf("commit TODO")
 	}
 
 	return m.deleteClassApplyChanges(ctx, className, force)
