@@ -1774,7 +1774,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				Properties: map[string]interface{}{
 					"description": fmt.Sprintf("test object, put #%d", i+1),
 				},
-			}, nil)
+			}, testVec)
 			require.Nil(t, err)
 
 			err = repo.Merge(ctx, objects.MergeDocument{
@@ -2012,4 +2012,59 @@ func randomVector(dim int) []float32 {
 	}
 
 	return out
+}
+
+func TestIndexDifferentVectorLength(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "SomeClass",
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{},
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	obj1 := &models.Object{
+		ID:     "ae48fda2-866a-4c90-94fc-fce40d5f3767",
+		Class:  class.Class,
+		Vector: []float32{1, 2, 3},
+	}
+
+	obj2 := &models.Object{
+		ID:     "b71ffac8-6534-4368-9718-5410ca89ce16",
+		Class:  class.Class,
+		Vector: []float32{1, 2, 3, 4},
+	}
+	require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector))
+	require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector))
+
+	t.Run("Add object with different vector length", func(t *testing.T) {
+		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil, additional.Properties{}, nil)
+		require.Nil(t, err)
+		require.Nil(t, found)
+	})
 }
