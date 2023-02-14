@@ -204,7 +204,17 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
 			c.logger.WithFields(logrus.Fields{
 				"action": "broadcast_abort_transaction",
-				"id":     c.currentTransaction.ID,
+				// before https://github.com/weaviate/weaviate/issues/2625 the next
+				// line would read
+				//
+				// "id": c.currentTransaction.ID
+				//
+				// which had the potential for races. The tx itself is immutable and
+				// therefore always thread-safe. However, the association between the tx
+				// manager and the current tx is mutable, therefore the
+				// c.currentTransaction pointer could be nil (nil pointer panic) or
+				// point to another tx (incorrect log).
+				"id": tx.ID,
 			}).WithError(err).Errorf("broadcast tx abort failed")
 		}
 
