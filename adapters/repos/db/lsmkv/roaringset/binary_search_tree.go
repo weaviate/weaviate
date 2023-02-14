@@ -45,6 +45,7 @@ func (t *BinarySearchTree) Insert(key []byte, values Insert) {
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 }
+
 // Get creates copies of underlying bitmaps to prevent future (concurrent)
 // read and writes after layer being returned
 func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {

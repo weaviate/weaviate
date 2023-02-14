@@ -152,6 +152,8 @@ func (s *Shard) findDocIDs(ctx context.Context,
 		s.invertedRowCache, nil, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.version).
 		DocIDsPreventCaching(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
-
-	return allowList.Slice(), err
+	if err != nil {
+		return nil, err
+	}
+	return allowList.Slice(), nil
 }
