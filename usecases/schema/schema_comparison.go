@@ -38,15 +38,13 @@ func Diff(
 	leftClasses := map[string]*models.Class{}
 	rightClasses := map[string]*models.Class{}
 
-	for _, class := range left.ObjectSchema.Classes {
-		leftClasses[class.Class] = class
-	}
-
 	for _, class := range right.ObjectSchema.Classes {
 		rightClasses[class.Class] = class
 	}
 
-	for className, classLeft := range leftClasses {
+	for _, classLeft := range left.ObjectSchema.Classes {
+		className := classLeft.Class
+		leftClasses[className] = classLeft
 		if classRight, ok := rightClasses[className]; !ok {
 			msg := fmt.Sprintf("class %s exists in %s, but not in %s",
 				className, leftLabel, rightLabel)
@@ -157,7 +155,6 @@ func (pc *propsComparison) diff() []string {
 	}
 
 	for _, prop := range pc.left {
-		containedLeft[prop.Name] = prop
 		if _, ok := containedRight[prop.Name]; !ok {
 			msg := fmt.Sprintf("class %s: property %s exists in %s, but not in %s",
 				pc.className, prop.Name, pc.leftLabel, pc.rightLabel)
