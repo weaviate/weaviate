@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"encoding"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -53,8 +54,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	// TODO: fix c.do, or dont use it
-	err = c.do(c.timeoutUnit*90, req, nil, resp)
+	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
 }
 
@@ -67,8 +67,7 @@ func (c *replicationClient) Exists(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 	req.URL.RawQuery = url.Values{"check_exists": []string{"true"}}.Encode()
-	// TODO: fix c.do, or dont use it
-	err = c.do(c.timeoutUnit*90, req, nil, resp)
+	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
 }
 
@@ -86,7 +85,6 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	// TODO: fix c.do, or dont use it
 	err = c.do(c.timeoutUnit*90, req, body, &resp)
 	return resp, err
 }
@@ -105,7 +103,6 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	// TODO: fix c.do, or dont use it
 	err = c.do(c.timeoutUnit*90, req, body, &resp)
 	return resp, err
 }
@@ -113,7 +110,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
-	resp := make([]objects.Replica, len(ids))
+	resp := make(objects.Replicas, len(ids))
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
 		return nil, fmt.Errorf("marshal ids: %w", err)
@@ -127,8 +124,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	// TODO: fix c.do, or dont use it
-	err = c.do(c.timeoutUnit*90, req, nil, &resp)
+	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
 }
 
@@ -306,6 +302,40 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
 		}
+		return false, nil
+	}
+	return c.retry(ctx, 9, try)
+}
+
+func (c *replicationClient) doCustomMarshal(timeout time.Duration,
+	req *http.Request, body []byte, resp encoding.BinaryUnmarshaler,
+) (err error) {
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	try := func(ctx context.Context) (bool, error) {
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+
+		respBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			return shouldRetry(res.StatusCode), fmt.Errorf("read response: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			defer res.Body.Close()
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, respBody)
+		}
+
+		if err := resp.UnmarshalBinary(respBody); err != nil {
+			return false, fmt.Errorf("unmarshal response: %w", err)
+		}
+
 		return false, nil
 	}
 	return c.retry(ctx, 9, try)
