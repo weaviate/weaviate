@@ -43,11 +43,18 @@ func NewReplicationClient(httpClient *http.Client) replica.Client {
 }
 
 // FetchObject fetches one object it exits
-func (c *replicationClient) FetchObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, selectProps search.SelectProperties,
+func (c *replicationClient) FetchObject(ctx context.Context, host, index,
+	shard string, id strfmt.UUID, selectProps search.SelectProperties,
 	additional additional.Properties,
 ) (objects.Replica, error) {
-	return objects.Replica{}, fmt.Errorf("not implemented")
+	resp := objects.Replica{}
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil)
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	// TODO: fix c.do, or dont use it
+	err = c.do(c.timeoutUnit*90, req, nil, resp)
+	return resp, err
 }
 
 // Exists
@@ -221,14 +228,17 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 	if suffix != "" {
 		path = fmt.Sprintf("%s/%s", path, suffix)
 	}
-	url := url.URL{
-		Scheme:   "http",
-		Host:     host,
-		Path:     path,
-		RawQuery: url.Values{replica.RequestKey: []string{requestId}}.Encode(),
+	u := url.URL{
+		Scheme: "http",
+		Host:   host,
+		Path:   path,
 	}
 
-	return http.NewRequestWithContext(ctx, method, url.String(), body)
+	if requestId != "" {
+		u.RawQuery = url.Values{replica.RequestKey: []string{requestId}}.Encode()
+	}
+
+	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }
 
 func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
