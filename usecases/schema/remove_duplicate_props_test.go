@@ -49,6 +49,10 @@ func TestStartupWithDuplicateProps(t *testing.T) {
 							DataType: []string{"Ref"},
 						},
 						{
+							Name:     "prOP_2",
+							DataType: []string{"Ref"},
+						},
+						{
 							Name:     "prop_4",
 							DataType: []string{"boolean"},
 						},
