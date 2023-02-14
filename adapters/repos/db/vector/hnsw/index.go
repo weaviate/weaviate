@@ -607,8 +607,12 @@ func (h *hnsw) Drop(ctx context.Context) error {
 		}
 	}
 
-	// cancel vector cache goroutine
-	h.cache.drop()
+	if h.compressed.Load() {
+		h.compressedVectorsCache.drop()
+	} else {
+		// cancel vector cache goroutine
+		h.cache.drop()
+	}
 
 	// cancel commit logger last, as the tombstone cleanup cycle might still
 	// write while it's still running
