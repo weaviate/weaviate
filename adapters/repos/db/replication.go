@@ -323,10 +323,10 @@ func (s *Shard) reinit(ctx context.Context) error {
 }
 
 func (db *DB) OverwriteObjects(ctx context.Context,
-	class, shardName string, list []*objects.VObject,
+	class, shardName string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	index := db.GetIndex(schema.ClassName(class))
-	return index.overwriteObjects(ctx, shardName, list)
+	return index.overwriteObjects(ctx, shardName, vobjects)
 }
 
 // overwrite objects if their state didn't change in the meantime

@@ -510,15 +510,3 @@ func (f *fakeReplicationClient) FindObject(_ context.Context, host, index,
 ) (*storobj.Object, error) {
 	return nil, nil
 }
-
-func (f *fakeReplicationClient) Exists(_ context.Context,
-	host, index, shard string, id strfmt.UUID,
-) (bool, error) {
-	return false, nil
-}
-
-func (f *fakeReplicationClient) MultiGetObjects(_ context.Context,
-	host, index, shard string, ids []strfmt.UUID,
-) ([]*storobj.Object, error) {
-	return nil, nil
-}
