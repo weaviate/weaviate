@@ -214,6 +214,10 @@ func mergeProps(previous *storobj.Object,
 		properties[propName] = value
 	}
 
+	for _, propName := range merge.PropertiesToDelete {
+		delete(properties, propName)
+	}
+
 	for _, ref := range merge.References {
 		propName := ref.From.Property.String()
 		prop := properties[propName]
