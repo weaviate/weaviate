@@ -76,6 +76,18 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (c *replicationClient) FindObject(_ context.Context, host, index, shard string,
+	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+) (objects.Replica, error) {
+	return objects.Replica{}, nil
+}
+
+func (c *replicationClient) MultiGetObjects(_ context.Context, host,
+	index, shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return nil, nil
+}
+
 func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	shard, requestID string, obj *storobj.Object,
 ) (replica.SimpleResponse, error) {

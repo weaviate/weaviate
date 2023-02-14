@@ -37,17 +37,16 @@ type RemoteReplicaIncomingRepo interface {
 	AbortReplication(indexName,
 		shardName, requestID string) interface{}
 
-	// TODO uncomment and implement
-	// OverwriteObjects(ctx context.Context, index, shard string,
-	// 	vobjects []*objects.VObject) ([]RepairResponse, error)
-	// FetchObject(ctx context.Context, indexName,
-	// 	shardName string, id strfmt.UUID) (objects.Replica, error)
-	// DoesExists(ctx context.Context, class,
-	// 	shardName string, id strfmt.UUID) (objects.Replica, error)
-	// FetchObjects(ctx context.Context, class,
-	// 	shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
-	// DigestObjects(ctx context.Context, class, shardName string,
-	// 	ids []strfmt.UUID) (result []RepairResponse, err error)
+	OverwriteObjects(ctx context.Context, index, shard string,
+		vobjects []*objects.VObject) ([]RepairResponse, error)
+	FetchObject(ctx context.Context, indexName,
+		shardName string, id strfmt.UUID) (objects.Replica, error)
+	DoesExist(ctx context.Context, class,
+		shardName string, id strfmt.UUID) (objects.Replica, error)
+	FetchObjects(ctx context.Context, class,
+		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
+	DigestObjects(ctx context.Context, class, shardName string,
+		ids []strfmt.UUID) (result []RepairResponse, err error)
 }
 
 type RemoteReplicaIncoming struct {

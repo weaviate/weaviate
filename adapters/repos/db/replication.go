@@ -322,6 +322,13 @@ func (s *Shard) reinit(ctx context.Context) error {
 	return nil
 }
 
+func (db *DB) OverwriteObjects(ctx context.Context,
+	class, shardName string, list []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	index := db.GetIndex(schema.ClassName(class))
+	return index.overwriteObjects(ctx, shardName, list)
+}
+
 // overwrite objects if their state didn't change in the meantime
 // It returns nil if all object have been successfully overwritten
 // and otherwise a list of failed operations.
@@ -378,6 +385,13 @@ func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 	return i.overwriteObjects(ctx, shardName, vobjects)
 }
 
+func (db *DB) DigestObjects(ctx context.Context,
+	class, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	index := db.GetIndex(schema.ClassName(class))
+	return index.digestObjects(ctx, shardName, ids)
+}
+
 func (i *Index) digestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
@@ -413,4 +427,91 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	return i.digestObjects(ctx, shardName, ids)
+}
+
+func (db *DB) FetchObject(ctx context.Context,
+	class, shardName string, id strfmt.UUID,
+) (objects.Replica, error) {
+	index := db.GetIndex(schema.ClassName(class))
+	return index.readRepairGetObject(ctx, shardName, id)
+}
+
+func (i *Index) readRepairGetObject(ctx context.Context,
+	shardName string, id strfmt.UUID,
+) (objects.Replica, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	obj, err := shard.objectByID(ctx, id, nil, additional.Properties{})
+	if err != nil {
+		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
+	}
+
+	if obj == nil {
+		deleted, err := shard.wasDeleted(ctx, id)
+		if err != nil {
+			return objects.Replica{}, err
+		}
+		return objects.Replica{
+			ID:      id,
+			Deleted: deleted,
+		}, nil
+	}
+
+	return objects.Replica{
+		Object: obj,
+		ID:     obj.ID(),
+	}, nil
+}
+
+func (db *DB) FetchObjects(ctx context.Context,
+	class, shardName string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	index := db.GetIndex(schema.ClassName(class))
+	return index.fetchObjects(ctx, shardName, ids)
+}
+
+func (i *Index) fetchObjects(ctx context.Context,
+	shardName string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	objs, err := shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
+	if err != nil {
+		return nil, fmt.Errorf("shard %q read repair multi get objects: %w", shard.ID(), err)
+	}
+
+	resp := make([]objects.Replica, len(ids))
+
+	for j, obj := range objs {
+		if obj == nil {
+			deleted, err := shard.wasDeleted(ctx, ids[j])
+			if err != nil {
+				i.logger.Errorf("failed to query object id %q deletion, skipping", ids[j])
+				continue
+			}
+			resp[j] = objects.Replica{
+				ID:      ids[j],
+				Deleted: deleted,
+			}
+		} else {
+			resp[j] = objects.Replica{
+				Object: obj,
+				ID:     obj.ID(),
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+func (db *DB) DoesExist(ctx context.Context,
+	class, shardName string, id strfmt.UUID,
+) (objects.Replica, error) {
+	panic("not implemented")
 }
