@@ -17,12 +17,15 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 type parserFn func(ctx context.Context, schema *State) error
 
-func newReadConsensus(parser parserFn) cluster.ConsensusFn {
+func newReadConsensus(parser parserFn,
+	logger logrus.FieldLogger,
+) cluster.ConsensusFn {
 	return func(ctx context.Context,
 		in []*cluster.Transaction,
 	) (*cluster.Transaction, error) {
@@ -53,9 +56,14 @@ func newReadConsensus(parser parserFn) cluster.ConsensusFn {
 				return nil, fmt.Errorf("comparing txs with different IDs: %s vs %s",
 					consensus.ID, tx.ID)
 			}
+			previous := consensus.Payload.(ReadSchemaPayload).Schema
+			current := typed.(ReadSchemaPayload).Schema
+			if !Equal(previous, current) {
+				diff := Diff("previous", previous, "current", current)
+				logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
+					"diff": diff,
+				}).Errorf("trying to reach cluster consensus on schema")
 
-			if !Equal(consensus.Payload.(ReadSchemaPayload).Schema,
-				typed.(ReadSchemaPayload).Schema) {
 				return nil, fmt.Errorf("did not reach consensus on schema in cluster")
 			}
 		}
