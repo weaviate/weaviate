@@ -24,6 +24,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -38,6 +40,40 @@ func NewReplicationClient(httpClient *http.Client) replica.Client {
 		client:  httpClient,
 		retryer: newRetryer(),
 	}
+}
+
+// FetchObject fetches one object it exits
+func (c *replicationClient) FetchObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, selectProps search.SelectProperties,
+	additional additional.Properties,
+) (objects.Replica, error) {
+	return objects.Replica{}, fmt.Errorf("not implemented")
+}
+
+// Exists
+func (c *replicationClient) Exists(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID,
+) (objects.Replica, error) {
+	return objects.Replica{}, fmt.Errorf("not implemented")
+}
+
+// FetchObjects fetches objects specified in ids
+func (c *replicationClient) FetchObjects(ctx context.Context, hostName, indexName,
+	shardName string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (c *replicationClient) DigestObjects(ctx context.Context,
+	host, index, shard string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (c *replicationClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (c *replicationClient) PutObject(ctx context.Context, host, index,
