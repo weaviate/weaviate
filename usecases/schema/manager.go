@@ -211,9 +211,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// this step can remove the duplicate ones.
 	//
 	// See https://github.com/weaviate/weaviate/issues/2609
-	if err := m.removeDuplicatePropsIfPresent(ctx); err != nil {
-		return fmt.Errorf("remove duplicate props: %w", err)
-	}
+	m.removeDuplicatePropsIfPresent()
 
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
