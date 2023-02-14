@@ -50,12 +50,16 @@ func (m *Monitor) Ratio() float64 {
 		// in case a few more entries have been added
 		// since the call to MemProfile.
 		p = make([]runtime.MemProfileRecord, n+50)
-		n, ok := m.memProfiler(p, true)
+
+		// use different var name and explicitly overwrite
+		// otherwise n from the outside is shadowed and not overwritten
+		n2, ok := m.memProfiler(p, true)
 		if ok {
-			p = p[0:n]
+			p = p[0:n2]
 			break
 		}
 		// Profile grew; try again.
+		n = n2
 	}
 
 	var sum int64
