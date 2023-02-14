@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // VObject is a versioned object for detecting replication inconsistencies
@@ -70,3 +72,12 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 
 	return nil
 }
+
+// Replica represents a replicated data item
+type Replica struct {
+	ID      strfmt.UUID     `json:"id,omitempty"`
+	Deleted bool            `json:"deleted"`
+	Object  *storobj.Object `json:"object,omitempty"`
+}
+
+// TODO Marshal and Unmarshal
