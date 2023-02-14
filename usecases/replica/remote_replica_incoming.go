@@ -20,7 +20,7 @@ import (
 )
 
 type RemoteReplicaIncomingRepo interface {
-	// Write Endpoints
+	// Write endpoints
 	ReplicateObject(ctx context.Context, indexName, shardName,
 		requestID string, object *storobj.Object) SimpleResponse
 	ReplicateObjects(ctx context.Context, indexName,
@@ -37,9 +37,9 @@ type RemoteReplicaIncomingRepo interface {
 		shardName, requestID string) interface{}
 	AbortReplication(indexName,
 		shardName, requestID string) interface{}
-
 	OverwriteObjects(ctx context.Context, index, shard string,
 		vobjects []*objects.VObject) ([]RepairResponse, error)
+	// Read endpoints
 	FetchObject(ctx context.Context, indexName,
 		shardName string, id strfmt.UUID) (objects.Replica, error)
 	DoesExist(ctx context.Context, class,

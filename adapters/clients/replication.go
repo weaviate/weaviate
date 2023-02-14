@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -57,42 +58,78 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	return resp, err
 }
 
-// Exists
-func (c *replicationClient) Exists(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID,
+func (c *replicationClient) Exists(ctx context.Context, host, index,
+	shard string, id strfmt.UUID,
 ) (objects.Replica, error) {
-	return objects.Replica{}, fmt.Errorf("not implemented")
-}
-
-// FetchObjects fetches objects specified in ids
-func (c *replicationClient) FetchObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
-	return nil, fmt.Errorf("not implemented")
+	resp := objects.Replica{}
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil)
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	req.URL.RawQuery = url.Values{"check_exists": []string{"true"}}.Encode()
+	// TODO: fix c.do, or dont use it
+	err = c.do(c.timeoutUnit*90, req, nil, resp)
+	return resp, err
 }
 
 func (c *replicationClient) DigestObjects(ctx context.Context,
 	host, index, shard string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
-	return nil, fmt.Errorf("not implemented")
+	var resp []replica.RepairResponse
+	body, err := json.Marshal(ids)
+	if err != nil {
+		return nil, fmt.Errorf("marshal digest objects input: %w", err)
+	}
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodGet, host, index, shard,
+		"", "_digest", bytes.NewReader(body))
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	// TODO: fix c.do, or dont use it
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	return resp, err
 }
 
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
-	host, index, shard string, objects []*objects.VObject,
+	host, index, shard string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+	var resp []replica.RepairResponse
+	body, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodPut, host, index, shard,
+		"", "_overwrite", bytes.NewReader(body))
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	// TODO: fix c.do, or dont use it
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	return resp, err
 }
 
-func (c *replicationClient) FindObject(_ context.Context, host, index, shard string,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
-) (objects.Replica, error) {
-	return objects.Replica{}, nil
-}
-
-func (c *replicationClient) MultiGetObjects(_ context.Context, host,
+func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
-	return nil, nil
+	resp := make([]objects.Replica, len(ids))
+	idsBytes, err := json.Marshal(ids)
+	if err != nil {
+		return nil, fmt.Errorf("marshal ids: %w", err)
+	}
+
+	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
+
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
+	// TODO: fix c.do, or dont use it
+	err = c.do(c.timeoutUnit*90, req, nil, &resp)
+	return resp, err
 }
 
 func (c *replicationClient) PutObject(ctx context.Context, host, index,
@@ -262,7 +299,9 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			return shouldRetry(code), fmt.Errorf("status code: %v", code)
+			defer res.Body.Close()
+			b, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
