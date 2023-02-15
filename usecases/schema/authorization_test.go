@@ -74,7 +74,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "DeleteClass",
-			additionalArgs:   []interface{}{"somename"},
+			additionalArgs:   []interface{}{"somename", false},
 			expectedVerb:     "delete",
 			expectedResource: "schema/objects",
 		},
