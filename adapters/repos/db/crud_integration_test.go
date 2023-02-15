@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -2203,4 +2202,117 @@ func randomVector(dim int) []float32 {
 	}
 
 	return out
+}
+
+func TestIndexDifferentVectorLength(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "SomeClass",
+		Properties: []*models.Property{
+			{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{},
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	obj1ID := strfmt.UUID("ae48fda2-866a-4c90-94fc-fce40d5f3767")
+	objNilID := strfmt.UUID("b71ffac9-6534-4368-9718-5410ca89ce16")
+
+	t.Run("Add object with nil vector", func(t *testing.T) {
+		objNil := &models.Object{
+			ID:     objNilID,
+			Class:  class.Class,
+			Vector: nil,
+		}
+		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector))
+		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil, additional.Properties{}, nil)
+		require.Nil(t, err)
+		require.Equal(t, found.Vector, []float32{})
+		require.Equal(t, objNil.ID, found.ID)
+	})
+
+	t.Run("Add object with non-nil vector after nil vector", func(t *testing.T) {
+		obj1 := &models.Object{
+			ID:     obj1ID,
+			Class:  class.Class,
+			Vector: []float32{1, 2, 3},
+		}
+		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector))
+	})
+
+	t.Run("Add object with different vector length", func(t *testing.T) {
+		obj2 := &models.Object{
+			ID:     "b71ffac8-6534-4368-9718-5410ca89ce16",
+			Class:  class.Class,
+			Vector: []float32{1, 2, 3, 4},
+		}
+		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector))
+		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil, additional.Properties{}, nil)
+		require.Nil(t, err)
+		require.Nil(t, found)
+	})
+
+	t.Run("Update object with different vector length", func(t *testing.T) {
+		err = repo.Merge(context.Background(), objects.MergeDocument{
+			ID:              obj1ID,
+			Class:           class.Class,
+			PrimitiveSchema: map[string]interface{}{},
+			Vector:          []float32{1, 2, 3, 4},
+			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
+		})
+		require.NotNil(t, err)
+		found, err := repo.Object(context.Background(), class.Class, obj1ID, nil, additional.Properties{}, nil)
+		require.Nil(t, err)
+		require.Len(t, found.Vector, 3)
+	})
+
+	t.Run("Update nil object with fitting vector", func(t *testing.T) {
+		err = repo.Merge(context.Background(), objects.MergeDocument{
+			ID:              objNilID,
+			Class:           class.Class,
+			PrimitiveSchema: map[string]interface{}{},
+			Vector:          []float32{1, 2, 3},
+			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
+		})
+		require.Nil(t, err)
+		found, err := repo.Object(context.Background(), class.Class, objNilID, nil, additional.Properties{}, nil)
+		require.Nil(t, err)
+		require.Len(t, found.Vector, 3)
+	})
+
+	t.Run("Add nil object after objects with vector", func(t *testing.T) {
+		obj2Nil := &models.Object{
+			ID:     "b71ffac8-6534-4368-9718-5410ca89ce16",
+			Class:  class.Class,
+			Vector: nil,
+		}
+		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector))
+		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil, additional.Properties{}, nil)
+		require.Nil(t, err)
+		require.Equal(t, obj2Nil.ID, found.ID)
+		require.Equal(t, []float32{}, found.Vector)
+	})
 }
