@@ -2294,6 +2294,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "name": "force",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6505,6 +6510,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "name": "force",
+            "in": "query"
           }
         ],
         "responses": {

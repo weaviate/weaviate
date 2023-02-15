@@ -80,7 +80,7 @@ func TestComponentCluster(t *testing.T) {
 		err := localManager.AddClass(ctx, nil, testClass())
 		require.Nil(t, err)
 
-		err = localManager.DeleteClass(ctx, nil, testClass().Class)
+		err = localManager.DeleteClass(ctx, nil, testClass().Class, false)
 		require.Nil(t, err)
 
 		localSchema, err := localManager.GetSchema(nil)
