@@ -534,7 +534,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		index.UpdateUserConfig(userConfig)
+		index.UpdateUserConfig(userConfig, func() {})
 	})
 
 	var control []uint64
@@ -656,7 +656,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		index.UpdateUserConfig(userConfig)
+		index.UpdateUserConfig(userConfig, func() {})
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)

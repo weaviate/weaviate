@@ -42,8 +42,6 @@ func (h *hnsw) initCompressedStore() error {
 }
 
 func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) error {
-	h.compressActionLock.Lock()
-	defer h.compressActionLock.Unlock()
 	if h.nodes[0] == nil {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
@@ -73,6 +71,9 @@ func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) 
 	}
 	h.compressedVectorsCache.grow(uint64(len(data)))
 	h.pq.Fit(cleanData)
+
+	h.compressActionLock.Lock()
+	defer h.compressActionLock.Unlock()
 	ssdhelpers.Concurrently(uint64(len(cleanData)),
 		func(_, index uint64, _ *sync.Mutex) {
 			encoded := h.pq.Encode(cleanData[index])
