@@ -28,6 +28,14 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 		return storagestate.ErrStatusReadOnly
 	}
 
+	if merge.Vector != nil {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere inbetween.
+		err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+		if err != nil {
+			return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
+		}
+	}
+
 	idBytes, err := uuid.MustParse(merge.ID.String()).MarshalBinary()
 	if err != nil {
 		return err
