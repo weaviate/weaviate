@@ -45,7 +45,7 @@ type MemberLister interface {
 }
 
 func NewTxBroadcaster(state MemberLister, client Client) *TxBroadcaster {
-	ideal := NewIdealClusterState(state, nil)
+	ideal := NewIdealClusterState(state)
 	return &TxBroadcaster{
 		state:  state,
 		client: client,

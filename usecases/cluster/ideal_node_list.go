@@ -11,12 +11,11 @@ import (
 type IdealClusterState struct {
 	memberNames  []string
 	currentState MemberLister
-	persistence  icsPersistence
 	lock         sync.Mutex
 }
 
-func NewIdealClusterState(s MemberLister, p icsPersistence) *IdealClusterState {
-	ics := &IdealClusterState{currentState: s, persistence: p}
+func NewIdealClusterState(s MemberLister) *IdealClusterState {
+	ics := &IdealClusterState{currentState: s}
 	go ics.startPolling()
 	return ics
 }
@@ -45,6 +44,13 @@ func (ics *IdealClusterState) Validate() error {
 	}
 
 	return nil
+}
+
+func (ics *IdealClusterState) Members() []string {
+	ics.lock.Lock()
+	defer ics.lock.Unlock()
+
+	return ics.memberNames
 }
 
 func (ics *IdealClusterState) startPolling() {
