@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/schema"
 
@@ -48,7 +49,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 
 	existingPropertyNames := map[string]bool{}
 	for _, existingProperty := range class.Properties {
-		existingPropertyNames[existingProperty.Name] = true
+		existingPropertyNames[strings.ToLower(existingProperty.Name)] = true
 	}
 	if err := m.validateProperty(prop, className, existingPropertyNames, false); err != nil {
 		return err

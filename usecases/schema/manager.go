@@ -133,7 +133,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 
 	m.cluster.SetCommitFn(m.handleCommit)
 	m.cluster.SetResponseFn(m.handleTxResponse)
-	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs))
+	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs, m.logger))
 
 	err := m.loadOrInitializeSchema(context.Background())
 	if err != nil {
@@ -207,6 +207,13 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	if err := m.migrateSchemaIfNecessary(ctx); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
+
+	// There was a bug that allowed adding the same prop multiple times. This
+	// leads to a race at startup. If an instance is already affected by this,
+	// this step can remove the duplicate ones.
+	//
+	// See https://github.com/weaviate/weaviate/issues/2609
+	m.removeDuplicatePropsIfPresent()
 
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
