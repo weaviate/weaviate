@@ -276,7 +276,16 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		return true, nil
 	}
 
-	neighborVec, err := h.vectorForID(context.Background(), neighbor)
+	var neighborVec []float32
+	if h.compressed.Load() {
+		vec, err := h.compressedVectorsCache.get(context.Background(), neighbor)
+		if err == nil {
+			neighborVec = h.pq.Decode(vec)
+		}
+	} else {
+		neighborVec, err = h.cache.get(context.Background(), neighbor)
+	}
+
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
