@@ -2247,7 +2247,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector))
+		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil))
 		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
 		require.Equal(t, found.Vector, []float32{})
@@ -2260,7 +2260,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector))
+		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil))
 	})
 
 	t.Run("Add object with different vector length", func(t *testing.T) {
@@ -2269,7 +2269,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3, 4},
 		}
-		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector))
+		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil))
 		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
 		require.Nil(t, found)
@@ -2282,7 +2282,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3, 4},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		})
+		}, nil)
 		require.NotNil(t, err)
 		found, err := repo.Object(context.Background(), class.Class, obj1ID, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
@@ -2296,7 +2296,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		})
+		}, nil)
 		require.Nil(t, err)
 		found, err := repo.Object(context.Background(), class.Class, objNilID, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
@@ -2309,7 +2309,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector))
+		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil))
 		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
 		require.Equal(t, obj2Nil.ID, found.ID)
