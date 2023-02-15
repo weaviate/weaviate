@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"golang.org/x/sync/semaphore"
 )
 
 func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
@@ -534,7 +535,12 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		index.UpdateUserConfig(userConfig, func() {})
+		sem := semaphore.NewWeighted(1)
+		sem.Acquire(context.Background(), 1)
+		index.UpdateUserConfig(userConfig, func() {
+			sem.Release(1)
+		})
+		sem.Acquire(context.Background(), 1)
 	})
 
 	var control []uint64
@@ -656,7 +662,12 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		index.UpdateUserConfig(userConfig, func() {})
+		sem := semaphore.NewWeighted(1)
+		sem.Acquire(context.Background(), 1)
+		index.UpdateUserConfig(userConfig, func() {
+			sem.Release(1)
+		})
+		sem.Acquire(context.Background(), 1)
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)
