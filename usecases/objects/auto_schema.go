@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -139,7 +140,7 @@ func (m *autoSchemaManager) getProperties(object *models.Object) []*models.Prope
 		for name, value := range props {
 			dt := m.determineType(value)
 			property := &models.Property{
-				Name:        name,
+				Name:        strings.ToLower(name),
 				DataType:    m.getDataTypes(dt),
 				Description: "Auto generated property",
 			}

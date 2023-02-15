@@ -396,7 +396,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 		Class: "Publication",
 		Properties: map[string]interface{}{
 			"name":            "Jodie Sparrow",
-			"age":             json.Number("30"),
+			"AgE":             json.Number("30"),
 			"publicationDate": "2002-10-02T15:00:00Z",
 			"stringArray":     []interface{}{"a", "b"},
 			"numberArray":     []interface{}{json.Number("30")},
@@ -426,15 +426,15 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "name"))
 	assert.Equal(t, "name", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").Name)
 	assert.Equal(t, "string", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
-	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
-	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray"))
-	assert.Equal(t, "stringArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray").Name)
-	assert.Equal(t, "string[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringArray").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray"))
-	assert.Equal(t, "numberArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").Name)
-	assert.Equal(t, "int[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationdate"))
+	assert.Equal(t, "publicationdate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationdate").Name)
+	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationdate").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringarray"))
+	assert.Equal(t, "stringarray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringarray").Name)
+	assert.Equal(t, "string[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "stringarray").DataType[0])
+	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberarray"))
+	assert.Equal(t, "numberarray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberarray").Name)
+	assert.Equal(t, "int[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberarray").DataType[0])
 }
 
 func getProperty(properties []*models.Property, name string) *models.Property {
