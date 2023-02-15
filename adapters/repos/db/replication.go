@@ -411,7 +411,19 @@ func (i *Index) digestObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard objects digest: %w", err)
 	}
 
-	for j := range result {
+	for j := range objs {
+		if objs[j] == nil {
+			deleted, err := s.wasDeleted(ctx, ids[j])
+			if err != nil {
+				return nil, err
+			}
+			result[j] = replica.RepairResponse{
+				ID:      ids[j].String(),
+				Deleted: deleted,
+				// TODO: use version when supported
+				Version: 0,
+			}
+		}
 		result[j] = replica.RepairResponse{
 			ID:         objs[j].ID().String(),
 			UpdateTime: objs[j].LastUpdateTimeUnix(),
@@ -492,8 +504,7 @@ func (i *Index) fetchObjects(ctx context.Context,
 		if obj == nil {
 			deleted, err := shard.wasDeleted(ctx, ids[j])
 			if err != nil {
-				i.logger.Errorf("failed to query object id %q deletion, skipping", ids[j])
-				continue
+				return nil, err
 			}
 			resp[j] = objects.Replica{
 				ID:      ids[j],
