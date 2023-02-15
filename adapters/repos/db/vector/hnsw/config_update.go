@@ -76,7 +76,7 @@ func validateImmutableIntField(u immutableInt,
 	return nil
 }
 
-func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
+func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("config is not UserConfig, but %T", updated)
@@ -108,11 +108,16 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 			return err
 		}
 
-		if err := h.Compress(parsed.PQ.Segments, int(encoder), int(encoderDistribution)); err != nil {
-			h.logger.Error(err)
-			return err
-		}
-		h.logger.WithField("action", "compress").Info("vector compression complete")
+		go func() {
+			if err := h.Compress(parsed.PQ.Segments, int(encoder), int(encoderDistribution)); err != nil {
+				h.logger.Error(err)
+				h.logger.Error(err)
+				callback()
+				return
+			}
+			h.logger.WithField("action", "compress").Info("vector compression complete")
+			callback()
+		}()
 	}
 
 	return nil

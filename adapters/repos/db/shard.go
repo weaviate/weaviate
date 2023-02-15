@@ -558,7 +558,10 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 		return storagestate.ErrStatusReadOnly
 	}
 
-	return s.vectorIndex.UpdateUserConfig(updated)
+	s.updateStatus(storagestate.StatusReadOnly.String())
+	return s.vectorIndex.UpdateUserConfig(updated, func() {
+		s.updateStatus(storagestate.StatusReady.String())
+	})
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {
