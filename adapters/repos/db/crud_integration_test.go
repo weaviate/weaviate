@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -1774,7 +1773,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				Properties: map[string]interface{}{
 					"description": fmt.Sprintf("test object, put #%d", i+1),
 				},
-			}, testVec)
+			}, nil)
 			require.Nil(t, err)
 
 			err = repo.Merge(ctx, objects.MergeDocument{
