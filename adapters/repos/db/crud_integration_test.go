@@ -2053,17 +2053,31 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 		Vector: []float32{1, 2, 3},
 	}
 
-	obj2 := &models.Object{
-		ID:     "b71ffac8-6534-4368-9718-5410ca89ce16",
-		Class:  class.Class,
-		Vector: []float32{1, 2, 3, 4},
-	}
 	require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector))
-	require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector))
 
 	t.Run("Add object with different vector length", func(t *testing.T) {
+		obj2 := &models.Object{
+			ID:     "b71ffac8-6534-4368-9718-5410ca89ce16",
+			Class:  class.Class,
+			Vector: []float32{1, 2, 3, 4},
+		}
+		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector))
 		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil, additional.Properties{}, nil)
 		require.Nil(t, err)
 		require.Nil(t, found)
+	})
+
+	t.Run("Update object with different vector length", func(t *testing.T) {
+		err = repo.Merge(context.Background(), objects.MergeDocument{
+			ID:              obj1.ID,
+			Class:           class.Class,
+			PrimitiveSchema: map[string]interface{}{},
+			Vector:          []float32{1, 2, 3, 4},
+			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
+		})
+		require.NotNil(t, err)
+		found, err := repo.Object(context.Background(), class.Class, obj1.ID, nil, additional.Properties{}, nil)
+		require.Nil(t, err)
+		require.Len(t, found.Vector, 3)
 	})
 }
