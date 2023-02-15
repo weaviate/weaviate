@@ -33,7 +33,7 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 
 	if len(existingNodeVector) != len(vector) {
 		return fmt.Errorf("new node has a vector with length %v. "+
-			"Existing nodes have vectors with lenght %v", len(vector), len(existingNodeVector))
+			"Existing nodes have vectors with length %v", len(vector), len(existingNodeVector))
 	}
 
 	return nil
