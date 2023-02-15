@@ -74,7 +74,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 		// coordinator, node 2 honored the commit and node 3 died during the commit
 		// phase.
 		//
-		// In this scenario it is far more desireable to make sure that node 1 and
+		// In this scenario it is far more desirable to make sure that node 1 and
 		// node 2 stay in sync, as node 3 - who may or may not have missed the
 		// update - can use a local WAL from the first TX phase to replay any
 		// missing changes once it's back.
