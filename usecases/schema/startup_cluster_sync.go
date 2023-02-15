@@ -50,7 +50,6 @@ func (m *Manager) startupClusterSync(ctx context.Context,
 	}
 
 	return m.validateSchemaCorruption(ctx, localSchema)
-	// return nil
 }
 
 // startupHandleSingleNode deals with the case where there is only a single
