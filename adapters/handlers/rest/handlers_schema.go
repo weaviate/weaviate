@@ -88,7 +88,11 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 }
 
 func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteClass(params.HTTPRequest.Context(), principal, params.ClassName)
+	force := false
+	if params.Force != nil {
+		force = *params.Force
+	}
+	err := s.manager.DeleteClass(params.HTTPRequest.Context(), principal, params.ClassName, force)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
