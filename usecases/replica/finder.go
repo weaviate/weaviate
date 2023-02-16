@@ -60,12 +60,13 @@ func NewFinder(className string,
 }
 
 // GetOne gets object which satisfies the giving consistency
-func (f *Finder) GetOne(ctx context.Context, l ConsistencyLevel, shard string,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+func (f *Finder) GetOne(ctx context.Context,
+	l ConsistencyLevel, shard string,
+	id strfmt.UUID, props search.SelectProperties, addl additional.Properties,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard)
 	op := func(ctx context.Context, host string) (findOneReply, error) {
-		obj, err := f.FindObject(ctx, host, f.class, shard, id, props, additional)
+		obj, err := f.FindObject(ctx, host, f.class, shard, id, props, addl)
 		return findOneReply{host, obj}, err
 	}
 	replyCh, level, err := c.Fetch(ctx, l, op)
@@ -107,12 +108,13 @@ func (f *Finder) GetAll(ctx context.Context, l ConsistencyLevel, shard string,
 
 // NodeObject gets object from a specific node.
 // it is used mainly for debugging purposes
-func (f *Finder) NodeObject(ctx context.Context, nodeName, shard string,
-	id strfmt.UUID, props search.SelectProperties, additional additional.Properties,
+func (f *Finder) NodeObject(ctx context.Context,
+	nodeName, shard string, id strfmt.UUID,
+	props search.SelectProperties, addl additional.Properties,
 ) (*storobj.Object, error) {
 	host, ok := f.resolver.NodeHostname(nodeName)
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	return f.RClient.FindObject(ctx, host, f.class, shard, id, props, additional)
+	return f.RClient.FindObject(ctx, host, f.class, shard, id, props, addl)
 }

@@ -20,6 +20,7 @@ import (
 )
 
 type RemoteReplicaIncomingRepo interface {
+	// Write endpoints
 	ReplicateObject(ctx context.Context, indexName, shardName,
 		requestID string, object *storobj.Object) SimpleResponse
 	ReplicateObjects(ctx context.Context, indexName,
@@ -36,18 +37,17 @@ type RemoteReplicaIncomingRepo interface {
 		shardName, requestID string) interface{}
 	AbortReplication(indexName,
 		shardName, requestID string) interface{}
-
-	// TODO uncomment and implement
-	// OverwriteObjects(ctx context.Context, index, shard string,
-	// 	vobjects []*objects.VObject) ([]RepairResponse, error)
-	// FetchObject(ctx context.Context, indexName,
-	// 	shardName string, id strfmt.UUID) (objects.Replica, error)
-	// DoesExists(ctx context.Context, class,
-	// 	shardName string, id strfmt.UUID) (objects.Replica, error)
-	// FetchObjects(ctx context.Context, class,
-	// 	shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
-	// DigestObjects(ctx context.Context, class, shardName string,
-	// 	ids []strfmt.UUID) (result []RepairResponse, err error)
+	OverwriteObjects(ctx context.Context, index, shard string,
+		vobjects []*objects.VObject) ([]RepairResponse, error)
+	// Read endpoints
+	FetchObject(ctx context.Context, indexName,
+		shardName string, id strfmt.UUID) (objects.Replica, error)
+	DoesExist(ctx context.Context, class,
+		shardName string, id strfmt.UUID) (objects.Replica, error)
+	FetchObjects(ctx context.Context, class,
+		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
+	DigestObjects(ctx context.Context, class, shardName string,
+		ids []strfmt.UUID) (result []RepairResponse, err error)
 }
 
 type RemoteReplicaIncoming struct {
@@ -106,4 +106,34 @@ func (rri *RemoteReplicaIncoming) AbortReplication(indexName,
 	shardName, requestID string,
 ) interface{} {
 	return rri.repo.AbortReplication(indexName, shardName, requestID)
+}
+
+func (rri *RemoteReplicaIncoming) OverwriteObjects(ctx context.Context,
+	indexName, shardName string, vobjects []*objects.VObject,
+) ([]RepairResponse, error) {
+	return rri.repo.OverwriteObjects(ctx, indexName, shardName, vobjects)
+}
+
+func (rri *RemoteReplicaIncoming) FetchObject(ctx context.Context,
+	indexName, shardName string, id strfmt.UUID,
+) (objects.Replica, error) {
+	return rri.repo.FetchObject(ctx, indexName, shardName, id)
+}
+
+func (rri *RemoteReplicaIncoming) DoesExist(ctx context.Context,
+	indexName, shardName string, id strfmt.UUID,
+) (objects.Replica, error) {
+	return rri.repo.DoesExist(ctx, indexName, shardName, id)
+}
+
+func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,
+	indexName, shardName string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return rri.repo.FetchObjects(ctx, indexName, shardName, ids)
+}
+
+func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
+	indexName, shardName string, ids []strfmt.UUID,
+) (result []RepairResponse, err error) {
+	return rri.repo.DigestObjects(ctx, indexName, shardName, ids)
 }
