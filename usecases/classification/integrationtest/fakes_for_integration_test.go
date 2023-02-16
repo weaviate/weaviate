@@ -504,9 +504,33 @@ func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, r
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) FindObject(_ context.Context, host, index,
+func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
+	shard string, id strfmt.UUID,
+) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
 	shard string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
-) (*storobj.Object, error) {
+) (objects.Replica, error) {
+	return objects.Replica{}, nil
+}
+
+func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
+	index, shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
+	host, index, shard string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, vobjects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
 	return nil, nil
 }
