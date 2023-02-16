@@ -115,7 +115,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go func() {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
-			http.ListenAndServe(":2112", mux)
+			http.ListenAndServe(":2113", mux)
 		}()
 	}
 
