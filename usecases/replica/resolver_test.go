@@ -33,20 +33,20 @@ func TestResolver(t *testing.T) {
 		schema:       newFakeShardingState(ss, nr),
 	}
 	t.Run("ShardingState", func(t *testing.T) {
-		_, err := r.State("Sx")
+		_, err := r.State("Sx", One)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "sharding state")
 	})
 	t.Run("ALL", func(t *testing.T) {
-		got, err := r.State("S1")
+		got, err := r.State("S1", All)
 		assert.Nil(t, err)
-		want := rState{ss["S1"], nil}
+		want := rState{All, len(ss["S1"]), ss["S1"], nil}
 		assert.Equal(t, want, got)
 	})
 	t.Run("Quorum", func(t *testing.T) {
-		got, err := r.State("S3")
+		got, err := r.State("S3", Quorum)
 		assert.Nil(t, err)
-		want := rState{ss["S1"], ss["S2"]}
+		want := rState{Quorum, len(ss["S1"]), ss["S1"], ss["S2"]}
 		assert.Equal(t, want, got)
 		_, err = got.ConsistencyLevel(All)
 		assert.ErrorIs(t, err, errUnresolvedName)
@@ -56,9 +56,9 @@ func TestResolver(t *testing.T) {
 		assert.Nil(t, err)
 	})
 	t.Run("NoQuorum", func(t *testing.T) {
-		got, err := r.State("S5")
-		assert.Nil(t, err)
-		want := rState{ss["S1"], ss["S4"]}
+		got, err := r.State("S5", Quorum)
+		assert.ErrorIs(t, err, errUnresolvedName)
+		want := rState{Quorum, 0, ss["S1"], ss["S4"]}
 		assert.Equal(t, want, got)
 		_, err = got.ConsistencyLevel(All)
 		assert.ErrorIs(t, err, errUnresolvedName)
