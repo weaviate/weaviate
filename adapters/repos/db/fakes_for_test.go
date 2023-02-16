@@ -291,3 +291,22 @@ func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, 
 func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
+
+func (f *fakeReplicationClient) FindObject(_ context.Context, host, index,
+	shard string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (*storobj.Object, error) {
+	return nil, nil
+}
+
+func (f *fakeReplicationClient) Exists(_ context.Context,
+	host, index, shard string, id strfmt.UUID,
+) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeReplicationClient) MultiGetObjects(_ context.Context,
+	host, index, shard string, ids []strfmt.UUID,
+) ([]*storobj.Object, error) {
+	return nil, nil
+}

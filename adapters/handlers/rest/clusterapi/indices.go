@@ -107,6 +107,8 @@ type shards interface {
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string) error
+
+	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	DigestObjects(ctx context.Context, indexName, shardName string,
