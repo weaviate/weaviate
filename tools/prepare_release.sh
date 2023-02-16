@@ -5,7 +5,7 @@ set -euo pipefail
 VERSION="$(jq -r '.info.version' openapi-specs/schema.json)"
 LANGUAGES="en nl de cs it"
 IMAGE_BASE="semitechnologies/weaviate:"
-MSG=${1:""}
+MSG=${1:-""}
 REQUIRED_TOOLS="jq git"
 
 for tool in $REQUIRED_TOOLS; do
