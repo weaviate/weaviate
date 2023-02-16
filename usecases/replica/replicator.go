@@ -53,15 +53,14 @@ type Replicator struct {
 }
 
 func NewReplicator(className string,
-	stateGetter shardingState, nodeResolver nodeResolver,
-	client Client, rClient RClient,
+	stateGetter shardingState, nodeResolver nodeResolver, client Client,
 ) *Replicator {
 	return &Replicator{
 		class:       className,
 		stateGetter: stateGetter,
 		client:      client,
 		resolver:    nodeResolver,
-		Finder:      NewFinder(className, stateGetter, nodeResolver, rClient),
+		Finder:      NewFinder(className, stateGetter, nodeResolver, client),
 	}
 }
 

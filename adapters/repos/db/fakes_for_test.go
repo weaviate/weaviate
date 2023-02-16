@@ -141,19 +141,6 @@ func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) FindObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
-) (*storobj.Object, error) {
-	return nil, nil
-}
-
-func (f *fakeRemoteClient) OverwriteObjects(ctx context.Context,
-	host, index, shard string, objects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
-	return nil, nil
-}
-
 func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
@@ -228,12 +215,6 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
-func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
-	hostName, indexName, shardName string, ids []strfmt.UUID,
-) (result []replica.RepairResponse, err error) {
-	return nil, nil
-}
-
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
@@ -292,21 +273,33 @@ func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, r
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) FindObject(_ context.Context, host, index,
-	shard string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
-) (*storobj.Object, error) {
-	return nil, nil
-}
-
-func (f *fakeReplicationClient) Exists(_ context.Context,
-	host, index, shard string, id strfmt.UUID,
+func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID,
 ) (bool, error) {
 	return false, nil
 }
 
-func (f *fakeReplicationClient) MultiGetObjects(_ context.Context,
-	host, index, shard string, ids []strfmt.UUID,
-) ([]*storobj.Object, error) {
+func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (objects.Replica, error) {
+	return objects.Replica{}, nil
+}
+
+func (*fakeReplicationClient) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
+	index, shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
 	return nil, nil
 }
