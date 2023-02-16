@@ -76,7 +76,7 @@ func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {
 	helper.DeleteObject(t, toDelete)
 
 	_, err = helper.GetObject(t, class, id)
-	assert.Equal(t, err, &objects.ObjectsClassGetNotFound{})
+	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
 func deleteObjects(t *testing.T, host, class string, path []string, valueString string) {

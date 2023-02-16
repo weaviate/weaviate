@@ -423,12 +423,13 @@ func (i *Index) digestObjects(ctx context.Context,
 				// TODO: use version when supported
 				Version: 0,
 			}
-		}
-		result[j] = replica.RepairResponse{
-			ID:         objs[j].ID().String(),
-			UpdateTime: objs[j].LastUpdateTimeUnix(),
-			// TODO: use version when supported
-			Version: 0,
+		} else {
+			result[j] = replica.RepairResponse{
+				ID:         objs[j].ID().String(),
+				UpdateTime: objs[j].LastUpdateTimeUnix(),
+				// TODO: use version when supported
+				Version: 0,
+			}
 		}
 	}
 
