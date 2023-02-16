@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -84,7 +85,7 @@ func newSegmentGroup(dir string,
 
 		// before we can mount this file, we need to check if a WAL exists for it.
 		// If yes, we must assume that the flush never finished, as otherwise the
-		// WAL would have been deleted. Thus we must remove it.
+		// WAL would have been lsmkv.Deleted. Thus we must remove it.
 		potentialWALFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
 		ok, err := fileExists(filepath.Join(dir, potentialWALFileName))
 		if err != nil {
@@ -187,11 +188,11 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	for i := topMostSegment; i >= 0; i-- {
 		v, err := sg.segments[i].get(key)
 		if err != nil {
-			if err == NotFound {
+			if err == lsmkv.NotFound {
 				continue
 			}
 
-			if err == Deleted {
+			if err == lsmkv.Deleted {
 				return nil, nil
 			}
 
@@ -215,11 +216,11 @@ func (sg *SegmentGroup) getBySecondary(pos int, key []byte) ([]byte, error) {
 	for i := len(sg.segments) - 1; i >= 0; i-- {
 		v, err := sg.segments[i].getBySecondary(pos, key)
 		if err != nil {
-			if err == NotFound {
+			if err == lsmkv.NotFound {
 				continue
 			}
 
-			if err == Deleted {
+			if err == lsmkv.Deleted {
 				return nil, nil
 			}
 
@@ -242,7 +243,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == NotFound {
+			if err == lsmkv.NotFound {
 				continue
 			}
 
@@ -270,7 +271,7 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == NotFound {
+			if err == lsmkv.NotFound {
 				continue
 			}
 

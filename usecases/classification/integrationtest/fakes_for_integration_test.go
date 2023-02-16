@@ -394,9 +394,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	return nil, nil, nil
 }
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName,
-	shardName string, obj []*storobj.Object,
-) []error {
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
 	return nil
 }
 
@@ -440,6 +438,12 @@ func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, inde
 	targetStatus string,
 ) error {
 	return nil
+}
+
+func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
 }
 
 type fakeNodeResolver struct{}
@@ -498,4 +502,11 @@ func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, 
 
 func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
+}
+
+func (f *fakeReplicationClient) FindObject(_ context.Context, host, index,
+	shard string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (*storobj.Object, error) {
+	return nil, nil
 }

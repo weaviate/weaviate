@@ -124,9 +124,7 @@ func (f fakeNodes) LocalName() string {
 
 type fakeRemoteClient struct{}
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName,
-	shardName string, obj []*storobj.Object,
-) []error {
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
 	return nil
 }
 
@@ -230,6 +228,12 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 	return nil
 }
 
+func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
@@ -286,4 +290,23 @@ func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, 
 
 func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
+}
+
+func (f *fakeReplicationClient) FindObject(_ context.Context, host, index,
+	shard string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (*storobj.Object, error) {
+	return nil, nil
+}
+
+func (f *fakeReplicationClient) Exists(_ context.Context,
+	host, index, shard string, id strfmt.UUID,
+) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeReplicationClient) MultiGetObjects(_ context.Context,
+	host, index, shard string, ids []strfmt.UUID,
+) ([]*storobj.Object, error) {
+	return nil, nil
 }

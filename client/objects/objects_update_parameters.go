@@ -76,6 +76,11 @@ type ObjectsUpdateParams struct {
 
 	/*Body*/
 	Body *models.Object
+	/*ConsistencyLevel
+	  Determines how many replicas must acknowledge a request before it is considered successful
+
+	*/
+	ConsistencyLevel *string
 	/*ID
 	  Unique ID of the Object.
 
@@ -131,6 +136,17 @@ func (o *ObjectsUpdateParams) SetBody(body *models.Object) {
 	o.Body = body
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects update params
+func (o *ObjectsUpdateParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsUpdateParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects update params
+func (o *ObjectsUpdateParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects update params
 func (o *ObjectsUpdateParams) WithID(id strfmt.UUID) *ObjectsUpdateParams {
 	o.SetID(id)
@@ -154,6 +170,22 @@ func (o *ObjectsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
 		}
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	// path param id

@@ -84,7 +84,7 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, hostName, indexName,
-	shardName string, objs []*storobj.Object,
+	shardName string, objs []*storobj.Object, _ *additional.ReplicationProperties,
 ) []error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodPost
@@ -930,4 +930,46 @@ func (c *RemoteIndex) OverwriteObjects(ctx context.Context,
 		return nil, fmt.Errorf("unmarshal response body: %w", err)
 	}
 	return rr, nil
+}
+
+func (c *RemoteIndex) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects:digest", indexName, shardName)
+
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	marshalled, err := json.Marshal(ids)
+	if err != nil {
+		return nil, fmt.Errorf("marshal digest objects input: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		url.String(), bytes.NewReader(marshalled))
+	if err != nil {
+		return nil, fmt.Errorf("open http request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send http request: %w", err)
+	}
+
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status code %d (%s)",
+			resp.StatusCode, body)
+	}
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	err = json.Unmarshal(b, &result)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal response body: %w", err)
+	}
+	return
 }

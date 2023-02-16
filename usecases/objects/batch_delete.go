@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,6 +31,7 @@ const (
 // DeleteObjects deletes objects in batch based on the match filter
 func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	repl *additional.ReplicationProperties,
 ) (*BatchDeleteResponse, error) {
 	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
 	if err != nil {
@@ -45,18 +47,19 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.deleteObjects(ctx, principal, match, dryRun, output)
+	return b.deleteObjects(ctx, principal, match, dryRun, output, repl)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	repl *additional.ReplicationProperties,
 ) (*BatchDeleteResponse, error) {
 	params, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params)
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl)
 	if err != nil {
 		return nil, NewErrInternal("batch delete objects: %#v", err)
 	}
