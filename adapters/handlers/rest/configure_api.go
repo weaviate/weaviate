@@ -139,7 +139,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.JSONConsumer = runtime.JSONConsumer()
 
 	api.OidcAuth = func(token string, scopes []string) (*models.Principal, error) {
-		return appState.OIDC.ValidateAndExtract(token, scopes)
+		if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
+			return appState.APIKey.ValidateAndExtract(token)
+		} else {
+			return appState.OIDC.ValidateAndExtract(token, scopes)
+		}
 	}
 
 	api.Logger = func(msg string, args ...interface{}) {
@@ -362,6 +366,7 @@ func startupRoutine(ctx context.Context) *state.State {
 		Debug("config loaded")
 
 	appState.OIDC = configureOIDC(appState)
+	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	appState.Authorizer = configureAuthorizer(appState)
 

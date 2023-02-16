@@ -82,6 +82,15 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+		config.Authentication.APIKey.Enabled = true
+
+		if len(os.Getenv("AUTHENTICATION_APIKEY_ALLOWED_KEYS")) > 0 {
+			keys := strings.Split(os.Getenv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"), ",")
+			config.Authentication.APIKey.AllowedKeys = keys
+		}
+	}
+
 	if enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 

@@ -232,6 +232,17 @@ case $CONFIG in
         --port 8080
     ;;
 
+  local-apikey)
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,your-secret-key \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      DEFAULT_VECTORIZER_MODULE=none \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
+
   local-multi-text)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
