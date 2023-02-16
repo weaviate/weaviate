@@ -36,4 +36,5 @@ type VectorIndex interface {
 	ListFiles(ctx context.Context) ([]string, error)
 	ResumeMaintenance(ctx context.Context) error
 	PostStartup()
+	ValidateBeforeInsert(vector []float32) error
 }

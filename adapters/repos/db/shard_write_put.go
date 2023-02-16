@@ -40,6 +40,14 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
+	if object.Vector != nil {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		err := s.vectorIndex.ValidateBeforeInsert(object.Vector)
+		if err != nil {
+			return errors.Wrapf(err, "Validate vector index for %v", uuid)
+		}
+	}
+
 	status, err := s.putObjectLSM(object, uuid, false)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")

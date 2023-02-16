@@ -15,6 +15,7 @@ import (
 	"bytes"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type binarySearchTreeMulti struct {
@@ -44,7 +45,7 @@ func (t *binarySearchTreeMulti) insert(key []byte, values []value) {
 
 func (t *binarySearchTreeMulti) get(key []byte) ([]value, error) {
 	if t.root == nil {
-		return nil, NotFound
+		return nil, lsmkv.NotFound
 	}
 
 	return t.root.get(key)
@@ -203,13 +204,13 @@ func (n *binarySearchNodeMulti) get(key []byte) ([]value, error) {
 
 	if bytes.Compare(key, n.key) < 0 {
 		if n.left == nil {
-			return nil, NotFound
+			return nil, lsmkv.NotFound
 		}
 
 		return n.left.get(key)
 	} else {
 		if n.right == nil {
-			return nil, NotFound
+			return nil, lsmkv.NotFound
 		}
 
 		return n.right.get(key)

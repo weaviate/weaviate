@@ -17,6 +17,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type compactorReplace struct {
@@ -105,7 +106,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 		}
 		if bytes.Equal(res1.primaryKey, res2.primaryKey) {
 			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-				res2.secondaryKeys, err2 == Deleted)
+				res2.secondaryKeys, err2 == lsmkv.Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (equal keys)")
 			}
@@ -122,7 +123,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 		if (res1.primaryKey != nil && bytes.Compare(res1.primaryKey, res2.primaryKey) == -1) || res2.primaryKey == nil {
 			// key 1 is smaller
 			ki, err := c.writeIndividualNode(offset, res1.primaryKey, res1.value,
-				res1.secondaryKeys, err1 == Deleted)
+				res1.secondaryKeys, err1 == lsmkv.Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (res1.primaryKey smaller)")
 			}
@@ -133,7 +134,7 @@ func (c *compactorReplace) writeKeys() ([]keyIndex, error) {
 		} else {
 			// key 2 is smaller
 			ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-				res2.secondaryKeys, err2 == Deleted)
+				res2.secondaryKeys, err2 == lsmkv.Deleted)
 			if err != nil {
 				return nil, errors.Wrap(err, "write individual node (res2.primaryKey smaller)")
 			}

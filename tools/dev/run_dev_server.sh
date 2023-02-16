@@ -55,9 +55,9 @@ case $CONFIG in
   second-node)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node2" \
+      PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH:-"./data-node2"}" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-node2" \
-      CLUSTER_HOSTNAME="node2" \
+      CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node2"} \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
@@ -264,6 +264,21 @@ case $CONFIG in
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="node1" \
       ENABLE_MODULES="text2vec-contextionary,qna-openai" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-generative-openai)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      QNA_INFERENCE_API="http://localhost:8001" \
+      CLUSTER_HOSTNAME="node1" \
+      ENABLE_MODULES="text2vec-contextionary,generative-openai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

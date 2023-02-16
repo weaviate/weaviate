@@ -58,7 +58,7 @@ type RemoteIndexClient interface {
 	PutObject(ctx context.Context, hostName, indexName, shardName string,
 		obj *storobj.Object) error
 	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
-		objs []*storobj.Object) []error
+		objs []*storobj.Object, repl *additional.ReplicationProperties) []error
 	BatchAddReferences(ctx context.Context, hostName, indexName, shardName string,
 		refs objects.BatchReferences) []error
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
@@ -99,6 +99,13 @@ type RemoteIndexClient interface {
 	// detects that a set of nodes contains an outdated version of an object
 	OverwriteObjects(ctx context.Context, host, index, shard string,
 		objects []*objects.VObject) ([]replica.RepairResponse, error)
+
+	// DigestObjects finds a list of objects and returns a compact representation
+	// of a list of the objects. This is used by the replicator to optimize the
+	// number of bytes transferred over the network when fetching a replicated
+	// object
+	DigestObjects(ctx context.Context, hostName, indexName, shardName string,
+		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -142,7 +149,7 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 			shard.BelongsToNode()), len(objs))
 	}
 
-	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs)
+	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil)
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,

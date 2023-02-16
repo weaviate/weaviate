@@ -71,7 +71,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -146,7 +146,7 @@ func TestUpdateJourney(t *testing.T) {
 				additional.Properties{})
 			require.Nil(t, err)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
 		})
 
@@ -201,7 +201,7 @@ func TestUpdateJourney(t *testing.T) {
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
 		})
 
