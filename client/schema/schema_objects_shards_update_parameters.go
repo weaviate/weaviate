@@ -68,8 +68,7 @@ func NewSchemaObjectsShardsUpdateParamsWithHTTPClient(client *http.Client) *Sche
 	}
 }
 
-/*
-SchemaObjectsShardsUpdateParams contains all the parameters to send to the API endpoint
+/*SchemaObjectsShardsUpdateParams contains all the parameters to send to the API endpoint
 for the schema objects shards update operation typically these are written to a http.Request
 */
 type SchemaObjectsShardsUpdateParams struct {

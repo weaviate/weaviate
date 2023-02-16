@@ -27,8 +27,7 @@ import (
 // SchemaObjectsPropertiesAddOKCode is the HTTP code returned for type SchemaObjectsPropertiesAddOK
 const SchemaObjectsPropertiesAddOKCode int = 200
 
-/*
-SchemaObjectsPropertiesAddOK Added the property.
+/*SchemaObjectsPropertiesAddOK Added the property.
 
 swagger:response schemaObjectsPropertiesAddOK
 */
@@ -72,8 +71,7 @@ func (o *SchemaObjectsPropertiesAddOK) WriteResponse(rw http.ResponseWriter, pro
 // SchemaObjectsPropertiesAddUnauthorizedCode is the HTTP code returned for type SchemaObjectsPropertiesAddUnauthorized
 const SchemaObjectsPropertiesAddUnauthorizedCode int = 401
 
-/*
-SchemaObjectsPropertiesAddUnauthorized Unauthorized or invalid credentials.
+/*SchemaObjectsPropertiesAddUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsPropertiesAddUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *SchemaObjectsPropertiesAddUnauthorized) WriteResponse(rw http.ResponseW
 // SchemaObjectsPropertiesAddForbiddenCode is the HTTP code returned for type SchemaObjectsPropertiesAddForbidden
 const SchemaObjectsPropertiesAddForbiddenCode int = 403
 
-/*
-SchemaObjectsPropertiesAddForbidden Forbidden
+/*SchemaObjectsPropertiesAddForbidden Forbidden
 
 swagger:response schemaObjectsPropertiesAddForbidden
 */
@@ -142,8 +139,7 @@ func (o *SchemaObjectsPropertiesAddForbidden) WriteResponse(rw http.ResponseWrit
 // SchemaObjectsPropertiesAddUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsPropertiesAddUnprocessableEntity
 const SchemaObjectsPropertiesAddUnprocessableEntityCode int = 422
 
-/*
-SchemaObjectsPropertiesAddUnprocessableEntity Invalid property.
+/*SchemaObjectsPropertiesAddUnprocessableEntity Invalid property.
 
 swagger:response schemaObjectsPropertiesAddUnprocessableEntity
 */
@@ -187,8 +183,7 @@ func (o *SchemaObjectsPropertiesAddUnprocessableEntity) WriteResponse(rw http.Re
 // SchemaObjectsPropertiesAddInternalServerErrorCode is the HTTP code returned for type SchemaObjectsPropertiesAddInternalServerError
 const SchemaObjectsPropertiesAddInternalServerErrorCode int = 500
 
-/*
-SchemaObjectsPropertiesAddInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*SchemaObjectsPropertiesAddInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsPropertiesAddInternalServerError
 */

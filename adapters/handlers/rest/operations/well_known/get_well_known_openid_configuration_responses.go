@@ -27,8 +27,7 @@ import (
 // GetWellKnownOpenidConfigurationOKCode is the HTTP code returned for type GetWellKnownOpenidConfigurationOK
 const GetWellKnownOpenidConfigurationOKCode int = 200
 
-/*
-GetWellKnownOpenidConfigurationOK Successful response, inspect body
+/*GetWellKnownOpenidConfigurationOK Successful response, inspect body
 
 swagger:response getWellKnownOpenidConfigurationOK
 */
@@ -72,8 +71,7 @@ func (o *GetWellKnownOpenidConfigurationOK) WriteResponse(rw http.ResponseWriter
 // GetWellKnownOpenidConfigurationNotFoundCode is the HTTP code returned for type GetWellKnownOpenidConfigurationNotFound
 const GetWellKnownOpenidConfigurationNotFoundCode int = 404
 
-/*
-GetWellKnownOpenidConfigurationNotFound Not found, no oidc provider present
+/*GetWellKnownOpenidConfigurationNotFound Not found, no oidc provider present
 
 swagger:response getWellKnownOpenidConfigurationNotFound
 */
@@ -97,8 +95,7 @@ func (o *GetWellKnownOpenidConfigurationNotFound) WriteResponse(rw http.Response
 // GetWellKnownOpenidConfigurationInternalServerErrorCode is the HTTP code returned for type GetWellKnownOpenidConfigurationInternalServerError
 const GetWellKnownOpenidConfigurationInternalServerErrorCode int = 500
 
-/*
-GetWellKnownOpenidConfigurationInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*GetWellKnownOpenidConfigurationInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response getWellKnownOpenidConfigurationInternalServerError
 */

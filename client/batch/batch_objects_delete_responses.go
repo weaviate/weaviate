@@ -81,8 +81,7 @@ func NewBatchObjectsDeleteOK() *BatchObjectsDeleteOK {
 	return &BatchObjectsDeleteOK{}
 }
 
-/*
-BatchObjectsDeleteOK handles this case with default header values.
+/*BatchObjectsDeleteOK handles this case with default header values.
 
 Request succeeded, see response body to get detailed information about each batched item.
 */
@@ -115,8 +114,7 @@ func NewBatchObjectsDeleteBadRequest() *BatchObjectsDeleteBadRequest {
 	return &BatchObjectsDeleteBadRequest{}
 }
 
-/*
-BatchObjectsDeleteBadRequest handles this case with default header values.
+/*BatchObjectsDeleteBadRequest handles this case with default header values.
 
 Malformed request.
 */
@@ -149,8 +147,7 @@ func NewBatchObjectsDeleteUnauthorized() *BatchObjectsDeleteUnauthorized {
 	return &BatchObjectsDeleteUnauthorized{}
 }
 
-/*
-BatchObjectsDeleteUnauthorized handles this case with default header values.
+/*BatchObjectsDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -171,8 +168,7 @@ func NewBatchObjectsDeleteForbidden() *BatchObjectsDeleteForbidden {
 	return &BatchObjectsDeleteForbidden{}
 }
 
-/*
-BatchObjectsDeleteForbidden handles this case with default header values.
+/*BatchObjectsDeleteForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -205,8 +201,7 @@ func NewBatchObjectsDeleteUnprocessableEntity() *BatchObjectsDeleteUnprocessable
 	return &BatchObjectsDeleteUnprocessableEntity{}
 }
 
-/*
-BatchObjectsDeleteUnprocessableEntity handles this case with default header values.
+/*BatchObjectsDeleteUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -239,8 +234,7 @@ func NewBatchObjectsDeleteInternalServerError() *BatchObjectsDeleteInternalServe
 	return &BatchObjectsDeleteInternalServerError{}
 }
 
-/*
-BatchObjectsDeleteInternalServerError handles this case with default header values.
+/*BatchObjectsDeleteInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

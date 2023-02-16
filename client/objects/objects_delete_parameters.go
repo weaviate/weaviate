@@ -66,8 +66,7 @@ func NewObjectsDeleteParamsWithHTTPClient(client *http.Client) *ObjectsDeletePar
 	}
 }
 
-/*
-ObjectsDeleteParams contains all the parameters to send to the API endpoint
+/*ObjectsDeleteParams contains all the parameters to send to the API endpoint
 for the objects delete operation typically these are written to a http.Request
 */
 type ObjectsDeleteParams struct {

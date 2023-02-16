@@ -81,8 +81,7 @@ func NewSchemaObjectsShardsUpdateOK() *SchemaObjectsShardsUpdateOK {
 	return &SchemaObjectsShardsUpdateOK{}
 }
 
-/*
-SchemaObjectsShardsUpdateOK handles this case with default header values.
+/*SchemaObjectsShardsUpdateOK handles this case with default header values.
 
 Shard status was updated successfully
 */
@@ -115,8 +114,7 @@ func NewSchemaObjectsShardsUpdateUnauthorized() *SchemaObjectsShardsUpdateUnauth
 	return &SchemaObjectsShardsUpdateUnauthorized{}
 }
 
-/*
-SchemaObjectsShardsUpdateUnauthorized handles this case with default header values.
+/*SchemaObjectsShardsUpdateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -137,8 +135,7 @@ func NewSchemaObjectsShardsUpdateForbidden() *SchemaObjectsShardsUpdateForbidden
 	return &SchemaObjectsShardsUpdateForbidden{}
 }
 
-/*
-SchemaObjectsShardsUpdateForbidden handles this case with default header values.
+/*SchemaObjectsShardsUpdateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -171,8 +168,7 @@ func NewSchemaObjectsShardsUpdateNotFound() *SchemaObjectsShardsUpdateNotFound {
 	return &SchemaObjectsShardsUpdateNotFound{}
 }
 
-/*
-SchemaObjectsShardsUpdateNotFound handles this case with default header values.
+/*SchemaObjectsShardsUpdateNotFound handles this case with default header values.
 
 Shard to be updated does not exist
 */
@@ -205,8 +201,7 @@ func NewSchemaObjectsShardsUpdateUnprocessableEntity() *SchemaObjectsShardsUpdat
 	return &SchemaObjectsShardsUpdateUnprocessableEntity{}
 }
 
-/*
-SchemaObjectsShardsUpdateUnprocessableEntity handles this case with default header values.
+/*SchemaObjectsShardsUpdateUnprocessableEntity handles this case with default header values.
 
 Invalid update attempt
 */
@@ -239,8 +234,7 @@ func NewSchemaObjectsShardsUpdateInternalServerError() *SchemaObjectsShardsUpdat
 	return &SchemaObjectsShardsUpdateInternalServerError{}
 }
 
-/*
-SchemaObjectsShardsUpdateInternalServerError handles this case with default header values.
+/*SchemaObjectsShardsUpdateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

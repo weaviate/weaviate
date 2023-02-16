@@ -66,8 +66,7 @@ func NewNodesGetParamsWithHTTPClient(client *http.Client) *NodesGetParams {
 	}
 }
 
-/*
-NodesGetParams contains all the parameters to send to the API endpoint
+/*NodesGetParams contains all the parameters to send to the API endpoint
 for the nodes get operation typically these are written to a http.Request
 */
 type NodesGetParams struct {

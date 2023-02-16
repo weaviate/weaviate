@@ -27,8 +27,7 @@ import (
 // BackupsRestoreStatusOKCode is the HTTP code returned for type BackupsRestoreStatusOK
 const BackupsRestoreStatusOKCode int = 200
 
-/*
-BackupsRestoreStatusOK Backup restoration status successfully returned
+/*BackupsRestoreStatusOK Backup restoration status successfully returned
 
 swagger:response backupsRestoreStatusOK
 */
@@ -72,8 +71,7 @@ func (o *BackupsRestoreStatusOK) WriteResponse(rw http.ResponseWriter, producer 
 // BackupsRestoreStatusUnauthorizedCode is the HTTP code returned for type BackupsRestoreStatusUnauthorized
 const BackupsRestoreStatusUnauthorizedCode int = 401
 
-/*
-BackupsRestoreStatusUnauthorized Unauthorized or invalid credentials.
+/*BackupsRestoreStatusUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsRestoreStatusUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *BackupsRestoreStatusUnauthorized) WriteResponse(rw http.ResponseWriter,
 // BackupsRestoreStatusForbiddenCode is the HTTP code returned for type BackupsRestoreStatusForbidden
 const BackupsRestoreStatusForbiddenCode int = 403
 
-/*
-BackupsRestoreStatusForbidden Forbidden
+/*BackupsRestoreStatusForbidden Forbidden
 
 swagger:response backupsRestoreStatusForbidden
 */
@@ -142,8 +139,7 @@ func (o *BackupsRestoreStatusForbidden) WriteResponse(rw http.ResponseWriter, pr
 // BackupsRestoreStatusNotFoundCode is the HTTP code returned for type BackupsRestoreStatusNotFound
 const BackupsRestoreStatusNotFoundCode int = 404
 
-/*
-BackupsRestoreStatusNotFound Not Found - Backup does not exist
+/*BackupsRestoreStatusNotFound Not Found - Backup does not exist
 
 swagger:response backupsRestoreStatusNotFound
 */
@@ -187,8 +183,7 @@ func (o *BackupsRestoreStatusNotFound) WriteResponse(rw http.ResponseWriter, pro
 // BackupsRestoreStatusInternalServerErrorCode is the HTTP code returned for type BackupsRestoreStatusInternalServerError
 const BackupsRestoreStatusInternalServerErrorCode int = 500
 
-/*
-BackupsRestoreStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*BackupsRestoreStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response backupsRestoreStatusInternalServerError
 */

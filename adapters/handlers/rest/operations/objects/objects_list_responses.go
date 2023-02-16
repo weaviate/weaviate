@@ -27,8 +27,7 @@ import (
 // ObjectsListOKCode is the HTTP code returned for type ObjectsListOK
 const ObjectsListOKCode int = 200
 
-/*
-ObjectsListOK Successful response.
+/*ObjectsListOK Successful response.
 
 swagger:response objectsListOK
 */
@@ -72,8 +71,7 @@ func (o *ObjectsListOK) WriteResponse(rw http.ResponseWriter, producer runtime.P
 // ObjectsListBadRequestCode is the HTTP code returned for type ObjectsListBadRequest
 const ObjectsListBadRequestCode int = 400
 
-/*
-ObjectsListBadRequest Malformed request.
+/*ObjectsListBadRequest Malformed request.
 
 swagger:response objectsListBadRequest
 */
@@ -117,8 +115,7 @@ func (o *ObjectsListBadRequest) WriteResponse(rw http.ResponseWriter, producer r
 // ObjectsListUnauthorizedCode is the HTTP code returned for type ObjectsListUnauthorized
 const ObjectsListUnauthorizedCode int = 401
 
-/*
-ObjectsListUnauthorized Unauthorized or invalid credentials.
+/*ObjectsListUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsListUnauthorized
 */
@@ -142,8 +139,7 @@ func (o *ObjectsListUnauthorized) WriteResponse(rw http.ResponseWriter, producer
 // ObjectsListForbiddenCode is the HTTP code returned for type ObjectsListForbidden
 const ObjectsListForbiddenCode int = 403
 
-/*
-ObjectsListForbidden Forbidden
+/*ObjectsListForbidden Forbidden
 
 swagger:response objectsListForbidden
 */
@@ -187,8 +183,7 @@ func (o *ObjectsListForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 // ObjectsListNotFoundCode is the HTTP code returned for type ObjectsListNotFound
 const ObjectsListNotFoundCode int = 404
 
-/*
-ObjectsListNotFound Successful query result but no resource was found.
+/*ObjectsListNotFound Successful query result but no resource was found.
 
 swagger:response objectsListNotFound
 */
@@ -212,8 +207,7 @@ func (o *ObjectsListNotFound) WriteResponse(rw http.ResponseWriter, producer run
 // ObjectsListUnprocessableEntityCode is the HTTP code returned for type ObjectsListUnprocessableEntity
 const ObjectsListUnprocessableEntityCode int = 422
 
-/*
-ObjectsListUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*ObjectsListUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response objectsListUnprocessableEntity
 */
@@ -257,8 +251,7 @@ func (o *ObjectsListUnprocessableEntity) WriteResponse(rw http.ResponseWriter, p
 // ObjectsListInternalServerErrorCode is the HTTP code returned for type ObjectsListInternalServerError
 const ObjectsListInternalServerErrorCode int = 500
 
-/*
-ObjectsListInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ObjectsListInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsListInternalServerError
 */

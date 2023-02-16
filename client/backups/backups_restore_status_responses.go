@@ -75,8 +75,7 @@ func NewBackupsRestoreStatusOK() *BackupsRestoreStatusOK {
 	return &BackupsRestoreStatusOK{}
 }
 
-/*
-BackupsRestoreStatusOK handles this case with default header values.
+/*BackupsRestoreStatusOK handles this case with default header values.
 
 Backup restoration status successfully returned
 */
@@ -109,8 +108,7 @@ func NewBackupsRestoreStatusUnauthorized() *BackupsRestoreStatusUnauthorized {
 	return &BackupsRestoreStatusUnauthorized{}
 }
 
-/*
-BackupsRestoreStatusUnauthorized handles this case with default header values.
+/*BackupsRestoreStatusUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -131,8 +129,7 @@ func NewBackupsRestoreStatusForbidden() *BackupsRestoreStatusForbidden {
 	return &BackupsRestoreStatusForbidden{}
 }
 
-/*
-BackupsRestoreStatusForbidden handles this case with default header values.
+/*BackupsRestoreStatusForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -165,8 +162,7 @@ func NewBackupsRestoreStatusNotFound() *BackupsRestoreStatusNotFound {
 	return &BackupsRestoreStatusNotFound{}
 }
 
-/*
-BackupsRestoreStatusNotFound handles this case with default header values.
+/*BackupsRestoreStatusNotFound handles this case with default header values.
 
 Not Found - Backup does not exist
 */
@@ -199,8 +195,7 @@ func NewBackupsRestoreStatusInternalServerError() *BackupsRestoreStatusInternalS
 	return &BackupsRestoreStatusInternalServerError{}
 }
 
-/*
-BackupsRestoreStatusInternalServerError handles this case with default header values.
+/*BackupsRestoreStatusInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

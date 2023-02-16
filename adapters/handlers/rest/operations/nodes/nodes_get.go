@@ -42,10 +42,10 @@ func NewNodesGet(ctx *middleware.Context, handler NodesGetHandler) *NodesGet {
 	return &NodesGet{Context: ctx, Handler: handler}
 }
 
-/*
-NodesGet swagger:route GET /nodes nodes nodesGet
+/*NodesGet swagger:route GET /nodes nodes nodesGet
 
 Returns status of Weaviate DB.
+
 */
 type NodesGet struct {
 	Context *middleware.Context

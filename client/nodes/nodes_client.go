@@ -44,7 +44,7 @@ type ClientService interface {
 }
 
 /*
-NodesGet Returns status of Weaviate DB.
+  NodesGet Returns status of Weaviate DB.
 */
 func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter) (*NodesGetOK, error) {
 	// TODO: Validate the params before sending

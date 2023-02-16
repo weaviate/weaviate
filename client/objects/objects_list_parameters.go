@@ -79,8 +79,7 @@ func NewObjectsListParamsWithHTTPClient(client *http.Client) *ObjectsListParams 
 	}
 }
 
-/*
-ObjectsListParams contains all the parameters to send to the API endpoint
+/*ObjectsListParams contains all the parameters to send to the API endpoint
 for the objects list operation typically these are written to a http.Request
 */
 type ObjectsListParams struct {

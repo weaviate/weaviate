@@ -44,9 +44,9 @@ type ClientService interface {
 }
 
 /*
-GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
+  GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
 
-OIDC Discovery page, redirects to the token issuer if one is configured
+  OIDC Discovery page, redirects to the token issuer if one is configured
 */
 func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) (*GetWellKnownOpenidConfigurationOK, error) {
 	// TODO: Validate the params before sending

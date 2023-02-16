@@ -75,8 +75,7 @@ func NewSchemaObjectsDeleteOK() *SchemaObjectsDeleteOK {
 	return &SchemaObjectsDeleteOK{}
 }
 
-/*
-SchemaObjectsDeleteOK handles this case with default header values.
+/*SchemaObjectsDeleteOK handles this case with default header values.
 
 Removed the Object class from the schema.
 */
@@ -97,8 +96,7 @@ func NewSchemaObjectsDeleteBadRequest() *SchemaObjectsDeleteBadRequest {
 	return &SchemaObjectsDeleteBadRequest{}
 }
 
-/*
-SchemaObjectsDeleteBadRequest handles this case with default header values.
+/*SchemaObjectsDeleteBadRequest handles this case with default header values.
 
 Could not delete the Object class.
 */
@@ -131,8 +129,7 @@ func NewSchemaObjectsDeleteUnauthorized() *SchemaObjectsDeleteUnauthorized {
 	return &SchemaObjectsDeleteUnauthorized{}
 }
 
-/*
-SchemaObjectsDeleteUnauthorized handles this case with default header values.
+/*SchemaObjectsDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -153,8 +150,7 @@ func NewSchemaObjectsDeleteForbidden() *SchemaObjectsDeleteForbidden {
 	return &SchemaObjectsDeleteForbidden{}
 }
 
-/*
-SchemaObjectsDeleteForbidden handles this case with default header values.
+/*SchemaObjectsDeleteForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -187,8 +183,7 @@ func NewSchemaObjectsDeleteInternalServerError() *SchemaObjectsDeleteInternalSer
 	return &SchemaObjectsDeleteInternalServerError{}
 }
 
-/*
-SchemaObjectsDeleteInternalServerError handles this case with default header values.
+/*SchemaObjectsDeleteInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

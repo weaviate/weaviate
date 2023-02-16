@@ -81,8 +81,7 @@ func NewBatchReferencesCreateOK() *BatchReferencesCreateOK {
 	return &BatchReferencesCreateOK{}
 }
 
-/*
-BatchReferencesCreateOK handles this case with default header values.
+/*BatchReferencesCreateOK handles this case with default header values.
 
 Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
 */
@@ -113,8 +112,7 @@ func NewBatchReferencesCreateBadRequest() *BatchReferencesCreateBadRequest {
 	return &BatchReferencesCreateBadRequest{}
 }
 
-/*
-BatchReferencesCreateBadRequest handles this case with default header values.
+/*BatchReferencesCreateBadRequest handles this case with default header values.
 
 Malformed request.
 */
@@ -147,8 +145,7 @@ func NewBatchReferencesCreateUnauthorized() *BatchReferencesCreateUnauthorized {
 	return &BatchReferencesCreateUnauthorized{}
 }
 
-/*
-BatchReferencesCreateUnauthorized handles this case with default header values.
+/*BatchReferencesCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -169,8 +166,7 @@ func NewBatchReferencesCreateForbidden() *BatchReferencesCreateForbidden {
 	return &BatchReferencesCreateForbidden{}
 }
 
-/*
-BatchReferencesCreateForbidden handles this case with default header values.
+/*BatchReferencesCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -203,8 +199,7 @@ func NewBatchReferencesCreateUnprocessableEntity() *BatchReferencesCreateUnproce
 	return &BatchReferencesCreateUnprocessableEntity{}
 }
 
-/*
-BatchReferencesCreateUnprocessableEntity handles this case with default header values.
+/*BatchReferencesCreateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -237,8 +232,7 @@ func NewBatchReferencesCreateInternalServerError() *BatchReferencesCreateInterna
 	return &BatchReferencesCreateInternalServerError{}
 }
 
-/*
-BatchReferencesCreateInternalServerError handles this case with default header values.
+/*BatchReferencesCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

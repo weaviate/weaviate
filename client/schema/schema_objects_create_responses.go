@@ -75,8 +75,7 @@ func NewSchemaObjectsCreateOK() *SchemaObjectsCreateOK {
 	return &SchemaObjectsCreateOK{}
 }
 
-/*
-SchemaObjectsCreateOK handles this case with default header values.
+/*SchemaObjectsCreateOK handles this case with default header values.
 
 Added the new Object class to the schema.
 */
@@ -109,8 +108,7 @@ func NewSchemaObjectsCreateUnauthorized() *SchemaObjectsCreateUnauthorized {
 	return &SchemaObjectsCreateUnauthorized{}
 }
 
-/*
-SchemaObjectsCreateUnauthorized handles this case with default header values.
+/*SchemaObjectsCreateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -131,8 +129,7 @@ func NewSchemaObjectsCreateForbidden() *SchemaObjectsCreateForbidden {
 	return &SchemaObjectsCreateForbidden{}
 }
 
-/*
-SchemaObjectsCreateForbidden handles this case with default header values.
+/*SchemaObjectsCreateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -165,8 +162,7 @@ func NewSchemaObjectsCreateUnprocessableEntity() *SchemaObjectsCreateUnprocessab
 	return &SchemaObjectsCreateUnprocessableEntity{}
 }
 
-/*
-SchemaObjectsCreateUnprocessableEntity handles this case with default header values.
+/*SchemaObjectsCreateUnprocessableEntity handles this case with default header values.
 
 Invalid Object class
 */
@@ -199,8 +195,7 @@ func NewSchemaObjectsCreateInternalServerError() *SchemaObjectsCreateInternalSer
 	return &SchemaObjectsCreateInternalServerError{}
 }
 
-/*
-SchemaObjectsCreateInternalServerError handles this case with default header values.
+/*SchemaObjectsCreateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

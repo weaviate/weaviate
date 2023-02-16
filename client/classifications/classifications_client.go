@@ -46,9 +46,9 @@ type ClientService interface {
 }
 
 /*
-ClassificationsGet views previously created classification
+  ClassificationsGet views previously created classification
 
-Get status, results and metadata of a previously created classification
+  Get status, results and metadata of a previously created classification
 */
 func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -83,9 +83,9 @@ func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo r
 }
 
 /*
-ClassificationsPost starts a classification
+  ClassificationsPost starts a classification
 
-Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.
+  Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.
 */
 func (a *Client) ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsPostCreated, error) {
 	// TODO: Validate the params before sending

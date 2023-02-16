@@ -46,10 +46,10 @@ func NewWeaviateRoot(ctx *middleware.Context, handler WeaviateRootHandler) *Weav
 	return &WeaviateRoot{Context: ctx, Handler: handler}
 }
 
-/*
-WeaviateRoot swagger:route GET / weaviateRoot
+/*WeaviateRoot swagger:route GET / weaviateRoot
 
 Home. Discover the REST API
+
 */
 type WeaviateRoot struct {
 	Context *middleware.Context

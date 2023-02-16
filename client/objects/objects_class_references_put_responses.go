@@ -87,8 +87,7 @@ func NewObjectsClassReferencesPutOK() *ObjectsClassReferencesPutOK {
 	return &ObjectsClassReferencesPutOK{}
 }
 
-/*
-ObjectsClassReferencesPutOK handles this case with default header values.
+/*ObjectsClassReferencesPutOK handles this case with default header values.
 
 Successfully replaced all the references.
 */
@@ -109,8 +108,7 @@ func NewObjectsClassReferencesPutBadRequest() *ObjectsClassReferencesPutBadReque
 	return &ObjectsClassReferencesPutBadRequest{}
 }
 
-/*
-ObjectsClassReferencesPutBadRequest handles this case with default header values.
+/*ObjectsClassReferencesPutBadRequest handles this case with default header values.
 
 Malformed request.
 */
@@ -143,8 +141,7 @@ func NewObjectsClassReferencesPutUnauthorized() *ObjectsClassReferencesPutUnauth
 	return &ObjectsClassReferencesPutUnauthorized{}
 }
 
-/*
-ObjectsClassReferencesPutUnauthorized handles this case with default header values.
+/*ObjectsClassReferencesPutUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -165,8 +162,7 @@ func NewObjectsClassReferencesPutForbidden() *ObjectsClassReferencesPutForbidden
 	return &ObjectsClassReferencesPutForbidden{}
 }
 
-/*
-ObjectsClassReferencesPutForbidden handles this case with default header values.
+/*ObjectsClassReferencesPutForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -199,8 +195,7 @@ func NewObjectsClassReferencesPutNotFound() *ObjectsClassReferencesPutNotFound {
 	return &ObjectsClassReferencesPutNotFound{}
 }
 
-/*
-ObjectsClassReferencesPutNotFound handles this case with default header values.
+/*ObjectsClassReferencesPutNotFound handles this case with default header values.
 
 Source object doesn't exist.
 */
@@ -221,8 +216,7 @@ func NewObjectsClassReferencesPutUnprocessableEntity() *ObjectsClassReferencesPu
 	return &ObjectsClassReferencesPutUnprocessableEntity{}
 }
 
-/*
-ObjectsClassReferencesPutUnprocessableEntity handles this case with default header values.
+/*ObjectsClassReferencesPutUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -255,8 +249,7 @@ func NewObjectsClassReferencesPutInternalServerError() *ObjectsClassReferencesPu
 	return &ObjectsClassReferencesPutInternalServerError{}
 }
 
-/*
-ObjectsClassReferencesPutInternalServerError handles this case with default header values.
+/*ObjectsClassReferencesPutInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

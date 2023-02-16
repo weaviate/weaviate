@@ -27,8 +27,7 @@ import (
 // BatchReferencesCreateOKCode is the HTTP code returned for type BatchReferencesCreateOK
 const BatchReferencesCreateOKCode int = 200
 
-/*
-BatchReferencesCreateOK Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
+/*BatchReferencesCreateOK Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
 
 swagger:response batchReferencesCreateOK
 */
@@ -75,8 +74,7 @@ func (o *BatchReferencesCreateOK) WriteResponse(rw http.ResponseWriter, producer
 // BatchReferencesCreateBadRequestCode is the HTTP code returned for type BatchReferencesCreateBadRequest
 const BatchReferencesCreateBadRequestCode int = 400
 
-/*
-BatchReferencesCreateBadRequest Malformed request.
+/*BatchReferencesCreateBadRequest Malformed request.
 
 swagger:response batchReferencesCreateBadRequest
 */
@@ -120,8 +118,7 @@ func (o *BatchReferencesCreateBadRequest) WriteResponse(rw http.ResponseWriter, 
 // BatchReferencesCreateUnauthorizedCode is the HTTP code returned for type BatchReferencesCreateUnauthorized
 const BatchReferencesCreateUnauthorizedCode int = 401
 
-/*
-BatchReferencesCreateUnauthorized Unauthorized or invalid credentials.
+/*BatchReferencesCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response batchReferencesCreateUnauthorized
 */
@@ -145,8 +142,7 @@ func (o *BatchReferencesCreateUnauthorized) WriteResponse(rw http.ResponseWriter
 // BatchReferencesCreateForbiddenCode is the HTTP code returned for type BatchReferencesCreateForbidden
 const BatchReferencesCreateForbiddenCode int = 403
 
-/*
-BatchReferencesCreateForbidden Forbidden
+/*BatchReferencesCreateForbidden Forbidden
 
 swagger:response batchReferencesCreateForbidden
 */
@@ -190,8 +186,7 @@ func (o *BatchReferencesCreateForbidden) WriteResponse(rw http.ResponseWriter, p
 // BatchReferencesCreateUnprocessableEntityCode is the HTTP code returned for type BatchReferencesCreateUnprocessableEntity
 const BatchReferencesCreateUnprocessableEntityCode int = 422
 
-/*
-BatchReferencesCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*BatchReferencesCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response batchReferencesCreateUnprocessableEntity
 */
@@ -235,8 +230,7 @@ func (o *BatchReferencesCreateUnprocessableEntity) WriteResponse(rw http.Respons
 // BatchReferencesCreateInternalServerErrorCode is the HTTP code returned for type BatchReferencesCreateInternalServerError
 const BatchReferencesCreateInternalServerErrorCode int = 500
 
-/*
-BatchReferencesCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*BatchReferencesCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response batchReferencesCreateInternalServerError
 */

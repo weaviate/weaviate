@@ -27,8 +27,7 @@ import (
 // ObjectsReferencesUpdateOKCode is the HTTP code returned for type ObjectsReferencesUpdateOK
 const ObjectsReferencesUpdateOKCode int = 200
 
-/*
-ObjectsReferencesUpdateOK Successfully replaced all the references.
+/*ObjectsReferencesUpdateOK Successfully replaced all the references.
 
 swagger:response objectsReferencesUpdateOK
 */
@@ -52,8 +51,7 @@ func (o *ObjectsReferencesUpdateOK) WriteResponse(rw http.ResponseWriter, produc
 // ObjectsReferencesUpdateUnauthorizedCode is the HTTP code returned for type ObjectsReferencesUpdateUnauthorized
 const ObjectsReferencesUpdateUnauthorizedCode int = 401
 
-/*
-ObjectsReferencesUpdateUnauthorized Unauthorized or invalid credentials.
+/*ObjectsReferencesUpdateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsReferencesUpdateUnauthorized
 */
@@ -77,8 +75,7 @@ func (o *ObjectsReferencesUpdateUnauthorized) WriteResponse(rw http.ResponseWrit
 // ObjectsReferencesUpdateForbiddenCode is the HTTP code returned for type ObjectsReferencesUpdateForbidden
 const ObjectsReferencesUpdateForbiddenCode int = 403
 
-/*
-ObjectsReferencesUpdateForbidden Forbidden
+/*ObjectsReferencesUpdateForbidden Forbidden
 
 swagger:response objectsReferencesUpdateForbidden
 */
@@ -122,8 +119,7 @@ func (o *ObjectsReferencesUpdateForbidden) WriteResponse(rw http.ResponseWriter,
 // ObjectsReferencesUpdateUnprocessableEntityCode is the HTTP code returned for type ObjectsReferencesUpdateUnprocessableEntity
 const ObjectsReferencesUpdateUnprocessableEntityCode int = 422
 
-/*
-ObjectsReferencesUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+/*ObjectsReferencesUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 
 swagger:response objectsReferencesUpdateUnprocessableEntity
 */
@@ -167,8 +163,7 @@ func (o *ObjectsReferencesUpdateUnprocessableEntity) WriteResponse(rw http.Respo
 // ObjectsReferencesUpdateInternalServerErrorCode is the HTTP code returned for type ObjectsReferencesUpdateInternalServerError
 const ObjectsReferencesUpdateInternalServerErrorCode int = 500
 
-/*
-ObjectsReferencesUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ObjectsReferencesUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsReferencesUpdateInternalServerError
 */

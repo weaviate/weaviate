@@ -27,8 +27,7 @@ import (
 // SchemaObjectsDeleteOKCode is the HTTP code returned for type SchemaObjectsDeleteOK
 const SchemaObjectsDeleteOKCode int = 200
 
-/*
-SchemaObjectsDeleteOK Removed the Object class from the schema.
+/*SchemaObjectsDeleteOK Removed the Object class from the schema.
 
 swagger:response schemaObjectsDeleteOK
 */
@@ -52,8 +51,7 @@ func (o *SchemaObjectsDeleteOK) WriteResponse(rw http.ResponseWriter, producer r
 // SchemaObjectsDeleteBadRequestCode is the HTTP code returned for type SchemaObjectsDeleteBadRequest
 const SchemaObjectsDeleteBadRequestCode int = 400
 
-/*
-SchemaObjectsDeleteBadRequest Could not delete the Object class.
+/*SchemaObjectsDeleteBadRequest Could not delete the Object class.
 
 swagger:response schemaObjectsDeleteBadRequest
 */
@@ -97,8 +95,7 @@ func (o *SchemaObjectsDeleteBadRequest) WriteResponse(rw http.ResponseWriter, pr
 // SchemaObjectsDeleteUnauthorizedCode is the HTTP code returned for type SchemaObjectsDeleteUnauthorized
 const SchemaObjectsDeleteUnauthorizedCode int = 401
 
-/*
-SchemaObjectsDeleteUnauthorized Unauthorized or invalid credentials.
+/*SchemaObjectsDeleteUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsDeleteUnauthorized
 */
@@ -122,8 +119,7 @@ func (o *SchemaObjectsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // SchemaObjectsDeleteForbiddenCode is the HTTP code returned for type SchemaObjectsDeleteForbidden
 const SchemaObjectsDeleteForbiddenCode int = 403
 
-/*
-SchemaObjectsDeleteForbidden Forbidden
+/*SchemaObjectsDeleteForbidden Forbidden
 
 swagger:response schemaObjectsDeleteForbidden
 */
@@ -167,8 +163,7 @@ func (o *SchemaObjectsDeleteForbidden) WriteResponse(rw http.ResponseWriter, pro
 // SchemaObjectsDeleteInternalServerErrorCode is the HTTP code returned for type SchemaObjectsDeleteInternalServerError
 const SchemaObjectsDeleteInternalServerErrorCode int = 500
 
-/*
-SchemaObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*SchemaObjectsDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsDeleteInternalServerError
 */

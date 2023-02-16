@@ -66,8 +66,7 @@ func NewMetaGetParamsWithHTTPClient(client *http.Client) *MetaGetParams {
 	}
 }
 
-/*
-MetaGetParams contains all the parameters to send to the API endpoint
+/*MetaGetParams contains all the parameters to send to the API endpoint
 for the meta get operation typically these are written to a http.Request
 */
 type MetaGetParams struct {

@@ -66,8 +66,7 @@ func NewSchemaDumpParamsWithHTTPClient(client *http.Client) *SchemaDumpParams {
 	}
 }
 
-/*
-SchemaDumpParams contains all the parameters to send to the API endpoint
+/*SchemaDumpParams contains all the parameters to send to the API endpoint
 for the schema dump operation typically these are written to a http.Request
 */
 type SchemaDumpParams struct {

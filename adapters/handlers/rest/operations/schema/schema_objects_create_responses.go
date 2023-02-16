@@ -27,8 +27,7 @@ import (
 // SchemaObjectsCreateOKCode is the HTTP code returned for type SchemaObjectsCreateOK
 const SchemaObjectsCreateOKCode int = 200
 
-/*
-SchemaObjectsCreateOK Added the new Object class to the schema.
+/*SchemaObjectsCreateOK Added the new Object class to the schema.
 
 swagger:response schemaObjectsCreateOK
 */
@@ -72,8 +71,7 @@ func (o *SchemaObjectsCreateOK) WriteResponse(rw http.ResponseWriter, producer r
 // SchemaObjectsCreateUnauthorizedCode is the HTTP code returned for type SchemaObjectsCreateUnauthorized
 const SchemaObjectsCreateUnauthorizedCode int = 401
 
-/*
-SchemaObjectsCreateUnauthorized Unauthorized or invalid credentials.
+/*SchemaObjectsCreateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response schemaObjectsCreateUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *SchemaObjectsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // SchemaObjectsCreateForbiddenCode is the HTTP code returned for type SchemaObjectsCreateForbidden
 const SchemaObjectsCreateForbiddenCode int = 403
 
-/*
-SchemaObjectsCreateForbidden Forbidden
+/*SchemaObjectsCreateForbidden Forbidden
 
 swagger:response schemaObjectsCreateForbidden
 */
@@ -142,8 +139,7 @@ func (o *SchemaObjectsCreateForbidden) WriteResponse(rw http.ResponseWriter, pro
 // SchemaObjectsCreateUnprocessableEntityCode is the HTTP code returned for type SchemaObjectsCreateUnprocessableEntity
 const SchemaObjectsCreateUnprocessableEntityCode int = 422
 
-/*
-SchemaObjectsCreateUnprocessableEntity Invalid Object class
+/*SchemaObjectsCreateUnprocessableEntity Invalid Object class
 
 swagger:response schemaObjectsCreateUnprocessableEntity
 */
@@ -187,8 +183,7 @@ func (o *SchemaObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseW
 // SchemaObjectsCreateInternalServerErrorCode is the HTTP code returned for type SchemaObjectsCreateInternalServerError
 const SchemaObjectsCreateInternalServerErrorCode int = 500
 
-/*
-SchemaObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*SchemaObjectsCreateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response schemaObjectsCreateInternalServerError
 */

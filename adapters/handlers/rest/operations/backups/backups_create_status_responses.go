@@ -27,8 +27,7 @@ import (
 // BackupsCreateStatusOKCode is the HTTP code returned for type BackupsCreateStatusOK
 const BackupsCreateStatusOKCode int = 200
 
-/*
-BackupsCreateStatusOK Backup creation status successfully returned
+/*BackupsCreateStatusOK Backup creation status successfully returned
 
 swagger:response backupsCreateStatusOK
 */
@@ -72,8 +71,7 @@ func (o *BackupsCreateStatusOK) WriteResponse(rw http.ResponseWriter, producer r
 // BackupsCreateStatusUnauthorizedCode is the HTTP code returned for type BackupsCreateStatusUnauthorized
 const BackupsCreateStatusUnauthorizedCode int = 401
 
-/*
-BackupsCreateStatusUnauthorized Unauthorized or invalid credentials.
+/*BackupsCreateStatusUnauthorized Unauthorized or invalid credentials.
 
 swagger:response backupsCreateStatusUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *BackupsCreateStatusUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // BackupsCreateStatusForbiddenCode is the HTTP code returned for type BackupsCreateStatusForbidden
 const BackupsCreateStatusForbiddenCode int = 403
 
-/*
-BackupsCreateStatusForbidden Forbidden
+/*BackupsCreateStatusForbidden Forbidden
 
 swagger:response backupsCreateStatusForbidden
 */
@@ -142,8 +139,7 @@ func (o *BackupsCreateStatusForbidden) WriteResponse(rw http.ResponseWriter, pro
 // BackupsCreateStatusNotFoundCode is the HTTP code returned for type BackupsCreateStatusNotFound
 const BackupsCreateStatusNotFoundCode int = 404
 
-/*
-BackupsCreateStatusNotFound Not Found - Backup does not exist
+/*BackupsCreateStatusNotFound Not Found - Backup does not exist
 
 swagger:response backupsCreateStatusNotFound
 */
@@ -187,8 +183,7 @@ func (o *BackupsCreateStatusNotFound) WriteResponse(rw http.ResponseWriter, prod
 // BackupsCreateStatusUnprocessableEntityCode is the HTTP code returned for type BackupsCreateStatusUnprocessableEntity
 const BackupsCreateStatusUnprocessableEntityCode int = 422
 
-/*
-BackupsCreateStatusUnprocessableEntity Invalid backup restoration status attempt.
+/*BackupsCreateStatusUnprocessableEntity Invalid backup restoration status attempt.
 
 swagger:response backupsCreateStatusUnprocessableEntity
 */
@@ -232,8 +227,7 @@ func (o *BackupsCreateStatusUnprocessableEntity) WriteResponse(rw http.ResponseW
 // BackupsCreateStatusInternalServerErrorCode is the HTTP code returned for type BackupsCreateStatusInternalServerError
 const BackupsCreateStatusInternalServerErrorCode int = 500
 
-/*
-BackupsCreateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*BackupsCreateStatusInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response backupsCreateStatusInternalServerError
 */

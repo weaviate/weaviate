@@ -75,8 +75,7 @@ func NewObjectsReferencesUpdateOK() *ObjectsReferencesUpdateOK {
 	return &ObjectsReferencesUpdateOK{}
 }
 
-/*
-ObjectsReferencesUpdateOK handles this case with default header values.
+/*ObjectsReferencesUpdateOK handles this case with default header values.
 
 Successfully replaced all the references.
 */
@@ -97,8 +96,7 @@ func NewObjectsReferencesUpdateUnauthorized() *ObjectsReferencesUpdateUnauthoriz
 	return &ObjectsReferencesUpdateUnauthorized{}
 }
 
-/*
-ObjectsReferencesUpdateUnauthorized handles this case with default header values.
+/*ObjectsReferencesUpdateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -119,8 +117,7 @@ func NewObjectsReferencesUpdateForbidden() *ObjectsReferencesUpdateForbidden {
 	return &ObjectsReferencesUpdateForbidden{}
 }
 
-/*
-ObjectsReferencesUpdateForbidden handles this case with default header values.
+/*ObjectsReferencesUpdateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -153,8 +150,7 @@ func NewObjectsReferencesUpdateUnprocessableEntity() *ObjectsReferencesUpdateUnp
 	return &ObjectsReferencesUpdateUnprocessableEntity{}
 }
 
-/*
-ObjectsReferencesUpdateUnprocessableEntity handles this case with default header values.
+/*ObjectsReferencesUpdateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -187,8 +183,7 @@ func NewObjectsReferencesUpdateInternalServerError() *ObjectsReferencesUpdateInt
 	return &ObjectsReferencesUpdateInternalServerError{}
 }
 
-/*
-ObjectsReferencesUpdateInternalServerError handles this case with default header values.
+/*ObjectsReferencesUpdateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

@@ -27,8 +27,7 @@ import (
 // GraphqlBatchOKCode is the HTTP code returned for type GraphqlBatchOK
 const GraphqlBatchOKCode int = 200
 
-/*
-GraphqlBatchOK Successful query (with select).
+/*GraphqlBatchOK Successful query (with select).
 
 swagger:response graphqlBatchOK
 */
@@ -75,8 +74,7 @@ func (o *GraphqlBatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.
 // GraphqlBatchUnauthorizedCode is the HTTP code returned for type GraphqlBatchUnauthorized
 const GraphqlBatchUnauthorizedCode int = 401
 
-/*
-GraphqlBatchUnauthorized Unauthorized or invalid credentials.
+/*GraphqlBatchUnauthorized Unauthorized or invalid credentials.
 
 swagger:response graphqlBatchUnauthorized
 */
@@ -100,8 +98,7 @@ func (o *GraphqlBatchUnauthorized) WriteResponse(rw http.ResponseWriter, produce
 // GraphqlBatchForbiddenCode is the HTTP code returned for type GraphqlBatchForbidden
 const GraphqlBatchForbiddenCode int = 403
 
-/*
-GraphqlBatchForbidden Forbidden
+/*GraphqlBatchForbidden Forbidden
 
 swagger:response graphqlBatchForbidden
 */
@@ -145,8 +142,7 @@ func (o *GraphqlBatchForbidden) WriteResponse(rw http.ResponseWriter, producer r
 // GraphqlBatchUnprocessableEntityCode is the HTTP code returned for type GraphqlBatchUnprocessableEntity
 const GraphqlBatchUnprocessableEntityCode int = 422
 
-/*
-GraphqlBatchUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*GraphqlBatchUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response graphqlBatchUnprocessableEntity
 */
@@ -190,8 +186,7 @@ func (o *GraphqlBatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, 
 // GraphqlBatchInternalServerErrorCode is the HTTP code returned for type GraphqlBatchInternalServerError
 const GraphqlBatchInternalServerErrorCode int = 500
 
-/*
-GraphqlBatchInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*GraphqlBatchInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response graphqlBatchInternalServerError
 */

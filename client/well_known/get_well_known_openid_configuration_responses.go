@@ -64,8 +64,7 @@ func NewGetWellKnownOpenidConfigurationOK() *GetWellKnownOpenidConfigurationOK {
 	return &GetWellKnownOpenidConfigurationOK{}
 }
 
-/*
-GetWellKnownOpenidConfigurationOK handles this case with default header values.
+/*GetWellKnownOpenidConfigurationOK handles this case with default header values.
 
 Successful response, inspect body
 */
@@ -98,8 +97,7 @@ func NewGetWellKnownOpenidConfigurationNotFound() *GetWellKnownOpenidConfigurati
 	return &GetWellKnownOpenidConfigurationNotFound{}
 }
 
-/*
-GetWellKnownOpenidConfigurationNotFound handles this case with default header values.
+/*GetWellKnownOpenidConfigurationNotFound handles this case with default header values.
 
 Not found, no oidc provider present
 */
@@ -120,8 +118,7 @@ func NewGetWellKnownOpenidConfigurationInternalServerError() *GetWellKnownOpenid
 	return &GetWellKnownOpenidConfigurationInternalServerError{}
 }
 
-/*
-GetWellKnownOpenidConfigurationInternalServerError handles this case with default header values.
+/*GetWellKnownOpenidConfigurationInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -149,8 +146,7 @@ func (o *GetWellKnownOpenidConfigurationInternalServerError) readResponse(respon
 	return nil
 }
 
-/*
-GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
+/*GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
 swagger:model GetWellKnownOpenidConfigurationOKBody
 */
 type GetWellKnownOpenidConfigurationOKBody struct {

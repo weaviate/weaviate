@@ -42,12 +42,12 @@ func NewObjectsClassPut(ctx *middleware.Context, handler ObjectsClassPutHandler)
 	return &ObjectsClassPut{Context: ctx, Handler: handler}
 }
 
-/*
-ObjectsClassPut swagger:route PUT /objects/{className}/{id} objects objectsClassPut
+/*ObjectsClassPut swagger:route PUT /objects/{className}/{id} objects objectsClassPut
 
-# Update a class object based on its uuid
+Update a class object based on its uuid
 
 Update an individual data object based on its class and uuid.
+
 */
 type ObjectsClassPut struct {
 	Context *middleware.Context

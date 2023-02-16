@@ -27,8 +27,7 @@ import (
 // NodesGetOKCode is the HTTP code returned for type NodesGetOK
 const NodesGetOKCode int = 200
 
-/*
-NodesGetOK Nodes status successfully returned
+/*NodesGetOK Nodes status successfully returned
 
 swagger:response nodesGetOK
 */
@@ -72,8 +71,7 @@ func (o *NodesGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Prod
 // NodesGetUnauthorizedCode is the HTTP code returned for type NodesGetUnauthorized
 const NodesGetUnauthorizedCode int = 401
 
-/*
-NodesGetUnauthorized Unauthorized or invalid credentials.
+/*NodesGetUnauthorized Unauthorized or invalid credentials.
 
 swagger:response nodesGetUnauthorized
 */
@@ -97,8 +95,7 @@ func (o *NodesGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer ru
 // NodesGetForbiddenCode is the HTTP code returned for type NodesGetForbidden
 const NodesGetForbiddenCode int = 403
 
-/*
-NodesGetForbidden Forbidden
+/*NodesGetForbidden Forbidden
 
 swagger:response nodesGetForbidden
 */
@@ -142,8 +139,7 @@ func (o *NodesGetForbidden) WriteResponse(rw http.ResponseWriter, producer runti
 // NodesGetNotFoundCode is the HTTP code returned for type NodesGetNotFound
 const NodesGetNotFoundCode int = 404
 
-/*
-NodesGetNotFound Not Found - Backup does not exist
+/*NodesGetNotFound Not Found - Backup does not exist
 
 swagger:response nodesGetNotFound
 */
@@ -187,8 +183,7 @@ func (o *NodesGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtim
 // NodesGetUnprocessableEntityCode is the HTTP code returned for type NodesGetUnprocessableEntity
 const NodesGetUnprocessableEntityCode int = 422
 
-/*
-NodesGetUnprocessableEntity Invalid backup restoration status attempt.
+/*NodesGetUnprocessableEntity Invalid backup restoration status attempt.
 
 swagger:response nodesGetUnprocessableEntity
 */
@@ -232,8 +227,7 @@ func (o *NodesGetUnprocessableEntity) WriteResponse(rw http.ResponseWriter, prod
 // NodesGetInternalServerErrorCode is the HTTP code returned for type NodesGetInternalServerError
 const NodesGetInternalServerErrorCode int = 500
 
-/*
-NodesGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*NodesGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response nodesGetInternalServerError
 */

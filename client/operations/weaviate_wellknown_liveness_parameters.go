@@ -66,8 +66,7 @@ func NewWeaviateWellknownLivenessParamsWithHTTPClient(client *http.Client) *Weav
 	}
 }
 
-/*
-WeaviateWellknownLivenessParams contains all the parameters to send to the API endpoint
+/*WeaviateWellknownLivenessParams contains all the parameters to send to the API endpoint
 for the weaviate wellknown liveness operation typically these are written to a http.Request
 */
 type WeaviateWellknownLivenessParams struct {

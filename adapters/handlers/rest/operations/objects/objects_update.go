@@ -42,12 +42,12 @@ func NewObjectsUpdate(ctx *middleware.Context, handler ObjectsUpdateHandler) *Ob
 	return &ObjectsUpdate{Context: ctx, Handler: handler}
 }
 
-/*
-ObjectsUpdate swagger:route PUT /objects/{id} objects objectsUpdate
+/*ObjectsUpdate swagger:route PUT /objects/{id} objects objectsUpdate
 
 Update an Object based on its UUID.
 
 Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+
 */
 type ObjectsUpdate struct {
 	Context *middleware.Context

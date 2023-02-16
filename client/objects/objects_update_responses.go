@@ -81,8 +81,7 @@ func NewObjectsUpdateOK() *ObjectsUpdateOK {
 	return &ObjectsUpdateOK{}
 }
 
-/*
-ObjectsUpdateOK handles this case with default header values.
+/*ObjectsUpdateOK handles this case with default header values.
 
 Successfully received.
 */
@@ -115,8 +114,7 @@ func NewObjectsUpdateUnauthorized() *ObjectsUpdateUnauthorized {
 	return &ObjectsUpdateUnauthorized{}
 }
 
-/*
-ObjectsUpdateUnauthorized handles this case with default header values.
+/*ObjectsUpdateUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -137,8 +135,7 @@ func NewObjectsUpdateForbidden() *ObjectsUpdateForbidden {
 	return &ObjectsUpdateForbidden{}
 }
 
-/*
-ObjectsUpdateForbidden handles this case with default header values.
+/*ObjectsUpdateForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -171,8 +168,7 @@ func NewObjectsUpdateNotFound() *ObjectsUpdateNotFound {
 	return &ObjectsUpdateNotFound{}
 }
 
-/*
-ObjectsUpdateNotFound handles this case with default header values.
+/*ObjectsUpdateNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -193,8 +189,7 @@ func NewObjectsUpdateUnprocessableEntity() *ObjectsUpdateUnprocessableEntity {
 	return &ObjectsUpdateUnprocessableEntity{}
 }
 
-/*
-ObjectsUpdateUnprocessableEntity handles this case with default header values.
+/*ObjectsUpdateUnprocessableEntity handles this case with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -227,8 +222,7 @@ func NewObjectsUpdateInternalServerError() *ObjectsUpdateInternalServerError {
 	return &ObjectsUpdateInternalServerError{}
 }
 
-/*
-ObjectsUpdateInternalServerError handles this case with default header values.
+/*ObjectsUpdateInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

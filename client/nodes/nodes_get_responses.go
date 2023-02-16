@@ -81,8 +81,7 @@ func NewNodesGetOK() *NodesGetOK {
 	return &NodesGetOK{}
 }
 
-/*
-NodesGetOK handles this case with default header values.
+/*NodesGetOK handles this case with default header values.
 
 Nodes status successfully returned
 */
@@ -115,8 +114,7 @@ func NewNodesGetUnauthorized() *NodesGetUnauthorized {
 	return &NodesGetUnauthorized{}
 }
 
-/*
-NodesGetUnauthorized handles this case with default header values.
+/*NodesGetUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -137,8 +135,7 @@ func NewNodesGetForbidden() *NodesGetForbidden {
 	return &NodesGetForbidden{}
 }
 
-/*
-NodesGetForbidden handles this case with default header values.
+/*NodesGetForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -171,8 +168,7 @@ func NewNodesGetNotFound() *NodesGetNotFound {
 	return &NodesGetNotFound{}
 }
 
-/*
-NodesGetNotFound handles this case with default header values.
+/*NodesGetNotFound handles this case with default header values.
 
 Not Found - Backup does not exist
 */
@@ -205,8 +201,7 @@ func NewNodesGetUnprocessableEntity() *NodesGetUnprocessableEntity {
 	return &NodesGetUnprocessableEntity{}
 }
 
-/*
-NodesGetUnprocessableEntity handles this case with default header values.
+/*NodesGetUnprocessableEntity handles this case with default header values.
 
 Invalid backup restoration status attempt.
 */
@@ -239,8 +234,7 @@ func NewNodesGetInternalServerError() *NodesGetInternalServerError {
 	return &NodesGetInternalServerError{}
 }
 
-/*
-NodesGetInternalServerError handles this case with default header values.
+/*NodesGetInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */

@@ -27,8 +27,7 @@ import (
 // ObjectsValidateOKCode is the HTTP code returned for type ObjectsValidateOK
 const ObjectsValidateOKCode int = 200
 
-/*
-ObjectsValidateOK Successfully validated.
+/*ObjectsValidateOK Successfully validated.
 
 swagger:response objectsValidateOK
 */
@@ -52,8 +51,7 @@ func (o *ObjectsValidateOK) WriteResponse(rw http.ResponseWriter, producer runti
 // ObjectsValidateUnauthorizedCode is the HTTP code returned for type ObjectsValidateUnauthorized
 const ObjectsValidateUnauthorizedCode int = 401
 
-/*
-ObjectsValidateUnauthorized Unauthorized or invalid credentials.
+/*ObjectsValidateUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsValidateUnauthorized
 */
@@ -77,8 +75,7 @@ func (o *ObjectsValidateUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 // ObjectsValidateForbiddenCode is the HTTP code returned for type ObjectsValidateForbidden
 const ObjectsValidateForbiddenCode int = 403
 
-/*
-ObjectsValidateForbidden Forbidden
+/*ObjectsValidateForbidden Forbidden
 
 swagger:response objectsValidateForbidden
 */
@@ -122,8 +119,7 @@ func (o *ObjectsValidateForbidden) WriteResponse(rw http.ResponseWriter, produce
 // ObjectsValidateUnprocessableEntityCode is the HTTP code returned for type ObjectsValidateUnprocessableEntity
 const ObjectsValidateUnprocessableEntityCode int = 422
 
-/*
-ObjectsValidateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*ObjectsValidateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response objectsValidateUnprocessableEntity
 */
@@ -167,8 +163,7 @@ func (o *ObjectsValidateUnprocessableEntity) WriteResponse(rw http.ResponseWrite
 // ObjectsValidateInternalServerErrorCode is the HTTP code returned for type ObjectsValidateInternalServerError
 const ObjectsValidateInternalServerErrorCode int = 500
 
-/*
-ObjectsValidateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+/*ObjectsValidateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response objectsValidateInternalServerError
 */

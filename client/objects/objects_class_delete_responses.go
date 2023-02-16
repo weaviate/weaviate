@@ -81,8 +81,7 @@ func NewObjectsClassDeleteNoContent() *ObjectsClassDeleteNoContent {
 	return &ObjectsClassDeleteNoContent{}
 }
 
-/*
-ObjectsClassDeleteNoContent handles this case with default header values.
+/*ObjectsClassDeleteNoContent handles this case with default header values.
 
 Successfully deleted.
 */
@@ -103,8 +102,7 @@ func NewObjectsClassDeleteBadRequest() *ObjectsClassDeleteBadRequest {
 	return &ObjectsClassDeleteBadRequest{}
 }
 
-/*
-ObjectsClassDeleteBadRequest handles this case with default header values.
+/*ObjectsClassDeleteBadRequest handles this case with default header values.
 
 Malformed request.
 */
@@ -137,8 +135,7 @@ func NewObjectsClassDeleteUnauthorized() *ObjectsClassDeleteUnauthorized {
 	return &ObjectsClassDeleteUnauthorized{}
 }
 
-/*
-ObjectsClassDeleteUnauthorized handles this case with default header values.
+/*ObjectsClassDeleteUnauthorized handles this case with default header values.
 
 Unauthorized or invalid credentials.
 */
@@ -159,8 +156,7 @@ func NewObjectsClassDeleteForbidden() *ObjectsClassDeleteForbidden {
 	return &ObjectsClassDeleteForbidden{}
 }
 
-/*
-ObjectsClassDeleteForbidden handles this case with default header values.
+/*ObjectsClassDeleteForbidden handles this case with default header values.
 
 Forbidden
 */
@@ -193,8 +189,7 @@ func NewObjectsClassDeleteNotFound() *ObjectsClassDeleteNotFound {
 	return &ObjectsClassDeleteNotFound{}
 }
 
-/*
-ObjectsClassDeleteNotFound handles this case with default header values.
+/*ObjectsClassDeleteNotFound handles this case with default header values.
 
 Successful query result but no resource was found.
 */
@@ -215,8 +210,7 @@ func NewObjectsClassDeleteInternalServerError() *ObjectsClassDeleteInternalServe
 	return &ObjectsClassDeleteInternalServerError{}
 }
 
-/*
-ObjectsClassDeleteInternalServerError handles this case with default header values.
+/*ObjectsClassDeleteInternalServerError handles this case with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
