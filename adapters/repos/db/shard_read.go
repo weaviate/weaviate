@@ -177,7 +177,6 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
-		
 
 		bm25objs := []*storobj.Object{}
 		bm25count := []float32{}
@@ -197,11 +196,10 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 		}
 
-		//If there are no filters, we are finished and can return 
+		// If there are no filters, we are finished and can return
 		if filters == nil {
 			return bm25objs, bm25count, nil
 		}
-
 
 		// Keep only the objects that are in both the BM25 and the regular search
 		// results.
