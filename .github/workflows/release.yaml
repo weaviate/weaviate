@@ -1,0 +1,33 @@
+name: Create Release Draft with Binaries
+on:
+  push:
+    branches:
+      - master
+jobs:
+  create-release-draft:
+    runs-on: ubuntu-latest
+    #name: Build Binaries
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Set up Go 1.19
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+      - name: Build Binaries (Linux arm64)
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          GOOS=linux GOARCH=arm64 go build $EXTRA_BUILD_ARGS -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' -o artifacts/weaviate-server-linux-arm64 cmd/weaviate-server/main.go
+      - name: Build Binaries (Linux amd64)
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          GOOS=linux GOARCH=amd64 go build $EXTRA_BUILD_ARGS -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' -o artifacts/weaviate-server-linux-amd64 cmd/weaviate-server/main.go
+      - name: Build Binaries (MacOS arm64)
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          GOOS=darwin GOARCH=arm64 go build $EXTRA_BUILD_ARGS -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' -o artifacts/weaviate-server-darwin-arm64 cmd/weaviate-server/main.go
+      - name: Build Binaries (MacOS amd64)
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          GOOS=darwin GOARCH=amd64 go build $EXTRA_BUILD_ARGS -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' -o artifacts/weaviate-server-darwin-amd64 cmd/weaviate-server/main.go
+      #- name: Push release
