@@ -133,15 +133,9 @@ func (e *Explorer) GetClass(ctx context.Context,
 	return e.getClassList(ctx, params)
 }
 
-func (e *Explorer) getClassKeywordBased(ctx context.Context,
-	params dto.GetParams,
-) ([]interface{}, error) {
+func (e *Explorer) getClassKeywordBased(ctx context.Context,params dto.GetParams) ([]interface{}, error) {
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
-	}
-
-	if params.Filters != nil {
-		return nil, errors.Errorf("filtered keyword search (bm25) not supported yet")
 	}
 
 	if len(params.KeywordRanking.Query) == 0 {
