@@ -81,7 +81,7 @@ func hybridSubSearch(classObject *graphql.Object,
 			Description: "Sparse Search",
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
-					Name:        fmt.Sprintf("%sBM25InpObj", prefixName),
+					Name:        fmt.Sprintf("%sHybridGetBM25InpObj", prefixName),
 					Fields:      bm25Fields(prefixName),
 					Description: "BM25f search",
 				},

@@ -114,6 +114,7 @@ require (
 	github.com/rs/xid v1.2.1 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/stretchr/objx v0.4.0 // indirect
+	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d // indirect
 	github.com/willf/bitset v1.1.11 // indirect
 	go.mongodb.org/mongo-driver v1.11.0 // indirect
 	go.opencensus.io v0.23.0 // indirect
