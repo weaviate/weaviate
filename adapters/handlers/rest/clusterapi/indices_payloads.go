@@ -176,16 +176,18 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
-		bytes, err := ind.MarshalBinary()
-		if err != nil {
-			return nil, err
+		if ind != nil {
+			bytes, err := ind.MarshalBinary()
+			if err != nil {
+				return nil, err
+			}
+
+			length := uint64(len(bytes))
+			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+			out = append(out, reusableLengthBuf...)
+			out = append(out, bytes...)
 		}
-
-		length := uint64(len(bytes))
-		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
-
-		out = append(out, reusableLengthBuf...)
-		out = append(out, bytes...)
 	}
 
 	return out, nil
