@@ -1,7 +1,10 @@
 package rest
 
 import (
+	"net/http"
+
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -14,7 +17,7 @@ import (
 )
 
 type indexesHandlers struct {
-	manager *userindex.Manager
+	manager *userindex.Coordinator
 }
 
 func (h *indexesHandlers) getAll(
@@ -45,9 +48,10 @@ func (h *indexesHandlers) getAll(
 }
 
 func setupIndexesHandlers(api *operations.WeaviateAPI,
-	repo *db.DB, appState *state.State,
+	repo *db.DB, appState *state.State, httpClient *http.Client,
 ) {
-	indexesManager := userindex.New(repo, appState.Authorizer)
+	indexesManager := userindex.New(repo, appState.Authorizer,
+		appState.Cluster, clients.NewUserIndex(httpClient))
 
 	h := &indexesHandlers{indexesManager}
 	api.SchemaSchemaClassesIndexesGetHandler = schema.

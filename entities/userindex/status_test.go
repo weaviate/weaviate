@@ -37,7 +37,7 @@ func TestStatus(t *testing.T) {
 			{
 				ID:      "vector",
 				Paths:   []string{"shard1_path"},
-				shards:  []string{"shard1"},
+				Shards:  []string{"shard1"},
 				Reason:  "A good one",
 				Status:  "ready",
 				Type:    "tipo 00 (great for pizza)",
@@ -59,7 +59,7 @@ func TestStatus(t *testing.T) {
 			{
 				ID:      "vector",
 				Paths:   []string{"shard1_path"},
-				shards:  []string{"shard1"},
+				Shards:  []string{"shard1"},
 				Reason:  "A good one",
 				Status:  "ready",
 				Type:    "tipo 00 (great for pizza)",
@@ -81,7 +81,7 @@ func TestStatus(t *testing.T) {
 			{
 				ID:      "vector",
 				Paths:   []string{"shard1_path"},
-				shards:  []string{"shard1"},
+				Shards:  []string{"shard1"},
 				Reason:  "A good one",
 				Status:  "ready",
 				Type:    "tipo 00 (great for pizza)",
@@ -90,7 +90,7 @@ func TestStatus(t *testing.T) {
 			{
 				ID:     "my_prop",
 				Paths:  []string{"shard1_my_prop"},
-				shards: []string{"shard1"},
+				Shards: []string{"shard1"},
 			},
 		}
 
@@ -108,7 +108,7 @@ func TestStatus(t *testing.T) {
 			{
 				ID:      "vector",
 				Paths:   []string{"shard1_path"},
-				shards:  []string{"shard1"},
+				Shards:  []string{"shard1"},
 				Reason:  "A good one",
 				Status:  "ready",
 				Type:    "tipo 00 (great for pizza)",
@@ -117,7 +117,7 @@ func TestStatus(t *testing.T) {
 			{
 				ID:     "my_prop",
 				Paths:  []string{"shard1_my_prop", "shard2_my_prop"},
-				shards: []string{"shard1", "shard2"},
+				Shards: []string{"shard1", "shard2"},
 			},
 		}
 
@@ -155,7 +155,7 @@ func TestStatus(t *testing.T) {
 			{
 				ID:     "my_prop",
 				Paths:  []string{"shard2_my_prop"},
-				shards: []string{"shard2"},
+				Shards: []string{"shard2"},
 			},
 		}
 

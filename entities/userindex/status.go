@@ -27,7 +27,7 @@ type Status struct {
 
 type Index struct {
 	ID      string
-	shards  []string
+	Shards  []string
 	Status  string
 	Paths   []string
 	Type    string
@@ -45,7 +45,7 @@ func (s *Status) Register(shard string, newInd Index) error {
 		}
 	}
 
-	newInd.shards = append(newInd.shards, shard)
+	newInd.Shards = append(newInd.Shards, shard)
 	s.indexes = append(s.indexes, newInd)
 	return nil
 }
@@ -58,7 +58,7 @@ func (s *Status) List() []Index {
 }
 
 func (ind *Index) merge(newShard string, newInd Index) error {
-	for _, shard := range ind.shards {
+	for _, shard := range ind.Shards {
 		if shard == newShard {
 			return fmt.Errorf("duplicate index for shard %s: %s",
 				newShard, ind.ID)
@@ -67,7 +67,7 @@ func (ind *Index) merge(newShard string, newInd Index) error {
 
 	fmt.Printf("about to amend")
 
-	ind.shards = append(ind.shards, newShard)
+	ind.Shards = append(ind.Shards, newShard)
 	ind.Paths = append(ind.Paths, newInd.Paths...)
 
 	return nil
@@ -99,18 +99,18 @@ func (ind *Index) removeShard(shardName string) bool {
 		return true
 	}
 
-	if len(ind.shards) == 1 && pos == 0 {
+	if len(ind.Shards) == 1 && pos == 0 {
 		// no need to remove the shard, the whole entry can be dropped
 		return false
 	}
 
-	ind.shards = append(ind.shards[:pos], ind.shards[pos+1:]...)
+	ind.Shards = append(ind.Shards[:pos], ind.Shards[pos+1:]...)
 	ind.Paths = append(ind.Paths[:pos], ind.Paths[pos+1:]...)
 	return true
 }
 
 func (ind *Index) shardPos(needle string) int {
-	for i, hay := range ind.shards {
+	for i, hay := range ind.Shards {
 		if hay == needle {
 			return i
 		}
@@ -129,8 +129,8 @@ func (s *Status) ToSwagger() *models.IndexStatusList {
 	out.Indexes = make([]*models.IndexStatus, len(s.indexes))
 	for i, ind := range s.indexes {
 		out.Indexes[i] = ind.ToSwagger()
-		if len(ind.shards) > int(out.ShardCount) {
-			out.ShardCount = int64(len(ind.shards))
+		if len(ind.Shards) > int(out.ShardCount) {
+			out.ShardCount = int64(len(ind.Shards))
 		}
 	}
 
