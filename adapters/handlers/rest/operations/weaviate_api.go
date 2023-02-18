@@ -164,6 +164,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsValidateHandler: objects.ObjectsValidateHandlerFunc(func(params objects.ObjectsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsValidate has not yet been implemented")
 		}),
+		SchemaSchemaClassesIndexesGetHandler: schema.SchemaClassesIndexesGetHandlerFunc(func(params schema.SchemaClassesIndexesGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaClassesIndexesGet has not yet been implemented")
+		}),
 		SchemaSchemaDumpHandler: schema.SchemaDumpHandlerFunc(func(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaDump has not yet been implemented")
 		}),
@@ -312,6 +315,8 @@ type WeaviateAPI struct {
 	ObjectsObjectsUpdateHandler objects.ObjectsUpdateHandler
 	// ObjectsObjectsValidateHandler sets the operation handler for the objects validate operation
 	ObjectsObjectsValidateHandler objects.ObjectsValidateHandler
+	// SchemaSchemaClassesIndexesGetHandler sets the operation handler for the schema classes indexes get operation
+	SchemaSchemaClassesIndexesGetHandler schema.SchemaClassesIndexesGetHandler
 	// SchemaSchemaDumpHandler sets the operation handler for the schema dump operation
 	SchemaSchemaDumpHandler schema.SchemaDumpHandler
 	// SchemaSchemaObjectsCreateHandler sets the operation handler for the schema objects create operation
@@ -505,6 +510,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ObjectsObjectsValidateHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsValidateHandler")
+	}
+	if o.SchemaSchemaClassesIndexesGetHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaClassesIndexesGetHandler")
 	}
 	if o.SchemaSchemaDumpHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaDumpHandler")
@@ -771,6 +779,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/objects/validate"] = objects.NewObjectsValidate(o.context, o.ObjectsObjectsValidateHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/{className}/indexes"] = schema.NewSchemaClassesIndexesGet(o.context, o.SchemaSchemaClassesIndexesGetHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

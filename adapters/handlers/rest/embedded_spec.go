@@ -2414,6 +2414,55 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/indexes": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "List the indexes for this class (across all shards)",
+        "operationId": "schema.classes.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. Indexes are listed in the response",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusList"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "This class does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      }
+    },
     "/schema/{className}/properties": {
       "post": {
         "tags": [
@@ -3445,6 +3494,64 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/GraphQLResponse"
+      }
+    },
+    "IndexStatus": {
+      "description": "Overview of a specific index with explanations why it exists and stats",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for this index. Reference the index by this id if you plan to make changes.",
+          "type": "string"
+        },
+        "paths": {
+          "description": "The paths to the respective files or folders on disk. Typically one per shard.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "description": "An explanation why this shards exists",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status of the shard",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The subject of this index; what does this index index?",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of the index. Helps understand what Weaviate internals are used for this index",
+          "type": "string"
+        }
+      }
+    },
+    "IndexStatusList": {
+      "description": "The status of all the indexes of a Class",
+      "properties": {
+        "className": {
+          "description": "Name of the class",
+          "type": "string"
+        },
+        "indexes": {
+          "description": "A list of indexes for this class",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "shardCount": {
+          "description": "Number of shards with indexes for this class",
+          "type": "number",
+          "format": "int"
+        },
+        "total": {
+          "description": "Total number of indexes for this class",
+          "type": "number",
+          "format": "int"
+        }
       }
     },
     "InvertedIndexConfig": {
@@ -6751,6 +6858,55 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/indexes": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "List the indexes for this class (across all shards)",
+        "operationId": "schema.classes.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK. Indexes are listed in the response",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusList"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "This class does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.get.meta"
+        ]
+      }
+    },
     "/schema/{className}/properties": {
       "post": {
         "tags": [
@@ -7941,6 +8097,64 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/GraphQLResponse"
+      }
+    },
+    "IndexStatus": {
+      "description": "Overview of a specific index with explanations why it exists and stats",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for this index. Reference the index by this id if you plan to make changes.",
+          "type": "string"
+        },
+        "paths": {
+          "description": "The paths to the respective files or folders on disk. Typically one per shard.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "description": "An explanation why this shards exists",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status of the shard",
+          "type": "string"
+        },
+        "subject": {
+          "description": "The subject of this index; what does this index index?",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of the index. Helps understand what Weaviate internals are used for this index",
+          "type": "string"
+        }
+      }
+    },
+    "IndexStatusList": {
+      "description": "The status of all the indexes of a Class",
+      "properties": {
+        "className": {
+          "description": "Name of the class",
+          "type": "string"
+        },
+        "indexes": {
+          "description": "A list of indexes for this class",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "shardCount": {
+          "description": "Number of shards with indexes for this class",
+          "type": "number",
+          "format": "int"
+        },
+        "total": {
+          "description": "Total number of indexes for this class",
+          "type": "number",
+          "format": "int"
+        }
       }
     },
     "InvertedIndexConfig": {
