@@ -14,6 +14,8 @@ package userindex
 import (
 	"fmt"
 	"sync"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Status tracks all running indexes for the user-facing API as well as
@@ -72,6 +74,9 @@ func (ind *Index) merge(newShard string, newInd Index) error {
 }
 
 func (s *Status) RemoveShard(shardName string) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
 	i := 0
 	for j := range s.indexes {
 		keep := s.indexes[j].removeShard(shardName)
@@ -112,6 +117,35 @@ func (ind *Index) shardPos(needle string) int {
 	}
 
 	return -1
+}
+
+func (s *Status) ToSwagger() *models.IndexStatusList {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	out := &models.IndexStatusList{}
+
+	out.Total = int64(len(s.indexes))
+	out.Indexes = make([]*models.IndexStatus, len(s.indexes))
+	for i, ind := range s.indexes {
+		out.Indexes[i] = ind.ToSwagger()
+		if len(ind.shards) > int(out.ShardCount) {
+			out.ShardCount = int64(len(ind.shards))
+		}
+	}
+
+	return out
+}
+
+func (ind Index) ToSwagger() *models.IndexStatus {
+	return &models.IndexStatus{
+		ID:      ind.ID,
+		Paths:   ind.Paths,
+		Reason:  ind.Reason,
+		Status:  ind.Status,
+		Subject: ind.Subject,
+		Type:    ind.Type,
+	}
 }
 
 const StatusReady = "ready"
