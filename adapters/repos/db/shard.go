@@ -21,7 +21,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
@@ -141,7 +140,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	spew.Dump(s.index.userIndexStatus.List())
+	// spew.Dump(s.index.userIndexStatus.List())
 
 	return s, nil
 }

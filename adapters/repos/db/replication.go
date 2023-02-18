@@ -298,6 +298,8 @@ func (s *Shard) reinit(ctx context.Context) error {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
 
+	s.index.userIndexStatus.RemoveShard(s.ID())
+
 	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
 	if !ok {
 		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",

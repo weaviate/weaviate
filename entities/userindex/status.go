@@ -60,4 +60,47 @@ func (ind *Index) merge(newShard string, newInd Index) error {
 	return nil
 }
 
+func (s *Status) RemoveShard(shardName string) {
+	i := 0
+	for j := range s.indexes {
+		keep := s.indexes[j].removeShard(shardName)
+		if !keep {
+			continue
+		}
+
+		if i != j {
+			s.indexes[i] = s.indexes[j]
+		}
+		i++
+	}
+
+	s.indexes = s.indexes[:i]
+}
+
+func (ind *Index) removeShard(shardName string) bool {
+	pos := ind.shardPos(shardName)
+	if pos < 0 {
+		return true
+	}
+
+	if len(ind.shards) == 1 && pos == 0 {
+		// no need to remove the shard, the whole entry can be dropped
+		return false
+	}
+
+	ind.shards = append(ind.shards[:pos], ind.shards[pos+1:]...)
+	ind.Paths = append(ind.Paths[:pos], ind.Paths[pos+1:]...)
+	return true
+}
+
+func (ind *Index) shardPos(needle string) int {
+	for i, hay := range ind.shards {
+		if hay == needle {
+			return i
+		}
+	}
+
+	return -1
+}
+
 const StatusReady = "ready"

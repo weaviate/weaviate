@@ -91,4 +91,18 @@ func TestStatus(t *testing.T) {
 
 		assert.Equal(t, expected, s.List())
 	})
+
+	t.Run("remove shard completely", func(t *testing.T) {
+		s.RemoveShard("shard1")
+
+		expected := []Index{
+			{
+				ID:     "my_prop",
+				Paths:  []string{"shard2_my_prop"},
+				shards: []string{"shard2"},
+			},
+		}
+
+		assert.Equal(t, expected, s.List())
+	})
 }
