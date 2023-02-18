@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/docid"
@@ -37,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/userindex"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -139,6 +141,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
+	spew.Dump(s.index.userIndexStatus.List())
+
 	return s, nil
 }
 
@@ -161,6 +165,21 @@ func (s *Shard) initVectorIndex(
 	default:
 		return errors.Errorf("unrecognized distance metric %q,"+
 			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+	}
+
+	// register before starting up, this way we can be sure that no duplicate
+	// ever runs
+	if err := s.index.userIndexStatus.Register(s.ID(), userindex.Index{
+		ID:      "vector",
+		Subject: "primary_vector",
+		Status:  userindex.StatusReady,
+		Paths: []string{
+			fmt.Sprintf("%s.hnsw.commitlog.d", s.ID()),
+		},
+		Type:   "hnsw",
+		Reason: "class was created with vectorIndexType=hnsw and vectorIndexConfig.skip=false",
+	}); err != nil {
+		return err
 	}
 
 	vi, err := hnsw.New(hnsw.Config{
@@ -500,6 +519,20 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return storagestate.ErrStatusReadOnly
 	}
 	if schema.IsRefDataType(prop.DataType) {
+
+		if err := s.index.userIndexStatus.Register(s.ID(), userindex.Index{
+			ID:      helpers.MetaCountProp(prop.Name),
+			Subject: prop.Name,
+			Status:  userindex.StatusReady,
+			Paths: []string{
+				fmt.Sprintf("%s/%s", s.DBPathLSM(), helpers.MetaCountProp(prop.Name)),
+			},
+			Type:   lsmkv.StrategyRoaringSet,
+			Reason: fmt.Sprintf("prop %s is a reference prop, this index indexes how many references are set", prop.Name),
+		}); err != nil {
+			return err
+		}
+
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
 			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
@@ -526,13 +559,29 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	mapOpts := []lsmkv.BucketOption{
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
 	}
+	strat := ""
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
+		strat = lsmkv.StrategyMapCollection
 		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
 			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
 		}
 	} else {
+		strat = lsmkv.StrategyRoaringSet
 		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+	}
+
+	if err := s.index.userIndexStatus.Register(s.ID(), userindex.Index{
+		ID:      helpers.BucketFromPropNameLSM(prop.Name),
+		Subject: prop.Name,
+		Status:  userindex.StatusReady,
+		Paths: []string{
+			fmt.Sprintf("%s/%s", s.DBPathLSM(), helpers.BucketFromPropNameLSM(prop.Name)),
+		},
+		Type:   strat,
+		Reason: fmt.Sprintf("prop %s is indexed because indexInverted!=false", prop.Name),
+	}); err != nil {
+		return err
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),

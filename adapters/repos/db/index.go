@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/userindex"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -66,7 +67,8 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
-	metrics *Metrics
+	metrics         *Metrics
+	userIndexStatus *userindex.Status
 }
 
 func (i *Index) ID() string {
@@ -107,7 +109,8 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		replicator:            repl,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
-		metrics: NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
+		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
+		userIndexStatus: &userindex.Status{},
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
