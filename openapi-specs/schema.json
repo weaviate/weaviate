@@ -3563,6 +3563,12 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "responses": {
