@@ -118,6 +118,10 @@ type fakeClusterState struct {
 	hosts []string
 }
 
+func (f *fakeClusterState) SchemaSyncIgnored() bool {
+	return false
+}
+
 func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
