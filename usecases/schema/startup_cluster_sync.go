@@ -49,7 +49,18 @@ func (m *Manager) startupClusterSync(ctx context.Context,
 		return m.startupJoinCluster(ctx, localSchema)
 	}
 
-	return m.validateSchemaCorruption(ctx, localSchema)
+	err := m.validateSchemaCorruption(ctx, localSchema)
+	if err != nil {
+		if m.clusterState.SchemaSyncIgnored() {
+			m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
+				Warning("schema out of sync, but ignored because " +
+					"CLUSTER_IGNORE_SCHEMA_SYNC=true")
+		} else {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // startupHandleSingleNode deals with the case where there is only a single

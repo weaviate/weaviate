@@ -94,6 +94,8 @@ type clusterState interface {
 
 	// ClusterHealthScore gets the whole cluster health, the lower number the better
 	ClusterHealthScore() int
+
+	SchemaSyncIgnored() bool
 }
 
 type scaleOut interface {
