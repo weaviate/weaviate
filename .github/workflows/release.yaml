@@ -2,7 +2,8 @@ name: Create Release Draft with Binaries
 on:
   push:
     branches:
-      - master
+      # Change this to master (using release-worflow branch for testing the workflow)
+      - release-workflow
 jobs:
   create-release-draft:
     runs-on: ubuntu-latest
