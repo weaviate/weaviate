@@ -6,7 +6,6 @@ on:
 jobs:
   create-release-draft:
     runs-on: ubuntu-latest
-    #name: Build Binaries
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -50,4 +49,3 @@ jobs:
         with:
           name: weaviate-server-darwin-amd64
           path: artifacts/weaviate-server-darwin-amd64
-      #- name: Push release
