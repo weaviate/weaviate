@@ -23,6 +23,7 @@ type TxBroadcaster struct {
 	state       MemberLister
 	client      Client
 	consensusFn ConsensusFn
+	ideal       *IdealClusterState
 }
 
 // The Broadcaster is the link between the the current node and all other nodes
@@ -39,13 +40,16 @@ type Client interface {
 }
 
 type MemberLister interface {
+	AllNames() []string
 	Hostnames() []string
 }
 
 func NewTxBroadcaster(state MemberLister, client Client) *TxBroadcaster {
+	ideal := NewIdealClusterState(state)
 	return &TxBroadcaster{
 		state:  state,
 		client: client,
+		ideal:  ideal,
 	}
 }
 
@@ -54,9 +58,11 @@ func (t *TxBroadcaster) SetConsensusFunction(fn ConsensusFn) {
 }
 
 func (t *TxBroadcaster) BroadcastTransaction(ctx context.Context, tx *Transaction) error {
-	// TODO health check
-	// it should be impossible to even attempt to open a transaction if we
-	// already know that the cluster is not healthy
+	if !tx.TolerateNodeFailures {
+		if err := t.ideal.Validate(); err != nil {
+			return fmt.Errorf("tx does not tolerate node failures: %w", err)
+		}
+	}
 
 	hosts := t.state.Hostnames()
 	resTx := make([]*Transaction, len(hosts))
@@ -114,6 +120,11 @@ func (t *TxBroadcaster) BroadcastAbortTransaction(ctx context.Context, tx *Trans
 }
 
 func (t *TxBroadcaster) BroadcastCommitTransaction(ctx context.Context, tx *Transaction) error {
+	if !tx.TolerateNodeFailures {
+		if err := t.ideal.Validate(); err != nil {
+			return fmt.Errorf("tx does not tolerate node failures: %w", err)
+		}
+	}
 	eg := &errgroup.Group{}
 	for _, host := range t.state.Hostnames() {
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
