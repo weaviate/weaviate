@@ -22,14 +22,16 @@ import (
 )
 
 type State struct {
-	list *memberlist.Memberlist
+	config Config
+	list   *memberlist.Memberlist
 }
 
 type Config struct {
-	Hostname       string `json:"hostname" yaml:"hostname"`
-	GossipBindPort int    `json:"gossipBindPort" yaml:"gossipBindPort"`
-	DataBindPort   int    `json:"dataBindPort" yaml:"dataBindPort"`
-	Join           string `json:"join" yaml:"join"`
+	Hostname                string `json:"hostname" yaml:"hostname"`
+	GossipBindPort          int    `json:"gossipBindPort" yaml:"gossipBindPort"`
+	DataBindPort            int    `json:"dataBindPort" yaml:"dataBindPort"`
+	Join                    string `json:"join" yaml:"join"`
+	IgnoreStartupSchemaSync bool   `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 }
 
 func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
@@ -80,7 +82,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 		}
 	}
 
-	return &State{list: list}, nil
+	return &State{list: list, config: userConfig}, nil
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
@@ -152,4 +154,8 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+func (s *State) SchemaSyncIgnored() bool {
+	return s.config.IgnoreStartupSchemaSync
 }
