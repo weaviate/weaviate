@@ -30,4 +30,24 @@ jobs:
         run: |
           GIT_HASH=$(git rev-parse --short HEAD)
           GOOS=darwin GOARCH=amd64 go build $EXTRA_BUILD_ARGS -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' -o artifacts/weaviate-server-darwin-amd64 cmd/weaviate-server/main.go
+      - name: Upload artifacts/weaviate-server-linux-arm64
+        uses: actions/upload-artifact@v2
+        with:
+          name: weaviate-server-linux-arm64
+          path: artifacts/weaviate-server-linux-arm64
+      - name: Upload artifacts/weaviate-server-linux-amd64
+        uses: actions/upload-artifact@v2
+        with:
+          name: weaviate-server-linux-amd64
+          path: artifacts/weaviate-server-linux-amd64
+      - name: Upload artifacts/weaviate-server-darwin-arm64
+        uses: actions/upload-artifact@v2
+        with:
+          name: weaviate-server-darwin-arm64
+          path: artifacts/weaviate-server-darwin-arm64
+      - name: Upload artifacts/weaviate-server-darwin-amd64
+        uses: actions/upload-artifact@v2
+        with:
+          name: weaviate-server-darwin-amd64
+          path: artifacts/weaviate-server-darwin-amd64
       #- name: Push release
