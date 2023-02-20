@@ -179,7 +179,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
 
-		bm25objs := []*storobj.Object{}
+		var bm25objs []*storobj.Object
 		bm25count := []float32{}
 		var err error
 		var objs helpers.AllowList
