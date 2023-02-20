@@ -48,7 +48,14 @@ type Bucket struct {
 	memtableThreshold uint64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
-	secondaryIndices  uint16
+	// Strategy inverted index is supposed to be created with, but existing
+	// segment files were created with different one.
+	// It can happen when new strategy were introduced to weaviate, but
+	// files are already created using old implementation.
+	// Example: RoaringSet strategy replaces CollectionSet strategy.
+	// Field can be used for migration files of old strategy to newer one.
+	desiredStrategy  string
+	secondaryIndices uint16
 
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
@@ -122,6 +129,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
 		sg.segments[0].strategy == segmentindex.StrategySetCollection {
 		b.strategy = StrategySetCollection
+		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategySetCollection
 	}
 
@@ -153,7 +161,9 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
 		}
-		f(obj)
+		if err := f(obj); err != nil {
+			return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
+		}
 
 		i++
 	}
@@ -829,6 +839,10 @@ func (b *Bucket) atomicallySwitchMemtable() error {
 
 func (b *Bucket) Strategy() string {
 	return b.strategy
+}
+
+func (b *Bucket) DesiredStrategy() string {
+	return b.desiredStrategy
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
