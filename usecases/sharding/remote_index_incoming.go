@@ -65,6 +65,8 @@ type RemoteIndexIncomingRepo interface {
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
 	IncomingOverwriteObjects(ctx context.Context, shard string,
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
+	IncomingDigestObjects(ctx context.Context, shardName string,
+		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
 
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
@@ -286,4 +288,15 @@ func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 	}
 
 	return index.IncomingOverwriteObjects(ctx, shardName, vobjects)
+}
+
+func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
+	indexName, shardName string, ids []strfmt.UUID,
+) ([]replica.RepairResponse, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingDigestObjects(ctx, shardName, ids)
 }

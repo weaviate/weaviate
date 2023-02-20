@@ -20,46 +20,46 @@ import (
 
 type PrometheusMetrics struct {
 	BatchTime                          *prometheus.HistogramVec
-	BatchDeleteTime                    *prometheus.HistogramVec
-	ObjectsTime                        *prometheus.HistogramVec
-	LSMBloomFilters                    *prometheus.HistogramVec
+	BatchDeleteTime                    *prometheus.SummaryVec
+	ObjectsTime                        *prometheus.SummaryVec
+	LSMBloomFilters                    *prometheus.SummaryVec
 	AsyncOperations                    *prometheus.GaugeVec
 	LSMSegmentCount                    *prometheus.GaugeVec
 	LSMSegmentCountByLevel             *prometheus.GaugeVec
 	LSMSegmentObjects                  *prometheus.GaugeVec
 	LSMSegmentSize                     *prometheus.GaugeVec
 	LSMMemtableSize                    *prometheus.GaugeVec
-	LSMMemtableDurations               *prometheus.HistogramVec
+	LSMMemtableDurations               *prometheus.SummaryVec
 	VectorIndexTombstones              *prometheus.GaugeVec
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
 	VectorIndexOperations              *prometheus.GaugeVec
-	VectorIndexDurations               *prometheus.HistogramVec
+	VectorIndexDurations               *prometheus.SummaryVec
 	VectorIndexSize                    *prometheus.GaugeVec
-	VectorIndexMaintenanceDurations    *prometheus.HistogramVec
+	VectorIndexMaintenanceDurations    *prometheus.SummaryVec
 	ObjectCount                        *prometheus.GaugeVec
 	QueriesCount                       *prometheus.GaugeVec
 	QueriesDurations                   *prometheus.HistogramVec
 	QueriesFilteredVectorDurations     *prometheus.HistogramVec
 	QueryDimensions                    *prometheus.CounterVec
 	GoroutinesCount                    *prometheus.GaugeVec
-	BackupRestoreDurations             *prometheus.HistogramVec
-	BackupStoreDurations               *prometheus.HistogramVec
-	BucketPauseDurations               *prometheus.HistogramVec
-	BackupRestoreClassDurations        *prometheus.HistogramVec
-	BackupRestoreBackupInitDurations   *prometheus.HistogramVec
-	BackupRestoreFromStorageDurations  *prometheus.HistogramVec
+	BackupRestoreDurations             *prometheus.SummaryVec
+	BackupStoreDurations               *prometheus.SummaryVec
+	BucketPauseDurations               *prometheus.SummaryVec
+	BackupRestoreClassDurations        *prometheus.SummaryVec
+	BackupRestoreBackupInitDurations   *prometheus.SummaryVec
+	BackupRestoreFromStorageDurations  *prometheus.SummaryVec
 	BackupRestoreDataTransferred       *prometheus.CounterVec
 	BackupStoreDataTransferred         *prometheus.CounterVec
 	VectorDimensionsSum                *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
-	StartupDurations *prometheus.HistogramVec
-	StartupDiskIO    *prometheus.HistogramVec
+	StartupDurations *prometheus.SummaryVec
+	StartupDiskIO    *prometheus.SummaryVec
 }
 
 var (
-	msBuckets                    = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000}
+	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000}
 	metrics   *PrometheusMetrics = nil
 )
 
@@ -76,18 +76,16 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+			Buckets: msBuckets,
 		}, []string{"operation", "class_name", "shard_name"}),
-		BatchDeleteTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "batch_delete_durations_ms",
-			Help:    "Duration in ms of a single delete batch",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+		BatchDeleteTime: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "batch_delete_durations_ms",
+			Help: "Duration in ms of a single delete batch",
 		}, []string{"operation", "class_name", "shard_name"}),
 
-		ObjectsTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "objects_durations_ms",
-			Help:    "Duration of an individual object operation. Also as part of batches.",
-			Buckets: prometheus.ExponentialBuckets(1, 1.8, 12),
+		ObjectsTime: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "objects_durations_ms",
+			Help: "Duration of an individual object operation. Also as part of batches.",
 		}, []string{"operation", "step", "class_name", "shard_name"}),
 		ObjectCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "object_count",
@@ -102,7 +100,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		QueriesDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "queries_durations_ms",
 			Help:    "Duration of queries in milliseconds",
-			Buckets: []float64{1, 10, 25, 50, 75, 100, 250, 500, 1000, 2500, 5000, 10000},
+			Buckets: msBuckets,
 		}, []string{"class_name", "query_type"}),
 
 		QueriesFilteredVectorDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -125,10 +123,9 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_active_segments",
 			Help: "Number of currently present segments per shard",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
-		LSMBloomFilters: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "lsm_bloom_filters_duration_ms",
-			Help:    "Duration of bloom filter operations",
-			Buckets: prometheus.ExponentialBuckets(1, 1.8, 12),
+		LSMBloomFilters: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "lsm_bloom_filters_duration_ms",
+			Help: "Duration of bloom filter operations",
 		}, []string{"operation", "strategy", "class_name", "shard_name"}),
 		LSMSegmentObjects: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_segment_objects",
@@ -146,10 +143,9 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_memtable_size",
 			Help: "Size of memtable by path",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
-		LSMMemtableDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "lsm_memtable_durations_ms",
-			Help:    "Time in ms for a bucket operation to complete",
-			Buckets: msBuckets,
+		LSMMemtableDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "lsm_memtable_durations_ms",
+			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
 
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -172,15 +168,13 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_index_size",
 			Help: "The size of the vector index. Typically larger than number of vectors, as it grows proactively.",
 		}, []string{"class_name", "shard_name"}),
-		VectorIndexMaintenanceDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "vector_index_maintenance_durations_ms",
-			Help:    "Duration of a sync or async vector index maintenance operation",
-			Buckets: prometheus.ExponentialBuckets(1, 1.8, 12),
+		VectorIndexMaintenanceDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "vector_index_maintenance_durations_ms",
+			Help: "Duration of a sync or async vector index maintenance operation",
 		}, []string{"operation", "class_name", "shard_name"}),
-		VectorIndexDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "vector_index_durations_ms",
-			Help:    "Duration of typical vector index operations (insert, delete)",
-			Buckets: prometheus.ExponentialBuckets(0.1, 1.8, 12),
+		VectorIndexDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "vector_index_durations_ms",
+			Help: "Duration of typical vector index operations (insert, delete)",
 		}, []string{"operation", "step", "class_name", "shard_name"}),
 		VectorDimensionsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_dimensions_sum",
@@ -191,50 +185,42 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "startup_progress",
 			Help: "A ratio (percentage) of startup progress for a particular component in a shard",
 		}, []string{"operation", "class_name", "shard_name"}),
-		StartupDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "startup_durations_ms",
-			Help:    "Duration of individual startup operations in ms",
-			Buckets: prometheus.ExponentialBuckets(100, 1.8, 12),
+		StartupDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "startup_durations_ms",
+			Help: "Duration of individual startup operations in ms",
 		}, []string{"operation", "class_name", "shard_name"}),
-		StartupDiskIO: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "startup_diskio_throughput",
-			Help:    "Disk I/O throuhput in bytes per second",
-			Buckets: prometheus.ExponentialBuckets(1, 2, 12),
+		StartupDiskIO: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "startup_diskio_throughput",
+			Help: "Disk I/O throuhput in bytes per second",
 		}, []string{"operation", "class_name", "shard_name"}),
 		QueryDimensions: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "query_dimensions_total",
 			Help: "The vector dimensions used by any read-query that involves vectors",
 		}, []string{"query_type", "operation", "class_name"}),
 
-		BackupRestoreDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "backup_restore_ms",
-			Help:    "Duration of a backup restore",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+		BackupRestoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_restore_ms",
+			Help: "Duration of a backup restore",
 		}, []string{"backend_name", "class_name"}),
-		BackupRestoreClassDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "backup_restore_class_ms",
-			Help:    "Duration restoring class",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+		BackupRestoreClassDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_restore_class_ms",
+			Help: "Duration restoring class",
 		}, []string{"class_name"}),
-		BackupRestoreBackupInitDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "backup_restore_init_ms",
-			Help:    "startup phase of a backup restore",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+		BackupRestoreBackupInitDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_restore_init_ms",
+			Help: "startup phase of a backup restore",
 		}, []string{"backend_name", "class_name"}),
-		BackupRestoreFromStorageDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "backup_restore_from_backend_ms",
-			Help:    "file transfer stage of a backup restore",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+		BackupRestoreFromStorageDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_restore_from_backend_ms",
+			Help: "file transfer stage of a backup restore",
 		}, []string{"backend_name", "class_name"}),
-		BackupStoreDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "backup_store_to_backend_ms",
-			Help:    "file transfer stage of a backup restore",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+		BackupStoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_store_to_backend_ms",
+			Help: "file transfer stage of a backup restore",
 		}, []string{"backend_name", "class_name"}),
-		BucketPauseDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "bucket_pause_durations_ms",
-			Help:    "bucket pause durations",
-			Buckets: prometheus.ExponentialBuckets(10, 1.8, 12),
+		BucketPauseDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "bucket_pause_durations_ms",
+			Help: "bucket pause durations",
 		}, []string{"bucket_dir"}),
 		BackupRestoreDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "backup_restore_data_transferred",

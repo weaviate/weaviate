@@ -12,6 +12,8 @@
 package hnsw
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -19,6 +21,24 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
+
+func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
+	if h.isEmpty() {
+		return nil
+	}
+	// check if vector length is the same as existing nodes
+	existingNodeVector, err := h.cache.get(context.Background(), h.entryPointID)
+	if err != nil {
+		return err
+	}
+
+	if len(existingNodeVector) != len(vector) {
+		return fmt.Errorf("new node has a vector with length %v. "+
+			"Existing nodes have vectors with length %v", len(vector), len(existingNodeVector))
+	}
+
+	return nil
+}
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
 	before := time.Now()

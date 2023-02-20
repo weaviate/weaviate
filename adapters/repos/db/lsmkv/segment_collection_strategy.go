@@ -16,8 +16,8 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
@@ -28,16 +28,15 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 	}
 
 	if !i.bloomFilter.Test(key) {
-		return nil, entities.NotFound
+		return nil, lsmkv.NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
-			return nil, entities.NotFound
-		} else {
-			return nil, err
+			return nil, lsmkv.NotFound
 		}
+		return nil, err
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -61,7 +60,7 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 
 func (i *segment) collectionStratParseData(in []byte) ([]value, error) {
 	if len(in) == 0 {
-		return nil, entities.NotFound
+		return nil, lsmkv.NotFound
 	}
 
 	offset := 0
@@ -91,7 +90,7 @@ func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionN
 	r := bytes.NewReader(in)
 
 	if len(in) == 0 {
-		return segmentCollectionNode{}, entities.NotFound
+		return segmentCollectionNode{}, lsmkv.NotFound
 	}
 
 	return ParseCollectionNode(r)
@@ -99,7 +98,7 @@ func (i *segment) collectionStratParseDataWithKey(in []byte) (segmentCollectionN
 
 func (i *segment) collectionStratParseDataWithKeyInto(in []byte, node *segmentCollectionNode) error {
 	if len(in) == 0 {
-		return entities.NotFound
+		return lsmkv.NotFound
 	}
 
 	return ParseCollectionNodeInto(in, node)

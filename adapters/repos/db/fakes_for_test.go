@@ -141,19 +141,6 @@ func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) FindObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
-) (*storobj.Object, error) {
-	return nil, nil
-}
-
-func (f *fakeRemoteClient) OverwriteObjects(ctx context.Context,
-	host, index, shard string, objects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
-	return nil, nil
-}
-
 func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
@@ -284,4 +271,35 @@ func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, 
 
 func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
+}
+
+func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID,
+) (bool, error) {
+	return false, nil
+}
+
+func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (objects.Replica, error) {
+	return objects.Replica{}, nil
+}
+
+func (*fakeReplicationClient) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
+	index, shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	return nil, nil
 }

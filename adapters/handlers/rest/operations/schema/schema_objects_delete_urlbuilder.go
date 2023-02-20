@@ -21,11 +21,15 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/swag"
 )
 
 // SchemaObjectsDeleteURL generates an URL for the schema objects delete operation
 type SchemaObjectsDeleteURL struct {
 	ClassName string
+
+	Force *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -65,6 +69,18 @@ func (o *SchemaObjectsDeleteURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var forceQ string
+	if o.Force != nil {
+		forceQ = swag.FormatBool(*o.Force)
+	}
+	if forceQ != "" {
+		qs.Set("force", forceQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

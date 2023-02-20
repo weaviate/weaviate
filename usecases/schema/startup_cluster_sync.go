@@ -13,7 +13,6 @@ package schema
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -50,7 +49,18 @@ func (m *Manager) startupClusterSync(ctx context.Context,
 		return m.startupJoinCluster(ctx, localSchema)
 	}
 
-	return m.validateSchemaCorruption(ctx, localSchema)
+	err := m.validateSchemaCorruption(ctx, localSchema)
+	if err != nil {
+		if m.clusterState.SchemaSyncIgnored() {
+			m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
+				Warning("schema out of sync, but ignored because " +
+					"CLUSTER_IGNORE_SCHEMA_SYNC=true")
+		} else {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // startupHandleSingleNode deals with the case where there is only a single
@@ -146,13 +156,9 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context,
 	}
 
 	if !Equal(localSchema, pl.Schema) {
-		localSchemaJSON, err1 := json.Marshal(localSchema)
-		consensusSchemaJSON, err2 := json.Marshal(pl.Schema)
+		diff := Diff("local", localSchema, "cluster", pl.Schema)
 		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
-			"local_schema":         string(localSchemaJSON),
-			"remote_schema":        string(consensusSchemaJSON),
-			"marhsal_error_local":  err1,
-			"marhsal_error_remote": err2,
+			"diff": diff,
 		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
 
 		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, " +

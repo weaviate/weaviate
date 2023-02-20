@@ -12,8 +12,8 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type segmentCursorCollectionReusable struct {
@@ -32,9 +32,8 @@ func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, err
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
 		if err == segmentindex.NotFound {
-			return nil, nil, entities.NotFound
+			return nil, nil, lsmkv.NotFound
 		}
-
 		return nil, nil, err
 	}
 
@@ -51,7 +50,7 @@ func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, err
 
 func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 	if s.nextOffset >= s.segment.dataEndPos {
-		return nil, nil, entities.NotFound
+		return nil, nil, lsmkv.NotFound
 	}
 
 	err := s.segment.collectionStratParseDataWithKeyInto(
