@@ -78,7 +78,7 @@ func (r *Replicator) PutObject(ctx context.Context, shard string,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Replicate(ctx, cl, op, r.simpleCommit(shard))
+	replyCh, level, err := coord.Push(ctx, cl, op, r.simpleCommit(shard))
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (r *Replicator) MergeObject(ctx context.Context, shard string,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Replicate(ctx, cl, op, r.simpleCommit(shard))
+	replyCh, level, err := coord.Push(ctx, cl, op, r.simpleCommit(shard))
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Replicate(ctx, cl, op, r.simpleCommit(shard))
+	replyCh, level, err := coord.Push(ctx, cl, op, r.simpleCommit(shard))
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (r *Replicator) PutObjects(ctx context.Context, shard string,
 		return nil
 	}
 
-	replyCh, level, err := coord.Replicate(ctx, cl, op, r.simpleCommit(shard))
+	replyCh, level, err := coord.Push(ctx, cl, op, r.simpleCommit(shard))
 	if err != nil {
 		errs := make([]error, len(objs))
 		for i := 0; i < len(objs); i++ {
@@ -180,7 +180,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 		return resp, err
 	}
 
-	replyCh, level, err := coord.Replicate(ctx, cl, op, commit)
+	replyCh, level, err := coord.Push(ctx, cl, op, commit)
 	if err != nil {
 		errs := make([]objects.BatchSimpleObject, len(docIDs))
 		for i := 0; i < len(docIDs); i++ {
@@ -205,7 +205,7 @@ func (r *Replicator) AddReferences(ctx context.Context, shard string,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Replicate(ctx, cl, op, r.simpleCommit(shard))
+	replyCh, level, err := coord.Push(ctx, cl, op, r.simpleCommit(shard))
 	if err != nil {
 		errs := make([]error, len(refs))
 		for i := 0; i < len(refs); i++ {

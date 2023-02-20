@@ -168,8 +168,6 @@ type RClient interface {
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (objects.Replica, error)
 
-	Exists(_ context.Context, host, index, shard string, id strfmt.UUID) (bool, error)
-
 	// FetchObjects fetches objects specified in ids list.
 	FetchObjects(_ context.Context, host, index, shard string,
 		ids []strfmt.UUID) ([]objects.Replica, error)

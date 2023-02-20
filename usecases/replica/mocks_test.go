@@ -35,11 +35,6 @@ func (f *fakeRClient) FetchObject(ctx context.Context, host, index, shard string
 	return args.Get(0).(objects.Replica), args.Error(1)
 }
 
-func (f *fakeRClient) Exists(ctx context.Context, host, index, shard string, id strfmt.UUID) (bool, error) {
-	args := f.Called(ctx, host, index, shard, id)
-	return args.Get(0).(bool), args.Error(1)
-}
-
 func (f *fakeRClient) FetchObjects(ctx context.Context, host, index,
 	shard string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
