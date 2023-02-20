@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"strconv"
 
 	"cloud.google.com/go/storage"
 	"github.com/pkg/errors"
@@ -34,7 +35,11 @@ type gcsClient struct {
 
 func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcsClient, error) {
 	options := []option.ClientOption{}
-	if len(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")) > 0 {
+	useAuth, err := strconv.ParseBool(os.Getenv("BACKUP_GCS_USE_AUTH"))
+	if err != nil {
+		return nil, errors.Wrap(err, "get env")
+	}
+	if useAuth {
 		scopes := []string{
 			"https://www.googleapis.com/auth/devstorage.read_write",
 		}
