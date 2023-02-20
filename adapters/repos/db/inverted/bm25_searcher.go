@@ -27,6 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -35,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/sroar"
 )
 
 type BM25Searcher struct {
@@ -312,10 +312,21 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds *sroar.Bitmap, query s
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		m, err := bucket.MapList([]byte(query))
+		preM, err := bucket.MapList([]byte(query))
 		if err != nil {
 			return termResult, nil, err
 		}
+		m := make([]lsmkv.MapPair, len(preM))
+		if filterDocIds != nil {
+			for _, val := range preM {
+				if filterDocIds.Contains(binary.BigEndian.Uint64(val.Key)) {
+					m = append(m, val)
+				}
+			}
+		} else {
+			m = preM
+		}
+
 		if len(m) == 0 {
 			continue
 		}

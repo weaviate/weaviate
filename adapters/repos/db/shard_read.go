@@ -182,21 +182,21 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		bm25objs := []*storobj.Object{}
 		bm25count := []float32{}
 		var err error
-		var objs []*storobj.Object
+		var objs helpers.AllowList
 		var filterDocIds *sroar.Bitmap
 
 		if filters != nil {
 			objs, err = inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
 				s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
 				s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
-				Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
+				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
 			}
 
 			filterDocIds = sroar.NewBitmap()
-			for _, obj := range objs {
-				filterDocIds.Set(obj.DocID())
+			for docId := range objs {
+				filterDocIds.Set(docId)
 			}
 		}
 		if keywordRanking != nil && keywordRanking.Type == "bm25" {
