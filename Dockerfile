@@ -1,6 +1,5 @@
 # Dockerfile for development purposes.
 # Read docs/development.md for more information
-
 # vi: ft=dockerfile
 
 

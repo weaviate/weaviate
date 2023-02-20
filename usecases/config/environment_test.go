@@ -275,6 +275,17 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 			expectedErr: errors.New("CLUSTER_DATA_BIND_PORT must be one port " +
 				"number greater than CLUSTER_GOSSIP_BIND_PORT"),
 		},
+		{
+			name: "schema sync disabled",
+			envVars: map[string]string{
+				"CLUSTER_IGNORE_SCHEMA_SYNC": "true",
+			},
+			expectedResult: cluster.Config{
+				GossipBindPort:          7946,
+				DataBindPort:            7947,
+				IgnoreStartupSchemaSync: true,
+			},
+		},
 	}
 
 	for _, test := range tests {
