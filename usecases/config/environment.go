@@ -41,6 +41,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+		config.ReindexSetToRoaringsetAtStartup = true
+	}
+
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
