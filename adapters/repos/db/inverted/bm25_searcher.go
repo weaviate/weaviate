@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/sroar"
 )
 
 type BM25Searcher struct {
@@ -74,7 +75,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 	}
 }
 
-func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, limit int,
+func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds *sroar.Bitmap, className schema.ClassName, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
@@ -90,7 +91,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 		return nil, nil, err
 	}
 
-	objs, scores, err := b.wand(ctx, class, keywordRanking.Query, keywordRanking.Properties, limit)
+	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking.Query, keywordRanking.Properties, limit)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
@@ -99,7 +100,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, className schema.ClassName, li
 }
 
 // Objects returns a list of full objects
-func (b *BM25Searcher) Objects(ctx context.Context, limit int,
+func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds *sroar.Bitmap, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
@@ -124,14 +125,14 @@ func (b *BM25Searcher) Objects(ctx context.Context, limit int,
 	indexed := p.IndexInverted
 
 	if indexed == nil || *indexed {
-		return b.wand(ctx, class, keywordRanking.Query, keywordRanking.Properties[:1], limit)
+		return b.wand(ctx, filterDocIds, class, keywordRanking.Query, keywordRanking.Properties[:1], limit)
 	} else {
 		return []*storobj.Object{}, []float32{}, nil
 	}
 }
 
 func (b *BM25Searcher) wand(
-	ctx context.Context, class *models.Class, fullQuery string, properties []string, limit int,
+	ctx context.Context, filterDocIds *sroar.Bitmap, class *models.Class, fullQuery string, properties []string, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
@@ -191,7 +192,7 @@ func (b *BM25Searcher) wand(
 
 	if len(propertyNamesText) > 0 {
 		for i, queryTerm := range queryTextTerms {
-			termResult, docIndices, err := b.createTerm(N, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[i])
+			termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[i])
 			if err != nil {
 				return nil, nil, err
 			}
@@ -202,7 +203,7 @@ func (b *BM25Searcher) wand(
 
 	if len(propertyNamesString) > 0 {
 		for i, queryTerm := range queryStringTerms {
-			termResult, docIndices, err := b.createTerm(N, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[i])
+			termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[i])
 			if err != nil {
 				return nil, nil, err
 			}
@@ -213,7 +214,7 @@ func (b *BM25Searcher) wand(
 	}
 
 	if len(propertyNamesFullQuery) > 0 {
-		termResult, docIndices, err := b.createTerm(N, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
+		termResult, docIndices, err := b.createTerm(N, filterDocIds, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -301,7 +302,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 	}
 }
 
-func (b *BM25Searcher) createTerm(N float64, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds *sroar.Bitmap, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
 	var docMapPairs []docPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}

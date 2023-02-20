@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -181,49 +182,39 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		bm25objs := []*storobj.Object{}
 		bm25count := []float32{}
 		var err error
+		var objs []*storobj.Object
+		var filterDocIds *sroar.Bitmap
+
+		if filters != nil {
+			objs, err = inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
+				s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
+				s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+				Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			filterDocIds = sroar.NewBitmap()
+			for _, obj := range objs {
+				filterDocIds.Set(obj.DocID())
+			}
+		}
 		if keywordRanking != nil && keywordRanking.Type == "bm25" {
 			className := s.index.Config.ClassName
-			bm25objs, bm25count, err = bm25searcher.BM25F(ctx, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object { v, _ := s.objectByIndexID(ctx, index, false); return v })
+			bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object { v, _ := s.objectByIndexID(ctx, index, false); return v })
 			if err != nil {
 				return nil, nil, err
 			}
 		} else {
 
-			bm25objs, bm25count, err = bm25searcher.Objects(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			bm25objs, bm25count, err = bm25searcher.Objects(ctx, filterDocIds, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
 			}
 
 		}
 
-		// If there are no filters, we are finished and can return
-		if filters == nil {
-			return bm25objs, bm25count, nil
-		}
-
-		// Keep only the objects that are in both the BM25 and the regular search
-		// results.
-		objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
-			s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-			s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
-			Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
-		if err != nil {
-			return nil, nil, err
-		}
-		objsHash := map[uint64]*storobj.Object{}
-		for _, obj := range objs {
-			objsHash[obj.DocID()] = obj
-		}
-		out := []*storobj.Object{}
-		outCount := []float32{}
-		for i, obj := range bm25objs {
-			if _, ok := objsHash[obj.DocID()]; ok {
-				out = append(out, obj)
-				outCount = append(outCount, bm25count[i])
-			}
-		}
-
-		return out, outCount, nil
+		return bm25objs, bm25count, nil
 
 	}
 
