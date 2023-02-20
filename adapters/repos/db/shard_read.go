@@ -180,7 +180,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 			s.index.logger, s.versioner.Version())
 
 		var bm25objs []*storobj.Object
-		bm25count := []float32{}
+		var bm25count []float32
 		var err error
 		var objs helpers.AllowList
 		var filterDocIds *sroar.Bitmap
