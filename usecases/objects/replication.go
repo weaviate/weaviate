@@ -162,3 +162,11 @@ func (ro *Replicas) UnmarshalBinary(data []byte) error {
 	*ro = reps
 	return nil
 }
+
+// UpdateTime return update time if it exists and 0 otherwise
+func (r Replica) UpdateTime() int64 {
+	if r.Object != nil {
+		return r.Object.LastUpdateTimeUnix()
+	}
+	return 0
+}

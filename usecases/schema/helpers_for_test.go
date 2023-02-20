@@ -116,7 +116,12 @@ func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Clas
 }
 
 type fakeClusterState struct {
-	hosts []string
+	hosts       []string
+	syncIgnored bool
+}
+
+func (f *fakeClusterState) SchemaSyncIgnored() bool {
+	return f.syncIgnored
 }
 
 func (f *fakeClusterState) Hostnames() []string {
