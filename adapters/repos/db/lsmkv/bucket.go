@@ -24,9 +24,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -183,13 +183,13 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		// is replace
 		return v, nil
 	}
-	if err == entities.Deleted {
+	if err == lsmkv.Deleted {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, nil
 	}
 
-	if err != entities.NotFound {
+	if err != lsmkv.NotFound {
 		panic("unsupported error in bucket.Get")
 	}
 
@@ -200,13 +200,13 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 			// is replace
 			return v, nil
 		}
-		if err == entities.Deleted {
+		if err == lsmkv.Deleted {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, nil
 		}
 
-		if err != entities.NotFound {
+		if err != lsmkv.NotFound {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -235,13 +235,13 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 		// is replace
 		return v, nil
 	}
-	if err == entities.Deleted {
+	if err == lsmkv.Deleted {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, nil
 	}
 
-	if err != entities.NotFound {
+	if err != lsmkv.NotFound {
 		panic("unsupported error in bucket.Get")
 	}
 
@@ -252,13 +252,13 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 			// is replace
 			return v, nil
 		}
-		if err == entities.Deleted {
+		if err == lsmkv.Deleted {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, nil
 		}
 
-		if err != entities.NotFound {
+		if err != lsmkv.NotFound {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -278,7 +278,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err := b.disk.getCollection(key)
 	if err != nil {
-		if err != nil && err != entities.NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}
@@ -287,7 +287,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
 		if err != nil {
-			if err != nil && err != entities.NotFound {
+			if err != nil && err != lsmkv.NotFound {
 				return nil, err
 			}
 		}
@@ -297,7 +297,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err = b.active.getCollection(key)
 	if err != nil {
-		if err != nil && err != entities.NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}
@@ -381,6 +381,52 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	})
 }
 
+// WasDeleted determines if an object used to exist in the LSM store
+//
+// There are 3 different locations that we need to check for the key
+// in this order: active memtable, flushing memtable, and disk
+// segment
+func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	_, err := b.active.get(key)
+	switch err {
+	case nil:
+		return false, nil
+	case lsmkv.Deleted:
+		return true, nil
+	case lsmkv.NotFound:
+		// We can still check flushing and disk
+	default:
+		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	if b.flushing != nil {
+		_, err := b.flushing.get(key)
+		switch err {
+		case nil:
+			return false, nil
+		case lsmkv.Deleted:
+			return true, nil
+		case lsmkv.NotFound:
+			// We can still check disk
+		default:
+			return false, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+	}
+
+	_, err = b.disk.get(key)
+	switch err {
+	case nil, lsmkv.NotFound:
+		return false, nil
+	case lsmkv.Deleted:
+		return true, nil
+	default:
+		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+}
+
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
@@ -420,7 +466,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
-		if err != nil && err != entities.NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}
@@ -444,7 +490,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil {
-			if err != nil && err != entities.NotFound {
+			if err != nil && err != lsmkv.NotFound {
 				return nil, err
 			}
 		}
@@ -455,7 +501,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil {
-		if err != nil && err != entities.NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}

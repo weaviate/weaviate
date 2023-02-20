@@ -47,10 +47,10 @@ type segment struct {
 }
 
 type diskIndex interface {
-	// Get return segmentindex.NotFound in case no node can be found
+	// Get return lsmkv.NotFound in case no node can be found
 	Get(key []byte) (segmentindex.Node, error)
 
-	// Seek returns segmentindex.NotFound in case the seek value is larger than
+	// Seek returns lsmkv.NotFound in case the seek value is larger than
 	// the highest value in the collection, otherwise it returns the next highest
 	// value (or the exact value if present)
 	Seek(key []byte) (segmentindex.Node, error)

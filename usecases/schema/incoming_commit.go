@@ -111,7 +111,7 @@ func (m *Manager) handleDeleteClassCommit(ctx context.Context,
 			tx.Payload)
 	}
 
-	return m.deleteClassApplyChanges(ctx, pl.ClassName)
+	return m.deleteClassApplyChanges(ctx, pl.ClassName, pl.Force)
 }
 
 func (m *Manager) handleUpdateClassCommit(ctx context.Context,

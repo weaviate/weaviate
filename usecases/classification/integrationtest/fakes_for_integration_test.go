@@ -440,6 +440,12 @@ func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, inde
 	return nil
 }
 
+func (f *fakeRemoteClient) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
@@ -496,4 +502,35 @@ func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, 
 
 func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
+}
+
+func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
+	shard string, id strfmt.UUID,
+) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
+	shard string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (objects.Replica, error) {
+	return objects.Replica{}, nil
+}
+
+func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
+	index, shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
+	host, index, shard string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, vobjects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	return nil, nil
 }

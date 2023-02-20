@@ -171,8 +171,27 @@ func (c *TxManager) SetResponseFn(fn ResponseFn) {
 // in a ttl of 0. When choosing TTLs keep in mind that clocks might be slightly
 // skewed in the cluster, therefore set your TTL for desiredTTL +
 // toleratedClockSkew
+//
+// Regular transactions cannot be opened if the cluster is not considered
+// healthy.
 func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType,
 	payload interface{}, ttl time.Duration,
+) (*Transaction, error) {
+	return c.beginTransaction(ctx, trType, payload, ttl, false)
+}
+
+// Begin a Transaction that does not require the whole cluster to be healthy.
+// This can be used for example in bootstrapping situations when not all nodes
+// are present yet, or in disaster recovery situations when a node needs to run
+// a transaction in order to re-join a cluster.
+func (c *TxManager) BeginTransactionTolerateNodeFailures(ctx context.Context, trType TransactionType,
+	payload interface{}, ttl time.Duration,
+) (*Transaction, error) {
+	return c.beginTransaction(ctx, trType, payload, ttl, true)
+}
+
+func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType,
+	payload interface{}, ttl time.Duration, tolerateNodeFailures bool,
 ) (*Transaction, error) {
 	c.Lock()
 
@@ -182,9 +201,10 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 	}
 
 	tx := &Transaction{
-		Type:    trType,
-		ID:      uuid.New().String(),
-		Payload: payload,
+		Type:                 trType,
+		ID:                   uuid.New().String(),
+		Payload:              payload,
+		TolerateNodeFailures: tolerateNodeFailures,
 	}
 	if ttl > 0 {
 		tx.Deadline = time.Now().Add(ttl)
@@ -204,7 +224,17 @@ func (c *TxManager) BeginTransaction(ctx context.Context, trType TransactionType
 		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
 			c.logger.WithFields(logrus.Fields{
 				"action": "broadcast_abort_transaction",
-				"id":     c.currentTransaction.ID,
+				// before https://github.com/weaviate/weaviate/issues/2625 the next
+				// line would read
+				//
+				// "id": c.currentTransaction.ID
+				//
+				// which had the potential for races. The tx itself is immutable and
+				// therefore always thread-safe. However, the association between the tx
+				// manager and the current tx is mutable, therefore the
+				// c.currentTransaction pointer could be nil (nil pointer panic) or
+				// point to another tx (incorrect log).
+				"id": tx.ID,
 			}).WithError(err).Errorf("broadcast tx abort failed")
 		}
 
@@ -329,4 +359,9 @@ type Transaction struct {
 	Type     TransactionType
 	Payload  interface{}
 	Deadline time.Time
+
+	// If TolerateNodeFailures is false (the default) a transaction cannot be
+	// opened or committed if a node is confirmed dead. If a node is only
+	// suspected dead, the TxManager will try, but abort unless all nodes ACK.
+	TolerateNodeFailures bool
 }

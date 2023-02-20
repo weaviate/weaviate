@@ -15,7 +15,7 @@ import (
 	"bytes"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type CursorSet struct {
@@ -102,7 +102,7 @@ func (c *CursorSet) seekAll(target []byte) {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			state[i].err = err
 			continue
 		}
@@ -124,7 +124,7 @@ func (c *CursorSet) firstAll() {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			state[i].err = err
 			continue
 		}
@@ -145,7 +145,7 @@ func (c *CursorSet) firstAll() {
 func (c *CursorSet) serveCurrentStateAndAdvance() ([]byte, [][]byte) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			return nil, nil
 		}
 	}
@@ -162,12 +162,12 @@ func (c *CursorSet) serveCurrentStateAndAdvance() ([]byte, [][]byte) {
 }
 
 func (c *CursorSet) cursorWithLowestKey() (int, error) {
-	err := entities.NotFound
+	err := lsmkv.NotFound
 	pos := -1
 	var lowest []byte
 
 	for i, res := range c.state {
-		if res.err == entities.NotFound {
+		if res.err == lsmkv.NotFound {
 			continue
 		}
 
@@ -227,7 +227,7 @@ func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 
 func (c *CursorSet) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if err == entities.NotFound {
+	if err == lsmkv.NotFound {
 		c.state[id].err = err
 		c.state[id].key = nil
 		if !c.keyOnly {
@@ -236,7 +236,7 @@ func (c *CursorSet) advanceInner(id int) {
 		return
 	}
 
-	if err == entities.Deleted {
+	if err == lsmkv.Deleted {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil
