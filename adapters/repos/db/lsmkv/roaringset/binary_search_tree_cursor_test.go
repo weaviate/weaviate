@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func TestBSTCursor(t *testing.T) {
@@ -108,7 +108,7 @@ func TestBSTCursor(t *testing.T) {
 		assert.Nil(t, key)
 		assert.True(t, layer.Additions.IsEmpty())
 		assert.True(t, layer.Deletions.IsEmpty())
-		assert.ErrorIs(t, err, entities.NotFound)
+		assert.ErrorIs(t, err, lsmkv.NotFound)
 	})
 
 	t.Run("next after seek missing element does not change cursor's position", func(t *testing.T) {

@@ -296,7 +296,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, erro
 	for _, segment := range sg.segments {
 		rs, err := segment.roaringSetGet(key)
 		if err != nil {
-			if err == entities.NotFound {
+			if err == lsmkv.NotFound {
 				continue
 			}
 
