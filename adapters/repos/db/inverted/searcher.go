@@ -580,63 +580,8 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	return out
 }
 
-// func (dbm *docBitmap) toDocPointers() *docPointers {
-// 	if dbm.docIDs == nil {
-// 		return &docPointers{checksum: dbm.checksum}
-// 	}
-// 	return &docPointers{
-// 		count:    uint64(dbm.docIDs.GetCardinality()),
-// 		docIDs:   dbm.docIDs.ToArray(),
-// 		checksum: dbm.checksum,
-// 	}
-// }
-
-// type docPointers struct {
-// 	count    uint64
-// 	docIDs   []uint64
-// 	checksum []byte // helps us judge if a cached read is still fresh
-// }
-
-type docPointersWithScore struct {
-	count    uint64
-	docIDs   []docPointerWithScore
-	checksum []byte // helps us judge if a cached read is still fresh
-}
-
 type docPointerWithScore struct {
 	id         uint64
 	frequency  float32
 	propLength float32
 }
-
-// func (d docPointers) IDs() []uint64 {
-// 	return d.docIDs
-// }
-
-func (d docPointersWithScore) IDs() []uint64 {
-	out := make([]uint64, len(d.docIDs))
-	for i, elem := range d.docIDs {
-		out[i] = elem.id
-	}
-	return out
-}
-
-// func (d *docPointers) removeDuplicates() {
-// 	counts := make(map[uint64]uint16, len(d.docIDs))
-// 	for _, id := range d.docIDs {
-// 		counts[id]++
-// 	}
-
-// 	updated := make([]uint64, len(d.docIDs))
-// 	i := 0
-// 	for _, id := range d.docIDs {
-// 		if counts[id] == 1 {
-// 			updated[i] = id
-// 			i++
-// 		}
-
-// 		counts[id]--
-// 	}
-
-// 	d.docIDs = updated[:i]
-// }

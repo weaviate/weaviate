@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type CombinedCursor struct {
@@ -77,7 +77,7 @@ func (c *CombinedCursor) runAll(cursorRun cursorRun) []innerCursorState {
 }
 
 func (c *CombinedCursor) createState(key []byte, layer BitmapLayer, err error) innerCursorState {
-	if err == entities.NotFound {
+	if err == lsmkv.NotFound {
 		return innerCursorState{err: err}
 	}
 	if err != nil {
@@ -119,7 +119,7 @@ func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([
 	allNotFound := true
 
 	for id, state := range states {
-		if state.err == entities.NotFound {
+		if state.err == lsmkv.NotFound {
 			continue
 		}
 		allNotFound = false

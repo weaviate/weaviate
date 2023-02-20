@@ -14,8 +14,8 @@ package roaringset
 import (
 	"bytes"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type BinarySearchTree struct {
@@ -50,7 +50,7 @@ func (t *BinarySearchTree) Insert(key []byte, values Insert) {
 // read and writes after layer being returned
 func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {
 	if t.root == nil {
-		return BitmapLayer{}, entities.NotFound
+		return BitmapLayer{}, lsmkv.NotFound
 	}
 
 	return t.root.get(key)
@@ -220,13 +220,13 @@ func (n *BinarySearchNode) get(key []byte) (BitmapLayer, error) {
 
 	if bytes.Compare(key, n.Key) < 0 {
 		if n.left == nil {
-			return BitmapLayer{}, entities.NotFound
+			return BitmapLayer{}, lsmkv.NotFound
 		}
 
 		return n.left.get(key)
 	} else {
 		if n.right == nil {
-			return BitmapLayer{}, entities.NotFound
+			return BitmapLayer{}, lsmkv.NotFound
 		}
 
 		return n.right.get(key)

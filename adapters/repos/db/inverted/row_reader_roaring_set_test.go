@@ -19,9 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func TestRowReaderRoaringSet(t *testing.T) {
@@ -298,7 +298,7 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 					return roaringset.NewBitmap(data[i].v...), nil
 				}
 			}
-			return nil, entities.NotFound
+			return nil, entlsmkv.NotFound
 		},
 	}
 }

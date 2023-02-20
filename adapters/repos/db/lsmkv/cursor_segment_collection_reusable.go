@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -31,9 +30,6 @@ func (s *segment) newCollectionCursorReusable() *segmentCursorCollectionReusable
 func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, error) {
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
-			return nil, nil, lsmkv.NotFound
-		}
 		return nil, nil, err
 	}
 

@@ -77,9 +77,6 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 	node, err := i.secondaryIndices[pos].Get(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
-			return nil, lsmkv.NotFound
-		}
 		return nil, err
 	}
 

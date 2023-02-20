@@ -33,9 +33,6 @@ func (i *segment) getCollection(key []byte) ([]value, error) {
 
 	node, err := i.index.Get(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
-			return nil, lsmkv.NotFound
-		}
 		return nil, err
 	}
 
