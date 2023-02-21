@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -28,7 +29,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	//"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -307,6 +307,8 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	var docMapPairs []docPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}
+	uniqeDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+
 	for _, propName := range propertyNames {
 
 		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
@@ -317,10 +319,13 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if err != nil {
 			return termResult, nil, err
 		}
+
 		m := make([]lsmkv.MapPair, 0, len(preM))
 		if filterDocIds != nil {
 			for _, val := range preM {
-				_, ok := filterDocIds[binary.BigEndian.Uint64(val.Key)]
+				docID := binary.BigEndian.Uint64(val.Key)
+				uniqeDocIDs.Set(docID)
+				_, ok := filterDocIds[docID]
 				if ok {
 					m = append(m, val)
 				}
@@ -375,7 +380,13 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 	termResult.data = docMapPairs
 
-	n := float64(len(docMapPairs))
+	var n float64
+	if filterDocIds != nil {
+		n = float64(uniqeDocIDs.GetCardinality())
+	} else {
+		n = float64(len(docMapPairs))
+	}
+
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
 
 	termResult.posPointer = 0
