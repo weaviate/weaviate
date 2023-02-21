@@ -40,6 +40,12 @@ func (o *ObjectsClassReferencesDeleteReader) ReadResponse(response runtime.Clien
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewObjectsClassReferencesDeleteBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewObjectsClassReferencesDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -94,6 +100,40 @@ func (o *ObjectsClassReferencesDeleteNoContent) Error() string {
 }
 
 func (o *ObjectsClassReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsClassReferencesDeleteBadRequest creates a ObjectsClassReferencesDeleteBadRequest with default headers values
+func NewObjectsClassReferencesDeleteBadRequest() *ObjectsClassReferencesDeleteBadRequest {
+	return &ObjectsClassReferencesDeleteBadRequest{}
+}
+
+/*
+ObjectsClassReferencesDeleteBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type ObjectsClassReferencesDeleteBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *ObjectsClassReferencesDeleteBadRequest) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsClassReferencesDeleteBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassReferencesDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

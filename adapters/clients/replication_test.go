@@ -21,6 +21,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -405,6 +407,169 @@ func TestReplicationCommit(t *testing.T) {
 	})
 }
 
+func TestReplicationFetchObject(t *testing.T) {
+	t.Parallel()
+
+	expected := objects.Replica{
+		ID: UUID1,
+		Object: &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID: UUID1,
+				Properties: map[string]interface{}{
+					"stringProp": "abc",
+				},
+			},
+			Vector:    []float32{1, 2, 3, 4, 5},
+			VectorLen: 5,
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := expected.MarshalBinary()
+		w.Write(b)
+	}))
+
+	c := newReplicationClient(server.Client())
+	resp, err := c.FetchObject(context.Background(), server.URL[7:],
+		"C1", "S1", expected.ID, nil, additional.Properties{})
+	require.Nil(t, err)
+	assert.Equal(t, expected.ID, resp.ID)
+	assert.Equal(t, expected.Deleted, resp.Deleted)
+	assert.EqualValues(t, expected.Object, resp.Object)
+}
+
+func TestReplicationFetchObjects(t *testing.T) {
+	t.Parallel()
+	expected := objects.Replicas{
+		{
+			ID: UUID1,
+			Object: &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID: UUID1,
+					Properties: map[string]interface{}{
+						"stringProp": "abc",
+					},
+				},
+				Vector:    []float32{1, 2, 3, 4, 5},
+				VectorLen: 5,
+			},
+		},
+		{
+			ID: UUID2,
+			Object: &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID: UUID2,
+					Properties: map[string]interface{}{
+						"floatProp": float64(123),
+					},
+				},
+				Vector:    []float32{10, 20, 30, 40, 50},
+				VectorLen: 5,
+			},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := expected.MarshalBinary()
+		w.Write(b)
+	}))
+
+	c := newReplicationClient(server.Client())
+	resp, err := c.FetchObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{expected[0].ID})
+	require.Nil(t, err)
+	require.Len(t, resp, 2)
+	assert.Equal(t, expected[0].ID, resp[0].ID)
+	assert.Equal(t, expected[0].Deleted, resp[0].Deleted)
+	assert.EqualValues(t, expected[0].Object, resp[0].Object)
+	assert.Equal(t, expected[1].ID, resp[1].ID)
+	assert.Equal(t, expected[1].Deleted, resp[1].Deleted)
+	assert.EqualValues(t, expected[1].Object, resp[1].Object)
+}
+
+func TestReplicationDigestObjects(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	expected := []replica.RepairResponse{
+		{
+			ID:         UUID1.String(),
+			UpdateTime: now.UnixMilli(),
+			Version:    1,
+		},
+		{
+			ID:         UUID2.String(),
+			UpdateTime: now.UnixMilli(),
+			Version:    1,
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := json.Marshal(expected)
+		w.Write(b)
+	}))
+
+	c := newReplicationClient(server.Client())
+	resp, err := c.DigestObjects(context.Background(), server.URL[7:], "C1", "S1", []strfmt.UUID{
+		strfmt.UUID(expected[0].ID),
+		strfmt.UUID(expected[1].ID),
+	})
+	require.Nil(t, err)
+	require.Len(t, resp, 2)
+	assert.Equal(t, expected[0].ID, resp[0].ID)
+	assert.Equal(t, expected[0].Deleted, resp[0].Deleted)
+	assert.Equal(t, expected[0].UpdateTime, resp[0].UpdateTime)
+	assert.Equal(t, expected[0].Version, resp[0].Version)
+	assert.Equal(t, expected[1].ID, resp[1].ID)
+	assert.Equal(t, expected[1].Deleted, resp[1].Deleted)
+	assert.Equal(t, expected[1].UpdateTime, resp[1].UpdateTime)
+	assert.Equal(t, expected[1].Version, resp[1].Version)
+}
+
+func TestReplicationOverwriteObjects(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	input := []*objects.VObject{
+		{
+			LatestObject: &models.Object{
+				ID:                 UUID1,
+				Class:              "C1",
+				CreationTimeUnix:   now.UnixMilli(),
+				LastUpdateTimeUnix: now.Add(time.Hour).UnixMilli(),
+				Properties: map[string]interface{}{
+					"stringProp": "abc",
+				},
+				Vector: []float32{1, 2, 3, 4, 5},
+			},
+			StaleUpdateTime: now.UnixMilli(),
+			Version:         0,
+		},
+	}
+	expected := []replica.RepairResponse{
+		{
+			ID:         UUID1.String(),
+			Version:    1,
+			UpdateTime: now.Add(time.Hour).UnixMilli(),
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := json.Marshal(expected)
+		w.Write(b)
+	}))
+
+	c := newReplicationClient(server.Client())
+	resp, err := c.OverwriteObjects(context.Background(), server.URL[7:], "C1", "S1", input)
+	require.Nil(t, err)
+	require.Len(t, resp, 1)
+	assert.Equal(t, expected[0].ID, resp[0].ID)
+	assert.Equal(t, expected[0].Version, resp[0].Version)
+	assert.Equal(t, expected[0].UpdateTime, resp[0].UpdateTime)
+}
+
 func TestExpBackOff(t *testing.T) {
 	N := 200
 	av := time.Duration(0)
@@ -413,7 +578,6 @@ func TestExpBackOff(t *testing.T) {
 		av += backOff(delay)
 	}
 	av /= time.Duration(N)
-	// fmt.Println(av)
 	if av < time.Nanosecond*30 || av > time.Nanosecond*50 {
 		t.Errorf("average time got %v", av)
 	}

@@ -72,6 +72,51 @@ func (o *BatchReferencesCreateOK) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
+// BatchReferencesCreateBadRequestCode is the HTTP code returned for type BatchReferencesCreateBadRequest
+const BatchReferencesCreateBadRequestCode int = 400
+
+/*
+BatchReferencesCreateBadRequest Malformed request.
+
+swagger:response batchReferencesCreateBadRequest
+*/
+type BatchReferencesCreateBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewBatchReferencesCreateBadRequest creates BatchReferencesCreateBadRequest with default headers values
+func NewBatchReferencesCreateBadRequest() *BatchReferencesCreateBadRequest {
+
+	return &BatchReferencesCreateBadRequest{}
+}
+
+// WithPayload adds the payload to the batch references create bad request response
+func (o *BatchReferencesCreateBadRequest) WithPayload(payload *models.ErrorResponse) *BatchReferencesCreateBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the batch references create bad request response
+func (o *BatchReferencesCreateBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *BatchReferencesCreateBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // BatchReferencesCreateUnauthorizedCode is the HTTP code returned for type BatchReferencesCreateUnauthorized
 const BatchReferencesCreateUnauthorizedCode int = 401
 

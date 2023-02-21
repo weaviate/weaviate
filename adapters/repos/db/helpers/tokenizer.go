@@ -33,6 +33,33 @@ func TokenizeText(in string) []string {
 	return parts
 }
 
+func TokenizeTextAndCountDuplicates(in string) ([]string, []int) {
+	parts := TokenizeText(in)
+	return CountDuplicates(parts)
+}
+
+func TokenizeStringAndCountDuplicates(in string) ([]string, []int) {
+	parts := TokenizeString(in)
+	return CountDuplicates(parts)
+}
+
+func CountDuplicates(parts []string) ([]string, []int) {
+	count := map[string]int{}
+	for _, term := range parts {
+		count[term]++
+	}
+
+	terms := make([]string, 0, len(count))
+	boosts := make([]int, 0, len(count))
+
+	for term, boost := range count {
+		terms = append(terms, term)
+		boosts = append(boosts, boost)
+	}
+
+	return terms, boosts
+}
+
 // Tokenize Text splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
 func TokenizeTextKeepWildcards(in string) []string {

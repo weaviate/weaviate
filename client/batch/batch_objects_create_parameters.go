@@ -74,6 +74,11 @@ type BatchObjectsCreateParams struct {
 
 	/*Body*/
 	Body BatchObjectsCreateBody
+	/*ConsistencyLevel
+	  Determines how many replicas must acknowledge a request before it is considered successful
+
+	*/
+	ConsistencyLevel *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -124,6 +129,17 @@ func (o *BatchObjectsCreateParams) SetBody(body BatchObjectsCreateBody) {
 	o.Body = body
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the batch objects create params
+func (o *BatchObjectsCreateParams) WithConsistencyLevel(consistencyLevel *string) *BatchObjectsCreateParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the batch objects create params
+func (o *BatchObjectsCreateParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *BatchObjectsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -134,6 +150,22 @@ func (o *BatchObjectsCreateParams) WriteToRequest(r runtime.ClientRequest, reg s
 
 	if err := r.SetBodyParam(o.Body); err != nil {
 		return err
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	if len(res) > 0 {

@@ -93,7 +93,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	}
 
 	repl := replica.NewReplicator(config.ClassName.String(),
-		sg, nodeResolver, replicaClient, remoteClient)
+		sg, nodeResolver, replicaClient)
 
 	index := &Index{
 		Config:                config,
@@ -272,7 +272,9 @@ func (i *Index) shardFromUUID(in strfmt.UUID) (string, error) {
 		PhysicalShard(uuidBytes), nil
 }
 
-func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
+func (i *Index) putObject(ctx context.Context, object *storobj.Object,
+	replProps *additional.ReplicationProperties,
+) error {
 	if i.Config.ClassName != object.Class() {
 		return errors.Errorf("cannot import object of class %s into index of class %s",
 			object.Class(), i.Config.ClassName)
@@ -285,7 +287,12 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.PutObject(ctx, shardName, object)
+		if replProps == nil {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: string(replica.All),
+			}
+		}
+		err = i.replicator.PutObject(ctx, shardName, object, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
 			return fmt.Errorf("failed to relay object put across replicas: %w", err)
 		}
@@ -420,8 +427,8 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 
 // return value []error gives the error for the index with the positions
 // matching the inputs
-func (i *Index) putObjectBatch(ctx context.Context,
-	objects []*storobj.Object,
+func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
+	replProps *additional.ReplicationProperties,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -454,7 +461,13 @@ func (i *Index) putObjectBatch(ctx context.Context,
 			defer wg.Done()
 			var errs []error
 			if i.replicationEnabled() {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects)
+				if replProps == nil {
+					replProps = &additional.ReplicationProperties{
+						ConsistencyLevel: string(replica.All),
+					}
+				}
+				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
+					replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if !i.isLocalShard(shardName) {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
 			} else {
@@ -511,8 +524,8 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 }
 
 // return value map[int]error gives the error for the index as it received it
-func (i *Index) addReferencesBatch(ctx context.Context,
-	refs objects.BatchReferences,
+func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchReferences,
+	replProps *additional.ReplicationProperties,
 ) []error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -540,7 +553,13 @@ func (i *Index) addReferencesBatch(ctx context.Context,
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs)
+			if replProps == nil {
+				replProps = &additional.ReplicationProperties{
+					ConsistencyLevel: string(replica.All),
+				}
+			}
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
+				replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		} else if i.isLocalShard(shardName) {
 			shard := i.Shards[shardName]
 			errs = shard.addReferencesBatch(ctx, group.refs)
@@ -571,7 +590,7 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties,
+	props search.SelectProperties, addl additional.Properties,
 	replProps *additional.ReplicationProperties,
 ) (*storobj.Object, error) {
 	shardName, err := i.shardFromUUID(id)
@@ -581,23 +600,26 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	var obj *storobj.Object
 
-	if i.replicationEnabled() && replProps != nil {
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: string(replica.All),
+			}
+		}
 		if replProps.NodeName != "" {
-			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, additional)
-		} else if replProps.ConsistencyLevel != "" {
-			obj, err = i.replicator.FindOne(ctx,
-				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, additional)
+			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
 		} else {
-			err = fmt.Errorf("replication properties are inconsistent: %+v", replProps)
+			obj, err = i.replicator.GetOne(ctx,
+				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
 		}
 	} else if i.isLocalShard(shardName) {
 		shard := i.Shards[shardName]
-		obj, err = shard.objectByID(ctx, id, props, additional)
+		obj, err = shard.objectByID(ctx, id, props, addl)
 		if err != nil {
 			err = fmt.Errorf("shard %s: %w", shard.ID(), err)
 		}
 	} else {
-		obj, err = i.remote.GetObject(ctx, shardName, id, props, additional)
+		obj, err = i.remote.GetObject(ctx, shardName, id, props, addl)
 		if err != nil {
 			err = fmt.Errorf("get object from remote index: %w", err)
 		}
@@ -983,7 +1005,9 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	return res, resDists, nil
 }
 
-func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
+func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
+	replProps *additional.ReplicationProperties,
+) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(id)
@@ -992,7 +1016,13 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.DeleteObject(ctx, shardName, id)
+		if replProps == nil {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: string(replica.All),
+			}
+		}
+		err = i.replicator.DeleteObject(ctx, shardName, id,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
 			return fmt.Errorf("failed to relay object delete across replicas: %w", err)
 		}
@@ -1033,7 +1063,9 @@ func (i *Index) isLocalShard(shard string) bool {
 	return i.getSchema.ShardingState(i.Config.ClassName.String()).IsShardLocal(shard)
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
+	replProps *additional.ReplicationProperties,
+) error {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
 	shardName, err := i.shardFromUUID(merge.ID)
@@ -1042,7 +1074,12 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 	}
 
 	if i.replicationEnabled() {
-		err = i.replicator.MergeObject(ctx, shardName, &merge)
+		if replProps == nil {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: string(replica.All),
+			}
+		}
+		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
 			return fmt.Errorf("failed to relay object patch across replicas: %w", err)
 		}
@@ -1275,8 +1312,8 @@ func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
 	return docIDs, nil
 }
 
-func (i *Index) batchDeleteObjects(ctx context.Context,
-	shardDocIDs map[string][]uint64, dryRun bool,
+func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
+	dryRun bool, replProps *additional.ReplicationProperties,
 ) (objects.BatchSimpleObjects, error) {
 	i.backupStateLock.RLock()
 	defer i.backupStateLock.RUnlock()
@@ -1296,7 +1333,13 @@ func (i *Index) batchDeleteObjects(ctx context.Context,
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs, dryRun)
+				if replProps == nil {
+					replProps = &additional.ReplicationProperties{
+						ConsistencyLevel: string(replica.All),
+					}
+				}
+				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
+					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if i.isLocalShard(shardName) {
 				shard := i.Shards[shardName]
 				objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)

@@ -91,7 +91,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		res, err := manager.AddObject(ctx, nil, class)
+		res, err := manager.AddObject(ctx, nil, class, nil)
 		require.Nil(t, err)
 		uuidDuringCreation := vectorRepo.Mock.Calls[0].Arguments.Get(0).(*models.Object).ID
 
@@ -113,7 +113,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		res, err := manager.AddObject(ctx, nil, object)
+		res, err := manager.AddObject(ctx, nil, object, nil)
 		require.Nil(t, err)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
 
@@ -138,7 +138,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		res, err := manager.AddObject(ctx, nil, object)
+		res, err := manager.AddObject(ctx, nil, object, nil)
 		require.Nil(t, err)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
 
@@ -160,7 +160,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		_, err := manager.AddObject(ctx, nil, class)
+		_, err := manager.AddObject(ctx, nil, class, nil)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
 	})
 
@@ -176,7 +176,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 
 		vectorRepo.On("Exists", "Foo", id).Return(false, nil).Once()
 
-		_, err := manager.AddObject(ctx, nil, class)
+		_, err := manager.AddObject(ctx, nil, class, nil)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
 	})
 
@@ -194,7 +194,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		_, err := manager.AddObject(ctx, nil, class)
+		_, err := manager.AddObject(ctx, nil, class, nil)
 		assert.Nil(t, err)
 	})
 
@@ -209,7 +209,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		_, err := manager.AddObject(ctx, nil, class)
+		_, err := manager.AddObject(ctx, nil, class, nil)
 		assert.Nil(t, err)
 	})
 }
@@ -261,7 +261,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		res, err := manager.AddObject(ctx, nil, object)
+		res, err := manager.AddObject(ctx, nil, object, nil)
 		require.Nil(t, err)
 
 		uuidDuringCreation := vectorRepo.Mock.Calls[0].Arguments.Get(0).(*models.Object).ID
@@ -283,7 +283,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		res, err := manager.AddObject(ctx, nil, object)
+		res, err := manager.AddObject(ctx, nil, object, nil)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Object).ID
 
 		assert.Nil(t, err)
@@ -305,7 +305,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		_, err := manager.AddObject(ctx, nil, object)
+		_, err := manager.AddObject(ctx, nil, object, nil)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
 	})
 
@@ -323,7 +323,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(nil, nil)
 
-		_, err := manager.AddObject(ctx, nil, object)
+		_, err := manager.AddObject(ctx, nil, object, nil)
 		assert.Equal(t, NewErrInvalidUserInput("invalid object: invalid UUID length: %d", len(id)), err)
 	})
 }
@@ -375,7 +375,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(object.Vector, nil)
 
-		_, err := manager.AddObject(ctx, nil, object)
+		_, err := manager.AddObject(ctx, nil, object, nil)
 		require.Nil(t, err)
 
 		vec := vectorRepo.Mock.Calls[0].Arguments.Get(1).([]float32)
@@ -431,7 +431,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 	assert.Nil(t, object.Properties)
 	modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 		Return(nil, nil)
-	addedObject, err := manager.AddObject(ctx, nil, object)
+	addedObject, err := manager.AddObject(ctx, nil, object, nil)
 	assert.Nil(t, err)
 	assert.NotNil(t, addedObject.Properties)
 }
