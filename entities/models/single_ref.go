@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -27,7 +29,6 @@ import (
 //
 // swagger:model SingleRef
 type SingleRef struct {
-
 	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
@@ -74,7 +75,6 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateBeacon(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Beacon) { // not required
 		return nil
 	}
@@ -87,7 +87,6 @@ func (m *SingleRef) validateBeacon(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateClass(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Class) { // not required
 		return nil
 	}
@@ -100,7 +99,6 @@ func (m *SingleRef) validateClass(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Classification) { // not required
 		return nil
 	}
@@ -109,6 +107,8 @@ func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
 		if err := m.Classification.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("classification")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("classification")
 			}
 			return err
 		}
@@ -118,13 +118,41 @@ func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateHref(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Href) { // not required
 		return nil
 	}
 
 	if err := validate.FormatOf("href", "body", "uri", m.Href.String(), formats); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this single ref based on the context it is used
+func (m *SingleRef) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateClassification(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *SingleRef) contextValidateClassification(ctx context.Context, formats strfmt.Registry) error {
+	if m.Classification != nil {
+		if err := m.Classification.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("classification")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("classification")
+			}
+			return err
+		}
 	}
 
 	return nil

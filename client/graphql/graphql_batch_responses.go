@@ -64,9 +64,8 @@ func (o *GraphqlBatchReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,7 +75,7 @@ func NewGraphqlBatchOK() *GraphqlBatchOK {
 }
 
 /*
-GraphqlBatchOK handles this case with default header values.
+GraphqlBatchOK describes a response with status code 200, with default header values.
 
 Successful query (with select).
 */
@@ -84,7 +83,41 @@ type GraphqlBatchOK struct {
 	Payload models.GraphQLResponses
 }
 
+// IsSuccess returns true when this graphql batch o k response has a 2xx status code
+func (o *GraphqlBatchOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this graphql batch o k response has a 3xx status code
+func (o *GraphqlBatchOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this graphql batch o k response has a 4xx status code
+func (o *GraphqlBatchOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this graphql batch o k response has a 5xx status code
+func (o *GraphqlBatchOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this graphql batch o k response a status code equal to that given
+func (o *GraphqlBatchOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the graphql batch o k response
+func (o *GraphqlBatchOK) Code() int {
+	return 200
+}
+
 func (o *GraphqlBatchOK) Error() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchOK  %+v", 200, o.Payload)
+}
+
+func (o *GraphqlBatchOK) String() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchOK  %+v", 200, o.Payload)
 }
 
@@ -93,7 +126,6 @@ func (o *GraphqlBatchOK) GetPayload() models.GraphQLResponses {
 }
 
 func (o *GraphqlBatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -108,19 +140,51 @@ func NewGraphqlBatchUnauthorized() *GraphqlBatchUnauthorized {
 }
 
 /*
-GraphqlBatchUnauthorized handles this case with default header values.
+GraphqlBatchUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
-type GraphqlBatchUnauthorized struct {
+type GraphqlBatchUnauthorized struct{}
+
+// IsSuccess returns true when this graphql batch unauthorized response has a 2xx status code
+func (o *GraphqlBatchUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this graphql batch unauthorized response has a 3xx status code
+func (o *GraphqlBatchUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this graphql batch unauthorized response has a 4xx status code
+func (o *GraphqlBatchUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this graphql batch unauthorized response has a 5xx status code
+func (o *GraphqlBatchUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this graphql batch unauthorized response a status code equal to that given
+func (o *GraphqlBatchUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the graphql batch unauthorized response
+func (o *GraphqlBatchUnauthorized) Code() int {
+	return 401
 }
 
 func (o *GraphqlBatchUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnauthorized ", 401)
 }
 
-func (o *GraphqlBatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *GraphqlBatchUnauthorized) String() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnauthorized ", 401)
+}
 
+func (o *GraphqlBatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -130,7 +194,7 @@ func NewGraphqlBatchForbidden() *GraphqlBatchForbidden {
 }
 
 /*
-GraphqlBatchForbidden handles this case with default header values.
+GraphqlBatchForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -138,7 +202,41 @@ type GraphqlBatchForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this graphql batch forbidden response has a 2xx status code
+func (o *GraphqlBatchForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this graphql batch forbidden response has a 3xx status code
+func (o *GraphqlBatchForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this graphql batch forbidden response has a 4xx status code
+func (o *GraphqlBatchForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this graphql batch forbidden response has a 5xx status code
+func (o *GraphqlBatchForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this graphql batch forbidden response a status code equal to that given
+func (o *GraphqlBatchForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the graphql batch forbidden response
+func (o *GraphqlBatchForbidden) Code() int {
+	return 403
+}
+
 func (o *GraphqlBatchForbidden) Error() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchForbidden  %+v", 403, o.Payload)
+}
+
+func (o *GraphqlBatchForbidden) String() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchForbidden  %+v", 403, o.Payload)
 }
 
@@ -147,7 +245,6 @@ func (o *GraphqlBatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -164,7 +261,7 @@ func NewGraphqlBatchUnprocessableEntity() *GraphqlBatchUnprocessableEntity {
 }
 
 /*
-GraphqlBatchUnprocessableEntity handles this case with default header values.
+GraphqlBatchUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -172,7 +269,41 @@ type GraphqlBatchUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this graphql batch unprocessable entity response has a 2xx status code
+func (o *GraphqlBatchUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this graphql batch unprocessable entity response has a 3xx status code
+func (o *GraphqlBatchUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this graphql batch unprocessable entity response has a 4xx status code
+func (o *GraphqlBatchUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this graphql batch unprocessable entity response has a 5xx status code
+func (o *GraphqlBatchUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this graphql batch unprocessable entity response a status code equal to that given
+func (o *GraphqlBatchUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the graphql batch unprocessable entity response
+func (o *GraphqlBatchUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *GraphqlBatchUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *GraphqlBatchUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -181,7 +312,6 @@ func (o *GraphqlBatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -198,7 +328,7 @@ func NewGraphqlBatchInternalServerError() *GraphqlBatchInternalServerError {
 }
 
 /*
-GraphqlBatchInternalServerError handles this case with default header values.
+GraphqlBatchInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -206,7 +336,41 @@ type GraphqlBatchInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this graphql batch internal server error response has a 2xx status code
+func (o *GraphqlBatchInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this graphql batch internal server error response has a 3xx status code
+func (o *GraphqlBatchInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this graphql batch internal server error response has a 4xx status code
+func (o *GraphqlBatchInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this graphql batch internal server error response has a 5xx status code
+func (o *GraphqlBatchInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this graphql batch internal server error response a status code equal to that given
+func (o *GraphqlBatchInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the graphql batch internal server error response
+func (o *GraphqlBatchInternalServerError) Code() int {
+	return 500
+}
+
 func (o *GraphqlBatchInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *GraphqlBatchInternalServerError) String() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -215,7 +379,6 @@ func (o *GraphqlBatchInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

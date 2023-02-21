@@ -30,9 +30,9 @@ import (
 )
 
 // NewObjectsReferencesUpdateParams creates a new ObjectsReferencesUpdateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsReferencesUpdateParams() ObjectsReferencesUpdateParams {
-
 	return ObjectsReferencesUpdateParams{}
 }
 
@@ -41,7 +41,6 @@ func NewObjectsReferencesUpdateParams() ObjectsReferencesUpdateParams {
 //
 // swagger:parameters objects.references.update
 type ObjectsReferencesUpdateParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -86,6 +85,11 @@ func (o *ObjectsReferencesUpdateParams) BindRequest(r *http.Request, route *midd
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = body
 			}
@@ -93,6 +97,7 @@ func (o *ObjectsReferencesUpdateParams) BindRequest(r *http.Request, route *midd
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
@@ -102,7 +107,6 @@ func (o *ObjectsReferencesUpdateParams) BindRequest(r *http.Request, route *midd
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -135,7 +139,6 @@ func (o *ObjectsReferencesUpdateParams) bindID(rawData []string, hasKey bool, fo
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsReferencesUpdateParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
@@ -151,7 +154,6 @@ func (o *ObjectsReferencesUpdateParams) bindPropertyName(rawData []string, hasKe
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.PropertyName = raw
 
 	return nil

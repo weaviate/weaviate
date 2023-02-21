@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -25,7 +27,6 @@ import (
 //
 // swagger:model ReferenceMetaClassification
 type ReferenceMetaClassification struct {
-
 	// The lowest distance of a neighbor in the losing group. Optional. If k equals the size of the winning group, there is no losing group
 	ClosestLosingDistance *float64 `json:"closestLosingDistance,omitempty"`
 
@@ -59,6 +60,11 @@ type ReferenceMetaClassification struct {
 
 // Validate validates this reference meta classification
 func (m *ReferenceMetaClassification) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this reference meta classification based on context it is used
+func (m *ReferenceMetaClassification) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

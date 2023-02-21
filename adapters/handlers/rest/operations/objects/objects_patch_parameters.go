@@ -29,9 +29,9 @@ import (
 )
 
 // NewObjectsPatchParams creates a new ObjectsPatchParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsPatchParams() ObjectsPatchParams {
-
 	return ObjectsPatchParams{}
 }
 
@@ -40,7 +40,6 @@ func NewObjectsPatchParams() ObjectsPatchParams {
 //
 // swagger:parameters objects.patch
 type ObjectsPatchParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -81,11 +80,17 @@ func (o *ObjectsPatchParams) BindRequest(r *http.Request, route *middleware.Matc
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
 		}
 	}
+
 	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
 	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
 		res = append(res, err)
@@ -95,7 +100,6 @@ func (o *ObjectsPatchParams) BindRequest(r *http.Request, route *middleware.Matc
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -111,10 +115,10 @@ func (o *ObjectsPatchParams) bindConsistencyLevel(rawData []string, hasKey bool,
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil
@@ -146,7 +150,6 @@ func (o *ObjectsPatchParams) bindID(rawData []string, hasKey bool, formats strfm
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsPatchParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

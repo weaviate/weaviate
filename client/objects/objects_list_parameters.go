@@ -28,97 +28,117 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// NewObjectsListParams creates a new ObjectsListParams object
-// with the default values initialized.
+// NewObjectsListParams creates a new ObjectsListParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsListParams() *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
 	return &ObjectsListParams{
-		Offset: &offsetDefault,
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsListParamsWithTimeout creates a new ObjectsListParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsListParamsWithTimeout(timeout time.Duration) *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
 	return &ObjectsListParams{
-		Offset: &offsetDefault,
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsListParamsWithContext creates a new ObjectsListParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsListParamsWithContext(ctx context.Context) *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
 	return &ObjectsListParams{
-		Offset: &offsetDefault,
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsListParamsWithHTTPClient creates a new ObjectsListParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsListParamsWithHTTPClient(client *http.Client) *ObjectsListParams {
-	var (
-		offsetDefault = int64(0)
-	)
 	return &ObjectsListParams{
-		Offset:     &offsetDefault,
 		HTTPClient: client,
 	}
 }
 
 /*
 ObjectsListParams contains all the parameters to send to the API endpoint
-for the objects list operation typically these are written to a http.Request
+
+	for the objects list operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsListParams struct {
+	/* Class.
 
-	/*Class
-	  Class parameter specifies the class from which to query objects
-
+	   Class parameter specifies the class from which to query objects
 	*/
 	Class *string
-	/*Include
-	  Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 
+	/* Include.
+
+	   Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 	*/
 	Include *string
-	/*Limit
-	  The maximum number of items to be returned per page. Default value is set in Weaviate config.
 
+	/* Limit.
+
+	   The maximum number of items to be returned per page. Default value is set in Weaviate config.
+
+	   Format: int64
 	*/
 	Limit *int64
-	/*Offset
-	  The starting index of the result window. Default value is 0.
 
+	/* Offset.
+
+	   The starting index of the result window. Default value is 0.
+
+	   Format: int64
 	*/
 	Offset *int64
-	/*Order
-	  Order parameter to tell how to order (asc or desc) data within given field
 
+	/* Order.
+
+	   Order parameter to tell how to order (asc or desc) data within given field
 	*/
 	Order *string
-	/*Sort
-	  Sort parameter to pass an information about the names of the sort fields
 
+	/* Sort.
+
+	   Sort parameter to pass an information about the names of the sort fields
 	*/
 	Sort *string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects list params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsListParams) WithDefaults() *ObjectsListParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects list params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsListParams) SetDefaults() {
+	offsetDefault := int64(0)
+
+	val := ObjectsListParams{
+		Offset: &offsetDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the objects list params
@@ -222,7 +242,6 @@ func (o *ObjectsListParams) SetSort(sort *string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -232,6 +251,7 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 
 		// query param class
 		var qrClass string
+
 		if o.Class != nil {
 			qrClass = *o.Class
 		}
@@ -241,13 +261,13 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	if o.Include != nil {
 
 		// query param include
 		var qrInclude string
+
 		if o.Include != nil {
 			qrInclude = *o.Include
 		}
@@ -257,13 +277,13 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	if o.Limit != nil {
 
 		// query param limit
 		var qrLimit int64
+
 		if o.Limit != nil {
 			qrLimit = *o.Limit
 		}
@@ -273,13 +293,13 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	if o.Offset != nil {
 
 		// query param offset
 		var qrOffset int64
+
 		if o.Offset != nil {
 			qrOffset = *o.Offset
 		}
@@ -289,13 +309,13 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	if o.Order != nil {
 
 		// query param order
 		var qrOrder string
+
 		if o.Order != nil {
 			qrOrder = *o.Order
 		}
@@ -305,13 +325,13 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	if o.Sort != nil {
 
 		// query param sort
 		var qrSort string
+
 		if o.Sort != nil {
 			qrSort = *o.Sort
 		}
@@ -321,7 +341,6 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 				return err
 			}
 		}
-
 	}
 
 	if len(res) > 0 {

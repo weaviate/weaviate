@@ -30,9 +30,9 @@ import (
 )
 
 // NewObjectsClassReferencesPutParams creates a new ObjectsClassReferencesPutParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsClassReferencesPutParams() ObjectsClassReferencesPutParams {
-
 	return ObjectsClassReferencesPutParams{}
 }
 
@@ -41,7 +41,6 @@ func NewObjectsClassReferencesPutParams() ObjectsClassReferencesPutParams {
 //
 // swagger:parameters objects.class.references.put
 type ObjectsClassReferencesPutParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -97,6 +96,11 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = body
 			}
@@ -104,6 +108,7 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
@@ -123,7 +128,6 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -139,7 +143,6 @@ func (o *ObjectsClassReferencesPutParams) bindClassName(rawData []string, hasKey
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil
@@ -154,10 +157,10 @@ func (o *ObjectsClassReferencesPutParams) bindConsistencyLevel(rawData []string,
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil
@@ -189,7 +192,6 @@ func (o *ObjectsClassReferencesPutParams) bindID(rawData []string, hasKey bool, 
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsClassReferencesPutParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
@@ -205,7 +207,6 @@ func (o *ObjectsClassReferencesPutParams) bindPropertyName(rawData []string, has
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.PropertyName = raw
 
 	return nil

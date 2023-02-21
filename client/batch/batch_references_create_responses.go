@@ -70,9 +70,8 @@ func (o *BatchReferencesCreateReader) ReadResponse(response runtime.ClientRespon
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -82,7 +81,7 @@ func NewBatchReferencesCreateOK() *BatchReferencesCreateOK {
 }
 
 /*
-BatchReferencesCreateOK handles this case with default header values.
+BatchReferencesCreateOK describes a response with status code 200, with default header values.
 
 Request Successful. Warning: A successful request does not guarantee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.
 */
@@ -90,7 +89,41 @@ type BatchReferencesCreateOK struct {
 	Payload []*models.BatchReferenceResponse
 }
 
+// IsSuccess returns true when this batch references create o k response has a 2xx status code
+func (o *BatchReferencesCreateOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this batch references create o k response has a 3xx status code
+func (o *BatchReferencesCreateOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch references create o k response has a 4xx status code
+func (o *BatchReferencesCreateOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this batch references create o k response has a 5xx status code
+func (o *BatchReferencesCreateOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch references create o k response a status code equal to that given
+func (o *BatchReferencesCreateOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the batch references create o k response
+func (o *BatchReferencesCreateOK) Code() int {
+	return 200
+}
+
 func (o *BatchReferencesCreateOK) Error() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
+}
+
+func (o *BatchReferencesCreateOK) String() string {
 	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateOK  %+v", 200, o.Payload)
 }
 
@@ -99,7 +132,6 @@ func (o *BatchReferencesCreateOK) GetPayload() []*models.BatchReferenceResponse 
 }
 
 func (o *BatchReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -114,7 +146,7 @@ func NewBatchReferencesCreateBadRequest() *BatchReferencesCreateBadRequest {
 }
 
 /*
-BatchReferencesCreateBadRequest handles this case with default header values.
+BatchReferencesCreateBadRequest describes a response with status code 400, with default header values.
 
 Malformed request.
 */
@@ -122,7 +154,41 @@ type BatchReferencesCreateBadRequest struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch references create bad request response has a 2xx status code
+func (o *BatchReferencesCreateBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch references create bad request response has a 3xx status code
+func (o *BatchReferencesCreateBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch references create bad request response has a 4xx status code
+func (o *BatchReferencesCreateBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch references create bad request response has a 5xx status code
+func (o *BatchReferencesCreateBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch references create bad request response a status code equal to that given
+func (o *BatchReferencesCreateBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the batch references create bad request response
+func (o *BatchReferencesCreateBadRequest) Code() int {
+	return 400
+}
+
 func (o *BatchReferencesCreateBadRequest) Error() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *BatchReferencesCreateBadRequest) String() string {
 	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateBadRequest  %+v", 400, o.Payload)
 }
 
@@ -131,7 +197,6 @@ func (o *BatchReferencesCreateBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchReferencesCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -148,19 +213,51 @@ func NewBatchReferencesCreateUnauthorized() *BatchReferencesCreateUnauthorized {
 }
 
 /*
-BatchReferencesCreateUnauthorized handles this case with default header values.
+BatchReferencesCreateUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
-type BatchReferencesCreateUnauthorized struct {
+type BatchReferencesCreateUnauthorized struct{}
+
+// IsSuccess returns true when this batch references create unauthorized response has a 2xx status code
+func (o *BatchReferencesCreateUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch references create unauthorized response has a 3xx status code
+func (o *BatchReferencesCreateUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch references create unauthorized response has a 4xx status code
+func (o *BatchReferencesCreateUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch references create unauthorized response has a 5xx status code
+func (o *BatchReferencesCreateUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch references create unauthorized response a status code equal to that given
+func (o *BatchReferencesCreateUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the batch references create unauthorized response
+func (o *BatchReferencesCreateUnauthorized) Code() int {
+	return 401
 }
 
 func (o *BatchReferencesCreateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized ", 401)
 }
 
-func (o *BatchReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *BatchReferencesCreateUnauthorized) String() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnauthorized ", 401)
+}
 
+func (o *BatchReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -170,7 +267,7 @@ func NewBatchReferencesCreateForbidden() *BatchReferencesCreateForbidden {
 }
 
 /*
-BatchReferencesCreateForbidden handles this case with default header values.
+BatchReferencesCreateForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -178,7 +275,41 @@ type BatchReferencesCreateForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch references create forbidden response has a 2xx status code
+func (o *BatchReferencesCreateForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch references create forbidden response has a 3xx status code
+func (o *BatchReferencesCreateForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch references create forbidden response has a 4xx status code
+func (o *BatchReferencesCreateForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch references create forbidden response has a 5xx status code
+func (o *BatchReferencesCreateForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch references create forbidden response a status code equal to that given
+func (o *BatchReferencesCreateForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the batch references create forbidden response
+func (o *BatchReferencesCreateForbidden) Code() int {
+	return 403
+}
+
 func (o *BatchReferencesCreateForbidden) Error() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *BatchReferencesCreateForbidden) String() string {
 	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
@@ -187,7 +318,6 @@ func (o *BatchReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -204,7 +334,7 @@ func NewBatchReferencesCreateUnprocessableEntity() *BatchReferencesCreateUnproce
 }
 
 /*
-BatchReferencesCreateUnprocessableEntity handles this case with default header values.
+BatchReferencesCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -212,7 +342,41 @@ type BatchReferencesCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch references create unprocessable entity response has a 2xx status code
+func (o *BatchReferencesCreateUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch references create unprocessable entity response has a 3xx status code
+func (o *BatchReferencesCreateUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch references create unprocessable entity response has a 4xx status code
+func (o *BatchReferencesCreateUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch references create unprocessable entity response has a 5xx status code
+func (o *BatchReferencesCreateUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch references create unprocessable entity response a status code equal to that given
+func (o *BatchReferencesCreateUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the batch references create unprocessable entity response
+func (o *BatchReferencesCreateUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *BatchReferencesCreateUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *BatchReferencesCreateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -221,7 +385,6 @@ func (o *BatchReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -238,7 +401,7 @@ func NewBatchReferencesCreateInternalServerError() *BatchReferencesCreateInterna
 }
 
 /*
-BatchReferencesCreateInternalServerError handles this case with default header values.
+BatchReferencesCreateInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -246,7 +409,41 @@ type BatchReferencesCreateInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch references create internal server error response has a 2xx status code
+func (o *BatchReferencesCreateInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch references create internal server error response has a 3xx status code
+func (o *BatchReferencesCreateInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch references create internal server error response has a 4xx status code
+func (o *BatchReferencesCreateInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this batch references create internal server error response has a 5xx status code
+func (o *BatchReferencesCreateInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this batch references create internal server error response a status code equal to that given
+func (o *BatchReferencesCreateInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the batch references create internal server error response
+func (o *BatchReferencesCreateInternalServerError) Code() int {
+	return 500
+}
+
 func (o *BatchReferencesCreateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *BatchReferencesCreateInternalServerError) String() string {
 	return fmt.Sprintf("[POST /batch/references][%d] batchReferencesCreateInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -255,7 +452,6 @@ func (o *BatchReferencesCreateInternalServerError) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

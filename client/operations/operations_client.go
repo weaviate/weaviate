@@ -36,13 +36,16 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateRootOK, error)
+	WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateRootOK, error)
 
-	WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownLivenessOK, error)
+	WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownLivenessOK, error)
 
-	WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownReadinessOK, error)
+	WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownReadinessOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -50,13 +53,12 @@ type ClientService interface {
 /*
 WeaviateRoot Home. Discover the REST API
 */
-func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateRootOK, error) {
+func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateRootOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateRootParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "weaviate.root",
 		Method:             "GET",
 		PathPattern:        "/",
@@ -68,7 +70,12 @@ func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.Clien
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -85,13 +92,12 @@ func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.Clien
 /*
 WeaviateWellknownLiveness Determines whether the application is alive. Can be used for kubernetes liveness probe
 */
-func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownLivenessOK, error) {
+func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownLivenessOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateWellknownLivenessParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "weaviate.wellknown.liveness",
 		Method:             "GET",
 		PathPattern:        "/.well-known/live",
@@ -103,7 +109,12 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -120,13 +131,12 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 /*
 WeaviateWellknownReadiness Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
 */
-func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownReadinessOK, error) {
+func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownReadinessOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateWellknownReadinessParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "weaviate.wellknown.readiness",
 		Method:             "GET",
 		PathPattern:        "/.well-known/ready",
@@ -138,7 +148,12 @@ func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessPa
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

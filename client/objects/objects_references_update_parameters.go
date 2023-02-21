@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsReferencesUpdateParams creates a new ObjectsReferencesUpdateParams object
-// with the default values initialized.
+// NewObjectsReferencesUpdateParams creates a new ObjectsReferencesUpdateParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsReferencesUpdateParams() *ObjectsReferencesUpdateParams {
-	var ()
 	return &ObjectsReferencesUpdateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsReferencesUpdateParamsWithTimeout creates a new ObjectsReferencesUpdateParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsReferencesUpdateParamsWithTimeout(timeout time.Duration) *ObjectsReferencesUpdateParams {
-	var ()
 	return &ObjectsReferencesUpdateParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsReferencesUpdateParamsWithContext creates a new ObjectsReferencesUpdateParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsReferencesUpdateParamsWithContext(ctx context.Context) *ObjectsReferencesUpdateParams {
-	var ()
 	return &ObjectsReferencesUpdateParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsReferencesUpdateParamsWithHTTPClient creates a new ObjectsReferencesUpdateParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsReferencesUpdateParamsWithHTTPClient(client *http.Client) *ObjectsReferencesUpdateParams {
-	var ()
 	return &ObjectsReferencesUpdateParams{
 		HTTPClient: client,
 	}
@@ -70,26 +67,47 @@ func NewObjectsReferencesUpdateParamsWithHTTPClient(client *http.Client) *Object
 
 /*
 ObjectsReferencesUpdateParams contains all the parameters to send to the API endpoint
-for the objects references update operation typically these are written to a http.Request
+
+	for the objects references update operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsReferencesUpdateParams struct {
-
-	/*Body*/
+	// Body.
 	Body models.MultipleRef
-	/*ID
-	  Unique ID of the Object.
 
+	/* ID.
+
+	   Unique ID of the Object.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
-	/*PropertyName
-	  Unique name of the property related to the Object.
 
+	/* PropertyName.
+
+	   Unique name of the property related to the Object.
 	*/
 	PropertyName string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects references update params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsReferencesUpdateParams) WithDefaults() *ObjectsReferencesUpdateParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects references update params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsReferencesUpdateParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects references update params
@@ -160,12 +178,10 @@ func (o *ObjectsReferencesUpdateParams) SetPropertyName(propertyName string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsReferencesUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err

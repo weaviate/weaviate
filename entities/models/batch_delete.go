@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -26,7 +28,6 @@ import (
 //
 // swagger:model BatchDelete
 type BatchDelete struct {
-
 	// If true, objects will not be deleted yet, but merely listed. Defaults to false.
 	DryRun *bool `json:"dryRun,omitempty"`
 
@@ -52,7 +53,6 @@ func (m *BatchDelete) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDelete) validateMatch(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Match) { // not required
 		return nil
 	}
@@ -61,6 +61,37 @@ func (m *BatchDelete) validateMatch(formats strfmt.Registry) error {
 		if err := m.Match.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("match")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch delete based on the context it is used
+func (m *BatchDelete) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateMatch(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchDelete) contextValidateMatch(ctx context.Context, formats strfmt.Registry) error {
+	if m.Match != nil {
+		if err := m.Match.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("match")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match")
 			}
 			return err
 		}
@@ -91,8 +122,8 @@ func (m *BatchDelete) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteMatch
 type BatchDeleteMatch struct {
-
 	// Class (name) which objects will be deleted.
+	// Example: City
 	Class string `json:"class,omitempty"`
 
 	// Filter to limit the objects to be deleted.
@@ -114,7 +145,6 @@ func (m *BatchDeleteMatch) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteMatch) validateWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Where) { // not required
 		return nil
 	}
@@ -123,6 +153,37 @@ func (m *BatchDeleteMatch) validateWhere(formats strfmt.Registry) error {
 		if err := m.Where.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("match" + "." + "where")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match" + "." + "where")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch delete match based on the context it is used
+func (m *BatchDeleteMatch) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateWhere(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchDeleteMatch) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
+	if m.Where != nil {
+		if err := m.Where.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("match" + "." + "where")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match" + "." + "where")
 			}
 			return err
 		}

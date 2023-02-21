@@ -64,9 +64,8 @@ func (o *SchemaObjectsCreateReader) ReadResponse(response runtime.ClientResponse
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,7 +75,7 @@ func NewSchemaObjectsCreateOK() *SchemaObjectsCreateOK {
 }
 
 /*
-SchemaObjectsCreateOK handles this case with default header values.
+SchemaObjectsCreateOK describes a response with status code 200, with default header values.
 
 Added the new Object class to the schema.
 */
@@ -84,7 +83,41 @@ type SchemaObjectsCreateOK struct {
 	Payload *models.Class
 }
 
+// IsSuccess returns true when this schema objects create o k response has a 2xx status code
+func (o *SchemaObjectsCreateOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this schema objects create o k response has a 3xx status code
+func (o *SchemaObjectsCreateOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects create o k response has a 4xx status code
+func (o *SchemaObjectsCreateOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema objects create o k response has a 5xx status code
+func (o *SchemaObjectsCreateOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects create o k response a status code equal to that given
+func (o *SchemaObjectsCreateOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the schema objects create o k response
+func (o *SchemaObjectsCreateOK) Code() int {
+	return 200
+}
+
 func (o *SchemaObjectsCreateOK) Error() string {
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
+}
+
+func (o *SchemaObjectsCreateOK) String() string {
 	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateOK  %+v", 200, o.Payload)
 }
 
@@ -93,7 +126,6 @@ func (o *SchemaObjectsCreateOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -110,19 +142,51 @@ func NewSchemaObjectsCreateUnauthorized() *SchemaObjectsCreateUnauthorized {
 }
 
 /*
-SchemaObjectsCreateUnauthorized handles this case with default header values.
+SchemaObjectsCreateUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsCreateUnauthorized struct {
+type SchemaObjectsCreateUnauthorized struct{}
+
+// IsSuccess returns true when this schema objects create unauthorized response has a 2xx status code
+func (o *SchemaObjectsCreateUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects create unauthorized response has a 3xx status code
+func (o *SchemaObjectsCreateUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects create unauthorized response has a 4xx status code
+func (o *SchemaObjectsCreateUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects create unauthorized response has a 5xx status code
+func (o *SchemaObjectsCreateUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects create unauthorized response a status code equal to that given
+func (o *SchemaObjectsCreateUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the schema objects create unauthorized response
+func (o *SchemaObjectsCreateUnauthorized) Code() int {
+	return 401
 }
 
 func (o *SchemaObjectsCreateUnauthorized) Error() string {
 	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized ", 401)
 }
 
-func (o *SchemaObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *SchemaObjectsCreateUnauthorized) String() string {
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnauthorized ", 401)
+}
 
+func (o *SchemaObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -132,7 +196,7 @@ func NewSchemaObjectsCreateForbidden() *SchemaObjectsCreateForbidden {
 }
 
 /*
-SchemaObjectsCreateForbidden handles this case with default header values.
+SchemaObjectsCreateForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -140,7 +204,41 @@ type SchemaObjectsCreateForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects create forbidden response has a 2xx status code
+func (o *SchemaObjectsCreateForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects create forbidden response has a 3xx status code
+func (o *SchemaObjectsCreateForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects create forbidden response has a 4xx status code
+func (o *SchemaObjectsCreateForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects create forbidden response has a 5xx status code
+func (o *SchemaObjectsCreateForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects create forbidden response a status code equal to that given
+func (o *SchemaObjectsCreateForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the schema objects create forbidden response
+func (o *SchemaObjectsCreateForbidden) Code() int {
+	return 403
+}
+
 func (o *SchemaObjectsCreateForbidden) Error() string {
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *SchemaObjectsCreateForbidden) String() string {
 	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateForbidden  %+v", 403, o.Payload)
 }
 
@@ -149,7 +247,6 @@ func (o *SchemaObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -166,7 +263,7 @@ func NewSchemaObjectsCreateUnprocessableEntity() *SchemaObjectsCreateUnprocessab
 }
 
 /*
-SchemaObjectsCreateUnprocessableEntity handles this case with default header values.
+SchemaObjectsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
 Invalid Object class
 */
@@ -174,7 +271,41 @@ type SchemaObjectsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects create unprocessable entity response has a 2xx status code
+func (o *SchemaObjectsCreateUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects create unprocessable entity response has a 3xx status code
+func (o *SchemaObjectsCreateUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects create unprocessable entity response has a 4xx status code
+func (o *SchemaObjectsCreateUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects create unprocessable entity response has a 5xx status code
+func (o *SchemaObjectsCreateUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects create unprocessable entity response a status code equal to that given
+func (o *SchemaObjectsCreateUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the schema objects create unprocessable entity response
+func (o *SchemaObjectsCreateUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *SchemaObjectsCreateUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsCreateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -183,7 +314,6 @@ func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -200,7 +330,7 @@ func NewSchemaObjectsCreateInternalServerError() *SchemaObjectsCreateInternalSer
 }
 
 /*
-SchemaObjectsCreateInternalServerError handles this case with default header values.
+SchemaObjectsCreateInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -208,7 +338,41 @@ type SchemaObjectsCreateInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects create internal server error response has a 2xx status code
+func (o *SchemaObjectsCreateInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects create internal server error response has a 3xx status code
+func (o *SchemaObjectsCreateInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects create internal server error response has a 4xx status code
+func (o *SchemaObjectsCreateInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema objects create internal server error response has a 5xx status code
+func (o *SchemaObjectsCreateInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this schema objects create internal server error response a status code equal to that given
+func (o *SchemaObjectsCreateInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the schema objects create internal server error response
+func (o *SchemaObjectsCreateInternalServerError) Code() int {
+	return 500
+}
+
 func (o *SchemaObjectsCreateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaObjectsCreateInternalServerError) String() string {
 	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -217,7 +381,6 @@ func (o *SchemaObjectsCreateInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

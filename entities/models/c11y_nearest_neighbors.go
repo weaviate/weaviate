@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -42,6 +43,8 @@ func (m C11yNearestNeighbors) Validate(formats strfmt.Registry) error {
 			if err := m[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName(strconv.Itoa(i))
 				}
 				return err
 			}
@@ -55,11 +58,33 @@ func (m C11yNearestNeighbors) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
+// ContextValidate validate this c11y nearest neighbors based on the context it is used
+func (m C11yNearestNeighbors) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	for i := 0; i < len(m); i++ {
+		if m[i] != nil {
+			if err := m[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName(strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName(strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
 // C11yNearestNeighborsItems0 c11y nearest neighbors items0
 //
 // swagger:model C11yNearestNeighborsItems0
 type C11yNearestNeighborsItems0 struct {
-
 	// distance
 	Distance float32 `json:"distance,omitempty"`
 
@@ -69,6 +94,11 @@ type C11yNearestNeighborsItems0 struct {
 
 // Validate validates this c11y nearest neighbors items0
 func (m *C11yNearestNeighborsItems0) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this c11y nearest neighbors items0 based on context it is used
+func (m *C11yNearestNeighborsItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

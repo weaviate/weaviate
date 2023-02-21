@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewObjectsHeadParams creates a new ObjectsHeadParams object
-// with the default values initialized.
+// NewObjectsHeadParams creates a new ObjectsHeadParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsHeadParams() *ObjectsHeadParams {
-	var ()
 	return &ObjectsHeadParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsHeadParamsWithTimeout creates a new ObjectsHeadParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsHeadParamsWithTimeout(timeout time.Duration) *ObjectsHeadParams {
-	var ()
 	return &ObjectsHeadParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsHeadParamsWithContext creates a new ObjectsHeadParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsHeadParamsWithContext(ctx context.Context) *ObjectsHeadParams {
-	var ()
 	return &ObjectsHeadParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsHeadParamsWithHTTPClient creates a new ObjectsHeadParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsHeadParamsWithHTTPClient(client *http.Client) *ObjectsHeadParams {
-	var ()
 	return &ObjectsHeadParams{
 		HTTPClient: client,
 	}
@@ -68,19 +65,38 @@ func NewObjectsHeadParamsWithHTTPClient(client *http.Client) *ObjectsHeadParams 
 
 /*
 ObjectsHeadParams contains all the parameters to send to the API endpoint
-for the objects head operation typically these are written to a http.Request
+
+	for the objects head operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsHeadParams struct {
+	/* ID.
 
-	/*ID
-	  Unique ID of the Object.
+	   Unique ID of the Object.
 
+	   Format: uuid
 	*/
 	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects head params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsHeadParams) WithDefaults() *ObjectsHeadParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects head params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsHeadParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects head params
@@ -129,7 +145,6 @@ func (o *ObjectsHeadParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsHeadParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

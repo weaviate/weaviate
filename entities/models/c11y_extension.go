@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -25,8 +27,8 @@ import (
 //
 // swagger:model C11yExtension
 type C11yExtension struct {
-
 	// The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'
+	// Example: foobarium
 	Concept string `json:"concept,omitempty"`
 
 	// A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occourring element which can only be seen by programmers'
@@ -38,6 +40,11 @@ type C11yExtension struct {
 
 // Validate validates this c11y extension
 func (m *C11yExtension) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this c11y extension based on context it is used
+func (m *C11yExtension) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

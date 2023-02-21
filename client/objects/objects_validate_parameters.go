@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsValidateParams creates a new ObjectsValidateParams object
-// with the default values initialized.
+// NewObjectsValidateParams creates a new ObjectsValidateParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsValidateParams() *ObjectsValidateParams {
-	var ()
 	return &ObjectsValidateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsValidateParamsWithTimeout creates a new ObjectsValidateParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsValidateParamsWithTimeout(timeout time.Duration) *ObjectsValidateParams {
-	var ()
 	return &ObjectsValidateParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsValidateParamsWithContext creates a new ObjectsValidateParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsValidateParamsWithContext(ctx context.Context) *ObjectsValidateParams {
-	var ()
 	return &ObjectsValidateParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsValidateParamsWithHTTPClient creates a new ObjectsValidateParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsValidateParamsWithHTTPClient(client *http.Client) *ObjectsValidateParams {
-	var ()
 	return &ObjectsValidateParams{
 		HTTPClient: client,
 	}
@@ -70,16 +67,33 @@ func NewObjectsValidateParamsWithHTTPClient(client *http.Client) *ObjectsValidat
 
 /*
 ObjectsValidateParams contains all the parameters to send to the API endpoint
-for the objects validate operation typically these are written to a http.Request
+
+	for the objects validate operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsValidateParams struct {
-
-	/*Body*/
+	// Body.
 	Body *models.Object
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects validate params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsValidateParams) WithDefaults() *ObjectsValidateParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects validate params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsValidateParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects validate params
@@ -128,12 +142,10 @@ func (o *ObjectsValidateParams) SetBody(body *models.Object) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsValidateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err

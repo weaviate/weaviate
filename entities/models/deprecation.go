@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -27,7 +29,6 @@ import (
 //
 // swagger:model Deprecation
 type Deprecation struct {
-
 	// Describes which API is effected, usually one of: REST, GraphQL
 	APIType string `json:"apiType,omitempty"`
 
@@ -83,7 +84,6 @@ func (m *Deprecation) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Deprecation) validateRemovedTime(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.RemovedTime) { // not required
 		return nil
 	}
@@ -96,7 +96,6 @@ func (m *Deprecation) validateRemovedTime(formats strfmt.Registry) error {
 }
 
 func (m *Deprecation) validateSinceTime(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.SinceTime) { // not required
 		return nil
 	}
@@ -105,6 +104,11 @@ func (m *Deprecation) validateSinceTime(formats strfmt.Registry) error {
 		return err
 	}
 
+	return nil
+}
+
+// ContextValidate validates this deprecation based on context it is used
+func (m *Deprecation) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

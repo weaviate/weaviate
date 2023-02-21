@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewSchemaObjectsGetParams creates a new SchemaObjectsGetParams object
-// with the default values initialized.
+// NewSchemaObjectsGetParams creates a new SchemaObjectsGetParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewSchemaObjectsGetParams() *SchemaObjectsGetParams {
-	var ()
 	return &SchemaObjectsGetParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewSchemaObjectsGetParamsWithTimeout creates a new SchemaObjectsGetParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewSchemaObjectsGetParamsWithTimeout(timeout time.Duration) *SchemaObjectsGetParams {
-	var ()
 	return &SchemaObjectsGetParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewSchemaObjectsGetParamsWithContext creates a new SchemaObjectsGetParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewSchemaObjectsGetParamsWithContext(ctx context.Context) *SchemaObjectsGetParams {
-	var ()
 	return &SchemaObjectsGetParams{
-
 		Context: ctx,
 	}
 }
 
 // NewSchemaObjectsGetParamsWithHTTPClient creates a new SchemaObjectsGetParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewSchemaObjectsGetParamsWithHTTPClient(client *http.Client) *SchemaObjectsGetParams {
-	var ()
 	return &SchemaObjectsGetParams{
 		HTTPClient: client,
 	}
@@ -68,16 +65,33 @@ func NewSchemaObjectsGetParamsWithHTTPClient(client *http.Client) *SchemaObjects
 
 /*
 SchemaObjectsGetParams contains all the parameters to send to the API endpoint
-for the schema objects get operation typically these are written to a http.Request
+
+	for the schema objects get operation.
+
+	Typically these are written to a http.Request.
 */
 type SchemaObjectsGetParams struct {
-
-	/*ClassName*/
+	// ClassName.
 	ClassName string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the schema objects get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsGetParams) WithDefaults() *SchemaObjectsGetParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the schema objects get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsGetParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the schema objects get params
@@ -126,7 +140,6 @@ func (o *SchemaObjectsGetParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

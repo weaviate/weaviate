@@ -70,9 +70,8 @@ func (o *NodesGetReader) ReadResponse(response runtime.ClientResponse, consumer 
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -82,7 +81,7 @@ func NewNodesGetOK() *NodesGetOK {
 }
 
 /*
-NodesGetOK handles this case with default header values.
+NodesGetOK describes a response with status code 200, with default header values.
 
 Nodes status successfully returned
 */
@@ -90,7 +89,41 @@ type NodesGetOK struct {
 	Payload *models.NodesStatusResponse
 }
 
+// IsSuccess returns true when this nodes get o k response has a 2xx status code
+func (o *NodesGetOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this nodes get o k response has a 3xx status code
+func (o *NodesGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this nodes get o k response has a 4xx status code
+func (o *NodesGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this nodes get o k response has a 5xx status code
+func (o *NodesGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this nodes get o k response a status code equal to that given
+func (o *NodesGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the nodes get o k response
+func (o *NodesGetOK) Code() int {
+	return 200
+}
+
 func (o *NodesGetOK) Error() string {
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK  %+v", 200, o.Payload)
+}
+
+func (o *NodesGetOK) String() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetOK  %+v", 200, o.Payload)
 }
 
@@ -99,7 +132,6 @@ func (o *NodesGetOK) GetPayload() *models.NodesStatusResponse {
 }
 
 func (o *NodesGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.NodesStatusResponse)
 
 	// response payload
@@ -116,19 +148,51 @@ func NewNodesGetUnauthorized() *NodesGetUnauthorized {
 }
 
 /*
-NodesGetUnauthorized handles this case with default header values.
+NodesGetUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
-type NodesGetUnauthorized struct {
+type NodesGetUnauthorized struct{}
+
+// IsSuccess returns true when this nodes get unauthorized response has a 2xx status code
+func (o *NodesGetUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this nodes get unauthorized response has a 3xx status code
+func (o *NodesGetUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this nodes get unauthorized response has a 4xx status code
+func (o *NodesGetUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this nodes get unauthorized response has a 5xx status code
+func (o *NodesGetUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this nodes get unauthorized response a status code equal to that given
+func (o *NodesGetUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the nodes get unauthorized response
+func (o *NodesGetUnauthorized) Code() int {
+	return 401
 }
 
 func (o *NodesGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized ", 401)
 }
 
-func (o *NodesGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *NodesGetUnauthorized) String() string {
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnauthorized ", 401)
+}
 
+func (o *NodesGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -138,7 +202,7 @@ func NewNodesGetForbidden() *NodesGetForbidden {
 }
 
 /*
-NodesGetForbidden handles this case with default header values.
+NodesGetForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -146,7 +210,41 @@ type NodesGetForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this nodes get forbidden response has a 2xx status code
+func (o *NodesGetForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this nodes get forbidden response has a 3xx status code
+func (o *NodesGetForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this nodes get forbidden response has a 4xx status code
+func (o *NodesGetForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this nodes get forbidden response has a 5xx status code
+func (o *NodesGetForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this nodes get forbidden response a status code equal to that given
+func (o *NodesGetForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the nodes get forbidden response
+func (o *NodesGetForbidden) Code() int {
+	return 403
+}
+
 func (o *NodesGetForbidden) Error() string {
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
+}
+
+func (o *NodesGetForbidden) String() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetForbidden  %+v", 403, o.Payload)
 }
 
@@ -155,7 +253,6 @@ func (o *NodesGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -172,7 +269,7 @@ func NewNodesGetNotFound() *NodesGetNotFound {
 }
 
 /*
-NodesGetNotFound handles this case with default header values.
+NodesGetNotFound describes a response with status code 404, with default header values.
 
 Not Found - Backup does not exist
 */
@@ -180,7 +277,41 @@ type NodesGetNotFound struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this nodes get not found response has a 2xx status code
+func (o *NodesGetNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this nodes get not found response has a 3xx status code
+func (o *NodesGetNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this nodes get not found response has a 4xx status code
+func (o *NodesGetNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this nodes get not found response has a 5xx status code
+func (o *NodesGetNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this nodes get not found response a status code equal to that given
+func (o *NodesGetNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the nodes get not found response
+func (o *NodesGetNotFound) Code() int {
+	return 404
+}
+
 func (o *NodesGetNotFound) Error() string {
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
+}
+
+func (o *NodesGetNotFound) String() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetNotFound  %+v", 404, o.Payload)
 }
 
@@ -189,7 +320,6 @@ func (o *NodesGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -206,7 +336,7 @@ func NewNodesGetUnprocessableEntity() *NodesGetUnprocessableEntity {
 }
 
 /*
-NodesGetUnprocessableEntity handles this case with default header values.
+NodesGetUnprocessableEntity describes a response with status code 422, with default header values.
 
 Invalid backup restoration status attempt.
 */
@@ -214,7 +344,41 @@ type NodesGetUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this nodes get unprocessable entity response has a 2xx status code
+func (o *NodesGetUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this nodes get unprocessable entity response has a 3xx status code
+func (o *NodesGetUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this nodes get unprocessable entity response has a 4xx status code
+func (o *NodesGetUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this nodes get unprocessable entity response has a 5xx status code
+func (o *NodesGetUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this nodes get unprocessable entity response a status code equal to that given
+func (o *NodesGetUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the nodes get unprocessable entity response
+func (o *NodesGetUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *NodesGetUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *NodesGetUnprocessableEntity) String() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -223,7 +387,6 @@ func (o *NodesGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -240,7 +403,7 @@ func NewNodesGetInternalServerError() *NodesGetInternalServerError {
 }
 
 /*
-NodesGetInternalServerError handles this case with default header values.
+NodesGetInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -248,7 +411,41 @@ type NodesGetInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this nodes get internal server error response has a 2xx status code
+func (o *NodesGetInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this nodes get internal server error response has a 3xx status code
+func (o *NodesGetInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this nodes get internal server error response has a 4xx status code
+func (o *NodesGetInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this nodes get internal server error response has a 5xx status code
+func (o *NodesGetInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this nodes get internal server error response a status code equal to that given
+func (o *NodesGetInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the nodes get internal server error response
+func (o *NodesGetInternalServerError) Code() int {
+	return 500
+}
+
 func (o *NodesGetInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *NodesGetInternalServerError) String() string {
 	return fmt.Sprintf("[GET /nodes][%d] nodesGetInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -257,7 +454,6 @@ func (o *NodesGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

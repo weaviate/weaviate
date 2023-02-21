@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/go-openapi/errors"
@@ -29,7 +30,6 @@ import (
 //
 // swagger:model BackupRestoreStatusResponse
 type BackupRestoreStatusResponse struct {
-
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
@@ -100,7 +100,6 @@ func (m *BackupRestoreStatusResponse) validateStatusEnum(path, location string, 
 }
 
 func (m *BackupRestoreStatusResponse) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -110,6 +109,11 @@ func (m *BackupRestoreStatusResponse) validateStatus(formats strfmt.Registry) er
 		return err
 	}
 
+	return nil
+}
+
+// ContextValidate validates this backup restore status response based on context it is used
+func (m *BackupRestoreStatusResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

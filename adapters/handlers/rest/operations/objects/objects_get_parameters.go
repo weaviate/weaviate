@@ -27,9 +27,9 @@ import (
 )
 
 // NewObjectsGetParams creates a new ObjectsGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsGetParams() ObjectsGetParams {
-
 	return ObjectsGetParams{}
 }
 
@@ -38,7 +38,6 @@ func NewObjectsGetParams() ObjectsGetParams {
 //
 // swagger:parameters objects.get
 type ObjectsGetParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -73,7 +72,6 @@ func (o *ObjectsGetParams) BindRequest(r *http.Request, route *middleware.Matche
 	if err := o.bindInclude(qInclude, qhkInclude, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -106,7 +104,6 @@ func (o *ObjectsGetParams) bindID(rawData []string, hasKey bool, formats strfmt.
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsGetParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
@@ -122,10 +119,10 @@ func (o *ObjectsGetParams) bindInclude(rawData []string, hasKey bool, formats st
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Include = &raw
 
 	return nil

@@ -24,9 +24,9 @@ import (
 )
 
 // NewGetWellKnownOpenidConfigurationParams creates a new GetWellKnownOpenidConfigurationParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewGetWellKnownOpenidConfigurationParams() GetWellKnownOpenidConfigurationParams {
-
 	return GetWellKnownOpenidConfigurationParams{}
 }
 
@@ -35,7 +35,6 @@ func NewGetWellKnownOpenidConfigurationParams() GetWellKnownOpenidConfigurationP
 //
 // swagger:parameters GetWellKnownOpenidConfiguration
 type GetWellKnownOpenidConfigurationParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewObjectsClassDeleteParams creates a new ObjectsClassDeleteParams object
-// with the default values initialized.
+// NewObjectsClassDeleteParams creates a new ObjectsClassDeleteParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsClassDeleteParams() *ObjectsClassDeleteParams {
-	var ()
 	return &ObjectsClassDeleteParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsClassDeleteParamsWithTimeout creates a new ObjectsClassDeleteParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsClassDeleteParamsWithTimeout(timeout time.Duration) *ObjectsClassDeleteParams {
-	var ()
 	return &ObjectsClassDeleteParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsClassDeleteParamsWithContext creates a new ObjectsClassDeleteParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsClassDeleteParamsWithContext(ctx context.Context) *ObjectsClassDeleteParams {
-	var ()
 	return &ObjectsClassDeleteParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsClassDeleteParamsWithHTTPClient creates a new ObjectsClassDeleteParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsClassDeleteParamsWithHTTPClient(client *http.Client) *ObjectsClassDeleteParams {
-	var ()
 	return &ObjectsClassDeleteParams{
 		HTTPClient: client,
 	}
@@ -68,26 +65,47 @@ func NewObjectsClassDeleteParamsWithHTTPClient(client *http.Client) *ObjectsClas
 
 /*
 ObjectsClassDeleteParams contains all the parameters to send to the API endpoint
-for the objects class delete operation typically these are written to a http.Request
+
+	for the objects class delete operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsClassDeleteParams struct {
-
-	/*ClassName*/
+	// ClassName.
 	ClassName string
-	/*ConsistencyLevel
-	  Determines how many replicas must acknowledge a request before it is considered successful
 
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
 	*/
 	ConsistencyLevel *string
-	/*ID
-	  Unique ID of the Object.
 
+	/* ID.
+
+	   Unique ID of the Object.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects class delete params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassDeleteParams) WithDefaults() *ObjectsClassDeleteParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects class delete params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassDeleteParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects class delete params
@@ -158,7 +176,6 @@ func (o *ObjectsClassDeleteParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -173,6 +190,7 @@ func (o *ObjectsClassDeleteParams) WriteToRequest(r runtime.ClientRequest, reg s
 
 		// query param consistency_level
 		var qrConsistencyLevel string
+
 		if o.ConsistencyLevel != nil {
 			qrConsistencyLevel = *o.ConsistencyLevel
 		}
@@ -182,7 +200,6 @@ func (o *ObjectsClassDeleteParams) WriteToRequest(r runtime.ClientRequest, reg s
 				return err
 			}
 		}
-
 	}
 
 	// path param id

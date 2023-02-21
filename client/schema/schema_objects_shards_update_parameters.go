@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewSchemaObjectsShardsUpdateParams creates a new SchemaObjectsShardsUpdateParams object
-// with the default values initialized.
+// NewSchemaObjectsShardsUpdateParams creates a new SchemaObjectsShardsUpdateParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewSchemaObjectsShardsUpdateParams() *SchemaObjectsShardsUpdateParams {
-	var ()
 	return &SchemaObjectsShardsUpdateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewSchemaObjectsShardsUpdateParamsWithTimeout creates a new SchemaObjectsShardsUpdateParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewSchemaObjectsShardsUpdateParamsWithTimeout(timeout time.Duration) *SchemaObjectsShardsUpdateParams {
-	var ()
 	return &SchemaObjectsShardsUpdateParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewSchemaObjectsShardsUpdateParamsWithContext creates a new SchemaObjectsShardsUpdateParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewSchemaObjectsShardsUpdateParamsWithContext(ctx context.Context) *SchemaObjectsShardsUpdateParams {
-	var ()
 	return &SchemaObjectsShardsUpdateParams{
-
 		Context: ctx,
 	}
 }
 
 // NewSchemaObjectsShardsUpdateParamsWithHTTPClient creates a new SchemaObjectsShardsUpdateParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewSchemaObjectsShardsUpdateParamsWithHTTPClient(client *http.Client) *SchemaObjectsShardsUpdateParams {
-	var ()
 	return &SchemaObjectsShardsUpdateParams{
 		HTTPClient: client,
 	}
@@ -70,20 +67,39 @@ func NewSchemaObjectsShardsUpdateParamsWithHTTPClient(client *http.Client) *Sche
 
 /*
 SchemaObjectsShardsUpdateParams contains all the parameters to send to the API endpoint
-for the schema objects shards update operation typically these are written to a http.Request
+
+	for the schema objects shards update operation.
+
+	Typically these are written to a http.Request.
 */
 type SchemaObjectsShardsUpdateParams struct {
-
-	/*Body*/
+	// Body.
 	Body *models.ShardStatus
-	/*ClassName*/
+
+	// ClassName.
 	ClassName string
-	/*ShardName*/
+
+	// ShardName.
 	ShardName string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the schema objects shards update params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsShardsUpdateParams) WithDefaults() *SchemaObjectsShardsUpdateParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the schema objects shards update params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsShardsUpdateParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the schema objects shards update params
@@ -154,12 +170,10 @@ func (o *SchemaObjectsShardsUpdateParams) SetShardName(shardName string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsShardsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
