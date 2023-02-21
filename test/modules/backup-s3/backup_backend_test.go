@@ -149,6 +149,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 	createBucket(testCtx, t, endpoint, region, bucketName)
 
 	t.Run("copy objects", func(t *testing.T) {
+		t.Setenv(envS3UseSSL, "false")
 		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
 		err := s3.Init(testCtx, newFakeModuleParams(dataDir))
@@ -178,6 +179,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	region := "eu-west-1"
 	endpoint := os.Getenv(envMinioEndpoint)
 
+	t.Log("setup env")
 	t.Setenv(envAwsRegion, region)
 	t.Setenv(envS3AccessKey, "aws_access_key")
 	t.Setenv(envS3SecretKey, "aws_secret_key")
@@ -191,6 +193,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, expectedContents)
 
+		t.Setenv(envS3UseSSL, "false")
 		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
 		err = s3.Init(testCtx, newFakeModuleParams(dataDir))
