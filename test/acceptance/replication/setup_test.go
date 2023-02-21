@@ -17,4 +17,5 @@ func TestReplication(t *testing.T) {
 	t.Run("immediate replica CRUD", immediateReplicaCRUD)
 	t.Run("eventual replica CRUD", eventualReplicaCRUD)
 	t.Run("multishard scale out", multiShardScaleOut)
+	t.Run("read repair", readRepair)
 }

@@ -343,7 +343,11 @@ func (i *Index) overwriteObjects(ctx context.Context,
 	for _, update := range list {
 		id := update.LatestObject.ID
 		found, err := s.objectByID(ctx, id, nil, additional.Properties{})
-		if err != nil || found == nil {
+		var curUpdateTime int64 // 0 means object doesn't exist on this node
+		if found != nil {
+			curUpdateTime = found.LastUpdateTimeUnix()
+		}
+		if err != nil {
 			result = append(result, replica.RepairResponse{
 				ID:  id.String(),
 				Err: "not found",
@@ -352,12 +356,12 @@ func (i *Index) overwriteObjects(ctx context.Context,
 		}
 		// the stored object is not the most recent version. in
 		// this case, we overwrite it with the more recent one.
-		if found.LastUpdateTimeUnix() == update.StaleUpdateTime {
+		if curUpdateTime == update.StaleUpdateTime {
 			err := s.putObject(ctx, storobj.FromObject(update.LatestObject, update.LatestObject.Vector))
 			if err != nil {
 				result = append(result, replica.RepairResponse{
 					ID:         id.String(),
-					UpdateTime: found.LastUpdateTimeUnix(),
+					UpdateTime: curUpdateTime,
 					// Version: , todo
 					Err: fmt.Sprintf("overwrite stale object: %v", err),
 				})
@@ -367,7 +371,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 			// todo set version once implemented
 			result = append(result, replica.RepairResponse{
 				ID:         id.String(),
-				UpdateTime: found.LastUpdateTimeUnix(),
+				UpdateTime: curUpdateTime,
 				// Version: , todo
 				Err: "conflict",
 			})

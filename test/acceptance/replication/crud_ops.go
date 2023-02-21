@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func getClass(t *testing.T, host, class string) *models.Class {
@@ -42,6 +43,11 @@ func createObject(t *testing.T, host string, obj *models.Object) {
 	helper.CreateObject(t, obj)
 }
 
+func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
+	helper.SetupClient(host)
+	helper.CreateObjectCL(t, obj, cl)
+}
+
 func createObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.SetupClient(host)
 	helper.CreateObjectsBatch(t, batch)
@@ -50,6 +56,11 @@ func createObjects(t *testing.T, host string, batch []*models.Object) {
 func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object, error) {
 	helper.SetupClient(host)
 	return helper.GetObject(t, class, id)
+}
+
+func getObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (*models.Object, error) {
+	helper.SetupClient(host)
+	return helper.GetObjectCL(t, class, id, cl)
 }
 
 func getObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodename string) (*models.Object, error) {
