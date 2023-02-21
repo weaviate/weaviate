@@ -17,6 +17,7 @@ package operations
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strconv"
@@ -43,9 +44,8 @@ func (o *WeaviateRootReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return result, nil
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -55,7 +55,7 @@ func NewWeaviateRootOK() *WeaviateRootOK {
 }
 
 /*
-WeaviateRootOK handles this case with default header values.
+WeaviateRootOK describes a response with status code 200, with default header values.
 
 Weaviate is alive and ready to serve content
 */
@@ -63,7 +63,41 @@ type WeaviateRootOK struct {
 	Payload *WeaviateRootOKBody
 }
 
+// IsSuccess returns true when this weaviate root o k response has a 2xx status code
+func (o *WeaviateRootOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this weaviate root o k response has a 3xx status code
+func (o *WeaviateRootOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this weaviate root o k response has a 4xx status code
+func (o *WeaviateRootOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this weaviate root o k response has a 5xx status code
+func (o *WeaviateRootOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this weaviate root o k response a status code equal to that given
+func (o *WeaviateRootOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the weaviate root o k response
+func (o *WeaviateRootOK) Code() int {
+	return 200
+}
+
 func (o *WeaviateRootOK) Error() string {
+	return fmt.Sprintf("[GET /][%d] weaviateRootOK  %+v", 200, o.Payload)
+}
+
+func (o *WeaviateRootOK) String() string {
 	return fmt.Sprintf("[GET /][%d] weaviateRootOK  %+v", 200, o.Payload)
 }
 
@@ -108,7 +142,6 @@ func (o *WeaviateRootOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *WeaviateRootOKBody) validateLinks(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Links) { // not required
 		return nil
 	}
@@ -122,6 +155,42 @@ func (o *WeaviateRootOKBody) validateLinks(formats strfmt.Registry) error {
 			if err := o.Links[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this weaviate root o k body based on the context it is used
+func (o *WeaviateRootOKBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateLinks(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *WeaviateRootOKBody) contextValidateLinks(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(o.Links); i++ {
+
+		if o.Links[i] != nil {
+			if err := o.Links[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

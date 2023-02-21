@@ -64,9 +64,8 @@ func (o *ObjectsReferencesCreateReader) ReadResponse(response runtime.ClientResp
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,14 +75,48 @@ func NewObjectsReferencesCreateOK() *ObjectsReferencesCreateOK {
 }
 
 /*
-ObjectsReferencesCreateOK handles this case with default header values.
+ObjectsReferencesCreateOK describes a response with status code 200, with default header values.
 
 Successfully added the reference.
 */
 type ObjectsReferencesCreateOK struct {
 }
 
+// IsSuccess returns true when this objects references create o k response has a 2xx status code
+func (o *ObjectsReferencesCreateOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects references create o k response has a 3xx status code
+func (o *ObjectsReferencesCreateOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references create o k response has a 4xx status code
+func (o *ObjectsReferencesCreateOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects references create o k response has a 5xx status code
+func (o *ObjectsReferencesCreateOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references create o k response a status code equal to that given
+func (o *ObjectsReferencesCreateOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the objects references create o k response
+func (o *ObjectsReferencesCreateOK) Code() int {
+	return 200
+}
+
 func (o *ObjectsReferencesCreateOK) Error() string {
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateOK ", 200)
+}
+
+func (o *ObjectsReferencesCreateOK) String() string {
 	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateOK ", 200)
 }
 
@@ -98,14 +131,48 @@ func NewObjectsReferencesCreateUnauthorized() *ObjectsReferencesCreateUnauthoriz
 }
 
 /*
-ObjectsReferencesCreateUnauthorized handles this case with default header values.
+ObjectsReferencesCreateUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsReferencesCreateUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects references create unauthorized response has a 2xx status code
+func (o *ObjectsReferencesCreateUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references create unauthorized response has a 3xx status code
+func (o *ObjectsReferencesCreateUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references create unauthorized response has a 4xx status code
+func (o *ObjectsReferencesCreateUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references create unauthorized response has a 5xx status code
+func (o *ObjectsReferencesCreateUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references create unauthorized response a status code equal to that given
+func (o *ObjectsReferencesCreateUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects references create unauthorized response
+func (o *ObjectsReferencesCreateUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsReferencesCreateUnauthorized) Error() string {
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnauthorized ", 401)
+}
+
+func (o *ObjectsReferencesCreateUnauthorized) String() string {
 	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnauthorized ", 401)
 }
 
@@ -120,7 +187,7 @@ func NewObjectsReferencesCreateForbidden() *ObjectsReferencesCreateForbidden {
 }
 
 /*
-ObjectsReferencesCreateForbidden handles this case with default header values.
+ObjectsReferencesCreateForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -128,7 +195,41 @@ type ObjectsReferencesCreateForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects references create forbidden response has a 2xx status code
+func (o *ObjectsReferencesCreateForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references create forbidden response has a 3xx status code
+func (o *ObjectsReferencesCreateForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references create forbidden response has a 4xx status code
+func (o *ObjectsReferencesCreateForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references create forbidden response has a 5xx status code
+func (o *ObjectsReferencesCreateForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references create forbidden response a status code equal to that given
+func (o *ObjectsReferencesCreateForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects references create forbidden response
+func (o *ObjectsReferencesCreateForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsReferencesCreateForbidden) Error() string {
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsReferencesCreateForbidden) String() string {
 	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
@@ -154,7 +255,7 @@ func NewObjectsReferencesCreateUnprocessableEntity() *ObjectsReferencesCreateUnp
 }
 
 /*
-ObjectsReferencesCreateUnprocessableEntity handles this case with default header values.
+ObjectsReferencesCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -162,7 +263,41 @@ type ObjectsReferencesCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects references create unprocessable entity response has a 2xx status code
+func (o *ObjectsReferencesCreateUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references create unprocessable entity response has a 3xx status code
+func (o *ObjectsReferencesCreateUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references create unprocessable entity response has a 4xx status code
+func (o *ObjectsReferencesCreateUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references create unprocessable entity response has a 5xx status code
+func (o *ObjectsReferencesCreateUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references create unprocessable entity response a status code equal to that given
+func (o *ObjectsReferencesCreateUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the objects references create unprocessable entity response
+func (o *ObjectsReferencesCreateUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *ObjectsReferencesCreateUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsReferencesCreateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -188,7 +323,7 @@ func NewObjectsReferencesCreateInternalServerError() *ObjectsReferencesCreateInt
 }
 
 /*
-ObjectsReferencesCreateInternalServerError handles this case with default header values.
+ObjectsReferencesCreateInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -196,7 +331,41 @@ type ObjectsReferencesCreateInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects references create internal server error response has a 2xx status code
+func (o *ObjectsReferencesCreateInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references create internal server error response has a 3xx status code
+func (o *ObjectsReferencesCreateInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references create internal server error response has a 4xx status code
+func (o *ObjectsReferencesCreateInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects references create internal server error response has a 5xx status code
+func (o *ObjectsReferencesCreateInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects references create internal server error response a status code equal to that given
+func (o *ObjectsReferencesCreateInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects references create internal server error response
+func (o *ObjectsReferencesCreateInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsReferencesCreateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsReferencesCreateInternalServerError) String() string {
 	return fmt.Sprintf("[POST /objects/{id}/references/{propertyName}][%d] objectsReferencesCreateInternalServerError  %+v", 500, o.Payload)
 }
 

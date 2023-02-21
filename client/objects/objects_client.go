@@ -36,45 +36,48 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassDeleteNoContent, error)
+	ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassDeleteNoContent, error)
 
-	ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassGetOK, error)
+	ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassGetOK, error)
 
-	ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassHeadNoContent, error)
+	ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassHeadNoContent, error)
 
-	ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPatchNoContent, error)
+	ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPatchNoContent, error)
 
-	ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPutOK, error)
+	ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPutOK, error)
 
-	ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesCreateOK, error)
+	ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesCreateOK, error)
 
-	ObjectsClassReferencesDelete(params *ObjectsClassReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesDeleteNoContent, error)
+	ObjectsClassReferencesDelete(params *ObjectsClassReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesDeleteNoContent, error)
 
-	ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesPutOK, error)
+	ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesPutOK, error)
 
-	ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsCreateOK, error)
+	ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsCreateOK, error)
 
-	ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsDeleteNoContent, error)
+	ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsDeleteNoContent, error)
 
-	ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsGetOK, error)
+	ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsGetOK, error)
 
-	ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsHeadNoContent, error)
+	ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsHeadNoContent, error)
 
-	ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsListOK, error)
+	ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsListOK, error)
 
-	ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsPatchNoContent, error)
+	ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsPatchNoContent, error)
 
-	ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesCreateOK, error)
+	ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesCreateOK, error)
 
-	ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesDeleteNoContent, error)
+	ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesDeleteNoContent, error)
 
-	ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesUpdateOK, error)
+	ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesUpdateOK, error)
 
-	ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsUpdateOK, error)
+	ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsUpdateOK, error)
 
-	ObjectsValidate(params *ObjectsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsValidateOK, error)
+	ObjectsValidate(params *ObjectsValidateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsValidateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -84,13 +87,12 @@ ObjectsClassDelete deletes object based on its class and UUID
 
 Delete a single data object.
 */
-func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassDeleteNoContent, error) {
+func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassDeleteParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.delete",
 		Method:             "DELETE",
 		PathPattern:        "/objects/{className}/{id}",
@@ -102,7 +104,12 @@ func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo r
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -121,13 +128,12 @@ ObjectsClassGet gets a specific object based on its class and UUID also availabl
 
 Get a single data object
 */
-func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassGetOK, error) {
+func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassGetParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.get",
 		Method:             "GET",
 		PathPattern:        "/objects/{className}/{id}",
@@ -139,7 +145,12 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -158,13 +169,12 @@ ObjectsClassHead checks object s existence based on its class and uuid
 
 Checks if a data object exists without retrieving it.
 */
-func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassHeadNoContent, error) {
+func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassHeadNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassHeadParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.head",
 		Method:             "HEAD",
 		PathPattern:        "/objects/{className}/{id}",
@@ -176,7 +186,12 @@ func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runti
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -195,13 +210,12 @@ ObjectsClassPatch updates an object based on its UUID using patch semantics
 
 Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPatchNoContent, error) {
+func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPatchNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassPatchParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.patch",
 		Method:             "PATCH",
 		PathPattern:        "/objects/{className}/{id}",
@@ -213,7 +227,12 @@ func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo run
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -232,13 +251,12 @@ ObjectsClassPut updates a class object based on its uuid
 
 Update an individual data object based on its class and uuid.
 */
-func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassPutOK, error) {
+func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPutOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassPutParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.put",
 		Method:             "PUT",
 		PathPattern:        "/objects/{className}/{id}",
@@ -250,7 +268,12 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -269,13 +292,12 @@ ObjectsClassReferencesCreate adds a single reference to a class property
 
 Add a single reference to a class-property.
 */
-func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesCreateOK, error) {
+func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassReferencesCreateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.references.create",
 		Method:             "POST",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
@@ -287,7 +309,12 @@ func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCrea
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -306,13 +333,12 @@ ObjectsClassReferencesDelete deletes the single reference that is given in the b
 
 Delete the single reference that is given in the body from the list of references that this property of a data object has
 */
-func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesDeleteNoContent, error) {
+func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassReferencesDeleteParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.references.delete",
 		Method:             "DELETE",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
@@ -324,7 +350,12 @@ func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDele
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -343,13 +374,12 @@ ObjectsClassReferencesPut replaces all references to a class property
 
 Update all references of a property of a data object.
 */
-func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsClassReferencesPutOK, error) {
+func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesPutOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsClassReferencesPutParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.class.references.put",
 		Method:             "PUT",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
@@ -361,7 +391,12 @@ func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutPara
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -380,13 +415,12 @@ ObjectsCreate creates objects between two objects object and subject
 
 Registers a new Object. Provided meta-data and schema values are validated.
 */
-func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsCreateOK, error) {
+func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsCreateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.create",
 		Method:             "POST",
 		PathPattern:        "/objects",
@@ -398,7 +432,12 @@ func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.Cli
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -417,13 +456,12 @@ ObjectsDelete deletes an object based on its UUID
 
 Deletes an Object from the system.
 */
-func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsDeleteNoContent, error) {
+func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsDeleteParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.delete",
 		Method:             "DELETE",
 		PathPattern:        "/objects/{id}",
@@ -435,7 +473,12 @@ func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.Cli
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -454,13 +497,12 @@ ObjectsGet gets a specific object based on its UUID and a object UUID also avail
 
 Lists Objects.
 */
-func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsGetOK, error) {
+func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsGetParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.get",
 		Method:             "GET",
 		PathPattern:        "/objects/{id}",
@@ -472,7 +514,12 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -491,13 +538,12 @@ ObjectsHead checks object s existence based on its UUID
 
 Checks if an Object exists in the system.
 */
-func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsHeadNoContent, error) {
+func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsHeadNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsHeadParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.head",
 		Method:             "HEAD",
 		PathPattern:        "/objects/{id}",
@@ -509,7 +555,12 @@ func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientA
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -528,13 +579,12 @@ ObjectsList gets a list of objects
 
 Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.
 */
-func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsListOK, error) {
+func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsListOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsListParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.list",
 		Method:             "GET",
 		PathPattern:        "/objects",
@@ -546,7 +596,12 @@ func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientA
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -565,13 +620,12 @@ ObjectsPatch updates an object based on its UUID using patch semantics
 
 Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsPatchNoContent, error) {
+func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsPatchNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsPatchParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.patch",
 		Method:             "PATCH",
 		PathPattern:        "/objects/{id}",
@@ -583,7 +637,12 @@ func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.Clien
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -602,13 +661,12 @@ ObjectsReferencesCreate adds a single reference to a class property
 
 Add a single reference to a class-property.
 */
-func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesCreateOK, error) {
+func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsReferencesCreateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.references.create",
 		Method:             "POST",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
@@ -620,7 +678,12 @@ func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, 
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -639,13 +702,12 @@ ObjectsReferencesDelete deletes the single reference that is given in the body f
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */
-func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesDeleteNoContent, error) {
+func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsReferencesDeleteParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.references.delete",
 		Method:             "DELETE",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
@@ -657,7 +719,12 @@ func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, 
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -676,13 +743,12 @@ ObjectsReferencesUpdate replaces all references to a class property
 
 Replace all references to a class-property.
 */
-func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsReferencesUpdateOK, error) {
+func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsReferencesUpdateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.references.update",
 		Method:             "PUT",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
@@ -694,7 +760,12 @@ func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, 
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -713,13 +784,12 @@ ObjectsUpdate updates an object based on its UUID
 
 Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsUpdateOK, error) {
+func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsUpdateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.update",
 		Method:             "PUT",
 		PathPattern:        "/objects/{id}",
@@ -731,7 +801,12 @@ func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.Cli
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -750,13 +825,12 @@ ObjectsValidate validates an object based on a schema
 
 Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.
 */
-func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ObjectsValidateOK, error) {
+func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsValidateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewObjectsValidateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "objects.validate",
 		Method:             "POST",
 		PathPattern:        "/objects/validate",
@@ -768,7 +842,12 @@ func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

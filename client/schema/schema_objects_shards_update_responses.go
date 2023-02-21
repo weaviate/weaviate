@@ -70,9 +70,8 @@ func (o *SchemaObjectsShardsUpdateReader) ReadResponse(response runtime.ClientRe
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -82,7 +81,7 @@ func NewSchemaObjectsShardsUpdateOK() *SchemaObjectsShardsUpdateOK {
 }
 
 /*
-SchemaObjectsShardsUpdateOK handles this case with default header values.
+SchemaObjectsShardsUpdateOK describes a response with status code 200, with default header values.
 
 Shard status was updated successfully
 */
@@ -90,7 +89,41 @@ type SchemaObjectsShardsUpdateOK struct {
 	Payload *models.ShardStatus
 }
 
+// IsSuccess returns true when this schema objects shards update o k response has a 2xx status code
+func (o *SchemaObjectsShardsUpdateOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this schema objects shards update o k response has a 3xx status code
+func (o *SchemaObjectsShardsUpdateOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards update o k response has a 4xx status code
+func (o *SchemaObjectsShardsUpdateOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema objects shards update o k response has a 5xx status code
+func (o *SchemaObjectsShardsUpdateOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards update o k response a status code equal to that given
+func (o *SchemaObjectsShardsUpdateOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the schema objects shards update o k response
+func (o *SchemaObjectsShardsUpdateOK) Code() int {
+	return 200
+}
+
 func (o *SchemaObjectsShardsUpdateOK) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateOK  %+v", 200, o.Payload)
+}
+
+func (o *SchemaObjectsShardsUpdateOK) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateOK  %+v", 200, o.Payload)
 }
 
@@ -116,14 +149,48 @@ func NewSchemaObjectsShardsUpdateUnauthorized() *SchemaObjectsShardsUpdateUnauth
 }
 
 /*
-SchemaObjectsShardsUpdateUnauthorized handles this case with default header values.
+SchemaObjectsShardsUpdateUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type SchemaObjectsShardsUpdateUnauthorized struct {
 }
 
+// IsSuccess returns true when this schema objects shards update unauthorized response has a 2xx status code
+func (o *SchemaObjectsShardsUpdateUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards update unauthorized response has a 3xx status code
+func (o *SchemaObjectsShardsUpdateUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards update unauthorized response has a 4xx status code
+func (o *SchemaObjectsShardsUpdateUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards update unauthorized response has a 5xx status code
+func (o *SchemaObjectsShardsUpdateUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards update unauthorized response a status code equal to that given
+func (o *SchemaObjectsShardsUpdateUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the schema objects shards update unauthorized response
+func (o *SchemaObjectsShardsUpdateUnauthorized) Code() int {
+	return 401
+}
+
 func (o *SchemaObjectsShardsUpdateUnauthorized) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnauthorized ", 401)
+}
+
+func (o *SchemaObjectsShardsUpdateUnauthorized) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnauthorized ", 401)
 }
 
@@ -138,7 +205,7 @@ func NewSchemaObjectsShardsUpdateForbidden() *SchemaObjectsShardsUpdateForbidden
 }
 
 /*
-SchemaObjectsShardsUpdateForbidden handles this case with default header values.
+SchemaObjectsShardsUpdateForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -146,7 +213,41 @@ type SchemaObjectsShardsUpdateForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects shards update forbidden response has a 2xx status code
+func (o *SchemaObjectsShardsUpdateForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards update forbidden response has a 3xx status code
+func (o *SchemaObjectsShardsUpdateForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards update forbidden response has a 4xx status code
+func (o *SchemaObjectsShardsUpdateForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards update forbidden response has a 5xx status code
+func (o *SchemaObjectsShardsUpdateForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards update forbidden response a status code equal to that given
+func (o *SchemaObjectsShardsUpdateForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the schema objects shards update forbidden response
+func (o *SchemaObjectsShardsUpdateForbidden) Code() int {
+	return 403
+}
+
 func (o *SchemaObjectsShardsUpdateForbidden) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *SchemaObjectsShardsUpdateForbidden) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateForbidden  %+v", 403, o.Payload)
 }
 
@@ -172,7 +273,7 @@ func NewSchemaObjectsShardsUpdateNotFound() *SchemaObjectsShardsUpdateNotFound {
 }
 
 /*
-SchemaObjectsShardsUpdateNotFound handles this case with default header values.
+SchemaObjectsShardsUpdateNotFound describes a response with status code 404, with default header values.
 
 Shard to be updated does not exist
 */
@@ -180,7 +281,41 @@ type SchemaObjectsShardsUpdateNotFound struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects shards update not found response has a 2xx status code
+func (o *SchemaObjectsShardsUpdateNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards update not found response has a 3xx status code
+func (o *SchemaObjectsShardsUpdateNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards update not found response has a 4xx status code
+func (o *SchemaObjectsShardsUpdateNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards update not found response has a 5xx status code
+func (o *SchemaObjectsShardsUpdateNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards update not found response a status code equal to that given
+func (o *SchemaObjectsShardsUpdateNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the schema objects shards update not found response
+func (o *SchemaObjectsShardsUpdateNotFound) Code() int {
+	return 404
+}
+
 func (o *SchemaObjectsShardsUpdateNotFound) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateNotFound  %+v", 404, o.Payload)
+}
+
+func (o *SchemaObjectsShardsUpdateNotFound) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateNotFound  %+v", 404, o.Payload)
 }
 
@@ -206,7 +341,7 @@ func NewSchemaObjectsShardsUpdateUnprocessableEntity() *SchemaObjectsShardsUpdat
 }
 
 /*
-SchemaObjectsShardsUpdateUnprocessableEntity handles this case with default header values.
+SchemaObjectsShardsUpdateUnprocessableEntity describes a response with status code 422, with default header values.
 
 Invalid update attempt
 */
@@ -214,7 +349,41 @@ type SchemaObjectsShardsUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects shards update unprocessable entity response has a 2xx status code
+func (o *SchemaObjectsShardsUpdateUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards update unprocessable entity response has a 3xx status code
+func (o *SchemaObjectsShardsUpdateUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards update unprocessable entity response has a 4xx status code
+func (o *SchemaObjectsShardsUpdateUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards update unprocessable entity response has a 5xx status code
+func (o *SchemaObjectsShardsUpdateUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards update unprocessable entity response a status code equal to that given
+func (o *SchemaObjectsShardsUpdateUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the schema objects shards update unprocessable entity response
+func (o *SchemaObjectsShardsUpdateUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *SchemaObjectsShardsUpdateUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *SchemaObjectsShardsUpdateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -240,7 +409,7 @@ func NewSchemaObjectsShardsUpdateInternalServerError() *SchemaObjectsShardsUpdat
 }
 
 /*
-SchemaObjectsShardsUpdateInternalServerError handles this case with default header values.
+SchemaObjectsShardsUpdateInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -248,7 +417,41 @@ type SchemaObjectsShardsUpdateInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects shards update internal server error response has a 2xx status code
+func (o *SchemaObjectsShardsUpdateInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards update internal server error response has a 3xx status code
+func (o *SchemaObjectsShardsUpdateInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards update internal server error response has a 4xx status code
+func (o *SchemaObjectsShardsUpdateInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema objects shards update internal server error response has a 5xx status code
+func (o *SchemaObjectsShardsUpdateInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this schema objects shards update internal server error response a status code equal to that given
+func (o *SchemaObjectsShardsUpdateInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the schema objects shards update internal server error response
+func (o *SchemaObjectsShardsUpdateInternalServerError) Code() int {
+	return 500
+}
+
 func (o *SchemaObjectsShardsUpdateInternalServerError) Error() string {
+	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaObjectsShardsUpdateInternalServerError) String() string {
 	return fmt.Sprintf("[PUT /schema/{className}/shards/{shardName}][%d] schemaObjectsShardsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 

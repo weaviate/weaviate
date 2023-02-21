@@ -25,7 +25,8 @@ import (
 )
 
 // NewClassificationsGetParams creates a new ClassificationsGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewClassificationsGetParams() ClassificationsGetParams {
 
 	return ClassificationsGetParams{}
@@ -60,7 +61,6 @@ func (o *ClassificationsGetParams) BindRequest(r *http.Request, route *middlewar
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -76,7 +76,6 @@ func (o *ClassificationsGetParams) bindID(rawData []string, hasKey bool, formats
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ID = raw
 
 	return nil

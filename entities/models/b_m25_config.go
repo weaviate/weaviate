@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -35,6 +37,11 @@ type BM25Config struct {
 
 // Validate validates this b m25 config
 func (m *BM25Config) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this b m25 config based on context it is used
+func (m *BM25Config) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
