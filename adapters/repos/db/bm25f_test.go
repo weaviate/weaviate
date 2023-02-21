@@ -25,11 +25,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
@@ -328,7 +328,6 @@ func TestBM25FSingleProp(t *testing.T) {
 	EqualFloats(t, float32(0.04250), res[1].Score(), 5)
 }
 
-
 func TestBM25FWithFilters(t *testing.T) {
 	dirName := t.TempDir()
 
@@ -380,18 +379,13 @@ func TestBM25FWithFilters(t *testing.T) {
 		},
 	}
 
-	
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
 	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, addit)
 
-
 	require.Nil(t, err)
 	require.True(t, len(res) > 0)
 	require.Equal(t, uint64(2), res[0].DocID())
-
-
-	
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	//"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -316,7 +317,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if err != nil {
 			return termResult, nil, err
 		}
-		m := make([]lsmkv.MapPair, 0,len(preM))
+		m := make([]lsmkv.MapPair, 0, len(preM))
 		if filterDocIds != nil {
 			for _, val := range preM {
 				_, ok := filterDocIds[binary.BigEndian.Uint64(val.Key)]
