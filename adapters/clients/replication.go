@@ -14,6 +14,8 @@ package clients
 import (
 	"bytes"
 	"context"
+	"encoding"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,7 +25,10 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -38,6 +43,113 @@ func NewReplicationClient(httpClient *http.Client) replica.Client {
 		client:  httpClient,
 		retryer: newRetryer(),
 	}
+}
+
+// FetchObject fetches one object it exits
+func (c *replicationClient) FetchObject(ctx context.Context, host, index,
+	shard string, id strfmt.UUID, selectProps search.SelectProperties,
+	additional additional.Properties,
+) (objects.Replica, error) {
+	resp := objects.Replica{}
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil)
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
+	return resp, err
+}
+
+func (c *replicationClient) Exists(ctx context.Context, host, index,
+	shard string, id strfmt.UUID,
+) (bool, error) {
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", index, shard, id)
+	method := http.MethodGet
+	url := url.URL{Scheme: "http", Host: host, Path: path}
+	q := url.Query()
+	q.Set("check_exists", "true")
+	url.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return false, errors.Wrap(err, "open http request")
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return false, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		// this is a legitimate case - the requested ID doesn't exist, don't try
+		// to unmarshal anything
+		return false, nil
+	}
+
+	if res.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(res.Body)
+		return false, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	return true, nil
+}
+
+func (c *replicationClient) DigestObjects(ctx context.Context,
+	host, index, shard string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	var resp []replica.RepairResponse
+	body, err := json.Marshal(ids)
+	if err != nil {
+		return nil, fmt.Errorf("marshal digest objects input: %w", err)
+	}
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodGet, host, index, shard,
+		"", "_digest", bytes.NewReader(body))
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	return resp, err
+}
+
+func (c *replicationClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, vobjects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	var resp []replica.RepairResponse
+	body, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodPut, host, index, shard,
+		"", "_overwrite", bytes.NewReader(body))
+	if err != nil {
+		return resp, fmt.Errorf("create http request: %w", err)
+	}
+	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	return resp, err
+}
+
+func (c *replicationClient) FetchObjects(ctx context.Context, host,
+	index, shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	resp := make(objects.Replicas, len(ids))
+	idsBytes, err := json.Marshal(ids)
+	if err != nil {
+		return nil, fmt.Errorf("marshal ids: %w", err)
+	}
+
+	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
+
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+
+	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
+	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
+	return resp, err
 }
 
 func (c *replicationClient) PutObject(ctx context.Context, host, index,
@@ -173,14 +285,17 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 	if suffix != "" {
 		path = fmt.Sprintf("%s/%s", path, suffix)
 	}
-	url := url.URL{
-		Scheme:   "http",
-		Host:     host,
-		Path:     path,
-		RawQuery: url.Values{replica.RequestKey: []string{requestId}}.Encode(),
+	u := url.URL{
+		Scheme: "http",
+		Host:   host,
+		Path:   path,
 	}
 
-	return http.NewRequestWithContext(ctx, method, url.String(), body)
+	if requestId != "" {
+		u.RawQuery = url.Values{replica.RequestKey: []string{requestId}}.Encode()
+	}
+
+	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }
 
 func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader) (*http.Request, error) {
@@ -204,11 +319,47 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
-			return shouldRetry(code), fmt.Errorf("status code: %v", code)
+			defer res.Body.Close()
+			b, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
 		}
+		return false, nil
+	}
+	return c.retry(ctx, 9, try)
+}
+
+func (c *replicationClient) doCustomMarshal(timeout time.Duration,
+	req *http.Request, body []byte, resp encoding.BinaryUnmarshaler,
+) (err error) {
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	try := func(ctx context.Context) (bool, error) {
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+
+		respBody, err := io.ReadAll(res.Body)
+		if err != nil {
+			return shouldRetry(res.StatusCode), fmt.Errorf("read response: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			defer res.Body.Close()
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, respBody)
+		}
+
+		if err := resp.UnmarshalBinary(respBody); err != nil {
+			return false, fmt.Errorf("unmarshal response: %w", err)
+		}
+
 		return false, nil
 	}
 	return c.retry(ctx, 9, try)

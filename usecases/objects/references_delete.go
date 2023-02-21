@@ -37,6 +37,7 @@ func (m *Manager) DeleteObjectReference(
 	ctx context.Context,
 	principal *models.Principal,
 	input *DeleteReferenceInput,
+	repl *additional.ReplicationProperties,
 ) *Error {
 	m.metrics.DeleteReferenceInc()
 	defer m.metrics.DeleteReferenceDec()
@@ -80,7 +81,7 @@ func (m *Manager) DeleteObjectReference(
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

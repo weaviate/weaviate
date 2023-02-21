@@ -16,7 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
@@ -24,7 +24,7 @@ func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 
 	resolver := newMockResolver()
 
-	expectedParams := traverser.GetParams{
+	expectedParams := dto.GetParams{
 		ClassName: "SomeThing",
 		AdditionalProperties: additional.Properties{
 			ID: true,

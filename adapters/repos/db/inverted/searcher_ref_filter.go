@@ -19,12 +19,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // a helper tool to extract the uuid beacon for any matching reference
@@ -38,7 +38,7 @@ type refFilterExtractor struct {
 // ClassSearcher is anything that allows a root-level ClassSearch
 type ClassSearcher interface {
 	ClassSearch(ctx context.Context,
-		params traverser.GetParams) ([]search.Result, error)
+		params dto.GetParams) ([]search.Result, error)
 	GetQueryMaximumResults() int
 }
 
@@ -67,8 +67,8 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 	return r.resultsToPropValuePairs(ids)
 }
 
-func (r *refFilterExtractor) paramsForNestedRequest() (traverser.GetParams, error) {
-	return traverser.GetParams{
+func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
+	return dto.GetParams{
 		Filters:   r.innerFilter(),
 		ClassName: r.filter.On.Child.Class.String(),
 		Pagination: &filters.Pagination{

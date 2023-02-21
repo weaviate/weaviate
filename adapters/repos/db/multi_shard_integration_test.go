@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -40,7 +41,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
@@ -58,7 +58,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
 		}
 	})
 
@@ -71,7 +71,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import refs individually", func(t *testing.T) {
 		for _, obj := range refData {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
 		}
 	})
 
@@ -104,7 +104,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			}
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), batch)
+		_, err := repo.BatchPutObjects(context.Background(), batch, nil)
 		require.Nil(t, err)
 	})
 
@@ -125,8 +125,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 				Properties: map[string]interface{}{}, // empty so we remove the ref
 			}
 
-			require.Nil(t, repo.PutObject(context.Background(), withoutRef,
-				withoutRef.Vector))
+			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil))
 		}
 
 		index := 0
@@ -143,7 +142,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			}
 		}
 
-		_, err := repo.AddBatchReferences(context.Background(), refBatch)
+		_, err := repo.AddBatchReferences(context.Background(), refBatch, nil)
 		require.Nil(t, err)
 	})
 
@@ -233,7 +232,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 		}
 
-		_, err := repo.BatchPutObjects(context.Background(), objs)
+		_, err := repo.BatchPutObjects(context.Background(), objs, nil)
 		require.Nil(t, err)
 	})
 
@@ -258,7 +257,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 		}
 
 		for _, test := range tests {
-			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:      className,
 				Pagination:     &filters.Pagination{Limit: 10},
 				KeywordRanking: test.rankingParams,
@@ -383,7 +382,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 					Filters: filter,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -409,7 +408,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+				res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 					SearchVector: queryVec,
 					Pagination: &filters.Pagination{
 						Limit: limit,
@@ -700,7 +699,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 				}
 			}
 			performClassSearch := func(className string) ([]search.Result, error) {
-				return repo.ClassSearch(context.Background(), traverser.GetParams{
+				return repo.ClassSearch(context.Background(), dto.GetParams{
 					ClassName:  className,
 					Pagination: &filters.Pagination{Limit: 10000},
 				})
@@ -711,8 +710,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(),
-				getParams(className, true))
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(className, true), nil)
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -724,8 +722,7 @@ func makeTestBatchDeleteAllObjects(repo *DB) func(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, beforeDelete, len(res))
 			// dryRun == false, perform actual delete
-			batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(),
-				getParams(className, false))
+			batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(className, false), nil)
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
