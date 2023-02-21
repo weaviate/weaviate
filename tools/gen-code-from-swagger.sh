@@ -40,7 +40,4 @@ echo Now add the header to the generated code too.
 
 (cd $DIR/..; goimports -w . )
 
-# echo Add licenses to file.
-# $DIR/create-license-dependency-file.sh
-
 echo Success
