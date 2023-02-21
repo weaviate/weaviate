@@ -100,11 +100,10 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
-	if res.StatusCode != 200 {
-		if resBody.Message != "" {
-			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Message)
-		}
-		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
+	if res.StatusCode >= 500 && resBody.Message != "" {
+		return nil, errors.Errorf("connection to Cohere failed with status: %d error: %v", res.StatusCode, resBody.Message)
+	} else if res.StatusCode > 200 {
+		return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Message)
 	}
 
 	if len(resBody.Embeddings) == 0 {
