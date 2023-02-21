@@ -27,7 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/sroar"
+	//"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -75,7 +75,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 	}
 }
 
-func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds *sroar.Bitmap, className schema.ClassName, limit int,
+func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
@@ -100,7 +100,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds *sroar.Bitmap, cl
 }
 
 // Objects returns a list of full objects
-func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds *sroar.Bitmap, limit int,
+func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowList, limit int,
 	keywordRanking *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
@@ -132,7 +132,7 @@ func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds *sroar.Bitmap, 
 }
 
 func (b *BM25Searcher) wand(
-	ctx context.Context, filterDocIds *sroar.Bitmap, class *models.Class, fullQuery string, properties []string, limit int,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, fullQuery string, properties []string, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
@@ -302,7 +302,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 	}
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds *sroar.Bitmap, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
 	var docMapPairs []docPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}
@@ -316,10 +316,11 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds *sroar.Bitmap, query s
 		if err != nil {
 			return termResult, nil, err
 		}
-		m := make([]lsmkv.MapPair, len(preM))
+		m := make([]lsmkv.MapPair, 0,len(preM))
 		if filterDocIds != nil {
 			for _, val := range preM {
-				if filterDocIds.Contains(binary.BigEndian.Uint64(val.Key)) {
+				_, ok := filterDocIds[binary.BigEndian.Uint64(val.Key)]
+				if ok {
 					m = append(m, val)
 				}
 			}
