@@ -43,7 +43,7 @@ func NewSchemaObjectsPropertiesAdd(ctx *middleware.Context, handler SchemaObject
 }
 
 /*
-SchemaObjectsPropertiesAdd swagger:route POST /schema/{className}/properties schema schemaObjectsPropertiesAdd
+	SchemaObjectsPropertiesAdd swagger:route POST /schema/{className}/properties schema schemaObjectsPropertiesAdd
 
 Add a property to an Object class.
 */
@@ -55,17 +55,16 @@ type SchemaObjectsPropertiesAdd struct {
 func (o *SchemaObjectsPropertiesAdd) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
-	var Params = NewSchemaObjectsPropertiesAddParams()
-
+	Params := NewSchemaObjectsPropertiesAddParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -78,7 +77,5 @@ func (o *SchemaObjectsPropertiesAdd) ServeHTTP(rw http.ResponseWriter, r *http.R
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

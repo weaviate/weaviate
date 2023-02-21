@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewObjectsClassGetParams creates a new ObjectsClassGetParams object
-// with the default values initialized.
+// NewObjectsClassGetParams creates a new ObjectsClassGetParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsClassGetParams() *ObjectsClassGetParams {
-	var ()
 	return &ObjectsClassGetParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsClassGetParamsWithTimeout creates a new ObjectsClassGetParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsClassGetParamsWithTimeout(timeout time.Duration) *ObjectsClassGetParams {
-	var ()
 	return &ObjectsClassGetParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsClassGetParamsWithContext creates a new ObjectsClassGetParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsClassGetParamsWithContext(ctx context.Context) *ObjectsClassGetParams {
-	var ()
 	return &ObjectsClassGetParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsClassGetParamsWithHTTPClient creates a new ObjectsClassGetParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsClassGetParamsWithHTTPClient(client *http.Client) *ObjectsClassGetParams {
-	var ()
 	return &ObjectsClassGetParams{
 		HTTPClient: client,
 	}
@@ -68,36 +65,59 @@ func NewObjectsClassGetParamsWithHTTPClient(client *http.Client) *ObjectsClassGe
 
 /*
 ObjectsClassGetParams contains all the parameters to send to the API endpoint
-for the objects class get operation typically these are written to a http.Request
+
+	for the objects class get operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsClassGetParams struct {
-
-	/*ClassName*/
+	// ClassName.
 	ClassName string
-	/*ConsistencyLevel
-	  Determines how many replicas must acknowledge a request before it is considered successful
 
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
 	*/
 	ConsistencyLevel *string
-	/*ID
-	  Unique ID of the Object.
 
+	/* ID.
+
+	   Unique ID of the Object.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
-	/*Include
-	  Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 
+	/* Include.
+
+	   Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 	*/
 	Include *string
-	/*NodeName
-	  The target node which should fulfill the request
 
+	/* NodeName.
+
+	   The target node which should fulfill the request
 	*/
 	NodeName *string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects class get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassGetParams) WithDefaults() *ObjectsClassGetParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects class get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassGetParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects class get params
@@ -190,7 +210,6 @@ func (o *ObjectsClassGetParams) SetNodeName(nodeName *string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -205,6 +224,7 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 
 		// query param consistency_level
 		var qrConsistencyLevel string
+
 		if o.ConsistencyLevel != nil {
 			qrConsistencyLevel = *o.ConsistencyLevel
 		}
@@ -214,7 +234,6 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 				return err
 			}
 		}
-
 	}
 
 	// path param id
@@ -226,6 +245,7 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 
 		// query param include
 		var qrInclude string
+
 		if o.Include != nil {
 			qrInclude = *o.Include
 		}
@@ -235,13 +255,13 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 				return err
 			}
 		}
-
 	}
 
 	if o.NodeName != nil {
 
 		// query param node_name
 		var qrNodeName string
+
 		if o.NodeName != nil {
 			qrNodeName = *o.NodeName
 		}
@@ -251,7 +271,6 @@ func (o *ObjectsClassGetParams) WriteToRequest(r runtime.ClientRequest, reg strf
 				return err
 			}
 		}
-
 	}
 
 	if len(res) > 0 {

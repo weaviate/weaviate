@@ -24,9 +24,9 @@ import (
 )
 
 // NewWeaviateWellknownReadinessParams creates a new WeaviateWellknownReadinessParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewWeaviateWellknownReadinessParams() WeaviateWellknownReadinessParams {
-
 	return WeaviateWellknownReadinessParams{}
 }
 
@@ -35,7 +35,6 @@ func NewWeaviateWellknownReadinessParams() WeaviateWellknownReadinessParams {
 //
 // swagger:parameters weaviate.wellknown.readiness
 type WeaviateWellknownReadinessParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

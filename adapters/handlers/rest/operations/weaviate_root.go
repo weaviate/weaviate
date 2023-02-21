@@ -17,6 +17,7 @@ package operations
 // Editing this file might prove futile when you re-run the generate command
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -47,7 +48,7 @@ func NewWeaviateRoot(ctx *middleware.Context, handler WeaviateRootHandler) *Weav
 }
 
 /*
-WeaviateRoot swagger:route GET / weaviateRoot
+	WeaviateRoot swagger:route GET / weaviateRoot
 
 Home. Discover the REST API
 */
@@ -59,17 +60,16 @@ type WeaviateRoot struct {
 func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
-	var Params = NewWeaviateRootParams()
-
+	Params := NewWeaviateRootParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -82,18 +82,15 @@ func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // WeaviateRootOKBody weaviate root o k body
 //
 // swagger:model WeaviateRootOKBody
 type WeaviateRootOKBody struct {
-
 	// links
-	Links []*models.Link `yaml:"links" json:"links"`
+	Links []*models.Link `json:"links" yaml:"links"`
 }
 
 // Validate validates this weaviate root o k body
@@ -111,7 +108,6 @@ func (o *WeaviateRootOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *WeaviateRootOKBody) validateLinks(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Links) { // not required
 		return nil
 	}
@@ -125,11 +121,44 @@ func (o *WeaviateRootOKBody) validateLinks(formats strfmt.Registry) error {
 			if err := o.Links[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
 		}
 
+	}
+
+	return nil
+}
+
+// ContextValidate validate this weaviate root o k body based on the context it is used
+func (o *WeaviateRootOKBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateLinks(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *WeaviateRootOKBody) contextValidateLinks(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(o.Links); i++ {
+		if o.Links[i] != nil {
+			if err := o.Links[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("weaviateRootOK" + "." + "links" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
 	}
 
 	return nil

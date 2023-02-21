@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/go-openapi/errors"
@@ -29,7 +30,6 @@ import (
 //
 // swagger:model PatchDocumentObject
 type PatchDocumentObject struct {
-
 	// A string containing a JSON Pointer value.
 	From string `json:"from,omitempty"`
 
@@ -72,7 +72,6 @@ func (m *PatchDocumentObject) Validate(formats strfmt.Registry) error {
 }
 
 func (m *PatchDocumentObject) validateMerge(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Merge) { // not required
 		return nil
 	}
@@ -81,6 +80,8 @@ func (m *PatchDocumentObject) validateMerge(formats strfmt.Registry) error {
 		if err := m.Merge.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("merge")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("merge")
 			}
 			return err
 		}
@@ -131,7 +132,6 @@ func (m *PatchDocumentObject) validateOpEnum(path, location string, value string
 }
 
 func (m *PatchDocumentObject) validateOp(formats strfmt.Registry) error {
-
 	if err := validate.Required("op", "body", m.Op); err != nil {
 		return err
 	}
@@ -145,9 +145,37 @@ func (m *PatchDocumentObject) validateOp(formats strfmt.Registry) error {
 }
 
 func (m *PatchDocumentObject) validatePath(formats strfmt.Registry) error {
-
 	if err := validate.Required("path", "body", m.Path); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this patch document object based on the context it is used
+func (m *PatchDocumentObject) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateMerge(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *PatchDocumentObject) contextValidateMerge(ctx context.Context, formats strfmt.Registry) error {
+	if m.Merge != nil {
+		if err := m.Merge.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("merge")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("merge")
+			}
+			return err
+		}
 	}
 
 	return nil

@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -27,7 +29,6 @@ import (
 //
 // swagger:model Object
 type Object struct {
-
 	// additional
 	Additional AdditionalProperties `json:"additional,omitempty"`
 
@@ -77,23 +78,25 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Object) validateAdditional(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Additional) { // not required
 		return nil
 	}
 
-	if err := m.Additional.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("additional")
+	if m.Additional != nil {
+		if err := m.Additional.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("additional")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("additional")
+			}
+			return err
 		}
-		return err
 	}
 
 	return nil
 }
 
 func (m *Object) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -106,7 +109,6 @@ func (m *Object) validateID(formats strfmt.Registry) error {
 }
 
 func (m *Object) validateVector(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Vector) { // not required
 		return nil
 	}
@@ -114,6 +116,52 @@ func (m *Object) validateVector(formats strfmt.Registry) error {
 	if err := m.Vector.Validate(formats); err != nil {
 		if ve, ok := err.(*errors.Validation); ok {
 			return ve.ValidateName("vector")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("vector")
+		}
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this object based on the context it is used
+func (m *Object) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateAdditional(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateVector(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Object) contextValidateAdditional(ctx context.Context, formats strfmt.Registry) error {
+	if err := m.Additional.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("additional")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("additional")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (m *Object) contextValidateVector(ctx context.Context, formats strfmt.Registry) error {
+	if err := m.Vector.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("vector")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("vector")
 		}
 		return err
 	}

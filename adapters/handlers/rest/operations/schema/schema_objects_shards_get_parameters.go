@@ -25,9 +25,9 @@ import (
 )
 
 // NewSchemaObjectsShardsGetParams creates a new SchemaObjectsShardsGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewSchemaObjectsShardsGetParams() SchemaObjectsShardsGetParams {
-
 	return SchemaObjectsShardsGetParams{}
 }
 
@@ -36,7 +36,6 @@ func NewSchemaObjectsShardsGetParams() SchemaObjectsShardsGetParams {
 //
 // swagger:parameters schema.objects.shards.get
 type SchemaObjectsShardsGetParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -60,7 +59,6 @@ func (o *SchemaObjectsShardsGetParams) BindRequest(r *http.Request, route *middl
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -76,7 +74,6 @@ func (o *SchemaObjectsShardsGetParams) bindClassName(rawData []string, hasKey bo
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil

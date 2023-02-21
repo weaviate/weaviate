@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -28,7 +29,6 @@ import (
 //
 // swagger:model ErrorResponse
 type ErrorResponse struct {
-
 	// error
 	Error []*ErrorResponseErrorItems0 `json:"error"`
 }
@@ -48,7 +48,6 @@ func (m *ErrorResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ErrorResponse) validateError(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Error) { // not required
 		return nil
 	}
@@ -62,11 +61,44 @@ func (m *ErrorResponse) validateError(formats strfmt.Registry) error {
 			if err := m.Error[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("error" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("error" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
 		}
 
+	}
+
+	return nil
+}
+
+// ContextValidate validate this error response based on the context it is used
+func (m *ErrorResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateError(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ErrorResponse) contextValidateError(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(m.Error); i++ {
+		if m.Error[i] != nil {
+			if err := m.Error[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("error" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("error" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -94,13 +126,17 @@ func (m *ErrorResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ErrorResponseErrorItems0
 type ErrorResponseErrorItems0 struct {
-
 	// message
 	Message string `json:"message,omitempty"`
 }
 
 // Validate validates this error response error items0
 func (m *ErrorResponseErrorItems0) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this error response error items0 based on context it is used
+func (m *ErrorResponseErrorItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

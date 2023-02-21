@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 
@@ -30,36 +31,43 @@ import (
 //
 // swagger:model WhereFilter
 type WhereFilter struct {
-
 	// combine multiple where filters, requires 'And' or 'Or' operator
 	Operands []*WhereFilter `json:"operands"`
 
 	// operator to use
+	// Example: GreaterThanEqual
 	// Enum: [And Or Equal Like Not NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull]
 	Operator string `json:"operator,omitempty"`
 
 	// path to the property currently being filtered
+	// Example: ["inCity","City","name"]
 	Path []string `json:"path"`
 
 	// value as boolean
+	// Example: false
 	ValueBoolean *bool `json:"valueBoolean,omitempty"`
 
 	// value as date (as string)
+	// Example: TODO
 	ValueDate *string `json:"valueDate,omitempty"`
 
 	// value as geo coordinates and distance
 	ValueGeoRange *WhereFilterGeoRange `json:"valueGeoRange,omitempty"`
 
 	// value as integer
+	// Example: 2000
 	ValueInt *int64 `json:"valueInt,omitempty"`
 
 	// value as number/float
+	// Example: 3.14
 	ValueNumber *float64 `json:"valueNumber,omitempty"`
 
 	// value as string
+	// Example: my search term
 	ValueString *string `json:"valueString,omitempty"`
 
 	// value as text (on text props)
+	// Example: my search term
 	ValueText *string `json:"valueText,omitempty"`
 }
 
@@ -86,7 +94,6 @@ func (m *WhereFilter) Validate(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilter) validateOperands(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Operands) { // not required
 		return nil
 	}
@@ -100,6 +107,8 @@ func (m *WhereFilter) validateOperands(formats strfmt.Registry) error {
 			if err := m.Operands[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("operands" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("operands" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -170,7 +179,6 @@ func (m *WhereFilter) validateOperatorEnum(path, location string, value string) 
 }
 
 func (m *WhereFilter) validateOperator(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Operator) { // not required
 		return nil
 	}
@@ -184,7 +192,6 @@ func (m *WhereFilter) validateOperator(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilter) validateValueGeoRange(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ValueGeoRange) { // not required
 		return nil
 	}
@@ -193,6 +200,58 @@ func (m *WhereFilter) validateValueGeoRange(formats strfmt.Registry) error {
 		if err := m.ValueGeoRange.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("valueGeoRange")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("valueGeoRange")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this where filter based on the context it is used
+func (m *WhereFilter) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateOperands(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateValueGeoRange(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *WhereFilter) contextValidateOperands(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(m.Operands); i++ {
+		if m.Operands[i] != nil {
+			if err := m.Operands[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("operands" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("operands" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *WhereFilter) contextValidateValueGeoRange(ctx context.Context, formats strfmt.Registry) error {
+	if m.ValueGeoRange != nil {
+		if err := m.ValueGeoRange.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("valueGeoRange")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("valueGeoRange")
 			}
 			return err
 		}

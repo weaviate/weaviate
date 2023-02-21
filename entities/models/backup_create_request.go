@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -25,7 +27,6 @@ import (
 //
 // swagger:model BackupCreateRequest
 type BackupCreateRequest struct {
-
 	// Custom configuration for the backup creation process
 	Config interface{} `json:"config,omitempty"`
 
@@ -41,6 +42,11 @@ type BackupCreateRequest struct {
 
 // Validate validates this backup create request
 func (m *BackupCreateRequest) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this backup create request based on context it is used
+func (m *BackupCreateRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

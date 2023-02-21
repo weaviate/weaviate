@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 
@@ -129,7 +130,6 @@ func (m *ObjectsGetResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ObjectsGetResponse) validateDeprecations(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -143,6 +143,8 @@ func (m *ObjectsGetResponse) validateDeprecations(formats strfmt.Registry) error
 			if err := m.Deprecations[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("deprecations" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -154,7 +156,6 @@ func (m *ObjectsGetResponse) validateDeprecations(formats strfmt.Registry) error
 }
 
 func (m *ObjectsGetResponse) validateResult(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -163,6 +164,63 @@ func (m *ObjectsGetResponse) validateResult(formats strfmt.Registry) error {
 		if err := m.Result.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("result")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this objects get response based on the context it is used
+func (m *ObjectsGetResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	// validation for a type composition with Object
+	if err := m.Object.ContextValidate(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateDeprecations(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateResult(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ObjectsGetResponse) contextValidateDeprecations(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(m.Deprecations); i++ {
+		if m.Deprecations[i] != nil {
+			if err := m.Deprecations[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *ObjectsGetResponse) contextValidateResult(ctx context.Context, formats strfmt.Registry) error {
+	if m.Result != nil {
+		if err := m.Result.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("result")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result")
 			}
 			return err
 		}
@@ -193,7 +251,6 @@ func (m *ObjectsGetResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ObjectsGetResponseAO2Result
 type ObjectsGetResponseAO2Result struct {
-
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
@@ -221,7 +278,6 @@ func (m *ObjectsGetResponseAO2Result) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ObjectsGetResponseAO2Result) validateErrors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -230,6 +286,8 @@ func (m *ObjectsGetResponseAO2Result) validateErrors(formats strfmt.Registry) er
 		if err := m.Errors.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("result" + "." + "errors")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result" + "." + "errors")
 			}
 			return err
 		}
@@ -271,7 +329,6 @@ func (m *ObjectsGetResponseAO2Result) validateStatusEnum(path, location string, 
 }
 
 func (m *ObjectsGetResponseAO2Result) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -279,6 +336,35 @@ func (m *ObjectsGetResponseAO2Result) validateStatus(formats strfmt.Registry) er
 	// value enum
 	if err := m.validateStatusEnum("result"+"."+"status", "body", *m.Status); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this objects get response a o2 result based on the context it is used
+func (m *ObjectsGetResponseAO2Result) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateErrors(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ObjectsGetResponseAO2Result) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
+	if m.Errors != nil {
+		if err := m.Errors.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("result" + "." + "errors")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result" + "." + "errors")
+			}
+			return err
+		}
 	}
 
 	return nil

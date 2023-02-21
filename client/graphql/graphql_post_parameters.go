@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewGraphqlPostParams creates a new GraphqlPostParams object
-// with the default values initialized.
+// NewGraphqlPostParams creates a new GraphqlPostParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewGraphqlPostParams() *GraphqlPostParams {
-	var ()
 	return &GraphqlPostParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewGraphqlPostParamsWithTimeout creates a new GraphqlPostParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewGraphqlPostParamsWithTimeout(timeout time.Duration) *GraphqlPostParams {
-	var ()
 	return &GraphqlPostParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewGraphqlPostParamsWithContext creates a new GraphqlPostParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewGraphqlPostParamsWithContext(ctx context.Context) *GraphqlPostParams {
-	var ()
 	return &GraphqlPostParams{
-
 		Context: ctx,
 	}
 }
 
 // NewGraphqlPostParamsWithHTTPClient creates a new GraphqlPostParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewGraphqlPostParamsWithHTTPClient(client *http.Client) *GraphqlPostParams {
-	var ()
 	return &GraphqlPostParams{
 		HTTPClient: client,
 	}
@@ -70,19 +67,36 @@ func NewGraphqlPostParamsWithHTTPClient(client *http.Client) *GraphqlPostParams 
 
 /*
 GraphqlPostParams contains all the parameters to send to the API endpoint
-for the graphql post operation typically these are written to a http.Request
+
+	for the graphql post operation.
+
+	Typically these are written to a http.Request.
 */
 type GraphqlPostParams struct {
+	/* Body.
 
-	/*Body
-	  The GraphQL query request parameters.
-
+	   The GraphQL query request parameters.
 	*/
 	Body *models.GraphQLQuery
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the graphql post params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *GraphqlPostParams) WithDefaults() *GraphqlPostParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the graphql post params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *GraphqlPostParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the graphql post params
@@ -131,12 +145,10 @@ func (o *GraphqlPostParams) SetBody(body *models.GraphQLQuery) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *GraphqlPostParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err

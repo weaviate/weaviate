@@ -64,9 +64,8 @@ func (o *ObjectsHeadReader) ReadResponse(response runtime.ClientResponse, consum
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,19 +75,51 @@ func NewObjectsHeadNoContent() *ObjectsHeadNoContent {
 }
 
 /*
-ObjectsHeadNoContent handles this case with default header values.
+ObjectsHeadNoContent describes a response with status code 204, with default header values.
 
 Object exists.
 */
-type ObjectsHeadNoContent struct {
+type ObjectsHeadNoContent struct{}
+
+// IsSuccess returns true when this objects head no content response has a 2xx status code
+func (o *ObjectsHeadNoContent) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects head no content response has a 3xx status code
+func (o *ObjectsHeadNoContent) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects head no content response has a 4xx status code
+func (o *ObjectsHeadNoContent) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects head no content response has a 5xx status code
+func (o *ObjectsHeadNoContent) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects head no content response a status code equal to that given
+func (o *ObjectsHeadNoContent) IsCode(code int) bool {
+	return code == 204
+}
+
+// Code gets the status code for the objects head no content response
+func (o *ObjectsHeadNoContent) Code() int {
+	return 204
 }
 
 func (o *ObjectsHeadNoContent) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNoContent ", 204)
 }
 
-func (o *ObjectsHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *ObjectsHeadNoContent) String() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNoContent ", 204)
+}
 
+func (o *ObjectsHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -98,19 +129,51 @@ func NewObjectsHeadUnauthorized() *ObjectsHeadUnauthorized {
 }
 
 /*
-ObjectsHeadUnauthorized handles this case with default header values.
+ObjectsHeadUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsHeadUnauthorized struct {
+type ObjectsHeadUnauthorized struct{}
+
+// IsSuccess returns true when this objects head unauthorized response has a 2xx status code
+func (o *ObjectsHeadUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects head unauthorized response has a 3xx status code
+func (o *ObjectsHeadUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects head unauthorized response has a 4xx status code
+func (o *ObjectsHeadUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects head unauthorized response has a 5xx status code
+func (o *ObjectsHeadUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects head unauthorized response a status code equal to that given
+func (o *ObjectsHeadUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects head unauthorized response
+func (o *ObjectsHeadUnauthorized) Code() int {
+	return 401
 }
 
 func (o *ObjectsHeadUnauthorized) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadUnauthorized ", 401)
 }
 
-func (o *ObjectsHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *ObjectsHeadUnauthorized) String() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadUnauthorized ", 401)
+}
 
+func (o *ObjectsHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -120,7 +183,7 @@ func NewObjectsHeadForbidden() *ObjectsHeadForbidden {
 }
 
 /*
-ObjectsHeadForbidden handles this case with default header values.
+ObjectsHeadForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -128,7 +191,41 @@ type ObjectsHeadForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects head forbidden response has a 2xx status code
+func (o *ObjectsHeadForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects head forbidden response has a 3xx status code
+func (o *ObjectsHeadForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects head forbidden response has a 4xx status code
+func (o *ObjectsHeadForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects head forbidden response has a 5xx status code
+func (o *ObjectsHeadForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects head forbidden response a status code equal to that given
+func (o *ObjectsHeadForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects head forbidden response
+func (o *ObjectsHeadForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsHeadForbidden) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsHeadForbidden) String() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadForbidden  %+v", 403, o.Payload)
 }
 
@@ -137,7 +234,6 @@ func (o *ObjectsHeadForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsHeadForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -154,19 +250,51 @@ func NewObjectsHeadNotFound() *ObjectsHeadNotFound {
 }
 
 /*
-ObjectsHeadNotFound handles this case with default header values.
+ObjectsHeadNotFound describes a response with status code 404, with default header values.
 
 Object doesn't exist.
 */
-type ObjectsHeadNotFound struct {
+type ObjectsHeadNotFound struct{}
+
+// IsSuccess returns true when this objects head not found response has a 2xx status code
+func (o *ObjectsHeadNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects head not found response has a 3xx status code
+func (o *ObjectsHeadNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects head not found response has a 4xx status code
+func (o *ObjectsHeadNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects head not found response has a 5xx status code
+func (o *ObjectsHeadNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects head not found response a status code equal to that given
+func (o *ObjectsHeadNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the objects head not found response
+func (o *ObjectsHeadNotFound) Code() int {
+	return 404
 }
 
 func (o *ObjectsHeadNotFound) Error() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNotFound ", 404)
 }
 
-func (o *ObjectsHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *ObjectsHeadNotFound) String() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadNotFound ", 404)
+}
 
+func (o *ObjectsHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -176,7 +304,7 @@ func NewObjectsHeadInternalServerError() *ObjectsHeadInternalServerError {
 }
 
 /*
-ObjectsHeadInternalServerError handles this case with default header values.
+ObjectsHeadInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -184,7 +312,41 @@ type ObjectsHeadInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects head internal server error response has a 2xx status code
+func (o *ObjectsHeadInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects head internal server error response has a 3xx status code
+func (o *ObjectsHeadInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects head internal server error response has a 4xx status code
+func (o *ObjectsHeadInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects head internal server error response has a 5xx status code
+func (o *ObjectsHeadInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects head internal server error response a status code equal to that given
+func (o *ObjectsHeadInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects head internal server error response
+func (o *ObjectsHeadInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsHeadInternalServerError) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsHeadInternalServerError) String() string {
 	return fmt.Sprintf("[HEAD /objects/{id}][%d] objectsHeadInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -193,7 +355,6 @@ func (o *ObjectsHeadInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsHeadInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

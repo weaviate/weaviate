@@ -30,9 +30,9 @@ import (
 )
 
 // NewObjectsUpdateParams creates a new ObjectsUpdateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsUpdateParams() ObjectsUpdateParams {
-
 	return ObjectsUpdateParams{}
 }
 
@@ -41,7 +41,6 @@ func NewObjectsUpdateParams() ObjectsUpdateParams {
 //
 // swagger:parameters objects.update
 type ObjectsUpdateParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -87,6 +86,11 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -94,6 +98,7 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
 	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
 		res = append(res, err)
@@ -103,7 +108,6 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -119,10 +123,10 @@ func (o *ObjectsUpdateParams) bindConsistencyLevel(rawData []string, hasKey bool
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil
@@ -154,7 +158,6 @@ func (o *ObjectsUpdateParams) bindID(rawData []string, hasKey bool, formats strf
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsUpdateParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

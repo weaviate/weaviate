@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 
@@ -30,7 +31,6 @@ import (
 //
 // swagger:model BatchDeleteResponse
 type BatchDeleteResponse struct {
-
 	// If true, objects will not be deleted yet, but merely listed. Defaults to false.
 	DryRun *bool `json:"dryRun,omitempty"`
 
@@ -63,7 +63,6 @@ func (m *BatchDeleteResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponse) validateMatch(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Match) { // not required
 		return nil
 	}
@@ -72,6 +71,8 @@ func (m *BatchDeleteResponse) validateMatch(formats strfmt.Registry) error {
 		if err := m.Match.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("match")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match")
 			}
 			return err
 		}
@@ -81,7 +82,6 @@ func (m *BatchDeleteResponse) validateMatch(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponse) validateResults(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Results) { // not required
 		return nil
 	}
@@ -90,6 +90,56 @@ func (m *BatchDeleteResponse) validateResults(formats strfmt.Registry) error {
 		if err := m.Results.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("results")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("results")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch delete response based on the context it is used
+func (m *BatchDeleteResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateMatch(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateResults(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchDeleteResponse) contextValidateMatch(ctx context.Context, formats strfmt.Registry) error {
+	if m.Match != nil {
+		if err := m.Match.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("match")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *BatchDeleteResponse) contextValidateResults(ctx context.Context, formats strfmt.Registry) error {
+	if m.Results != nil {
+		if err := m.Results.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("results")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("results")
 			}
 			return err
 		}
@@ -120,8 +170,8 @@ func (m *BatchDeleteResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteResponseMatch
 type BatchDeleteResponseMatch struct {
-
 	// Class (name) which objects will be deleted.
+	// Example: City
 	Class string `json:"class,omitempty"`
 
 	// Filter to limit the objects to be deleted.
@@ -143,7 +193,6 @@ func (m *BatchDeleteResponseMatch) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponseMatch) validateWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Where) { // not required
 		return nil
 	}
@@ -152,6 +201,37 @@ func (m *BatchDeleteResponseMatch) validateWhere(formats strfmt.Registry) error 
 		if err := m.Where.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("match" + "." + "where")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match" + "." + "where")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch delete response match based on the context it is used
+func (m *BatchDeleteResponseMatch) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateWhere(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchDeleteResponseMatch) contextValidateWhere(ctx context.Context, formats strfmt.Registry) error {
+	if m.Where != nil {
+		if err := m.Where.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("match" + "." + "where")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("match" + "." + "where")
 			}
 			return err
 		}
@@ -182,7 +262,6 @@ func (m *BatchDeleteResponseMatch) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteResponseResults
 type BatchDeleteResponseResults struct {
-
 	// How many objects should have been deleted but could not be deleted.
 	Failed int64 `json:"failed"`
 
@@ -214,7 +293,6 @@ func (m *BatchDeleteResponseResults) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchDeleteResponseResults) validateObjects(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Objects) { // not required
 		return nil
 	}
@@ -228,11 +306,44 @@ func (m *BatchDeleteResponseResults) validateObjects(formats strfmt.Registry) er
 			if err := m.Objects[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("results" + "." + "objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("results" + "." + "objects" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
 		}
 
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch delete response results based on the context it is used
+func (m *BatchDeleteResponseResults) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateObjects(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchDeleteResponseResults) contextValidateObjects(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(m.Objects); i++ {
+		if m.Objects[i] != nil {
+			if err := m.Objects[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("results" + "." + "objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("results" + "." + "objects" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -260,7 +371,6 @@ func (m *BatchDeleteResponseResults) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchDeleteResponseResultsObjectsItems0
 type BatchDeleteResponseResultsObjectsItems0 struct {
-
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
@@ -296,7 +406,6 @@ func (m *BatchDeleteResponseResultsObjectsItems0) Validate(formats strfmt.Regist
 }
 
 func (m *BatchDeleteResponseResultsObjectsItems0) validateErrors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -305,6 +414,8 @@ func (m *BatchDeleteResponseResultsObjectsItems0) validateErrors(formats strfmt.
 		if err := m.Errors.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("errors")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("errors")
 			}
 			return err
 		}
@@ -314,7 +425,6 @@ func (m *BatchDeleteResponseResultsObjectsItems0) validateErrors(formats strfmt.
 }
 
 func (m *BatchDeleteResponseResultsObjectsItems0) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -359,7 +469,6 @@ func (m *BatchDeleteResponseResultsObjectsItems0) validateStatusEnum(path, locat
 }
 
 func (m *BatchDeleteResponseResultsObjectsItems0) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -367,6 +476,35 @@ func (m *BatchDeleteResponseResultsObjectsItems0) validateStatus(formats strfmt.
 	// value enum
 	if err := m.validateStatusEnum("status", "body", *m.Status); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch delete response results objects items0 based on the context it is used
+func (m *BatchDeleteResponseResultsObjectsItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateErrors(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchDeleteResponseResultsObjectsItems0) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
+	if m.Errors != nil {
+		if err := m.Errors.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("errors")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("errors")
+			}
+			return err
+		}
 	}
 
 	return nil

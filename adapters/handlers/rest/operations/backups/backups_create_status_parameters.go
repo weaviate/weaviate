@@ -25,9 +25,9 @@ import (
 )
 
 // NewBackupsCreateStatusParams creates a new BackupsCreateStatusParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewBackupsCreateStatusParams() BackupsCreateStatusParams {
-
 	return BackupsCreateStatusParams{}
 }
 
@@ -36,7 +36,6 @@ func NewBackupsCreateStatusParams() BackupsCreateStatusParams {
 //
 // swagger:parameters backups.create.status
 type BackupsCreateStatusParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -70,7 +69,6 @@ func (o *BackupsCreateStatusParams) BindRequest(r *http.Request, route *middlewa
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -86,7 +84,6 @@ func (o *BackupsCreateStatusParams) bindBackend(rawData []string, hasKey bool, f
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.Backend = raw
 
 	return nil
@@ -101,7 +98,6 @@ func (o *BackupsCreateStatusParams) bindID(rawData []string, hasKey bool, format
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ID = raw
 
 	return nil

@@ -17,6 +17,7 @@ package well_known
 // Editing this file might prove futile when you re-run the generate command
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -45,7 +46,7 @@ func NewGetWellKnownOpenidConfiguration(ctx *middleware.Context, handler GetWell
 }
 
 /*
-GetWellKnownOpenidConfiguration swagger:route GET /.well-known/openid-configuration well-known oidc discovery getWellKnownOpenidConfiguration
+	GetWellKnownOpenidConfiguration swagger:route GET /.well-known/openid-configuration well-known oidc discovery getWellKnownOpenidConfiguration
 
 # OIDC discovery information if OIDC auth is enabled
 
@@ -59,17 +60,16 @@ type GetWellKnownOpenidConfiguration struct {
 func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
-	var Params = NewGetWellKnownOpenidConfigurationParams()
-
+	Params := NewGetWellKnownOpenidConfigurationParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -82,28 +82,30 @@ func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *h
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }
 
 // GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
 //
 // swagger:model GetWellKnownOpenidConfigurationOKBody
 type GetWellKnownOpenidConfigurationOKBody struct {
-
 	// OAuth Client ID
-	ClientID string `yaml:"clientId,omitempty" json:"clientId,omitempty"`
+	ClientID string `json:"clientId,omitempty" yaml:"clientId,omitempty"`
 
 	// The Location to redirect to
-	Href string `yaml:"href,omitempty" json:"href,omitempty"`
+	Href string `json:"href,omitempty" yaml:"href,omitempty"`
 
 	// OAuth Scopes
-	Scopes []string `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+	Scopes []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
 // Validate validates this get well known openid configuration o k body
 func (o *GetWellKnownOpenidConfigurationOKBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this get well known openid configuration o k body based on context it is used
+func (o *GetWellKnownOpenidConfigurationOKBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

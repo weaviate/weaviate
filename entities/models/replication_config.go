@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -25,13 +27,17 @@ import (
 //
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
-
 	// Number of times a class is replicated
 	Factor int64 `json:"factor,omitempty"`
 }
 
 // Validate validates this replication config
 func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this replication config based on context it is used
+func (m *ReplicationConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

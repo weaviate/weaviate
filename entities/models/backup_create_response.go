@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/go-openapi/errors"
@@ -29,7 +30,6 @@ import (
 //
 // swagger:model BackupCreateResponse
 type BackupCreateResponse struct {
-
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
@@ -103,7 +103,6 @@ func (m *BackupCreateResponse) validateStatusEnum(path, location string, value s
 }
 
 func (m *BackupCreateResponse) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -113,6 +112,11 @@ func (m *BackupCreateResponse) validateStatus(formats strfmt.Registry) error {
 		return err
 	}
 
+	return nil
+}
+
+// ContextValidate validates this backup create response based on context it is used
+func (m *BackupCreateResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

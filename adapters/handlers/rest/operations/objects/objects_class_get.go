@@ -43,7 +43,7 @@ func NewObjectsClassGet(ctx *middleware.Context, handler ObjectsClassGetHandler)
 }
 
 /*
-ObjectsClassGet swagger:route GET /objects/{className}/{id} objects objectsClassGet
+	ObjectsClassGet swagger:route GET /objects/{className}/{id} objects objectsClassGet
 
 Get a specific Object based on its class and UUID. Also available as Websocket bus.
 
@@ -57,17 +57,16 @@ type ObjectsClassGet struct {
 func (o *ObjectsClassGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
-	var Params = NewObjectsClassGetParams()
-
+	Params := NewObjectsClassGetParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -80,7 +79,5 @@ func (o *ObjectsClassGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

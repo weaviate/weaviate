@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateRootParams creates a new WeaviateRootParams object
-// with the default values initialized.
+// NewWeaviateRootParams creates a new WeaviateRootParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewWeaviateRootParams() *WeaviateRootParams {
-
 	return &WeaviateRootParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewWeaviateRootParamsWithTimeout creates a new WeaviateRootParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewWeaviateRootParamsWithTimeout(timeout time.Duration) *WeaviateRootParams {
-
 	return &WeaviateRootParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewWeaviateRootParamsWithContext creates a new WeaviateRootParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewWeaviateRootParamsWithContext(ctx context.Context) *WeaviateRootParams {
-
 	return &WeaviateRootParams{
-
 		Context: ctx,
 	}
 }
 
 // NewWeaviateRootParamsWithHTTPClient creates a new WeaviateRootParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewWeaviateRootParamsWithHTTPClient(client *http.Client) *WeaviateRootParams {
-
 	return &WeaviateRootParams{
 		HTTPClient: client,
 	}
@@ -68,12 +65,30 @@ func NewWeaviateRootParamsWithHTTPClient(client *http.Client) *WeaviateRootParam
 
 /*
 WeaviateRootParams contains all the parameters to send to the API endpoint
-for the weaviate root operation typically these are written to a http.Request
+
+	for the weaviate root operation.
+
+	Typically these are written to a http.Request.
 */
 type WeaviateRootParams struct {
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the weaviate root params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *WeaviateRootParams) WithDefaults() *WeaviateRootParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the weaviate root params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *WeaviateRootParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the weaviate root params
@@ -111,7 +126,6 @@ func (o *WeaviateRootParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *WeaviateRootParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

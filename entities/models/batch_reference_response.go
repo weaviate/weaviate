@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/go-openapi/errors"
@@ -100,7 +101,6 @@ func (m *BatchReferenceResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchReferenceResponse) validateResult(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -109,6 +109,42 @@ func (m *BatchReferenceResponse) validateResult(formats strfmt.Registry) error {
 		if err := m.Result.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("result")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch reference response based on the context it is used
+func (m *BatchReferenceResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	// validation for a type composition with BatchReference
+	if err := m.BatchReference.ContextValidate(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateResult(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchReferenceResponse) contextValidateResult(ctx context.Context, formats strfmt.Registry) error {
+	if m.Result != nil {
+		if err := m.Result.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("result")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result")
 			}
 			return err
 		}
@@ -139,7 +175,6 @@ func (m *BatchReferenceResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchReferenceResponseAO1Result
 type BatchReferenceResponseAO1Result struct {
-
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
@@ -167,7 +202,6 @@ func (m *BatchReferenceResponseAO1Result) Validate(formats strfmt.Registry) erro
 }
 
 func (m *BatchReferenceResponseAO1Result) validateErrors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -176,6 +210,8 @@ func (m *BatchReferenceResponseAO1Result) validateErrors(formats strfmt.Registry
 		if err := m.Errors.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("result" + "." + "errors")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result" + "." + "errors")
 			}
 			return err
 		}
@@ -217,7 +253,6 @@ func (m *BatchReferenceResponseAO1Result) validateStatusEnum(path, location stri
 }
 
 func (m *BatchReferenceResponseAO1Result) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -225,6 +260,35 @@ func (m *BatchReferenceResponseAO1Result) validateStatus(formats strfmt.Registry
 	// value enum
 	if err := m.validateStatusEnum("result"+"."+"status", "body", *m.Status); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch reference response a o1 result based on the context it is used
+func (m *BatchReferenceResponseAO1Result) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateErrors(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BatchReferenceResponseAO1Result) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
+	if m.Errors != nil {
+		if err := m.Errors.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("result" + "." + "errors")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("result" + "." + "errors")
+			}
+			return err
+		}
 	}
 
 	return nil

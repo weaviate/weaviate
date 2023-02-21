@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateWellknownReadinessParams creates a new WeaviateWellknownReadinessParams object
-// with the default values initialized.
+// NewWeaviateWellknownReadinessParams creates a new WeaviateWellknownReadinessParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewWeaviateWellknownReadinessParams() *WeaviateWellknownReadinessParams {
-
 	return &WeaviateWellknownReadinessParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewWeaviateWellknownReadinessParamsWithTimeout creates a new WeaviateWellknownReadinessParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewWeaviateWellknownReadinessParamsWithTimeout(timeout time.Duration) *WeaviateWellknownReadinessParams {
-
 	return &WeaviateWellknownReadinessParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewWeaviateWellknownReadinessParamsWithContext creates a new WeaviateWellknownReadinessParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewWeaviateWellknownReadinessParamsWithContext(ctx context.Context) *WeaviateWellknownReadinessParams {
-
 	return &WeaviateWellknownReadinessParams{
-
 		Context: ctx,
 	}
 }
 
 // NewWeaviateWellknownReadinessParamsWithHTTPClient creates a new WeaviateWellknownReadinessParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewWeaviateWellknownReadinessParamsWithHTTPClient(client *http.Client) *WeaviateWellknownReadinessParams {
-
 	return &WeaviateWellknownReadinessParams{
 		HTTPClient: client,
 	}
@@ -68,12 +65,30 @@ func NewWeaviateWellknownReadinessParamsWithHTTPClient(client *http.Client) *Wea
 
 /*
 WeaviateWellknownReadinessParams contains all the parameters to send to the API endpoint
-for the weaviate wellknown readiness operation typically these are written to a http.Request
+
+	for the weaviate wellknown readiness operation.
+
+	Typically these are written to a http.Request.
 */
 type WeaviateWellknownReadinessParams struct {
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the weaviate wellknown readiness params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *WeaviateWellknownReadinessParams) WithDefaults() *WeaviateWellknownReadinessParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the weaviate wellknown readiness params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *WeaviateWellknownReadinessParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the weaviate wellknown readiness params
@@ -111,7 +126,6 @@ func (o *WeaviateWellknownReadinessParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *WeaviateWellknownReadinessParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

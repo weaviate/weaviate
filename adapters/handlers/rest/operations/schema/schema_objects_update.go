@@ -43,7 +43,7 @@ func NewSchemaObjectsUpdate(ctx *middleware.Context, handler SchemaObjectsUpdate
 }
 
 /*
-SchemaObjectsUpdate swagger:route PUT /schema/{className} schema schemaObjectsUpdate
+	SchemaObjectsUpdate swagger:route PUT /schema/{className} schema schemaObjectsUpdate
 
 # Update settings of an existing schema class
 
@@ -57,17 +57,16 @@ type SchemaObjectsUpdate struct {
 func (o *SchemaObjectsUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
-	var Params = NewSchemaObjectsUpdateParams()
-
+	Params := NewSchemaObjectsUpdateParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -80,7 +79,5 @@ func (o *SchemaObjectsUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

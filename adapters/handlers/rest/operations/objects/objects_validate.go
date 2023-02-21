@@ -43,7 +43,7 @@ func NewObjectsValidate(ctx *middleware.Context, handler ObjectsValidateHandler)
 }
 
 /*
-ObjectsValidate swagger:route POST /objects/validate objects objectsValidate
+	ObjectsValidate swagger:route POST /objects/validate objects objectsValidate
 
 Validate an Object based on a schema.
 
@@ -57,17 +57,16 @@ type ObjectsValidate struct {
 func (o *ObjectsValidate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
-	var Params = NewObjectsValidateParams()
-
+	Params := NewObjectsValidateParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -80,7 +79,5 @@ func (o *ObjectsValidate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

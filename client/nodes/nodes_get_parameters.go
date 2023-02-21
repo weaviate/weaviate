@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewNodesGetParams creates a new NodesGetParams object
-// with the default values initialized.
+// NewNodesGetParams creates a new NodesGetParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewNodesGetParams() *NodesGetParams {
-
 	return &NodesGetParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewNodesGetParamsWithTimeout creates a new NodesGetParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewNodesGetParamsWithTimeout(timeout time.Duration) *NodesGetParams {
-
 	return &NodesGetParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewNodesGetParamsWithContext creates a new NodesGetParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewNodesGetParamsWithContext(ctx context.Context) *NodesGetParams {
-
 	return &NodesGetParams{
-
 		Context: ctx,
 	}
 }
 
 // NewNodesGetParamsWithHTTPClient creates a new NodesGetParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewNodesGetParamsWithHTTPClient(client *http.Client) *NodesGetParams {
-
 	return &NodesGetParams{
 		HTTPClient: client,
 	}
@@ -68,12 +65,30 @@ func NewNodesGetParamsWithHTTPClient(client *http.Client) *NodesGetParams {
 
 /*
 NodesGetParams contains all the parameters to send to the API endpoint
-for the nodes get operation typically these are written to a http.Request
+
+	for the nodes get operation.
+
+	Typically these are written to a http.Request.
 */
 type NodesGetParams struct {
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the nodes get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *NodesGetParams) WithDefaults() *NodesGetParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the nodes get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *NodesGetParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the nodes get params
@@ -111,7 +126,6 @@ func (o *NodesGetParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *NodesGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

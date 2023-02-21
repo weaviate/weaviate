@@ -70,9 +70,8 @@ func (o *ObjectsGetReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -82,7 +81,7 @@ func NewObjectsGetOK() *ObjectsGetOK {
 }
 
 /*
-ObjectsGetOK handles this case with default header values.
+ObjectsGetOK describes a response with status code 200, with default header values.
 
 Successful response.
 */
@@ -90,7 +89,41 @@ type ObjectsGetOK struct {
 	Payload *models.Object
 }
 
+// IsSuccess returns true when this objects get o k response has a 2xx status code
+func (o *ObjectsGetOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects get o k response has a 3xx status code
+func (o *ObjectsGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects get o k response has a 4xx status code
+func (o *ObjectsGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects get o k response has a 5xx status code
+func (o *ObjectsGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects get o k response a status code equal to that given
+func (o *ObjectsGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the objects get o k response
+func (o *ObjectsGetOK) Code() int {
+	return 200
+}
+
 func (o *ObjectsGetOK) Error() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetOK  %+v", 200, o.Payload)
+}
+
+func (o *ObjectsGetOK) String() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetOK  %+v", 200, o.Payload)
 }
 
@@ -99,7 +132,6 @@ func (o *ObjectsGetOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -116,7 +148,7 @@ func NewObjectsGetBadRequest() *ObjectsGetBadRequest {
 }
 
 /*
-ObjectsGetBadRequest handles this case with default header values.
+ObjectsGetBadRequest describes a response with status code 400, with default header values.
 
 Malformed request.
 */
@@ -124,7 +156,41 @@ type ObjectsGetBadRequest struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects get bad request response has a 2xx status code
+func (o *ObjectsGetBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects get bad request response has a 3xx status code
+func (o *ObjectsGetBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects get bad request response has a 4xx status code
+func (o *ObjectsGetBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects get bad request response has a 5xx status code
+func (o *ObjectsGetBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects get bad request response a status code equal to that given
+func (o *ObjectsGetBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the objects get bad request response
+func (o *ObjectsGetBadRequest) Code() int {
+	return 400
+}
+
 func (o *ObjectsGetBadRequest) Error() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsGetBadRequest) String() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetBadRequest  %+v", 400, o.Payload)
 }
 
@@ -133,7 +199,6 @@ func (o *ObjectsGetBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -150,19 +215,51 @@ func NewObjectsGetUnauthorized() *ObjectsGetUnauthorized {
 }
 
 /*
-ObjectsGetUnauthorized handles this case with default header values.
+ObjectsGetUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
-type ObjectsGetUnauthorized struct {
+type ObjectsGetUnauthorized struct{}
+
+// IsSuccess returns true when this objects get unauthorized response has a 2xx status code
+func (o *ObjectsGetUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects get unauthorized response has a 3xx status code
+func (o *ObjectsGetUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects get unauthorized response has a 4xx status code
+func (o *ObjectsGetUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects get unauthorized response has a 5xx status code
+func (o *ObjectsGetUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects get unauthorized response a status code equal to that given
+func (o *ObjectsGetUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects get unauthorized response
+func (o *ObjectsGetUnauthorized) Code() int {
+	return 401
 }
 
 func (o *ObjectsGetUnauthorized) Error() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetUnauthorized ", 401)
 }
 
-func (o *ObjectsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *ObjectsGetUnauthorized) String() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetUnauthorized ", 401)
+}
 
+func (o *ObjectsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -172,7 +269,7 @@ func NewObjectsGetForbidden() *ObjectsGetForbidden {
 }
 
 /*
-ObjectsGetForbidden handles this case with default header values.
+ObjectsGetForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -180,7 +277,41 @@ type ObjectsGetForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects get forbidden response has a 2xx status code
+func (o *ObjectsGetForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects get forbidden response has a 3xx status code
+func (o *ObjectsGetForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects get forbidden response has a 4xx status code
+func (o *ObjectsGetForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects get forbidden response has a 5xx status code
+func (o *ObjectsGetForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects get forbidden response a status code equal to that given
+func (o *ObjectsGetForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects get forbidden response
+func (o *ObjectsGetForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsGetForbidden) Error() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsGetForbidden) String() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetForbidden  %+v", 403, o.Payload)
 }
 
@@ -189,7 +320,6 @@ func (o *ObjectsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -206,19 +336,51 @@ func NewObjectsGetNotFound() *ObjectsGetNotFound {
 }
 
 /*
-ObjectsGetNotFound handles this case with default header values.
+ObjectsGetNotFound describes a response with status code 404, with default header values.
 
 Successful query result but no resource was found.
 */
-type ObjectsGetNotFound struct {
+type ObjectsGetNotFound struct{}
+
+// IsSuccess returns true when this objects get not found response has a 2xx status code
+func (o *ObjectsGetNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects get not found response has a 3xx status code
+func (o *ObjectsGetNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects get not found response has a 4xx status code
+func (o *ObjectsGetNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects get not found response has a 5xx status code
+func (o *ObjectsGetNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects get not found response a status code equal to that given
+func (o *ObjectsGetNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the objects get not found response
+func (o *ObjectsGetNotFound) Code() int {
+	return 404
 }
 
 func (o *ObjectsGetNotFound) Error() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetNotFound ", 404)
 }
 
-func (o *ObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *ObjectsGetNotFound) String() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetNotFound ", 404)
+}
 
+func (o *ObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 	return nil
 }
 
@@ -228,7 +390,7 @@ func NewObjectsGetInternalServerError() *ObjectsGetInternalServerError {
 }
 
 /*
-ObjectsGetInternalServerError handles this case with default header values.
+ObjectsGetInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -236,7 +398,41 @@ type ObjectsGetInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects get internal server error response has a 2xx status code
+func (o *ObjectsGetInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects get internal server error response has a 3xx status code
+func (o *ObjectsGetInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects get internal server error response has a 4xx status code
+func (o *ObjectsGetInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects get internal server error response has a 5xx status code
+func (o *ObjectsGetInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects get internal server error response a status code equal to that given
+func (o *ObjectsGetInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects get internal server error response
+func (o *ObjectsGetInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsGetInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsGetInternalServerError) String() string {
 	return fmt.Sprintf("[GET /objects/{id}][%d] objectsGetInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -245,7 +441,6 @@ func (o *ObjectsGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

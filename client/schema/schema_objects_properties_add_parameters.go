@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewSchemaObjectsPropertiesAddParams creates a new SchemaObjectsPropertiesAddParams object
-// with the default values initialized.
+// NewSchemaObjectsPropertiesAddParams creates a new SchemaObjectsPropertiesAddParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewSchemaObjectsPropertiesAddParams() *SchemaObjectsPropertiesAddParams {
-	var ()
 	return &SchemaObjectsPropertiesAddParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewSchemaObjectsPropertiesAddParamsWithTimeout creates a new SchemaObjectsPropertiesAddParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewSchemaObjectsPropertiesAddParamsWithTimeout(timeout time.Duration) *SchemaObjectsPropertiesAddParams {
-	var ()
 	return &SchemaObjectsPropertiesAddParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewSchemaObjectsPropertiesAddParamsWithContext creates a new SchemaObjectsPropertiesAddParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewSchemaObjectsPropertiesAddParamsWithContext(ctx context.Context) *SchemaObjectsPropertiesAddParams {
-	var ()
 	return &SchemaObjectsPropertiesAddParams{
-
 		Context: ctx,
 	}
 }
 
 // NewSchemaObjectsPropertiesAddParamsWithHTTPClient creates a new SchemaObjectsPropertiesAddParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewSchemaObjectsPropertiesAddParamsWithHTTPClient(client *http.Client) *SchemaObjectsPropertiesAddParams {
-	var ()
 	return &SchemaObjectsPropertiesAddParams{
 		HTTPClient: client,
 	}
@@ -70,18 +67,36 @@ func NewSchemaObjectsPropertiesAddParamsWithHTTPClient(client *http.Client) *Sch
 
 /*
 SchemaObjectsPropertiesAddParams contains all the parameters to send to the API endpoint
-for the schema objects properties add operation typically these are written to a http.Request
+
+	for the schema objects properties add operation.
+
+	Typically these are written to a http.Request.
 */
 type SchemaObjectsPropertiesAddParams struct {
-
-	/*Body*/
+	// Body.
 	Body *models.Property
-	/*ClassName*/
+
+	// ClassName.
 	ClassName string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the schema objects properties add params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsPropertiesAddParams) WithDefaults() *SchemaObjectsPropertiesAddParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the schema objects properties add params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsPropertiesAddParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the schema objects properties add params
@@ -141,12 +156,10 @@ func (o *SchemaObjectsPropertiesAddParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsPropertiesAddParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err

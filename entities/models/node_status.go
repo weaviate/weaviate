@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 
@@ -30,7 +31,6 @@ import (
 //
 // swagger:model NodeStatus
 type NodeStatus struct {
-
 	// The gitHash of Weaviate.
 	GitHash string `json:"gitHash,omitempty"`
 
@@ -74,7 +74,6 @@ func (m *NodeStatus) Validate(formats strfmt.Registry) error {
 }
 
 func (m *NodeStatus) validateShards(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Shards) { // not required
 		return nil
 	}
@@ -88,6 +87,8 @@ func (m *NodeStatus) validateShards(formats strfmt.Registry) error {
 			if err := m.Shards[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("shards" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("shards" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -99,7 +100,6 @@ func (m *NodeStatus) validateShards(formats strfmt.Registry) error {
 }
 
 func (m *NodeStatus) validateStats(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Stats) { // not required
 		return nil
 	}
@@ -108,6 +108,8 @@ func (m *NodeStatus) validateStats(formats strfmt.Registry) error {
 		if err := m.Stats.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("stats")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("stats")
 			}
 			return err
 		}
@@ -149,7 +151,6 @@ func (m *NodeStatus) validateStatusEnum(path, location string, value string) err
 }
 
 func (m *NodeStatus) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -157,6 +158,56 @@ func (m *NodeStatus) validateStatus(formats strfmt.Registry) error {
 	// value enum
 	if err := m.validateStatusEnum("status", "body", *m.Status); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this node status based on the context it is used
+func (m *NodeStatus) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateShards(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateStats(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *NodeStatus) contextValidateShards(ctx context.Context, formats strfmt.Registry) error {
+	for i := 0; i < len(m.Shards); i++ {
+		if m.Shards[i] != nil {
+			if err := m.Shards[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("shards" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("shards" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *NodeStatus) contextValidateStats(ctx context.Context, formats strfmt.Registry) error {
+	if m.Stats != nil {
+		if err := m.Stats.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("stats")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("stats")
+			}
+			return err
+		}
 	}
 
 	return nil

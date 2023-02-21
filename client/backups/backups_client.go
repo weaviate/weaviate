@@ -36,15 +36,18 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsCreateOK, error)
+	BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateOK, error)
 
-	BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsCreateStatusOK, error)
+	BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateStatusOK, error)
 
-	BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsRestoreOK, error)
+	BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error)
 
-	BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsRestoreStatusOK, error)
+	BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -52,13 +55,12 @@ type ClientService interface {
 /*
 BackupsCreate Starts a process of creating a backup for a set of classes
 */
-func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsCreateOK, error) {
+func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewBackupsCreateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "backups.create",
 		Method:             "POST",
 		PathPattern:        "/backups/{backend}",
@@ -70,7 +72,12 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +94,12 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 /*
 BackupsCreateStatus Returns status of backup creation attempt for a set of classes
 */
-func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsCreateStatusOK, error) {
+func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateStatusOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewBackupsCreateStatusParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "backups.create.status",
 		Method:             "GET",
 		PathPattern:        "/backups/{backend}/{id}",
@@ -105,7 +111,12 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -122,13 +133,12 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 /*
 BackupsRestore Starts a process of restoring a backup for a set of classes
 */
-func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsRestoreOK, error) {
+func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewBackupsRestoreParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "backups.restore",
 		Method:             "POST",
 		PathPattern:        "/backups/{backend}/{id}/restore",
@@ -140,7 +150,12 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -157,13 +172,12 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 /*
 BackupsRestoreStatus Returns status of a backup restoration attempt for a set of classes
 */
-func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter) (*BackupsRestoreStatusOK, error) {
+func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewBackupsRestoreStatusParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "backups.restore.status",
 		Method:             "GET",
 		PathPattern:        "/backups/{backend}/{id}/restore",
@@ -175,7 +189,12 @@ func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authIn
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
