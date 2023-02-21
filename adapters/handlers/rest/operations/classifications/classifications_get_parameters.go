@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewClassificationsGetParams() ClassificationsGetParams {
+
 	return ClassificationsGetParams{}
 }
 
@@ -36,6 +37,7 @@ func NewClassificationsGetParams() ClassificationsGetParams {
 //
 // swagger:parameters classifications.get
 type ClassificationsGetParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

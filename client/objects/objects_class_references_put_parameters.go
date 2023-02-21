@@ -73,6 +73,7 @@ ObjectsClassReferencesPutParams contains all the parameters to send to the API e
 	Typically these are written to a http.Request.
 */
 type ObjectsClassReferencesPutParams struct {
+
 	// Body.
 	Body models.MultipleRef
 
@@ -212,6 +213,7 @@ func (o *ObjectsClassReferencesPutParams) SetPropertyName(propertyName string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassReferencesPutParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -237,6 +239,7 @@ func (o *ObjectsClassReferencesPutParams) WriteToRequest(r runtime.ClientRequest
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}

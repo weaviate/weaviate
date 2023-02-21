@@ -30,6 +30,7 @@ import (
 //
 // swagger:model Property
 type Property struct {
+
 	// Can be a reference to another type when it starts with a capital (for example Person), otherwise "string" or "int".
 	DataType []string `json:"dataType"`
 

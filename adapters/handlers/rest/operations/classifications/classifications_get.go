@@ -59,7 +59,7 @@ func (o *ClassificationsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewClassificationsGetParams()
+	var Params = NewClassificationsGetParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -80,4 +80,5 @@ func (o *ClassificationsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

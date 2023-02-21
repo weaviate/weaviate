@@ -73,6 +73,7 @@ BatchReferencesCreateParams contains all the parameters to send to the API endpo
 	Typically these are written to a http.Request.
 */
 type BatchReferencesCreateParams struct {
+
 	/* Body.
 
 	   A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help
@@ -162,6 +163,7 @@ func (o *BatchReferencesCreateParams) SetConsistencyLevel(consistencyLevel *stri
 
 // WriteToRequest writes these params to a swagger request
 func (o *BatchReferencesCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -182,6 +184,7 @@ func (o *BatchReferencesCreateParams) WriteToRequest(r runtime.ClientRequest, re
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}

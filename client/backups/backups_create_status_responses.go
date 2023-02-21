@@ -132,6 +132,7 @@ func (o *BackupsCreateStatusOK) GetPayload() *models.BackupCreateStatusResponse 
 }
 
 func (o *BackupsCreateStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.BackupCreateStatusResponse)
 
 	// response payload
@@ -152,7 +153,8 @@ BackupsCreateStatusUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type BackupsCreateStatusUnauthorized struct{}
+type BackupsCreateStatusUnauthorized struct {
+}
 
 // IsSuccess returns true when this backups create status unauthorized response has a 2xx status code
 func (o *BackupsCreateStatusUnauthorized) IsSuccess() bool {
@@ -193,6 +195,7 @@ func (o *BackupsCreateStatusUnauthorized) String() string {
 }
 
 func (o *BackupsCreateStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -253,6 +256,7 @@ func (o *BackupsCreateStatusForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -320,6 +324,7 @@ func (o *BackupsCreateStatusNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *BackupsCreateStatusUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *BackupsCreateStatusUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *BackupsCreateStatusInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *BackupsCreateStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

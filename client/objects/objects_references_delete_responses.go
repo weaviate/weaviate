@@ -79,7 +79,8 @@ ObjectsReferencesDeleteNoContent describes a response with status code 204, with
 
 Successfully deleted.
 */
-type ObjectsReferencesDeleteNoContent struct{}
+type ObjectsReferencesDeleteNoContent struct {
+}
 
 // IsSuccess returns true when this objects references delete no content response has a 2xx status code
 func (o *ObjectsReferencesDeleteNoContent) IsSuccess() bool {
@@ -120,6 +121,7 @@ func (o *ObjectsReferencesDeleteNoContent) String() string {
 }
 
 func (o *ObjectsReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -133,7 +135,8 @@ ObjectsReferencesDeleteUnauthorized describes a response with status code 401, w
 
 Unauthorized or invalid credentials.
 */
-type ObjectsReferencesDeleteUnauthorized struct{}
+type ObjectsReferencesDeleteUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects references delete unauthorized response has a 2xx status code
 func (o *ObjectsReferencesDeleteUnauthorized) IsSuccess() bool {
@@ -174,6 +177,7 @@ func (o *ObjectsReferencesDeleteUnauthorized) String() string {
 }
 
 func (o *ObjectsReferencesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +238,7 @@ func (o *ObjectsReferencesDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -301,6 +306,7 @@ func (o *ObjectsReferencesDeleteNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,6 +374,7 @@ func (o *ObjectsReferencesDeleteInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

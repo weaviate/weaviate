@@ -79,7 +79,8 @@ ObjectsReferencesUpdateOK describes a response with status code 200, with defaul
 
 Successfully replaced all the references.
 */
-type ObjectsReferencesUpdateOK struct{}
+type ObjectsReferencesUpdateOK struct {
+}
 
 // IsSuccess returns true when this objects references update o k response has a 2xx status code
 func (o *ObjectsReferencesUpdateOK) IsSuccess() bool {
@@ -120,6 +121,7 @@ func (o *ObjectsReferencesUpdateOK) String() string {
 }
 
 func (o *ObjectsReferencesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -133,7 +135,8 @@ ObjectsReferencesUpdateUnauthorized describes a response with status code 401, w
 
 Unauthorized or invalid credentials.
 */
-type ObjectsReferencesUpdateUnauthorized struct{}
+type ObjectsReferencesUpdateUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects references update unauthorized response has a 2xx status code
 func (o *ObjectsReferencesUpdateUnauthorized) IsSuccess() bool {
@@ -174,6 +177,7 @@ func (o *ObjectsReferencesUpdateUnauthorized) String() string {
 }
 
 func (o *ObjectsReferencesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +238,7 @@ func (o *ObjectsReferencesUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -301,6 +306,7 @@ func (o *ObjectsReferencesUpdateUnprocessableEntity) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,6 +374,7 @@ func (o *ObjectsReferencesUpdateInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

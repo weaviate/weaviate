@@ -73,6 +73,7 @@ ObjectsPatchParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type ObjectsPatchParams struct {
+
 	/* Body.
 
 	   RFC 7396-style patch, the body contains the object to merge into the existing object.
@@ -181,6 +182,7 @@ func (o *ObjectsPatchParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsPatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -201,6 +203,7 @@ func (o *ObjectsPatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}

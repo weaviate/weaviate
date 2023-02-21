@@ -138,6 +138,7 @@ func (o *ObjectsListOK) GetPayload() *models.ObjectsListResponse {
 }
 
 func (o *ObjectsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ObjectsListResponse)
 
 	// response payload
@@ -205,6 +206,7 @@ func (o *ObjectsListBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -225,7 +227,8 @@ ObjectsListUnauthorized describes a response with status code 401, with default 
 
 Unauthorized or invalid credentials.
 */
-type ObjectsListUnauthorized struct{}
+type ObjectsListUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects list unauthorized response has a 2xx status code
 func (o *ObjectsListUnauthorized) IsSuccess() bool {
@@ -266,6 +269,7 @@ func (o *ObjectsListUnauthorized) String() string {
 }
 
 func (o *ObjectsListUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -326,6 +330,7 @@ func (o *ObjectsListForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -346,7 +351,8 @@ ObjectsListNotFound describes a response with status code 404, with default head
 
 Successful query result but no resource was found.
 */
-type ObjectsListNotFound struct{}
+type ObjectsListNotFound struct {
+}
 
 // IsSuccess returns true when this objects list not found response has a 2xx status code
 func (o *ObjectsListNotFound) IsSuccess() bool {
@@ -387,6 +393,7 @@ func (o *ObjectsListNotFound) String() string {
 }
 
 func (o *ObjectsListNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -447,6 +454,7 @@ func (o *ObjectsListUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -514,6 +522,7 @@ func (o *ObjectsListInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -79,7 +79,8 @@ ObjectsReferencesCreateOK describes a response with status code 200, with defaul
 
 Successfully added the reference.
 */
-type ObjectsReferencesCreateOK struct{}
+type ObjectsReferencesCreateOK struct {
+}
 
 // IsSuccess returns true when this objects references create o k response has a 2xx status code
 func (o *ObjectsReferencesCreateOK) IsSuccess() bool {
@@ -120,6 +121,7 @@ func (o *ObjectsReferencesCreateOK) String() string {
 }
 
 func (o *ObjectsReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -133,7 +135,8 @@ ObjectsReferencesCreateUnauthorized describes a response with status code 401, w
 
 Unauthorized or invalid credentials.
 */
-type ObjectsReferencesCreateUnauthorized struct{}
+type ObjectsReferencesCreateUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects references create unauthorized response has a 2xx status code
 func (o *ObjectsReferencesCreateUnauthorized) IsSuccess() bool {
@@ -174,6 +177,7 @@ func (o *ObjectsReferencesCreateUnauthorized) String() string {
 }
 
 func (o *ObjectsReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +238,7 @@ func (o *ObjectsReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -301,6 +306,7 @@ func (o *ObjectsReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,6 +374,7 @@ func (o *ObjectsReferencesCreateInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ObjectsReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

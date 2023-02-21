@@ -71,6 +71,7 @@ SchemaObjectsShardsGetParams contains all the parameters to send to the API endp
 	Typically these are written to a http.Request.
 */
 type SchemaObjectsShardsGetParams struct {
+
 	// ClassName.
 	ClassName string
 
@@ -140,6 +141,7 @@ func (o *SchemaObjectsShardsGetParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsShardsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

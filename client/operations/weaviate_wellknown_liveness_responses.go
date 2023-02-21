@@ -52,7 +52,8 @@ WeaviateWellknownLivenessOK describes a response with status code 200, with defa
 
 The application is able to respond to HTTP requests
 */
-type WeaviateWellknownLivenessOK struct{}
+type WeaviateWellknownLivenessOK struct {
+}
 
 // IsSuccess returns true when this weaviate wellknown liveness o k response has a 2xx status code
 func (o *WeaviateWellknownLivenessOK) IsSuccess() bool {
@@ -93,5 +94,6 @@ func (o *WeaviateWellknownLivenessOK) String() string {
 }
 
 func (o *WeaviateWellknownLivenessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }

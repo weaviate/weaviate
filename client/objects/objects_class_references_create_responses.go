@@ -91,7 +91,8 @@ ObjectsClassReferencesCreateOK describes a response with status code 200, with d
 
 Successfully added the reference.
 */
-type ObjectsClassReferencesCreateOK struct{}
+type ObjectsClassReferencesCreateOK struct {
+}
 
 // IsSuccess returns true when this objects class references create o k response has a 2xx status code
 func (o *ObjectsClassReferencesCreateOK) IsSuccess() bool {
@@ -132,6 +133,7 @@ func (o *ObjectsClassReferencesCreateOK) String() string {
 }
 
 func (o *ObjectsClassReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -192,6 +194,7 @@ func (o *ObjectsClassReferencesCreateBadRequest) GetPayload() *models.ErrorRespo
 }
 
 func (o *ObjectsClassReferencesCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +215,8 @@ ObjectsClassReferencesCreateUnauthorized describes a response with status code 4
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesCreateUnauthorized struct{}
+type ObjectsClassReferencesCreateUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects class references create unauthorized response has a 2xx status code
 func (o *ObjectsClassReferencesCreateUnauthorized) IsSuccess() bool {
@@ -253,6 +257,7 @@ func (o *ObjectsClassReferencesCreateUnauthorized) String() string {
 }
 
 func (o *ObjectsClassReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -313,6 +318,7 @@ func (o *ObjectsClassReferencesCreateForbidden) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -333,7 +339,8 @@ ObjectsClassReferencesCreateNotFound describes a response with status code 404, 
 
 Source object doesn't exist.
 */
-type ObjectsClassReferencesCreateNotFound struct{}
+type ObjectsClassReferencesCreateNotFound struct {
+}
 
 // IsSuccess returns true when this objects class references create not found response has a 2xx status code
 func (o *ObjectsClassReferencesCreateNotFound) IsSuccess() bool {
@@ -374,6 +381,7 @@ func (o *ObjectsClassReferencesCreateNotFound) String() string {
 }
 
 func (o *ObjectsClassReferencesCreateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -434,6 +442,7 @@ func (o *ObjectsClassReferencesCreateUnprocessableEntity) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -501,6 +510,7 @@ func (o *ObjectsClassReferencesCreateInternalServerError) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -29,6 +29,7 @@ import (
 //
 // swagger:model ClassificationMeta
 type ClassificationMeta struct {
+
 	// time when this classification finished
 	// Example: 2017-07-21T17:32:28Z
 	// Format: date-time

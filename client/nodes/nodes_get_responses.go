@@ -132,6 +132,7 @@ func (o *NodesGetOK) GetPayload() *models.NodesStatusResponse {
 }
 
 func (o *NodesGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.NodesStatusResponse)
 
 	// response payload
@@ -152,7 +153,8 @@ NodesGetUnauthorized describes a response with status code 401, with default hea
 
 Unauthorized or invalid credentials.
 */
-type NodesGetUnauthorized struct{}
+type NodesGetUnauthorized struct {
+}
 
 // IsSuccess returns true when this nodes get unauthorized response has a 2xx status code
 func (o *NodesGetUnauthorized) IsSuccess() bool {
@@ -193,6 +195,7 @@ func (o *NodesGetUnauthorized) String() string {
 }
 
 func (o *NodesGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -253,6 +256,7 @@ func (o *NodesGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -320,6 +324,7 @@ func (o *NodesGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *NodesGetUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *NodesGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *NodesGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

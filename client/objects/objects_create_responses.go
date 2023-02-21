@@ -132,6 +132,7 @@ func (o *ObjectsCreateOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -199,6 +200,7 @@ func (o *ObjectsCreateBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,7 +221,8 @@ ObjectsCreateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type ObjectsCreateUnauthorized struct{}
+type ObjectsCreateUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects create unauthorized response has a 2xx status code
 func (o *ObjectsCreateUnauthorized) IsSuccess() bool {
@@ -260,6 +263,7 @@ func (o *ObjectsCreateUnauthorized) String() string {
 }
 
 func (o *ObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -320,6 +324,7 @@ func (o *ObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *ObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *ObjectsCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

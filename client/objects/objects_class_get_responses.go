@@ -132,6 +132,7 @@ func (o *ObjectsClassGetOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsClassGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -199,6 +200,7 @@ func (o *ObjectsClassGetBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,7 +221,8 @@ ObjectsClassGetUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassGetUnauthorized struct{}
+type ObjectsClassGetUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects class get unauthorized response has a 2xx status code
 func (o *ObjectsClassGetUnauthorized) IsSuccess() bool {
@@ -260,6 +263,7 @@ func (o *ObjectsClassGetUnauthorized) String() string {
 }
 
 func (o *ObjectsClassGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -320,6 +324,7 @@ func (o *ObjectsClassGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -340,7 +345,8 @@ ObjectsClassGetNotFound describes a response with status code 404, with default 
 
 Successful query result but no resource was found.
 */
-type ObjectsClassGetNotFound struct{}
+type ObjectsClassGetNotFound struct {
+}
 
 // IsSuccess returns true when this objects class get not found response has a 2xx status code
 func (o *ObjectsClassGetNotFound) IsSuccess() bool {
@@ -381,6 +387,7 @@ func (o *ObjectsClassGetNotFound) String() string {
 }
 
 func (o *ObjectsClassGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -441,6 +448,7 @@ func (o *ObjectsClassGetInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

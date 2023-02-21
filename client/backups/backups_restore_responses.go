@@ -132,6 +132,7 @@ func (o *BackupsRestoreOK) GetPayload() *models.BackupRestoreResponse {
 }
 
 func (o *BackupsRestoreOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.BackupRestoreResponse)
 
 	// response payload
@@ -152,7 +153,8 @@ BackupsRestoreUnauthorized describes a response with status code 401, with defau
 
 Unauthorized or invalid credentials.
 */
-type BackupsRestoreUnauthorized struct{}
+type BackupsRestoreUnauthorized struct {
+}
 
 // IsSuccess returns true when this backups restore unauthorized response has a 2xx status code
 func (o *BackupsRestoreUnauthorized) IsSuccess() bool {
@@ -193,6 +195,7 @@ func (o *BackupsRestoreUnauthorized) String() string {
 }
 
 func (o *BackupsRestoreUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -253,6 +256,7 @@ func (o *BackupsRestoreForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -320,6 +324,7 @@ func (o *BackupsRestoreNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *BackupsRestoreUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *BackupsRestoreInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsRestoreInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

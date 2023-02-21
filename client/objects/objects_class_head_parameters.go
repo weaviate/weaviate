@@ -71,6 +71,7 @@ ObjectsClassHeadParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type ObjectsClassHeadParams struct {
+
 	/* ClassName.
 
 	   The class name as defined in the schema
@@ -162,6 +163,7 @@ func (o *ObjectsClassHeadParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassHeadParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

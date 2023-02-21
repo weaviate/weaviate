@@ -120,6 +120,7 @@ func (o *MetaGetOK) GetPayload() *models.Meta {
 }
 
 func (o *MetaGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Meta)
 
 	// response payload
@@ -140,7 +141,8 @@ MetaGetUnauthorized describes a response with status code 401, with default head
 
 Unauthorized or invalid credentials.
 */
-type MetaGetUnauthorized struct{}
+type MetaGetUnauthorized struct {
+}
 
 // IsSuccess returns true when this meta get unauthorized response has a 2xx status code
 func (o *MetaGetUnauthorized) IsSuccess() bool {
@@ -181,6 +183,7 @@ func (o *MetaGetUnauthorized) String() string {
 }
 
 func (o *MetaGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -241,6 +244,7 @@ func (o *MetaGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -308,6 +312,7 @@ func (o *MetaGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -72,6 +72,7 @@ ObjectsListParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type ObjectsListParams struct {
+
 	/* Class.
 
 	   Class parameter specifies the class from which to query objects
@@ -129,7 +130,9 @@ func (o *ObjectsListParams) WithDefaults() *ObjectsListParams {
 //
 // All values with no default are reset to their zero value.
 func (o *ObjectsListParams) SetDefaults() {
-	offsetDefault := int64(0)
+	var (
+		offsetDefault = int64(0)
+	)
 
 	val := ObjectsListParams{
 		Offset: &offsetDefault,
@@ -242,6 +245,7 @@ func (o *ObjectsListParams) SetSort(sort *string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -257,6 +261,7 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		}
 		qClass := qrClass
 		if qClass != "" {
+
 			if err := r.SetQueryParam("class", qClass); err != nil {
 				return err
 			}
@@ -273,6 +278,7 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		}
 		qInclude := qrInclude
 		if qInclude != "" {
+
 			if err := r.SetQueryParam("include", qInclude); err != nil {
 				return err
 			}
@@ -289,6 +295,7 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		}
 		qLimit := swag.FormatInt64(qrLimit)
 		if qLimit != "" {
+
 			if err := r.SetQueryParam("limit", qLimit); err != nil {
 				return err
 			}
@@ -305,6 +312,7 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		}
 		qOffset := swag.FormatInt64(qrOffset)
 		if qOffset != "" {
+
 			if err := r.SetQueryParam("offset", qOffset); err != nil {
 				return err
 			}
@@ -321,6 +329,7 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		}
 		qOrder := qrOrder
 		if qOrder != "" {
+
 			if err := r.SetQueryParam("order", qOrder); err != nil {
 				return err
 			}
@@ -337,6 +346,7 @@ func (o *ObjectsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		}
 		qSort := qrSort
 		if qSort != "" {
+
 			if err := r.SetQueryParam("sort", qSort); err != nil {
 				return err
 			}

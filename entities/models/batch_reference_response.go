@@ -101,6 +101,7 @@ func (m *BatchReferenceResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchReferenceResponse) validateResult(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -139,6 +140,7 @@ func (m *BatchReferenceResponse) ContextValidate(ctx context.Context, formats st
 }
 
 func (m *BatchReferenceResponse) contextValidateResult(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Result != nil {
 		if err := m.Result.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -175,6 +177,7 @@ func (m *BatchReferenceResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model BatchReferenceResponseAO1Result
 type BatchReferenceResponseAO1Result struct {
+
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
@@ -280,6 +283,7 @@ func (m *BatchReferenceResponseAO1Result) ContextValidate(ctx context.Context, f
 }
 
 func (m *BatchReferenceResponseAO1Result) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Errors != nil {
 		if err := m.Errors.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

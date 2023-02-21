@@ -71,6 +71,7 @@ ObjectsGetParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type ObjectsGetParams struct {
+
 	/* ID.
 
 	   Unique ID of the Object.
@@ -162,6 +163,7 @@ func (o *ObjectsGetParams) SetInclude(include *string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -182,6 +184,7 @@ func (o *ObjectsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		}
 		qInclude := qrInclude
 		if qInclude != "" {
+
 			if err := r.SetQueryParam("include", qInclude); err != nil {
 				return err
 			}

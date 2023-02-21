@@ -63,6 +63,7 @@ func (m ShardStatusList) ContextValidate(ctx context.Context, formats strfmt.Reg
 	var res []error
 
 	for i := 0; i < len(m); i++ {
+
 		if m[i] != nil {
 			if err := m[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -73,6 +74,7 @@ func (m ShardStatusList) ContextValidate(ctx context.Context, formats strfmt.Reg
 				return err
 			}
 		}
+
 	}
 
 	if len(res) > 0 {

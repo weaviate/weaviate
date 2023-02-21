@@ -33,6 +33,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewSchemaObjectsPropertiesAddParams() SchemaObjectsPropertiesAddParams {
+
 	return SchemaObjectsPropertiesAddParams{}
 }
 
@@ -41,6 +42,7 @@ func NewSchemaObjectsPropertiesAddParams() SchemaObjectsPropertiesAddParams {
 //
 // swagger:parameters schema.objects.properties.add
 type SchemaObjectsPropertiesAddParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

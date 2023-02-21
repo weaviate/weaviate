@@ -91,7 +91,8 @@ ObjectsClassReferencesPutOK describes a response with status code 200, with defa
 
 Successfully replaced all the references.
 */
-type ObjectsClassReferencesPutOK struct{}
+type ObjectsClassReferencesPutOK struct {
+}
 
 // IsSuccess returns true when this objects class references put o k response has a 2xx status code
 func (o *ObjectsClassReferencesPutOK) IsSuccess() bool {
@@ -132,6 +133,7 @@ func (o *ObjectsClassReferencesPutOK) String() string {
 }
 
 func (o *ObjectsClassReferencesPutOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -192,6 +194,7 @@ func (o *ObjectsClassReferencesPutBadRequest) GetPayload() *models.ErrorResponse
 }
 
 func (o *ObjectsClassReferencesPutBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +215,8 @@ ObjectsClassReferencesPutUnauthorized describes a response with status code 401,
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesPutUnauthorized struct{}
+type ObjectsClassReferencesPutUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects class references put unauthorized response has a 2xx status code
 func (o *ObjectsClassReferencesPutUnauthorized) IsSuccess() bool {
@@ -253,6 +257,7 @@ func (o *ObjectsClassReferencesPutUnauthorized) String() string {
 }
 
 func (o *ObjectsClassReferencesPutUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -313,6 +318,7 @@ func (o *ObjectsClassReferencesPutForbidden) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsClassReferencesPutForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -333,7 +339,8 @@ ObjectsClassReferencesPutNotFound describes a response with status code 404, wit
 
 Source object doesn't exist.
 */
-type ObjectsClassReferencesPutNotFound struct{}
+type ObjectsClassReferencesPutNotFound struct {
+}
 
 // IsSuccess returns true when this objects class references put not found response has a 2xx status code
 func (o *ObjectsClassReferencesPutNotFound) IsSuccess() bool {
@@ -374,6 +381,7 @@ func (o *ObjectsClassReferencesPutNotFound) String() string {
 }
 
 func (o *ObjectsClassReferencesPutNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -434,6 +442,7 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) GetPayload() *models.Erro
 }
 
 func (o *ObjectsClassReferencesPutUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -501,6 +510,7 @@ func (o *ObjectsClassReferencesPutInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *ObjectsClassReferencesPutInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

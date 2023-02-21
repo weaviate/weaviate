@@ -71,6 +71,7 @@ BackupsRestoreStatusParams contains all the parameters to send to the API endpoi
 	Typically these are written to a http.Request.
 */
 type BackupsRestoreStatusParams struct {
+
 	/* Backend.
 
 	   Backup backend name e.g. filesystem, gcs, s3.
@@ -160,6 +161,7 @@ func (o *BackupsRestoreStatusParams) SetID(id string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsRestoreStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

@@ -91,7 +91,8 @@ ObjectsClassReferencesDeleteNoContent describes a response with status code 204,
 
 Successfully deleted.
 */
-type ObjectsClassReferencesDeleteNoContent struct{}
+type ObjectsClassReferencesDeleteNoContent struct {
+}
 
 // IsSuccess returns true when this objects class references delete no content response has a 2xx status code
 func (o *ObjectsClassReferencesDeleteNoContent) IsSuccess() bool {
@@ -132,6 +133,7 @@ func (o *ObjectsClassReferencesDeleteNoContent) String() string {
 }
 
 func (o *ObjectsClassReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -192,6 +194,7 @@ func (o *ObjectsClassReferencesDeleteBadRequest) GetPayload() *models.ErrorRespo
 }
 
 func (o *ObjectsClassReferencesDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +215,8 @@ ObjectsClassReferencesDeleteUnauthorized describes a response with status code 4
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassReferencesDeleteUnauthorized struct{}
+type ObjectsClassReferencesDeleteUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects class references delete unauthorized response has a 2xx status code
 func (o *ObjectsClassReferencesDeleteUnauthorized) IsSuccess() bool {
@@ -253,6 +257,7 @@ func (o *ObjectsClassReferencesDeleteUnauthorized) String() string {
 }
 
 func (o *ObjectsClassReferencesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -313,6 +318,7 @@ func (o *ObjectsClassReferencesDeleteForbidden) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassReferencesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -380,6 +386,7 @@ func (o *ObjectsClassReferencesDeleteNotFound) GetPayload() *models.ErrorRespons
 }
 
 func (o *ObjectsClassReferencesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -447,6 +454,7 @@ func (o *ObjectsClassReferencesDeleteUnprocessableEntity) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -514,6 +522,7 @@ func (o *ObjectsClassReferencesDeleteInternalServerError) GetPayload() *models.E
 }
 
 func (o *ObjectsClassReferencesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

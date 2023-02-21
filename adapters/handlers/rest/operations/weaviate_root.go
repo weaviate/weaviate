@@ -62,7 +62,7 @@ func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewWeaviateRootParams()
+	var Params = NewWeaviateRootParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -83,12 +83,14 @@ func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // WeaviateRootOKBody weaviate root o k body
 //
 // swagger:model WeaviateRootOKBody
 type WeaviateRootOKBody struct {
+
 	// links
 	Links []*models.Link `json:"links" yaml:"links"`
 }
@@ -148,7 +150,9 @@ func (o *WeaviateRootOKBody) ContextValidate(ctx context.Context, formats strfmt
 }
 
 func (o *WeaviateRootOKBody) contextValidateLinks(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(o.Links); i++ {
+
 		if o.Links[i] != nil {
 			if err := o.Links[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -159,6 +163,7 @@ func (o *WeaviateRootOKBody) contextValidateLinks(ctx context.Context, formats s
 				return err
 			}
 		}
+
 	}
 
 	return nil
