@@ -25,12 +25,12 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestRefFilters(t *testing.T) {
@@ -198,7 +198,7 @@ func TestRefFilters(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7})
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil)
 				require.Nil(t, err)
 			})
 		}
@@ -647,7 +647,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		}
 
 		for _, obj := range objects {
-			require.Nil(t, repo.PutObject(context.Background(), obj, []float32{0.1}))
+			require.Nil(t, repo.PutObject(context.Background(), obj, []float32{0.1}, nil))
 		}
 	})
 
@@ -769,8 +769,8 @@ func filterAirportsInGermanCitiesOver600k() *filters.LocalFilter {
 	}
 }
 
-func getParamsWithFilter(className string, filter *filters.LocalFilter) traverser.GetParams {
-	return traverser.GetParams{
+func getParamsWithFilter(className string, filter *filters.LocalFilter) dto.GetParams {
+	return dto.GetParams{
 		Filters: filter,
 		// we don't care about actually resolving the ref as long as filtering
 		// on it worked

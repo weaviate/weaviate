@@ -61,6 +61,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	metadataFilename := "backup.json"
+	gcsUseAuth := "false"
 
 	t.Run("setup env", func(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
@@ -68,6 +69,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSCredentials, ""))
 		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
 		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSUseAuth, gcsUseAuth))
 
 		moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
 	})
@@ -142,6 +144,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 	bucketName := "bucket"
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
+	gcsUseAuth := "false"
 
 	t.Run("setup env", func(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
@@ -149,6 +152,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSCredentials, ""))
 		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
 		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSUseAuth, gcsUseAuth))
 
 		moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
 	})
@@ -182,6 +186,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	bucketName := "backet"
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
+	gcsUseAuth := "false"
 
 	t.Run("setup env", func(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSEndpoint, endpoint))
@@ -189,6 +194,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		require.Nil(t, os.Setenv(envGCSCredentials, ""))
 		require.Nil(t, os.Setenv(envGCSProjectID, projectID))
 		require.Nil(t, os.Setenv(envGCSBucket, bucketName))
+		require.Nil(t, os.Setenv(envGCSUseAuth, gcsUseAuth))
 
 		moduleshelper.CreateGCSBucket(testCtx, t, projectID, bucketName)
 	})

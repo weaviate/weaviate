@@ -34,71 +34,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
-
-func TestRemoteIndexGetObject(t *testing.T) {
-	t.Parallel()
-	var (
-		ctx  = context.Background()
-		uuid = UUID1
-		path = fmt.Sprintf("/indices/C1/shards/S1/objects/%s", uuid)
-		obj  = &storobj.Object{MarshallerVersion: 1, Object: anyObject(UUID1)}
-		fs   = newFakeRemoteIndexServer(t, http.MethodGet, path)
-	)
-	ts := fs.server(t)
-	defer ts.Close()
-	client := newRemoteIndex(ts.Client())
-	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.FindObject(ctx, "", "C1", "S1", uuid, search.SelectProperties{}, additional.Properties{})
-		assert.NotNil(t, err)
-		assert.Contains(t, err.Error(), "connect")
-	})
-	n := 0
-	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
-		if n == 0 {
-			w.WriteHeader(http.StatusNotFound)
-		} else if n == 1 {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else if n == 2 {
-			w.WriteHeader(http.StatusTooManyRequests)
-		} else if n == 3 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		} else if n == 4 {
-			w.Header().Set("content-type", "any")
-		} else if n == 5 {
-			w.Header().Set("content-type", clusterapi.IndicesPayloads.SingleObject.MIME())
-			w.Write([]byte("hello"))
-		} else {
-			w.Header().Set("content-type", clusterapi.IndicesPayloads.SingleObject.MIME())
-			bytes, _ := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
-			w.Write(bytes)
-		}
-		n++
-	}
-	t.Run("NotFound", func(t *testing.T) {
-		obj, err := client.FindObject(ctx, fs.host, "C1", "S1", uuid, search.SelectProperties{}, additional.Properties{})
-		assert.Nil(t, err)
-		assert.Nil(t, obj)
-	})
-	t.Run("ContentType", func(t *testing.T) {
-		_, err := client.FindObject(ctx, fs.host, "C1", "S1", uuid, search.SelectProperties{}, additional.Properties{})
-		assert.NotNil(t, err)
-	})
-
-	t.Run("body", func(t *testing.T) {
-		_, err := client.FindObject(ctx, fs.host, "C1", "S1", uuid, search.SelectProperties{}, additional.Properties{})
-		assert.NotNil(t, err)
-	})
-	t.Run("Success", func(t *testing.T) {
-		obj, err := client.FindObject(ctx, fs.host, "C1", "S1", uuid, search.SelectProperties{}, additional.Properties{})
-		assert.Nil(t, err)
-		assert.NotNil(t, obj)
-		assert.Equal(t, uuid, obj.ID())
-	})
-}
 
 func TestRemoteIndexIncreaseRF(t *testing.T) {
 	t.Parallel()

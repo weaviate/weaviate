@@ -81,6 +81,11 @@ type ObjectsClassReferencesCreateParams struct {
 
 	*/
 	ClassName string
+	/*ConsistencyLevel
+	  Determines how many replicas must acknowledge a request before it is considered successful
+
+	*/
+	ConsistencyLevel *string
 	/*ID
 	  Unique ID of the Object.
 
@@ -152,6 +157,17 @@ func (o *ObjectsClassReferencesCreateParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects class references create params
+func (o *ObjectsClassReferencesCreateParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsClassReferencesCreateParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects class references create params
+func (o *ObjectsClassReferencesCreateParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects class references create params
 func (o *ObjectsClassReferencesCreateParams) WithID(id strfmt.UUID) *ObjectsClassReferencesCreateParams {
 	o.SetID(id)
@@ -191,6 +207,22 @@ func (o *ObjectsClassReferencesCreateParams) WriteToRequest(r runtime.ClientRequ
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	// path param id
