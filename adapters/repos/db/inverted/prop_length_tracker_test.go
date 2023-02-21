@@ -34,31 +34,40 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 	t.Run("single prop", func(t *testing.T) {
 		type test struct {
-			values []float32
-			name   string
+			values       []float32
+			name         string
+			floatCompare bool
 		}
 
 		tests := []test{
 			{
-				values: []float32{2, 2, 3, 100, 100, 500, 7},
-				name:   "mixed values",
+				values:       []float32{2, 2, 3, 100, 100, 500, 7},
+				name:         "mixed values",
+				floatCompare: true,
 			}, {
 				values: []float32{
 					1000, 1200, 1000, 1300, 800, 2000, 2050,
 					2070, 900,
 				},
-				name: "high values",
+				name:         "high values",
+				floatCompare: true,
 			}, {
 				values: []float32{
 					60000, 50000, 65000,
 				},
-				name: "very high values",
+				name:         "very high values",
+				floatCompare: true,
 			}, {
 				values: []float32{
 					1, 2, 4, 3, 4, 2, 1, 5, 6, 7, 8, 2, 7, 2, 3, 5,
 					6, 3, 5, 9, 3, 4, 8,
 				},
-				name: "very low values",
+				name:         "very low values",
+				floatCompare: true,
+			}, {
+				values:       []float32{0, 0},
+				name:         "zeros",
+				floatCompare: false,
 			},
 		}
 
@@ -77,7 +86,11 @@ func Test_PropertyLengthTracker(t *testing.T) {
 				res, err := tracker.PropertyMean("my-very-first-prop")
 				require.Nil(t, err)
 
-				assert.InEpsilon(t, actualMean, res, 0.1)
+				if test.floatCompare {
+					assert.InEpsilon(t, actualMean, res, 0.1)
+				} else {
+					assert.Equal(t, actualMean, res)
+				}
 			})
 		}
 	})
