@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
@@ -325,6 +326,72 @@ func TestBM25FSingleProp(t *testing.T) {
 	// Check scores
 	EqualFloats(t, float32(0.38539), res[0].Score(), 5)
 	EqualFloats(t, float32(0.04250), res[1].Score(), 5)
+}
+
+
+func TestBM25FWithFilters(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "My",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "journeys",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
+	
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+	addit := additional.Properties{}
+	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, addit)
+
+
+	require.Nil(t, err)
+	require.True(t, len(res) > 0)
+	require.Equal(t, uint64(2), res[0].DocID())
+
+
+	
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {

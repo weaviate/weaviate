@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/sroar"
+	//"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -183,7 +183,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		var bm25count []float32
 		var err error
 		var objs helpers.AllowList
-		var filterDocIds *sroar.Bitmap
+		var filterDocIds helpers.AllowList
 
 		if filters != nil {
 			objs, err = inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -194,10 +194,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 				return nil, nil, err
 			}
 
-			filterDocIds = sroar.NewBitmap()
-			for docId := range objs {
-				filterDocIds.Set(docId)
-			}
+			filterDocIds = objs
 		}
 		if keywordRanking != nil && keywordRanking.Type == "bm25" {
 			className := s.index.Config.ClassName
