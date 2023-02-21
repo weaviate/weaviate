@@ -23,8 +23,9 @@ import (
 type Encoder byte
 
 const (
-	UseTileEncoder   Encoder = 0
-	UseKMeansEncoder Encoder = 1
+	UseTileEncoder             Encoder = 0
+	UseKMeansEncoder           Encoder = 1
+	UseTileKMeansHybridEncoder Encoder = 2
 )
 
 type DistanceLookUpTable struct {
@@ -206,7 +207,6 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
 			pq.kms[i] = NewKMeansWithFilter(
 				int(pq.ks),
-				pq.distance,
 				pq.ds,
 				FilterSegment(int(i), pq.ds),
 			)
@@ -215,6 +215,31 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 				panic(err)
 			}
 		})
+	case UseTileKMeansHybridEncoder:
+		pq.kms = make([]PQEncoder, pq.m)
+		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
+			kmeans := NewKMeansWithFilter(
+				int(pq.ks),
+				pq.ds,
+				FilterSegment(int(i), pq.ds),
+			)
+			tile := NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i), pq.encoderDistribution)
+			for j := 0; j < len(data); j++ {
+				tile.Add(data[j])
+			}
+			tile.Fit(data)
+			centroids := make([][]float32, 0, pq.ks)
+			for c := byte(0); c <= byte(pq.ks-1); c++ {
+				centroids = append(centroids, tile.Centroid(c))
+			}
+			kmeans.SetCenters(centroids)
+			pq.kms[i] = kmeans
+			err := pq.kms[i].Fit(data)
+			if err != nil {
+				panic(err)
+			}
+		})
+		pq.encoderType = UseKMeansEncoder
 	}
 	/*for i := 0; i < 1; i++ {
 		fmt.Println("********")

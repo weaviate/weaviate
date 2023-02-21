@@ -43,6 +43,8 @@ func ValidEncoder(encoder string) (ssdhelpers.Encoder, error) {
 		return ssdhelpers.UseTileEncoder, nil
 	case "kmeans":
 		return ssdhelpers.UseKMeansEncoder, nil
+	case "hybrid":
+		return ssdhelpers.UseTileKMeansHybridEncoder, nil
 	default:
 		return 0, fmt.Errorf("invalid encoder type: %s", encoder)
 	}
