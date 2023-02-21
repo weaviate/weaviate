@@ -13,7 +13,6 @@ package test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -44,11 +43,10 @@ func Test_BackupJourney(t *testing.T) {
 	defer cancel()
 
 	t.Run("single node", func(t *testing.T) {
-		t.Run("pre-instance env setup", func(t *testing.T) {
-			require.Nil(t, os.Setenv(envGCSCredentials, ""))
-			require.Nil(t, os.Setenv(envGCSProjectID, gcsBackupJourneyProjectID))
-			require.Nil(t, os.Setenv(envGCSBucket, gcsBackupJourneyBucketName))
-		})
+		t.Log("pre-instance env setup")
+		t.Setenv(envGCSCredentials, "")
+		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
+		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
 
 		compose, err := docker.New().
 			WithBackendGCS(gcsBackupJourneyBucketName).
@@ -62,13 +60,11 @@ func Test_BackupJourney(t *testing.T) {
 			}
 		}()
 
-		t.Run("post-instance env setup", func(t *testing.T) {
-			require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
-			require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
-
-			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
-			helper.SetupClient(compose.GetWeaviate().URI())
-		})
+		t.Log("post-instance env setup")
+		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
+		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
+		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
@@ -77,11 +73,10 @@ func Test_BackupJourney(t *testing.T) {
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
-		t.Run("pre-instance env setup", func(t *testing.T) {
-			require.Nil(t, os.Setenv(envGCSCredentials, ""))
-			require.Nil(t, os.Setenv(envGCSProjectID, gcsBackupJourneyProjectID))
-			require.Nil(t, os.Setenv(envGCSBucket, gcsBackupJourneyBucketName))
-		})
+		t.Log("pre-instance env setup")
+		t.Setenv(envGCSCredentials, "")
+		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
+		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
 
 		compose, err := docker.New().
 			WithBackendGCS(gcsBackupJourneyBucketName).
@@ -95,13 +90,11 @@ func Test_BackupJourney(t *testing.T) {
 			}
 		}()
 
-		t.Run("post-instance env setup", func(t *testing.T) {
-			require.Nil(t, os.Setenv(envGCSEndpoint, compose.GetGCS().URI()))
-			require.Nil(t, os.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI()))
-
-			moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
-			helper.SetupClient(compose.GetWeaviate().URI())
-		})
+		t.Log("post-instance env setup")
+		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
+		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
+		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
