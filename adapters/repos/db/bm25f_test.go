@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -114,7 +113,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		obj := &models.Object{Class: "MyClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector)
+		err := repo.PutObject(context.Background(), obj, vector, nil)
 		require.Nil(t, err)
 	}
 }
@@ -142,18 +141,19 @@ func TestBM25FJourney(t *testing.T) {
 	require.NotNil(t, idx)
 
 	// Check basic search
-	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
-
-	// Print results
-	t.Log("--- Start results for basic search ---")
-	for _, r := range res {
-		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-	}
 
 	t.Run("bm25f journey", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		// Print results
+		t.Log("--- Start results for basic search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
@@ -204,9 +204,8 @@ func TestBM25FJourney(t *testing.T) {
 
 	// Check basic text search WITH CAPS
 	t.Run("bm25f text with caps", func(t *testing.T) {
-		kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-		addit = additional.Properties{}
-		res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
 		// Print results
 		t.Log("--- Start results for search with caps ---")
 		for _, r := range res {
@@ -218,31 +217,29 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
 	})
-	// Check boosted
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
-	addit = additional.Properties{}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-
-	require.Nil(t, err)
-	// Print results
-	t.Log("--- Start results for boosted search ---")
-	for _, r := range res {
-		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
-	}
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+
+		require.Nil(t, err)
+		// Print results
+		t.Log("--- Start results for boosted search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		}
+
 		// Check results in correct order
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
 		require.Equal(t, uint64(6), res[2].DocID())
 		require.Equal(t, uint64(0), res[3].DocID())
 	})
-	// Check search with two terms
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
 
-	t.Run("bm25f journey somewhere", func(t *testing.T) {
+	t.Run("Check search with two terms", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
 		// Check results in correct order
 		require.Equal(t, uint64(1), res[0].DocID())
 		require.Equal(t, uint64(4), res[1].DocID())
@@ -250,13 +247,13 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[3].DocID())
 		require.Equal(t, uint64(2), res[4].DocID())
 	})
-	t.Log("Search with no properties")
-	// Check search with no properties (should include all properties)
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
 
 	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
+		// Check search with no properties (should include all properties)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
 		// Check results in correct order
 		require.Equal(t, uint64(1), res[0].DocID())
 		require.Equal(t, uint64(4), res[1].DocID())
@@ -264,15 +261,70 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(6), res[3].DocID())
 	})
 
-	t.Log("Search with non alphanums")
-	// Check search with no properties (should include all properties)
-	kwr = &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
-	res, _, err = idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
-	require.Nil(t, err)
-
 	t.Run("bm25f non alphanums", func(t *testing.T) {
+		// Check search with no properties (should include all properties)
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		require.Nil(t, err)
 		require.Equal(t, uint64(7), res[0].DocID())
 	})
+
+	t.Run("First result has high score", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "about BM25F"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		require.Equal(t, uint64(0), res[0].DocID())
+		require.Len(t, res, 4) // four results have one of the terms
+	})
+
+	t.Run("More results than limit", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		require.Equal(t, uint64(4), res[0].DocID())
+		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[2].DocID())
+		require.Equal(t, uint64(3), res[3].DocID())
+		require.Equal(t, uint64(2), res[4].DocID())
+		require.Len(t, res, 5) // four results have one of the terms
+	})
+}
+
+func TestBM25FSingleProp(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	// Check boosted
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+	addit := additional.Properties{}
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	require.Nil(t, err)
+	// Check results in correct order
+	require.Equal(t, uint64(3), res[0].DocID())
+	require.Equal(t, uint64(4), res[3].DocID())
+
+	// Check scores
+	EqualFloats(t, float32(0.38539), res[0].Score(), 5)
+	EqualFloats(t, float32(0.04250), res[1].Score(), 5)
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {
@@ -321,8 +373,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.2442), res[1].Score(), 5)
-	EqualFloats(t, float32(0.270), res[0].Score(), 5)
+	EqualFloats(t, float32(0.05929), res[0].Score(), 6)
+	EqualFloats(t, float32(0.04244), res[1].Score(), 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
@@ -331,10 +383,10 @@ func EqualFloats(t *testing.T, expected, actual float32, significantFigures int)
 	if len(s1) < 2 || len(s2) < 2 {
 		t.Fail()
 	}
-	if len(s1) < significantFigures {
+	if len(s1) <= significantFigures {
 		significantFigures = len(s1) - 1
 	}
-	if len(s2) < significantFigures {
+	if len(s2) <= significantFigures {
 		significantFigures = len(s2) - 1
 	}
 	require.Equal(t, s1[:significantFigures+1], s2[:significantFigures+1])
@@ -446,5 +498,96 @@ func Test_propertyIsIndexed(t *testing.T) {
 		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "title"); got != true {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
 		}
+	})
+}
+
+func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
+) {
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		Class:               "Documents",
+
+		Properties: []*models.Property{
+			{
+				Name:          "document",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+		},
+	}
+
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	schemaGetter.schema = schema
+
+	migrator := NewMigrator(repo, logger)
+	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+	testData := []map[string]interface{}{}
+	testData = append(testData, map[string]interface{}{"document": "No matter what you do, the question of \"\"what is income\"\" is *always* going to be an extremely complex question.   To use this particular example, is paying a royalty fee to an external party a legitimate business expense that is part of the cost of doing business and which subtracts from your \"\"income\"\"?"})
+	testData = append(testData, map[string]interface{}{"document": "test"})
+	testData = append(testData, map[string]interface{}{"document": "As long as the losing business is not considered \"\"passive activity\"\" or \"\"hobby\"\", then yes. Passive Activity is an activity where you do not have to actively do anything to generate income. For example - royalties or rentals. Hobby is an activity that doesn't generate profit. Generally, if your business doesn't consistently generate profit (the IRS looks at 3 out of the last 5 years), it may be characterized as hobby. For hobby, loss deduction is limited by the hobby income and the 2% AGI threshold."})
+	testData = append(testData, map[string]interface{}{"document": "So you're basically saying that average market fluctuations have an affect on individual stocks, because individual stocks are often priced in relation to the growth of the market as a whole?  Also, what kinds of investments would be considered \"\"risk free\"\" in this nomenclature?"})
+
+	for i, data := range testData {
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+
+		obj := &models.Object{Class: "Documents", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+		vector := []float32{1, 3, 5, 0.4}
+		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
+		err := repo.PutObject(context.Background(), obj, vector, nil)
+		require.Nil(t, err)
+	}
+}
+
+func TestBM25F_ComplexDocuments(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75)
+
+	idx := repo.GetIndex("Documents")
+	require.NotNil(t, idx)
+
+	t.Run("single term", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
+		addit := additional.Properties{}
+		res, _, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, addit)
+		require.Nil(t, err)
+
+		// Print results
+		t.Log("--- Start results for boosted search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, \n", r.DocID(), r.Score())
+		}
+
+		// Check results in correct order
+		require.Equal(t, uint64(3), res[0].DocID())
+		require.Equal(t, uint64(0), res[1].DocID())
+		require.Equal(t, uint64(2), res[2].DocID())
+		require.Len(t, res, 3)
+
+		// Check scores
+		EqualFloats(t, float32(0.89207935), res[0].Score(), 5)
+		EqualFloats(t, float32(0.5427927), res[1].Score(), 5)
+		EqualFloats(t, float32(0.39563084), res[2].Score(), 5)
 	})
 }

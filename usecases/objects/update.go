@@ -25,6 +25,7 @@ import (
 // include this particular network ref class.
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
+	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	path := fmt.Sprintf("objects/%s/%s", class, id)
 	if class == "" {
@@ -44,11 +45,11 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates)
+	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
 }
 
 func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	className string, id strfmt.UUID, updates *models.Object,
+	className string, id strfmt.UUID, updates *models.Object, repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
@@ -87,7 +88,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl)
 	if err != nil {
 		return nil, NewErrInternal("put object: %v", err)
 	}

@@ -72,6 +72,11 @@ for the objects delete operation typically these are written to a http.Request
 */
 type ObjectsDeleteParams struct {
 
+	/*ConsistencyLevel
+	  Determines how many replicas must acknowledge a request before it is considered successful
+
+	*/
+	ConsistencyLevel *string
 	/*ID
 	  Unique ID of the Object.
 
@@ -116,6 +121,17 @@ func (o *ObjectsDeleteParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects delete params
+func (o *ObjectsDeleteParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsDeleteParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects delete params
+func (o *ObjectsDeleteParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects delete params
 func (o *ObjectsDeleteParams) WithID(id strfmt.UUID) *ObjectsDeleteParams {
 	o.SetID(id)
@@ -134,6 +150,22 @@ func (o *ObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		return err
 	}
 	var res []error
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
+
+	}
 
 	// path param id
 	if err := r.SetPathParam("id", o.ID.String()); err != nil {

@@ -12,6 +12,7 @@
 package replication
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -26,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
-	"golang.org/x/net/context"
 )
 
 var (
@@ -240,7 +240,7 @@ func immediateReplicaCRUD(t *testing.T) {
 
 		t.Run("assert object removed from node 2", func(t *testing.T) {
 			_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
-			assert.Equal(t, err, &objects.ObjectsClassGetNotFound{})
+			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 
 		t.Run("restart node 1", func(t *testing.T) {
@@ -271,8 +271,6 @@ func immediateReplicaCRUD(t *testing.T) {
 }
 
 func eventualReplicaCRUD(t *testing.T) {
-	t.Skip("disabled while reworking dynamic scaling - TODO: re-enabled when fixed")
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 

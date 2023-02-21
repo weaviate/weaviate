@@ -30,6 +30,7 @@ const (
 	envGCSCredentials         = "GOOGLE_APPLICATION_CREDENTIALS"
 	envGCSProjectID           = "GOOGLE_CLOUD_PROJECT"
 	envGCSBucket              = "BACKUP_GCS_BUCKET"
+	envGCSUseAuth             = "BACKUP_GCS_USE_AUTH"
 
 	gcsBackupJourneyClassName          = "GcsBackup"
 	gcsBackupJourneyBackupIDSingleNode = "gcs-backup-single-node"

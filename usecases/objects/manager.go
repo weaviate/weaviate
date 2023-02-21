@@ -89,8 +89,9 @@ type authorizer interface {
 }
 
 type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object, vector []float32) error
-	DeleteObject(ctx context.Context, className string, id strfmt.UUID) error
+	PutObject(ctx context.Context, concept *models.Object,
+		vector []float32, repl *additional.ReplicationProperties) error
+	DeleteObject(ctx context.Context, className string, id strfmt.UUID, repl *additional.ReplicationProperties) error
 	// Object returns object of the specified class giving by its id
 	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties, repl *additional.ReplicationProperties) (*search.Result, error)
@@ -100,9 +101,8 @@ type VectorRepo interface {
 		additional additional.Properties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
 		sort []filters.Sort, additional additional.Properties) (search.Results, error)
-	AddReference(ctx context.Context, className string,
-		source strfmt.UUID, propName string, ref *models.SingleRef) error
-	Merge(ctx context.Context, merge MergeDocument) error
+	AddReference(ctx context.Context, className string, source strfmt.UUID, propName string, ref *models.SingleRef, repl *additional.ReplicationProperties) error
+	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)
 }
 

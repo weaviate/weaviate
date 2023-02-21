@@ -14,9 +14,9 @@ package classification
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type vectorClassSearchRepo struct {
@@ -30,7 +30,7 @@ func newVectorClassSearchRepo(vectorRepo vectorRepo) *vectorClassSearchRepo {
 func (r *vectorClassSearchRepo) VectorClassSearch(ctx context.Context,
 	params modulecapabilities.VectorClassSearchParams,
 ) ([]search.Result, error) {
-	return r.vectorRepo.VectorClassSearch(ctx, traverser.GetParams{
+	return r.vectorRepo.VectorClassSearch(ctx, dto.GetParams{
 		Filters:    params.Filters,
 		Pagination: params.Pagination,
 		ClassName:  params.ClassName,

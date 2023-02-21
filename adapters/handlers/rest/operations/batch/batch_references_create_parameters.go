@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -48,6 +49,10 @@ type BatchReferencesCreateParams struct {
 	  In: body
 	*/
 	Body []*models.BatchReference
+	/*Determines how many replicas must acknowledge a request before it is considered successful
+	  In: query
+	*/
+	ConsistencyLevel *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -58,6 +63,8 @@ func (o *BatchReferencesCreateParams) BindRequest(r *http.Request, route *middle
 	var res []error
 
 	o.HTTPRequest = r
+
+	qs := runtime.Values(r.URL.Query())
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -86,8 +93,31 @@ func (o *BatchReferencesCreateParams) BindRequest(r *http.Request, route *middle
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
+	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindConsistencyLevel binds and validates parameter ConsistencyLevel from query.
+func (o *BatchReferencesCreateParams) bindConsistencyLevel(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.ConsistencyLevel = &raw
+
 	return nil
 }

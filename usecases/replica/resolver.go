@@ -49,39 +49,35 @@ type resolver struct {
 }
 
 // State returns replicas state
-func (r *resolver) State(shardName string) (res rState, err error) {
-	shard, ok := r.schema.ShardingState(r.class).Physical[shardName]
-	if !ok {
-		return res, fmt.Errorf("sharding state not found")
+func (r *resolver) State(shardName string, cl ConsistencyLevel) (res rState, err error) {
+	res.CLevel = cl
+	res.Hosts, res.nodes, err = r.schema.ResolveParentNodes(r.class, shardName)
+	if err != nil {
+		return res, err
 	}
-	if len(shard.BelongsToNodes) == 0 {
+	if res.Len() == 0 {
 		return res, errNoReplicaFound
 	}
-	res.Hosts = make([]string, 0, len(shard.BelongsToNodes))
-	for _, node := range shard.BelongsToNodes {
-		host, ok := r.NodeHostname(node)
-		if ok && host != "" {
-			res.Hosts = append(res.Hosts, host)
-		} else {
-			res.nodes = append(res.nodes, node)
-		}
-	}
-	return res, nil
+
+	res.Level, err = res.ConsistencyLevel(cl)
+	return res, err
 }
 
 // rState replicas state
 type rState struct {
-	Hosts []string // successfully resolved names
-	nodes []string // names which could not be resolved
+	CLevel ConsistencyLevel
+	Level  int
+	Hosts  []string // successfully resolved names
+	nodes  []string // names which could not be resolved
 }
 
 // Len returns the number of replica
-func (r rState) Len() int {
+func (r *rState) Len() int {
 	return len(r.Hosts) + len(r.nodes)
 }
 
 // ConsistencyLevel returns consistency level when it is satisfied
-func (r rState) ConsistencyLevel(l ConsistencyLevel) (int, error) {
+func (r *rState) ConsistencyLevel(l ConsistencyLevel) (int, error) {
 	level := cLevel(l, r.Len())
 	if n := len(r.Hosts); level > n {
 		return 0, fmt.Errorf("consistency level (%d) > available replicas(%d): %w :%v", level, n, errUnresolvedName, r.nodes)

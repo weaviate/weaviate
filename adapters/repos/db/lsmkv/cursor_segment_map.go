@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type segmentCursorMap struct {
@@ -40,8 +40,8 @@ func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
 func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
-			return nil, nil, NotFound
+		if err == lsmkv.NotFound {
+			return nil, nil, lsmkv.NotFound
 		}
 
 		return nil, nil, err
@@ -71,7 +71,7 @@ func (s *segmentCursorMap) seek(key []byte) ([]byte, []MapPair, error) {
 
 func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 	if s.nextOffset >= s.segment.dataEndPos {
-		return nil, nil, NotFound
+		return nil, nil, lsmkv.NotFound
 	}
 
 	parsed, err := s.segment.collectionStratParseDataWithKey(

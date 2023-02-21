@@ -144,6 +144,15 @@ func (f *fakeClusterState) ClusterHealthScore() int {
 	return 0
 }
 
+func (f *fakeClusterState) ResolveParentNodes(string, string,
+) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeClusterState) NodeHostname(string) (string, bool) {
+	return "", false
+}
+
 type fakeTxClient struct {
 	openInjectPayload interface{}
 	openErr           error
