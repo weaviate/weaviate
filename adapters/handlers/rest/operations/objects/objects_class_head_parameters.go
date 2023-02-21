@@ -26,7 +26,8 @@ import (
 )
 
 // NewObjectsClassHeadParams creates a new ObjectsClassHeadParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsClassHeadParams() ObjectsClassHeadParams {
 
 	return ObjectsClassHeadParams{}
@@ -71,7 +72,6 @@ func (o *ObjectsClassHeadParams) BindRequest(r *http.Request, route *middleware.
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -87,7 +87,6 @@ func (o *ObjectsClassHeadParams) bindClassName(rawData []string, hasKey bool, fo
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil

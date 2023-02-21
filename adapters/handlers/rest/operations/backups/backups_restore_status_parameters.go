@@ -25,7 +25,8 @@ import (
 )
 
 // NewBackupsRestoreStatusParams creates a new BackupsRestoreStatusParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewBackupsRestoreStatusParams() BackupsRestoreStatusParams {
 
 	return BackupsRestoreStatusParams{}
@@ -70,7 +71,6 @@ func (o *BackupsRestoreStatusParams) BindRequest(r *http.Request, route *middlew
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -86,7 +86,6 @@ func (o *BackupsRestoreStatusParams) bindBackend(rawData []string, hasKey bool, 
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.Backend = raw
 
 	return nil
@@ -101,7 +100,6 @@ func (o *BackupsRestoreStatusParams) bindID(rawData []string, hasKey bool, forma
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ID = raw
 
 	return nil

@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewObjectsGetParams creates a new ObjectsGetParams object
-// with the default values initialized.
+// NewObjectsGetParams creates a new ObjectsGetParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsGetParams() *ObjectsGetParams {
-	var ()
 	return &ObjectsGetParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsGetParamsWithTimeout creates a new ObjectsGetParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsGetParamsWithTimeout(timeout time.Duration) *ObjectsGetParams {
-	var ()
 	return &ObjectsGetParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsGetParamsWithContext creates a new ObjectsGetParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsGetParamsWithContext(ctx context.Context) *ObjectsGetParams {
-	var ()
 	return &ObjectsGetParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsGetParamsWithHTTPClient creates a new ObjectsGetParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsGetParamsWithHTTPClient(client *http.Client) *ObjectsGetParams {
-	var ()
 	return &ObjectsGetParams{
 		HTTPClient: client,
 	}
@@ -68,24 +65,45 @@ func NewObjectsGetParamsWithHTTPClient(client *http.Client) *ObjectsGetParams {
 
 /*
 ObjectsGetParams contains all the parameters to send to the API endpoint
-for the objects get operation typically these are written to a http.Request
+
+	for the objects get operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsGetParams struct {
 
-	/*ID
-	  Unique ID of the Object.
+	/* ID.
 
+	   Unique ID of the Object.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
-	/*Include
-	  Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 
+	/* Include.
+
+	   Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation
 	*/
 	Include *string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsGetParams) WithDefaults() *ObjectsGetParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsGetParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects get params
@@ -160,16 +178,17 @@ func (o *ObjectsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 
 		// query param include
 		var qrInclude string
+
 		if o.Include != nil {
 			qrInclude = *o.Include
 		}
 		qInclude := qrInclude
 		if qInclude != "" {
+
 			if err := r.SetQueryParam("include", qInclude); err != nil {
 				return err
 			}
 		}
-
 	}
 
 	if len(res) > 0 {

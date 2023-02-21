@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateWellknownLivenessParams creates a new WeaviateWellknownLivenessParams object
-// with the default values initialized.
+// NewWeaviateWellknownLivenessParams creates a new WeaviateWellknownLivenessParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewWeaviateWellknownLivenessParams() *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewWeaviateWellknownLivenessParamsWithTimeout creates a new WeaviateWellknownLivenessParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewWeaviateWellknownLivenessParamsWithTimeout(timeout time.Duration) *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewWeaviateWellknownLivenessParamsWithContext creates a new WeaviateWellknownLivenessParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewWeaviateWellknownLivenessParamsWithContext(ctx context.Context) *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
-
 		Context: ctx,
 	}
 }
 
 // NewWeaviateWellknownLivenessParamsWithHTTPClient creates a new WeaviateWellknownLivenessParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewWeaviateWellknownLivenessParamsWithHTTPClient(client *http.Client) *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
 		HTTPClient: client,
 	}
@@ -68,12 +65,30 @@ func NewWeaviateWellknownLivenessParamsWithHTTPClient(client *http.Client) *Weav
 
 /*
 WeaviateWellknownLivenessParams contains all the parameters to send to the API endpoint
-for the weaviate wellknown liveness operation typically these are written to a http.Request
+
+	for the weaviate wellknown liveness operation.
+
+	Typically these are written to a http.Request.
 */
 type WeaviateWellknownLivenessParams struct {
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the weaviate wellknown liveness params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *WeaviateWellknownLivenessParams) WithDefaults() *WeaviateWellknownLivenessParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the weaviate wellknown liveness params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *WeaviateWellknownLivenessParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the weaviate wellknown liveness params

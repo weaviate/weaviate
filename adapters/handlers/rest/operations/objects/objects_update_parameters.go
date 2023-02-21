@@ -30,7 +30,8 @@ import (
 )
 
 // NewObjectsUpdateParams creates a new ObjectsUpdateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsUpdateParams() ObjectsUpdateParams {
 
 	return ObjectsUpdateParams{}
@@ -87,6 +88,11 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -94,6 +100,7 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
 	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
 		res = append(res, err)
@@ -103,7 +110,6 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -119,10 +125,10 @@ func (o *ObjectsUpdateParams) bindConsistencyLevel(rawData []string, hasKey bool
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil
