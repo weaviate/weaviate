@@ -42,7 +42,7 @@ type KMeansPartitionData struct {
 	maxPoints    [][]float32
 }
 
-func NewKMeans(k int, distance distancer.Provider, dimensions int) *KMeans {
+func NewKMeans(k int, dimensions int) *KMeans {
 	kMeans := &KMeans{
 		K:                  k,
 		DeltaThreshold:     0.01,
@@ -56,8 +56,8 @@ func NewKMeans(k int, distance distancer.Provider, dimensions int) *KMeans {
 	return kMeans
 }
 
-func NewKMeansWithFilter(k int, distance distancer.Provider, dimensions int, filter FilterFunc) *KMeans {
-	kMeans := NewKMeans(k, distance, dimensions)
+func NewKMeansWithFilter(k int, dimensions int, filter FilterFunc) *KMeans {
+	kMeans := NewKMeans(k, dimensions)
 	kMeans.filter = filter
 	return kMeans
 }

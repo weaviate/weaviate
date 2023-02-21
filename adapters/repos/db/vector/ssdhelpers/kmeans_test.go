@@ -33,7 +33,6 @@ func TestKMeansNNearest(t *testing.T) {
 	}
 	kmeans := ssdhelpers.NewKMeans(
 		3,
-		distanceProvider,
 		2,
 	)
 	kmeans.Fit(vectors)
@@ -57,11 +56,9 @@ func extractSegment(i int, v []float32) []float32 {
 func TestRandomData(t *testing.T) {
 	vectors_size := 10000
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, 128)
-	distanceProvider := distancer.NewL2SquaredProvider()
 	before := time.Now()
 	kmeans := ssdhelpers.NewKMeansWithFilter(
 		256,
-		distanceProvider,
 		1,
 		func(x []float32) []float32 {
 			return extractSegment(int(10), x)
