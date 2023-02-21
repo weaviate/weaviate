@@ -100,10 +100,13 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
-	if res.StatusCode >= 500 && resBody.Message != "" {
-		return nil, errors.Errorf("connection to Cohere failed with status: %d error: %v", res.StatusCode, resBody.Message)
+
+	if res.StatusCode >= 500 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Message, "connection to Cohere failed with status: %d error: %v")
+		return nil, errors.Errorf(errorMessage)
 	} else if res.StatusCode > 200 {
-		return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Message)
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Message, "failed with status: %d error: %v")
+		return nil, errors.Errorf(errorMessage)
 	}
 
 	if len(resBody.Embeddings) == 0 {
@@ -115,6 +118,13 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		Dimensions: len(resBody.Embeddings[0]),
 		Vector:     resBody.Embeddings[0],
 	}, nil
+}
+
+func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) string {
+	if resBodyError != "" {
+		return fmt.Sprintf(errorTemplate, statusCode, resBodyError)
+	}
+	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {

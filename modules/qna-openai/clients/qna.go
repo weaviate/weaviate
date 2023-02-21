@@ -98,11 +98,14 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode >= 500 && resBody.Error != nil {
-		return nil, errors.Errorf("connection to OpenAI failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
-	} else if res.StatusCode >= 400 {
-		return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+	if res.StatusCode >= 400 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
+		return nil, errors.Errorf(errorMessage)
+	} else if res.StatusCode >= 500 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
+		return nil, errors.Errorf(errorMessage)
 	}
+
 	if len(resBody.Choices) > 0 && resBody.Choices[0].Text != "" {
 		return &ent.AnswerResult{
 			Text:     text,
@@ -115,6 +118,13 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		Question: question,
 		Answer:   nil,
 	}, nil
+}
+
+func getErrorMessage(statusCode int, resBodyError *openAIApiError, errorTemplate string) string {
+	if resBodyError != nil {
+		return fmt.Sprintf(errorTemplate, statusCode, resBodyError.Message)
+	}
+	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
 func (v *qna) generatePrompt(text string, question string) string {
