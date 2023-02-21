@@ -98,11 +98,10 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode > 399 {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
-		}
-		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
+	if res.StatusCode >= 500 && resBody.Error != nil {
+		return nil, errors.Errorf("connection to OpenAI failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+	} else if res.StatusCode >= 400 {
+		return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
 	}
 	if len(resBody.Choices) > 0 && resBody.Choices[0].Text != "" {
 		return &ent.AnswerResult{

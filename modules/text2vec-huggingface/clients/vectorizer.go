@@ -107,22 +107,8 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 		return nil, errors.Wrap(err, "read response body")
 	}
 
-	if res.StatusCode > 399 {
-		var resBody huggingFaceApiError
-		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return nil, errors.Wrapf(err, "unmarshal error response body: %v", string(bodyBytes))
-		}
-		message := fmt.Sprintf("failed with status: %d", res.StatusCode)
-		if resBody.Error != "" {
-			message = fmt.Sprintf("%s error: %v", message, resBody.Error)
-			if resBody.EstimatedTime != nil {
-				message = fmt.Sprintf("%s estimated time: %v", message, *resBody.EstimatedTime)
-			}
-			if len(resBody.Warnings) > 0 {
-				message = fmt.Sprintf("%s warnings: %v", message, resBody.Warnings)
-			}
-		}
-		return nil, errors.New(message)
+	if err := checkResponse(res, bodyBytes); err != nil {
+		return nil, err
 	}
 
 	vector, err := v.decodeVector(bodyBytes)
@@ -135,6 +121,34 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 		Dimensions: len(vector),
 		Vector:     vector,
 	}, nil
+}
+
+func checkResponse(res *http.Response, bodyBytes []byte) error {
+	if res.StatusCode < 400 {
+		return nil
+	}
+
+	var resBody huggingFaceApiError
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return fmt.Errorf("unmarshal error response body: %v", string(bodyBytes))
+	}
+
+	message := fmt.Sprintf("failed with status: %d", res.StatusCode)
+	if resBody.Error != "" {
+		message = fmt.Sprintf("%s error: %v", message, resBody.Error)
+		if resBody.EstimatedTime != nil {
+			message = fmt.Sprintf("%s estimated time: %v", message, *resBody.EstimatedTime)
+		}
+		if len(resBody.Warnings) > 0 {
+			message = fmt.Sprintf("%s warnings: %v", message, resBody.Warnings)
+		}
+	}
+
+	if res.StatusCode == http.StatusInternalServerError {
+		message = fmt.Sprintf("connection to HuggingFace %v", message)
+	}
+
+	return errors.New(message)
 }
 
 func (v *vectorizer) decodeVector(bodyBytes []byte) ([]float32, error) {
