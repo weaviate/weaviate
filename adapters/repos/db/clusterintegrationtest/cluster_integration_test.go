@@ -29,13 +29,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 const (
@@ -101,7 +101,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batchObjs := dataAsBatch(data)
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -113,7 +113,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batchObjs := dataAsBatchWithProps(refData, []string{"description"})
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -125,7 +125,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			node := nodes[rand.Intn(len(nodes))]
 
 			batch := refsAsBatch(refData, "toFirst")
-			res, err := node.repo.AddBatchReferences(context.Background(), batch)
+			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -136,7 +136,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			for _, obj := range data {
 				node := nodes[rand.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -145,7 +145,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			for _, obj := range refData {
 				node := nodes[rand.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
 				require.Nil(t, err)
 			}
 		})
@@ -192,7 +192,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			groundTruth := bruteForceObjectsByQuery(data, query)
 
 			node := nodes[rand.Intn(len(nodes))]
-			res, err := node.repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			res, err := node.repo.VectorClassSearch(context.Background(), dto.GetParams{
 				SearchVector: query,
 				Pagination: &filters.Pagination{
 					Limit: 25,
@@ -329,7 +329,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 				Properties: []string{"description"},
 			}
 
-			params := traverser.GetParams{
+			params := dto.GetParams{
 				ClassName:      distributedClass,
 				KeywordRanking: keywordRanking,
 				Pagination:     &filters.Pagination{Limit: 100},
@@ -377,7 +377,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			PrimitiveSchema: map[string]interface{}{
 				"other_property": "a-value-inserted-through-merge",
 			},
-		})
+		}, nil)
 
 		require.Nil(t, err)
 	})
@@ -401,7 +401,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -431,7 +431,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		count := len(data) / 2 // try to match half the data objects present
 		cutoff := time.Unix(0, 0).Add(time.Duration(count) * time.Hour)
 		node := nodes[rand.Intn(len(nodes))]
-		res, err := node.repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := node.repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters: &filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: filters.OperatorLessThan,
@@ -561,7 +561,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		}
 		for _, td := range testData {
 			t.Run(td.name, func(t *testing.T) {
-				params := traverser.GetParams{
+				params := dto.GetParams{
 					ClassName:  distributedClass,
 					Sort:       td.sort,
 					Pagination: &filters.Pagination{Limit: 100},
@@ -601,7 +601,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			node := nodes[rand.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID)
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -641,7 +641,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 		}
 		performClassSearch := func(repo *db.DB, className string) ([]search.Result, error) {
-			return repo.ClassSearch(context.Background(), traverser.GetParams{
+			return repo.ClassSearch(context.Background(), dto.GetParams{
 				ClassName:  className,
 				Pagination: &filters.Pagination{Limit: 10000},
 			})
@@ -653,8 +653,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
-		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(),
-			getParams(distributedClass, false))
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil)
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))

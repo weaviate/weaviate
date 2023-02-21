@@ -25,12 +25,12 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // This test aims to prevent a regression on
@@ -96,7 +96,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 				Vector: []float32{0.1},
 			}
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -109,13 +109,13 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			things[i].Properties.(map[string]interface{})["unrelatedProp"] = "updatedValue"
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil)
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("searching for boolProp == true with a strict limit", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			ClassName: className,
 			Pagination: &filters.Pagination{
 				// important as the first 5 doc ids we encounter now should all be
@@ -206,13 +206,13 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1})
+		}, []float32{0, 1}, nil)
 
 		require.Nil(t, err)
 	})
 
 	t.Run("delete first object", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "Test", firstID)
+		err := repo.DeleteObject(context.Background(), "Test", firstID, nil)
 		require.Nil(t, err)
 	})
 
@@ -225,13 +225,13 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1})
+		}, []float32{0, 1}, nil)
 
 		require.Nil(t, err)
 	})
 
 	t.Run("query with high limit", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters:   buildFilter("author", "Simon", eq, dtText),
 			ClassName: "Test",
 			Pagination: &filters.Pagination{
@@ -246,7 +246,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("query with limit 1", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.ClassSearch(context.Background(), dto.GetParams{
 			Filters:   buildFilter("author", "Simon", eq, dtText),
 			ClassName: "Test",
 			Pagination: &filters.Pagination{

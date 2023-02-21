@@ -143,6 +143,14 @@ func (f *fakeClusterState) ClusterHealthScore() int {
 	return 0
 }
 
+func (f *fakeClusterState) ResolveParentNodes(string, string) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeClusterState) NodeHostname(nodeName string) (string, bool) {
+	return "", false
+}
+
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class,

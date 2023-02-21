@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -34,7 +35,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when an explore param is set for nearVector", func(t *testing.T) {
 		// TODO: this is a module specific test case, which relies on the
 		// text2vec-contextionary module
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName: "BestClass",
 			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.8, 0.2, 0.7},
@@ -99,7 +100,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with distance", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
-			params := GetParams{
+			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					Distance: 0.1,
@@ -125,7 +126,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with certainty", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
-			params := GetParams{
+			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					Certainty: 0.9,
@@ -154,7 +155,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			t.Run("with certainty", func(t *testing.T) {
 				// TODO: this is a module specific test case, which relies on the
 				// text2vec-contextionary module
-				params := GetParams{
+				params := dto.GetParams{
 					ClassName: "BestClass",
 					NearObject: &searchparams.NearObject{
 						Beacon:   "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
@@ -225,7 +226,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with certainty", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
-			params := GetParams{
+			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					Beacon:    "weaviate://localhost/e9c12c22-766f-4bde-b140-d4cf8fd6e041",
@@ -297,7 +298,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with distance", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
-			params := GetParams{
+			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					ID:       "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
@@ -367,7 +368,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("with certainty", func(t *testing.T) {
 			// TODO: this is a module specific test case, which relies on the
 			// text2vec-contextionary module
-			params := GetParams{
+			params := dto.GetParams{
 				ClassName: "BestClass",
 				NearObject: &searchparams.NearObject{
 					ID:        "e9c12c22-766f-4bde-b140-d4cf8fd6e041",
@@ -438,7 +439,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when an explore param is set for nearVector and the required distance not met",
 		func(t *testing.T) {
 			t.Run("with distance", func(t *testing.T) {
-				params := GetParams{
+				params := dto.GetParams{
 					ClassName: "BestClass",
 					NearVector: &searchparams.NearVector{
 						Vector:       []float32{0.8, 0.2, 0.7},
@@ -486,7 +487,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			})
 
 			t.Run("with certainty", func(t *testing.T) {
-				params := GetParams{
+				params := dto.GetParams{
 					ClassName: "BestClass",
 					NearVector: &searchparams.NearVector{
 						Vector:    []float32{0.8, 0.2, 0.7},
@@ -534,7 +535,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 
 	t.Run("when two conflicting (nearVector, nearObject) near searchers are set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -556,7 +557,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when no explore param is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -608,14 +609,14 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("near vector with group", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			NearVector: &searchparams.NearVector{
 				Vector: []float32{0.8, 0.2, 0.7},
 			},
-			Group: &GroupParams{
+			Group: &dto.GroupParams{
 				Strategy: "closest",
 				Force:    1.0,
 			},
@@ -656,7 +657,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the semanticPath prop is set but cannot be", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -702,7 +703,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the classification prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -770,7 +771,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the interpretation prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -852,7 +853,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the vector _additional prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -903,7 +904,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the creationTimeUnix _additional prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -954,7 +955,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the lastUpdateTimeUnix _additional prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1005,7 +1006,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the nearestNeighbors prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1117,7 +1118,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the featureProjection prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1210,7 +1211,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 	t.Run("when the _additional on ref prop is set", func(t *testing.T) {
 		now := time.Now().UnixMilli()
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1341,7 +1342,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the _additional on all refs prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1510,7 +1511,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when the _additional on lots of refs prop is set", func(t *testing.T) {
 		now := time.Now().UnixMilli()
 		vec := []float32{1, 2, 3}
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1791,7 +1792,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when the almost all _additional props set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -1984,7 +1985,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	t.Run("when an explore param is set for nearCustomText", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName: "BestClass",
 			ModuleParams: map[string]interface{}{
 				"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -2045,7 +2046,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 	t.Run("when an explore param is set for nearCustomText and the required distance not met",
 		func(t *testing.T) {
-			params := GetParams{
+			params := dto.GetParams{
 				ClassName: "BestClass",
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -2095,7 +2096,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 	t.Run("when an explore param is set for nearCustomText and the required certainty not met",
 		func(t *testing.T) {
-			params := GetParams{
+			params := dto.GetParams{
 				ClassName: "BestClass",
 				ModuleParams: map[string]interface{}{
 					"nearCustomText": extractNearCustomTextParam(map[string]interface{}{
@@ -2144,7 +2145,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		})
 
 	t.Run("when two conflicting (nearVector, nearCustomText) near searchers are set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -2168,7 +2169,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	})
 
 	t.Run("when two conflicting (nearCustomText, nearObject) near searchers are set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -2192,7 +2193,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	})
 
 	t.Run("when three conflicting (nearCustomText, nearVector, nearObject) near searchers are set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -2219,7 +2220,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	})
 
 	t.Run("when nearCustomText.moveTo has no concepts and objects defined", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -2243,7 +2244,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	})
 
 	t.Run("when nearCustomText.moveAwayFrom has no concepts and objects defined", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
@@ -2267,7 +2268,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	})
 
 	t.Run("when the distance prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			Filters:      nil,
 			ClassName:    "BestClass",
 			Pagination:   &filters.Pagination{Limit: 100},
@@ -2329,7 +2330,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	})
 
 	t.Run("when the certainty prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			Filters:      nil,
 			ClassName:    "BestClass",
 			Pagination:   &filters.Pagination{Limit: 100},
@@ -2395,7 +2396,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 	})
 
 	t.Run("when the semanticPath prop is set", func(t *testing.T) {
-		params := GetParams{
+		params := dto.GetParams{
 			ClassName:  "BestClass",
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,

@@ -91,6 +91,32 @@ func (m *Manager) ShardingState(className string) *sharding.State {
 	return &copiedState
 }
 
+// ResolveParentNodes resolves the hostname for each node a shard belongs to
+//
+// If the hostname cannot be resolved for a given node, the name of the node
+// is returned instead.
+func (m *Manager) ResolveParentNodes(class, shardName string,
+) (resolved, unresolved []string, err error) {
+	shard, ok := m.ShardingState(class).Physical[shardName]
+	if !ok {
+		return nil, nil, fmt.Errorf("sharding state not found")
+	}
+
+	if len(shard.BelongsToNodes) == 0 {
+		return nil, nil, nil
+	}
+
+	for _, node := range shard.BelongsToNodes {
+		host, ok := m.clusterState.NodeHostname(node)
+		if ok && host != "" {
+			resolved = append(resolved, host)
+		} else {
+			unresolved = append(unresolved, node)
+		}
+	}
+	return
+}
+
 func (m *Manager) Nodes() []string {
 	return m.clusterState.AllNames()
 }
