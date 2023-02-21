@@ -79,7 +79,8 @@ ObjectsValidateOK describes a response with status code 200, with default header
 
 Successfully validated.
 */
-type ObjectsValidateOK struct{}
+type ObjectsValidateOK struct {
+}
 
 // IsSuccess returns true when this objects validate o k response has a 2xx status code
 func (o *ObjectsValidateOK) IsSuccess() bool {
@@ -120,6 +121,7 @@ func (o *ObjectsValidateOK) String() string {
 }
 
 func (o *ObjectsValidateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -133,7 +135,8 @@ ObjectsValidateUnauthorized describes a response with status code 401, with defa
 
 Unauthorized or invalid credentials.
 */
-type ObjectsValidateUnauthorized struct{}
+type ObjectsValidateUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects validate unauthorized response has a 2xx status code
 func (o *ObjectsValidateUnauthorized) IsSuccess() bool {
@@ -174,6 +177,7 @@ func (o *ObjectsValidateUnauthorized) String() string {
 }
 
 func (o *ObjectsValidateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +238,7 @@ func (o *ObjectsValidateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsValidateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -301,6 +306,7 @@ func (o *ObjectsValidateUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsValidateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,6 +374,7 @@ func (o *ObjectsValidateInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ObjectsValidateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

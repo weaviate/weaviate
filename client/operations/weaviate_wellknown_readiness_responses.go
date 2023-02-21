@@ -58,7 +58,8 @@ WeaviateWellknownReadinessOK describes a response with status code 200, with def
 
 The application has completed its start-up routine and is ready to accept traffic.
 */
-type WeaviateWellknownReadinessOK struct{}
+type WeaviateWellknownReadinessOK struct {
+}
 
 // IsSuccess returns true when this weaviate wellknown readiness o k response has a 2xx status code
 func (o *WeaviateWellknownReadinessOK) IsSuccess() bool {
@@ -99,6 +100,7 @@ func (o *WeaviateWellknownReadinessOK) String() string {
 }
 
 func (o *WeaviateWellknownReadinessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -112,7 +114,8 @@ WeaviateWellknownReadinessServiceUnavailable describes a response with status co
 
 The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
 */
-type WeaviateWellknownReadinessServiceUnavailable struct{}
+type WeaviateWellknownReadinessServiceUnavailable struct {
+}
 
 // IsSuccess returns true when this weaviate wellknown readiness service unavailable response has a 2xx status code
 func (o *WeaviateWellknownReadinessServiceUnavailable) IsSuccess() bool {
@@ -153,5 +156,6 @@ func (o *WeaviateWellknownReadinessServiceUnavailable) String() string {
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }

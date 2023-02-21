@@ -126,6 +126,7 @@ func (o *SchemaObjectsGetOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -146,7 +147,8 @@ SchemaObjectsGetUnauthorized describes a response with status code 401, with def
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsGetUnauthorized struct{}
+type SchemaObjectsGetUnauthorized struct {
+}
 
 // IsSuccess returns true when this schema objects get unauthorized response has a 2xx status code
 func (o *SchemaObjectsGetUnauthorized) IsSuccess() bool {
@@ -187,6 +189,7 @@ func (o *SchemaObjectsGetUnauthorized) String() string {
 }
 
 func (o *SchemaObjectsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -247,6 +250,7 @@ func (o *SchemaObjectsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -267,7 +271,8 @@ SchemaObjectsGetNotFound describes a response with status code 404, with default
 
 This class does not exist
 */
-type SchemaObjectsGetNotFound struct{}
+type SchemaObjectsGetNotFound struct {
+}
 
 // IsSuccess returns true when this schema objects get not found response has a 2xx status code
 func (o *SchemaObjectsGetNotFound) IsSuccess() bool {
@@ -308,6 +313,7 @@ func (o *SchemaObjectsGetNotFound) String() string {
 }
 
 func (o *SchemaObjectsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -368,6 +374,7 @@ func (o *SchemaObjectsGetInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *SchemaObjectsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

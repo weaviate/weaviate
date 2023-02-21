@@ -66,7 +66,7 @@ func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewBatchObjectsCreateParams()
+	var Params = NewBatchObjectsCreateParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -87,12 +87,14 @@ func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // BatchObjectsCreateBody batch objects create body
 //
 // swagger:model BatchObjectsCreateBody
 type BatchObjectsCreateBody struct {
+
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `json:"fields" yaml:"fields"`
 
@@ -198,7 +200,9 @@ func (o *BatchObjectsCreateBody) ContextValidate(ctx context.Context, formats st
 }
 
 func (o *BatchObjectsCreateBody) contextValidateObjects(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(o.Objects); i++ {
+
 		if o.Objects[i] != nil {
 			if err := o.Objects[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -209,6 +213,7 @@ func (o *BatchObjectsCreateBody) contextValidateObjects(ctx context.Context, for
 				return err
 			}
 		}
+
 	}
 
 	return nil

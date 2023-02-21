@@ -29,6 +29,7 @@ import (
 //
 // swagger:model Deprecation
 type Deprecation struct {
+
 	// Describes which API is effected, usually one of: REST, GraphQL
 	APIType string `json:"apiType,omitempty"`
 

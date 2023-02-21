@@ -79,7 +79,8 @@ ObjectsDeleteNoContent describes a response with status code 204, with default h
 
 Successfully deleted.
 */
-type ObjectsDeleteNoContent struct{}
+type ObjectsDeleteNoContent struct {
+}
 
 // IsSuccess returns true when this objects delete no content response has a 2xx status code
 func (o *ObjectsDeleteNoContent) IsSuccess() bool {
@@ -120,6 +121,7 @@ func (o *ObjectsDeleteNoContent) String() string {
 }
 
 func (o *ObjectsDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -133,7 +135,8 @@ ObjectsDeleteUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type ObjectsDeleteUnauthorized struct{}
+type ObjectsDeleteUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects delete unauthorized response has a 2xx status code
 func (o *ObjectsDeleteUnauthorized) IsSuccess() bool {
@@ -174,6 +177,7 @@ func (o *ObjectsDeleteUnauthorized) String() string {
 }
 
 func (o *ObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +238,7 @@ func (o *ObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -254,7 +259,8 @@ ObjectsDeleteNotFound describes a response with status code 404, with default he
 
 Successful query result but no resource was found.
 */
-type ObjectsDeleteNotFound struct{}
+type ObjectsDeleteNotFound struct {
+}
 
 // IsSuccess returns true when this objects delete not found response has a 2xx status code
 func (o *ObjectsDeleteNotFound) IsSuccess() bool {
@@ -295,6 +301,7 @@ func (o *ObjectsDeleteNotFound) String() string {
 }
 
 func (o *ObjectsDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -355,6 +362,7 @@ func (o *ObjectsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -73,6 +73,7 @@ ObjectsUpdateParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type ObjectsUpdateParams struct {
+
 	// Body.
 	Body *models.Object
 
@@ -178,6 +179,7 @@ func (o *ObjectsUpdateParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -198,6 +200,7 @@ func (o *ObjectsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}

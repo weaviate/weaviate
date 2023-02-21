@@ -29,6 +29,7 @@ import (
 //
 // swagger:model PeerUpdate
 type PeerUpdate struct {
+
 	// The session ID of the peer.
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`

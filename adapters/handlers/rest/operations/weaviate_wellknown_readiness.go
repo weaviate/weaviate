@@ -57,7 +57,7 @@ func (o *WeaviateWellknownReadiness) ServeHTTP(rw http.ResponseWriter, r *http.R
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewWeaviateWellknownReadinessParams()
+	var Params = NewWeaviateWellknownReadinessParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,4 +78,5 @@ func (o *WeaviateWellknownReadiness) ServeHTTP(rw http.ResponseWriter, r *http.R
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

@@ -29,6 +29,7 @@ import (
 //
 // swagger:model ErrorResponse
 type ErrorResponse struct {
+
 	// error
 	Error []*ErrorResponseErrorItems0 `json:"error"`
 }
@@ -88,7 +89,9 @@ func (m *ErrorResponse) ContextValidate(ctx context.Context, formats strfmt.Regi
 }
 
 func (m *ErrorResponse) contextValidateError(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.Error); i++ {
+
 		if m.Error[i] != nil {
 			if err := m.Error[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -99,6 +102,7 @@ func (m *ErrorResponse) contextValidateError(ctx context.Context, formats strfmt
 				return err
 			}
 		}
+
 	}
 
 	return nil
@@ -126,6 +130,7 @@ func (m *ErrorResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ErrorResponseErrorItems0
 type ErrorResponseErrorItems0 struct {
+
 	// message
 	Message string `json:"message,omitempty"`
 }

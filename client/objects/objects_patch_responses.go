@@ -91,7 +91,8 @@ ObjectsPatchNoContent describes a response with status code 204, with default he
 
 Successfully applied. No content provided.
 */
-type ObjectsPatchNoContent struct{}
+type ObjectsPatchNoContent struct {
+}
 
 // IsSuccess returns true when this objects patch no content response has a 2xx status code
 func (o *ObjectsPatchNoContent) IsSuccess() bool {
@@ -132,6 +133,7 @@ func (o *ObjectsPatchNoContent) String() string {
 }
 
 func (o *ObjectsPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -145,7 +147,8 @@ ObjectsPatchBadRequest describes a response with status code 400, with default h
 
 The patch-JSON is malformed.
 */
-type ObjectsPatchBadRequest struct{}
+type ObjectsPatchBadRequest struct {
+}
 
 // IsSuccess returns true when this objects patch bad request response has a 2xx status code
 func (o *ObjectsPatchBadRequest) IsSuccess() bool {
@@ -186,6 +189,7 @@ func (o *ObjectsPatchBadRequest) String() string {
 }
 
 func (o *ObjectsPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -199,7 +203,8 @@ ObjectsPatchUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type ObjectsPatchUnauthorized struct{}
+type ObjectsPatchUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects patch unauthorized response has a 2xx status code
 func (o *ObjectsPatchUnauthorized) IsSuccess() bool {
@@ -240,6 +245,7 @@ func (o *ObjectsPatchUnauthorized) String() string {
 }
 
 func (o *ObjectsPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -300,6 +306,7 @@ func (o *ObjectsPatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -320,7 +327,8 @@ ObjectsPatchNotFound describes a response with status code 404, with default hea
 
 Successful query result but no resource was found.
 */
-type ObjectsPatchNotFound struct{}
+type ObjectsPatchNotFound struct {
+}
 
 // IsSuccess returns true when this objects patch not found response has a 2xx status code
 func (o *ObjectsPatchNotFound) IsSuccess() bool {
@@ -361,6 +369,7 @@ func (o *ObjectsPatchNotFound) String() string {
 }
 
 func (o *ObjectsPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -421,6 +430,7 @@ func (o *ObjectsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -488,6 +498,7 @@ func (o *ObjectsPatchInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

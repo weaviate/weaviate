@@ -32,6 +32,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewObjectsValidateParams() ObjectsValidateParams {
+
 	return ObjectsValidateParams{}
 }
 
@@ -40,6 +41,7 @@ func NewObjectsValidateParams() ObjectsValidateParams {
 //
 // swagger:parameters objects.validate
 type ObjectsValidateParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

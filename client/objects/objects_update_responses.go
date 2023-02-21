@@ -132,6 +132,7 @@ func (o *ObjectsUpdateOK) GetPayload() *models.Object {
 }
 
 func (o *ObjectsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Object)
 
 	// response payload
@@ -152,7 +153,8 @@ ObjectsUpdateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type ObjectsUpdateUnauthorized struct{}
+type ObjectsUpdateUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects update unauthorized response has a 2xx status code
 func (o *ObjectsUpdateUnauthorized) IsSuccess() bool {
@@ -193,6 +195,7 @@ func (o *ObjectsUpdateUnauthorized) String() string {
 }
 
 func (o *ObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -253,6 +256,7 @@ func (o *ObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -273,7 +277,8 @@ ObjectsUpdateNotFound describes a response with status code 404, with default he
 
 Successful query result but no resource was found.
 */
-type ObjectsUpdateNotFound struct{}
+type ObjectsUpdateNotFound struct {
+}
 
 // IsSuccess returns true when this objects update not found response has a 2xx status code
 func (o *ObjectsUpdateNotFound) IsSuccess() bool {
@@ -314,6 +319,7 @@ func (o *ObjectsUpdateNotFound) String() string {
 }
 
 func (o *ObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -374,6 +380,7 @@ func (o *ObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -441,6 +448,7 @@ func (o *ObjectsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

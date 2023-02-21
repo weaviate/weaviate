@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewSchemaObjectsGetParams() SchemaObjectsGetParams {
+
 	return SchemaObjectsGetParams{}
 }
 
@@ -36,6 +37,7 @@ func NewSchemaObjectsGetParams() SchemaObjectsGetParams {
 //
 // swagger:parameters schema.objects.get
 type SchemaObjectsGetParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

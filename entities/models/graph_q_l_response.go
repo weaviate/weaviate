@@ -29,6 +29,7 @@ import (
 //
 // swagger:model GraphQLResponse
 type GraphQLResponse struct {
+
 	// GraphQL data object.
 	Data map[string]JSONObject `json:"data,omitempty"`
 
@@ -91,7 +92,9 @@ func (m *GraphQLResponse) ContextValidate(ctx context.Context, formats strfmt.Re
 }
 
 func (m *GraphQLResponse) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.Errors); i++ {
+
 		if m.Errors[i] != nil {
 			if err := m.Errors[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -102,6 +105,7 @@ func (m *GraphQLResponse) contextValidateErrors(ctx context.Context, formats str
 				return err
 			}
 		}
+
 	}
 
 	return nil

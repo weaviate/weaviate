@@ -132,6 +132,7 @@ func (o *BatchObjectsDeleteOK) GetPayload() *models.BatchDeleteResponse {
 }
 
 func (o *BatchObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.BatchDeleteResponse)
 
 	// response payload
@@ -199,6 +200,7 @@ func (o *BatchObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -219,7 +221,8 @@ BatchObjectsDeleteUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type BatchObjectsDeleteUnauthorized struct{}
+type BatchObjectsDeleteUnauthorized struct {
+}
 
 // IsSuccess returns true when this batch objects delete unauthorized response has a 2xx status code
 func (o *BatchObjectsDeleteUnauthorized) IsSuccess() bool {
@@ -260,6 +263,7 @@ func (o *BatchObjectsDeleteUnauthorized) String() string {
 }
 
 func (o *BatchObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -320,6 +324,7 @@ func (o *BatchObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *BatchObjectsDeleteUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsDeleteUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *BatchObjectsDeleteInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

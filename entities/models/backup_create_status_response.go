@@ -30,6 +30,7 @@ import (
 //
 // swagger:model BackupCreateStatusResponse
 type BackupCreateStatusResponse struct {
+
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 

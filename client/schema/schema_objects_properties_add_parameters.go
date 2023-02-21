@@ -73,6 +73,7 @@ SchemaObjectsPropertiesAddParams contains all the parameters to send to the API 
 	Typically these are written to a http.Request.
 */
 type SchemaObjectsPropertiesAddParams struct {
+
 	// Body.
 	Body *models.Property
 
@@ -156,6 +157,7 @@ func (o *SchemaObjectsPropertiesAddParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsPropertiesAddParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

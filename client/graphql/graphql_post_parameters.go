@@ -73,6 +73,7 @@ GraphqlPostParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type GraphqlPostParams struct {
+
 	/* Body.
 
 	   The GraphQL query request parameters.
@@ -145,6 +146,7 @@ func (o *GraphqlPostParams) SetBody(body *models.GraphQLQuery) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *GraphqlPostParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

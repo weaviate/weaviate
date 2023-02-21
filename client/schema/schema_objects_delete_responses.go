@@ -79,7 +79,8 @@ SchemaObjectsDeleteOK describes a response with status code 200, with default he
 
 Removed the Object class from the schema.
 */
-type SchemaObjectsDeleteOK struct{}
+type SchemaObjectsDeleteOK struct {
+}
 
 // IsSuccess returns true when this schema objects delete o k response has a 2xx status code
 func (o *SchemaObjectsDeleteOK) IsSuccess() bool {
@@ -120,6 +121,7 @@ func (o *SchemaObjectsDeleteOK) String() string {
 }
 
 func (o *SchemaObjectsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -180,6 +182,7 @@ func (o *SchemaObjectsDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -200,7 +203,8 @@ SchemaObjectsDeleteUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsDeleteUnauthorized struct{}
+type SchemaObjectsDeleteUnauthorized struct {
+}
 
 // IsSuccess returns true when this schema objects delete unauthorized response has a 2xx status code
 func (o *SchemaObjectsDeleteUnauthorized) IsSuccess() bool {
@@ -241,6 +245,7 @@ func (o *SchemaObjectsDeleteUnauthorized) String() string {
 }
 
 func (o *SchemaObjectsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -301,6 +306,7 @@ func (o *SchemaObjectsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,6 +374,7 @@ func (o *SchemaObjectsDeleteInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

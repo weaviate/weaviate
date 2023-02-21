@@ -73,6 +73,7 @@ ObjectsClassReferencesDeleteParams contains all the parameters to send to the AP
 	Typically these are written to a http.Request.
 */
 type ObjectsClassReferencesDeleteParams struct {
+
 	// Body.
 	Body *models.SingleRef
 
@@ -212,6 +213,7 @@ func (o *ObjectsClassReferencesDeleteParams) SetPropertyName(propertyName string
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassReferencesDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -237,6 +239,7 @@ func (o *ObjectsClassReferencesDeleteParams) WriteToRequest(r runtime.ClientRequ
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}

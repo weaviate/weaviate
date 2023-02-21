@@ -126,6 +126,7 @@ func (o *ClassificationsGetOK) GetPayload() *models.Classification {
 }
 
 func (o *ClassificationsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Classification)
 
 	// response payload
@@ -146,7 +147,8 @@ ClassificationsGetUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type ClassificationsGetUnauthorized struct{}
+type ClassificationsGetUnauthorized struct {
+}
 
 // IsSuccess returns true when this classifications get unauthorized response has a 2xx status code
 func (o *ClassificationsGetUnauthorized) IsSuccess() bool {
@@ -187,6 +189,7 @@ func (o *ClassificationsGetUnauthorized) String() string {
 }
 
 func (o *ClassificationsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -247,6 +250,7 @@ func (o *ClassificationsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -267,7 +271,8 @@ ClassificationsGetNotFound describes a response with status code 404, with defau
 
 Not Found - Classification does not exist
 */
-type ClassificationsGetNotFound struct{}
+type ClassificationsGetNotFound struct {
+}
 
 // IsSuccess returns true when this classifications get not found response has a 2xx status code
 func (o *ClassificationsGetNotFound) IsSuccess() bool {
@@ -308,6 +313,7 @@ func (o *ClassificationsGetNotFound) String() string {
 }
 
 func (o *ClassificationsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -368,6 +374,7 @@ func (o *ClassificationsGetInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ClassificationsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

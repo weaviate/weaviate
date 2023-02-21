@@ -79,7 +79,8 @@ ObjectsHeadNoContent describes a response with status code 204, with default hea
 
 Object exists.
 */
-type ObjectsHeadNoContent struct{}
+type ObjectsHeadNoContent struct {
+}
 
 // IsSuccess returns true when this objects head no content response has a 2xx status code
 func (o *ObjectsHeadNoContent) IsSuccess() bool {
@@ -120,6 +121,7 @@ func (o *ObjectsHeadNoContent) String() string {
 }
 
 func (o *ObjectsHeadNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -133,7 +135,8 @@ ObjectsHeadUnauthorized describes a response with status code 401, with default 
 
 Unauthorized or invalid credentials.
 */
-type ObjectsHeadUnauthorized struct{}
+type ObjectsHeadUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects head unauthorized response has a 2xx status code
 func (o *ObjectsHeadUnauthorized) IsSuccess() bool {
@@ -174,6 +177,7 @@ func (o *ObjectsHeadUnauthorized) String() string {
 }
 
 func (o *ObjectsHeadUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +238,7 @@ func (o *ObjectsHeadForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsHeadForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -254,7 +259,8 @@ ObjectsHeadNotFound describes a response with status code 404, with default head
 
 Object doesn't exist.
 */
-type ObjectsHeadNotFound struct{}
+type ObjectsHeadNotFound struct {
+}
 
 // IsSuccess returns true when this objects head not found response has a 2xx status code
 func (o *ObjectsHeadNotFound) IsSuccess() bool {
@@ -295,6 +301,7 @@ func (o *ObjectsHeadNotFound) String() string {
 }
 
 func (o *ObjectsHeadNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -355,6 +362,7 @@ func (o *ObjectsHeadInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsHeadInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

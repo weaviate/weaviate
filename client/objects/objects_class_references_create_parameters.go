@@ -73,6 +73,7 @@ ObjectsClassReferencesCreateParams contains all the parameters to send to the AP
 	Typically these are written to a http.Request.
 */
 type ObjectsClassReferencesCreateParams struct {
+
 	// Body.
 	Body *models.SingleRef
 
@@ -212,6 +213,7 @@ func (o *ObjectsClassReferencesCreateParams) SetPropertyName(propertyName string
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsClassReferencesCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -237,6 +239,7 @@ func (o *ObjectsClassReferencesCreateParams) WriteToRequest(r runtime.ClientRequ
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}

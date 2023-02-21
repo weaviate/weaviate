@@ -32,6 +32,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewObjectsPatchParams() ObjectsPatchParams {
+
 	return ObjectsPatchParams{}
 }
 
@@ -40,6 +41,7 @@ func NewObjectsPatchParams() ObjectsPatchParams {
 //
 // swagger:parameters objects.patch
 type ObjectsPatchParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -150,6 +152,7 @@ func (o *ObjectsPatchParams) bindID(rawData []string, hasKey bool, formats strfm
 
 // validateID carries on validations for parameter ID
 func (o *ObjectsPatchParams) validateID(formats strfmt.Registry) error {
+
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

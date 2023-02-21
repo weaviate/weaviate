@@ -126,6 +126,7 @@ func (o *SchemaObjectsShardsGetOK) GetPayload() models.ShardStatusList {
 }
 
 func (o *SchemaObjectsShardsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -144,7 +145,8 @@ SchemaObjectsShardsGetUnauthorized describes a response with status code 401, wi
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsShardsGetUnauthorized struct{}
+type SchemaObjectsShardsGetUnauthorized struct {
+}
 
 // IsSuccess returns true when this schema objects shards get unauthorized response has a 2xx status code
 func (o *SchemaObjectsShardsGetUnauthorized) IsSuccess() bool {
@@ -185,6 +187,7 @@ func (o *SchemaObjectsShardsGetUnauthorized) String() string {
 }
 
 func (o *SchemaObjectsShardsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -245,6 +248,7 @@ func (o *SchemaObjectsShardsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,6 +316,7 @@ func (o *SchemaObjectsShardsGetNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -379,6 +384,7 @@ func (o *SchemaObjectsShardsGetInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *SchemaObjectsShardsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

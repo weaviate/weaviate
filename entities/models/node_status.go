@@ -31,6 +31,7 @@ import (
 //
 // swagger:model NodeStatus
 type NodeStatus struct {
+
 	// The gitHash of Weaviate.
 	GitHash string `json:"gitHash,omitempty"`
 
@@ -182,7 +183,9 @@ func (m *NodeStatus) ContextValidate(ctx context.Context, formats strfmt.Registr
 }
 
 func (m *NodeStatus) contextValidateShards(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.Shards); i++ {
+
 		if m.Shards[i] != nil {
 			if err := m.Shards[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -193,12 +196,14 @@ func (m *NodeStatus) contextValidateShards(ctx context.Context, formats strfmt.R
 				return err
 			}
 		}
+
 	}
 
 	return nil
 }
 
 func (m *NodeStatus) contextValidateStats(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Stats != nil {
 		if err := m.Stats.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

@@ -138,6 +138,7 @@ func (o *BatchObjectsCreateOK) GetPayload() []*models.ObjectsGetResponse {
 }
 
 func (o *BatchObjectsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -203,6 +204,7 @@ func (o *BatchObjectsCreateBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -223,7 +225,8 @@ BatchObjectsCreateUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type BatchObjectsCreateUnauthorized struct{}
+type BatchObjectsCreateUnauthorized struct {
+}
 
 // IsSuccess returns true when this batch objects create unauthorized response has a 2xx status code
 func (o *BatchObjectsCreateUnauthorized) IsSuccess() bool {
@@ -264,6 +267,7 @@ func (o *BatchObjectsCreateUnauthorized) String() string {
 }
 
 func (o *BatchObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -324,6 +328,7 @@ func (o *BatchObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchObjectsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -391,6 +396,7 @@ func (o *BatchObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -458,6 +464,7 @@ func (o *BatchObjectsCreateInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *BatchObjectsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -473,6 +480,7 @@ BatchObjectsCreateBody batch objects create body
 swagger:model BatchObjectsCreateBody
 */
 type BatchObjectsCreateBody struct {
+
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `json:"fields"`
 
@@ -578,7 +586,9 @@ func (o *BatchObjectsCreateBody) ContextValidate(ctx context.Context, formats st
 }
 
 func (o *BatchObjectsCreateBody) contextValidateObjects(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(o.Objects); i++ {
+
 		if o.Objects[i] != nil {
 			if err := o.Objects[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -589,6 +599,7 @@ func (o *BatchObjectsCreateBody) contextValidateObjects(ctx context.Context, for
 				return err
 			}
 		}
+
 	}
 
 	return nil

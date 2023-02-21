@@ -126,6 +126,7 @@ func (o *SchemaObjectsCreateOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -146,7 +147,8 @@ SchemaObjectsCreateUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsCreateUnauthorized struct{}
+type SchemaObjectsCreateUnauthorized struct {
+}
 
 // IsSuccess returns true when this schema objects create unauthorized response has a 2xx status code
 func (o *SchemaObjectsCreateUnauthorized) IsSuccess() bool {
@@ -187,6 +189,7 @@ func (o *SchemaObjectsCreateUnauthorized) String() string {
 }
 
 func (o *SchemaObjectsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -247,6 +250,7 @@ func (o *SchemaObjectsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -314,6 +318,7 @@ func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -381,6 +386,7 @@ func (o *SchemaObjectsCreateInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

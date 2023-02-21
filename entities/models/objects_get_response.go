@@ -130,6 +130,7 @@ func (m *ObjectsGetResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ObjectsGetResponse) validateDeprecations(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -156,6 +157,7 @@ func (m *ObjectsGetResponse) validateDeprecations(formats strfmt.Registry) error
 }
 
 func (m *ObjectsGetResponse) validateResult(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -198,7 +200,9 @@ func (m *ObjectsGetResponse) ContextValidate(ctx context.Context, formats strfmt
 }
 
 func (m *ObjectsGetResponse) contextValidateDeprecations(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.Deprecations); i++ {
+
 		if m.Deprecations[i] != nil {
 			if err := m.Deprecations[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -209,12 +213,14 @@ func (m *ObjectsGetResponse) contextValidateDeprecations(ctx context.Context, fo
 				return err
 			}
 		}
+
 	}
 
 	return nil
 }
 
 func (m *ObjectsGetResponse) contextValidateResult(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Result != nil {
 		if err := m.Result.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -251,6 +257,7 @@ func (m *ObjectsGetResponse) UnmarshalBinary(b []byte) error {
 //
 // swagger:model ObjectsGetResponseAO2Result
 type ObjectsGetResponseAO2Result struct {
+
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
 
@@ -356,6 +363,7 @@ func (m *ObjectsGetResponseAO2Result) ContextValidate(ctx context.Context, forma
 }
 
 func (m *ObjectsGetResponseAO2Result) contextValidateErrors(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.Errors != nil {
 		if err := m.Errors.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

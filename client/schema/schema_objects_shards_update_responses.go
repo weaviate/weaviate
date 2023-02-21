@@ -132,6 +132,7 @@ func (o *SchemaObjectsShardsUpdateOK) GetPayload() *models.ShardStatus {
 }
 
 func (o *SchemaObjectsShardsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ShardStatus)
 
 	// response payload
@@ -152,7 +153,8 @@ SchemaObjectsShardsUpdateUnauthorized describes a response with status code 401,
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsShardsUpdateUnauthorized struct{}
+type SchemaObjectsShardsUpdateUnauthorized struct {
+}
 
 // IsSuccess returns true when this schema objects shards update unauthorized response has a 2xx status code
 func (o *SchemaObjectsShardsUpdateUnauthorized) IsSuccess() bool {
@@ -193,6 +195,7 @@ func (o *SchemaObjectsShardsUpdateUnauthorized) String() string {
 }
 
 func (o *SchemaObjectsShardsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -253,6 +256,7 @@ func (o *SchemaObjectsShardsUpdateForbidden) GetPayload() *models.ErrorResponse 
 }
 
 func (o *SchemaObjectsShardsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -320,6 +324,7 @@ func (o *SchemaObjectsShardsUpdateNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsShardsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *SchemaObjectsShardsUpdateUnprocessableEntity) GetPayload() *models.Erro
 }
 
 func (o *SchemaObjectsShardsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *SchemaObjectsShardsUpdateInternalServerError) GetPayload() *models.Erro
 }
 
 func (o *SchemaObjectsShardsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -27,6 +27,7 @@ import (
 //
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
+
 	// Number of times a class is replicated
 	Factor int64 `json:"factor,omitempty"`
 }

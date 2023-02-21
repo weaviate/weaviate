@@ -29,6 +29,7 @@ import (
 //
 // swagger:model Class
 type Class struct {
+
 	// Name of the class as URI relative to the schema URL.
 	Class string `json:"class,omitempty"`
 
@@ -169,6 +170,7 @@ func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 }
 
 func (m *Class) contextValidateInvertedIndexConfig(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.InvertedIndexConfig != nil {
 		if err := m.InvertedIndexConfig.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
@@ -184,7 +186,9 @@ func (m *Class) contextValidateInvertedIndexConfig(ctx context.Context, formats 
 }
 
 func (m *Class) contextValidateProperties(ctx context.Context, formats strfmt.Registry) error {
+
 	for i := 0; i < len(m.Properties); i++ {
+
 		if m.Properties[i] != nil {
 			if err := m.Properties[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -195,12 +199,14 @@ func (m *Class) contextValidateProperties(ctx context.Context, formats strfmt.Re
 				return err
 			}
 		}
+
 	}
 
 	return nil
 }
 
 func (m *Class) contextValidateReplicationConfig(ctx context.Context, formats strfmt.Registry) error {
+
 	if m.ReplicationConfig != nil {
 		if err := m.ReplicationConfig.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {

@@ -132,6 +132,7 @@ func (o *SchemaObjectsUpdateOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaObjectsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -152,7 +153,8 @@ SchemaObjectsUpdateUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type SchemaObjectsUpdateUnauthorized struct{}
+type SchemaObjectsUpdateUnauthorized struct {
+}
 
 // IsSuccess returns true when this schema objects update unauthorized response has a 2xx status code
 func (o *SchemaObjectsUpdateUnauthorized) IsSuccess() bool {
@@ -193,6 +195,7 @@ func (o *SchemaObjectsUpdateUnauthorized) String() string {
 }
 
 func (o *SchemaObjectsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -253,6 +256,7 @@ func (o *SchemaObjectsUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -320,6 +324,7 @@ func (o *SchemaObjectsUpdateNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaObjectsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -387,6 +392,7 @@ func (o *SchemaObjectsUpdateUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,6 +460,7 @@ func (o *SchemaObjectsUpdateInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaObjectsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

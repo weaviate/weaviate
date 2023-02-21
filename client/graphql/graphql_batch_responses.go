@@ -126,6 +126,7 @@ func (o *GraphqlBatchOK) GetPayload() models.GraphQLResponses {
 }
 
 func (o *GraphqlBatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -144,7 +145,8 @@ GraphqlBatchUnauthorized describes a response with status code 401, with default
 
 Unauthorized or invalid credentials.
 */
-type GraphqlBatchUnauthorized struct{}
+type GraphqlBatchUnauthorized struct {
+}
 
 // IsSuccess returns true when this graphql batch unauthorized response has a 2xx status code
 func (o *GraphqlBatchUnauthorized) IsSuccess() bool {
@@ -185,6 +187,7 @@ func (o *GraphqlBatchUnauthorized) String() string {
 }
 
 func (o *GraphqlBatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -245,6 +248,7 @@ func (o *GraphqlBatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -312,6 +316,7 @@ func (o *GraphqlBatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -379,6 +384,7 @@ func (o *GraphqlBatchInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -126,6 +126,7 @@ func (o *ClassificationsPostCreated) GetPayload() *models.Classification {
 }
 
 func (o *ClassificationsPostCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Classification)
 
 	// response payload
@@ -193,6 +194,7 @@ func (o *ClassificationsPostBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsPostBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -213,7 +215,8 @@ ClassificationsPostUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type ClassificationsPostUnauthorized struct{}
+type ClassificationsPostUnauthorized struct {
+}
 
 // IsSuccess returns true when this classifications post unauthorized response has a 2xx status code
 func (o *ClassificationsPostUnauthorized) IsSuccess() bool {
@@ -254,6 +257,7 @@ func (o *ClassificationsPostUnauthorized) String() string {
 }
 
 func (o *ClassificationsPostUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -314,6 +318,7 @@ func (o *ClassificationsPostForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -381,6 +386,7 @@ func (o *ClassificationsPostInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *ClassificationsPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

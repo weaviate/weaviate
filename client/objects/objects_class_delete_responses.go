@@ -85,7 +85,8 @@ ObjectsClassDeleteNoContent describes a response with status code 204, with defa
 
 Successfully deleted.
 */
-type ObjectsClassDeleteNoContent struct{}
+type ObjectsClassDeleteNoContent struct {
+}
 
 // IsSuccess returns true when this objects class delete no content response has a 2xx status code
 func (o *ObjectsClassDeleteNoContent) IsSuccess() bool {
@@ -126,6 +127,7 @@ func (o *ObjectsClassDeleteNoContent) String() string {
 }
 
 func (o *ObjectsClassDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -186,6 +188,7 @@ func (o *ObjectsClassDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -206,7 +209,8 @@ ObjectsClassDeleteUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type ObjectsClassDeleteUnauthorized struct{}
+type ObjectsClassDeleteUnauthorized struct {
+}
 
 // IsSuccess returns true when this objects class delete unauthorized response has a 2xx status code
 func (o *ObjectsClassDeleteUnauthorized) IsSuccess() bool {
@@ -247,6 +251,7 @@ func (o *ObjectsClassDeleteUnauthorized) String() string {
 }
 
 func (o *ObjectsClassDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -307,6 +312,7 @@ func (o *ObjectsClassDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ObjectsClassDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -327,7 +333,8 @@ ObjectsClassDeleteNotFound describes a response with status code 404, with defau
 
 Successful query result but no resource was found.
 */
-type ObjectsClassDeleteNotFound struct{}
+type ObjectsClassDeleteNotFound struct {
+}
 
 // IsSuccess returns true when this objects class delete not found response has a 2xx status code
 func (o *ObjectsClassDeleteNotFound) IsSuccess() bool {
@@ -368,6 +375,7 @@ func (o *ObjectsClassDeleteNotFound) String() string {
 }
 
 func (o *ObjectsClassDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -428,6 +436,7 @@ func (o *ObjectsClassDeleteInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ObjectsClassDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

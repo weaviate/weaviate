@@ -29,9 +29,12 @@ import (
 // NewObjectsListParams creates a new ObjectsListParams object
 // with the default values initialized.
 func NewObjectsListParams() ObjectsListParams {
-	// initialize parameters with default values
 
-	offsetDefault := int64(0)
+	var (
+		// initialize parameters with default values
+
+		offsetDefault = int64(0)
+	)
 
 	return ObjectsListParams{
 		Offset: &offsetDefault,
@@ -43,6 +46,7 @@ func NewObjectsListParams() ObjectsListParams {
 //
 // swagger:parameters objects.list
 type ObjectsListParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

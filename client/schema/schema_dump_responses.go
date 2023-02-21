@@ -120,6 +120,7 @@ func (o *SchemaDumpOK) GetPayload() *models.Schema {
 }
 
 func (o *SchemaDumpOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Schema)
 
 	// response payload
@@ -140,7 +141,8 @@ SchemaDumpUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type SchemaDumpUnauthorized struct{}
+type SchemaDumpUnauthorized struct {
+}
 
 // IsSuccess returns true when this schema dump unauthorized response has a 2xx status code
 func (o *SchemaDumpUnauthorized) IsSuccess() bool {
@@ -181,6 +183,7 @@ func (o *SchemaDumpUnauthorized) String() string {
 }
 
 func (o *SchemaDumpUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -241,6 +244,7 @@ func (o *SchemaDumpForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -308,6 +312,7 @@ func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

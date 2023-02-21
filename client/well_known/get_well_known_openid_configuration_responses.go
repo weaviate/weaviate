@@ -116,6 +116,7 @@ func (o *GetWellKnownOpenidConfigurationOK) GetPayload() *GetWellKnownOpenidConf
 }
 
 func (o *GetWellKnownOpenidConfigurationOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(GetWellKnownOpenidConfigurationOKBody)
 
 	// response payload
@@ -136,7 +137,8 @@ GetWellKnownOpenidConfigurationNotFound describes a response with status code 40
 
 Not found, no oidc provider present
 */
-type GetWellKnownOpenidConfigurationNotFound struct{}
+type GetWellKnownOpenidConfigurationNotFound struct {
+}
 
 // IsSuccess returns true when this get well known openid configuration not found response has a 2xx status code
 func (o *GetWellKnownOpenidConfigurationNotFound) IsSuccess() bool {
@@ -177,6 +179,7 @@ func (o *GetWellKnownOpenidConfigurationNotFound) String() string {
 }
 
 func (o *GetWellKnownOpenidConfigurationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -237,6 +240,7 @@ func (o *GetWellKnownOpenidConfigurationInternalServerError) GetPayload() *model
 }
 
 func (o *GetWellKnownOpenidConfigurationInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -252,6 +256,7 @@ GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k bo
 swagger:model GetWellKnownOpenidConfigurationOKBody
 */
 type GetWellKnownOpenidConfigurationOKBody struct {
+
 	// OAuth Client ID
 	ClientID string `json:"clientId,omitempty"`
 

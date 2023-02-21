@@ -71,6 +71,7 @@ ObjectsDeleteParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type ObjectsDeleteParams struct {
+
 	/* ConsistencyLevel.
 
 	   Determines how many replicas must acknowledge a request before it is considered successful
@@ -162,6 +163,7 @@ func (o *ObjectsDeleteParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -177,6 +179,7 @@ func (o *ObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}

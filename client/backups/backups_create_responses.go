@@ -126,6 +126,7 @@ func (o *BackupsCreateOK) GetPayload() *models.BackupCreateResponse {
 }
 
 func (o *BackupsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.BackupCreateResponse)
 
 	// response payload
@@ -146,7 +147,8 @@ BackupsCreateUnauthorized describes a response with status code 401, with defaul
 
 Unauthorized or invalid credentials.
 */
-type BackupsCreateUnauthorized struct{}
+type BackupsCreateUnauthorized struct {
+}
 
 // IsSuccess returns true when this backups create unauthorized response has a 2xx status code
 func (o *BackupsCreateUnauthorized) IsSuccess() bool {
@@ -187,6 +189,7 @@ func (o *BackupsCreateUnauthorized) String() string {
 }
 
 func (o *BackupsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -247,6 +250,7 @@ func (o *BackupsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -314,6 +318,7 @@ func (o *BackupsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -381,6 +386,7 @@ func (o *BackupsCreateInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BackupsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
