@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func SetupClient(uri string) {
@@ -54,6 +55,13 @@ func UpdateClass(t *testing.T, class *models.Class) {
 
 func CreateObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := objects.NewObjectsCreateParams().WithBody(object).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
