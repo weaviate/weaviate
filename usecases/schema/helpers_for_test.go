@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -75,7 +76,7 @@ func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
 
 type fakeModuleConfig struct{}
 
-func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
+func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) error {
 	defaultConfig := map[string]interface{}{
 		"my-module1": map[string]interface{}{
 			"my-setting": "default-value",
@@ -85,19 +86,19 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 	asMap, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {
 		class.ModuleConfig = defaultConfig
-		return
+		return fmt.Errorf("invalid class config")
 	}
 
 	module, ok := asMap["my-module1"]
 	if !ok {
 		class.ModuleConfig = defaultConfig
-		return
+		return fmt.Errorf("my-module1 vectorizer module not part of the class")
 	}
 
 	asMap, ok = module.(map[string]interface{})
 	if !ok {
 		class.ModuleConfig = defaultConfig
-		return
+		return errors.New("invalid module config")
 	}
 
 	if _, ok := asMap["my-setting"]; !ok {
@@ -105,10 +106,13 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 		defaultConfig["my-module1"] = asMap
 		class.ModuleConfig = defaultConfig
 	}
+	return nil
 }
 
 func (f *fakeModuleConfig) SetSinglePropertyDefaults(class *models.Class,
-	prop *models.Property) {
+	prop *models.Property,
+) error {
+	return nil
 }
 
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {

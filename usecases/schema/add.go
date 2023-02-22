@@ -73,7 +73,10 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
-	m.setClassDefaults(class)
+	err = m.setClassDefaults(class)
+	if err != nil {
+		return err
+	}
 
 	err = m.validateCanAddClass(ctx, class, true)
 	if err != nil {
@@ -121,9 +124,12 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
-	m.setClassDefaults(class)
+	err := m.setClassDefaults(class)
+	if err != nil {
+		return nil, err
+	}
 
-	err := m.validateCanAddClass(ctx, class, false)
+	err = m.validateCanAddClass(ctx, class, false)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +200,7 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 	return m.saveSchema(ctx)
 }
 
-func (m *Manager) setClassDefaults(class *models.Class) {
+func (m *Manager) setClassDefaults(class *models.Class) error {
 	if class.Vectorizer == "" {
 		class.Vectorizer = m.config.DefaultVectorizerModule
 	}
@@ -216,7 +222,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		m.setPropertyDefaults(prop)
 	}
 
-	m.moduleConfig.SetClassDefaults(class)
+	return m.moduleConfig.SetClassDefaults(class)
 }
 
 func (m *Manager) setPropertyDefaults(prop *models.Property) {

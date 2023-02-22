@@ -152,7 +152,9 @@ func classWithDefaultsWithProps(t *testing.T, name string,
 	class.VectorIndexConfig = fakeVectorConfig{}
 	class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 
-	(&fakeModuleConfig{}).SetClassDefaults(class)
+	err = (&fakeModuleConfig{}).SetClassDefaults(class)
+	require.Nil(t, err)
+
 	setInvertedConfigDefaults(class)
 
 	class.Properties = props
