@@ -24,10 +24,6 @@ import (
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
-const (
-	centroids = 256
-)
-
 func (h *hnsw) initCompressedStore() error {
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName), "", h.logger, nil)
 	if err != nil {
@@ -41,7 +37,7 @@ func (h *hnsw) initCompressedStore() error {
 	return nil
 }
 
-func (h *hnsw) Compress(segments int, encoderType int, encoderDistribution int) error {
+func (h *hnsw) Compress(segments int, centroids int, encoderType int, encoderDistribution int) error {
 	if h.nodes[0] == nil {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}

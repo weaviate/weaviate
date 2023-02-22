@@ -44,8 +44,9 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        DefaultDynamicEFFactor,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:  DefaultPQEnabled,
-					Segments: DefaultPQSegments,
+					Enabled:   DefaultPQEnabled,
+					Segments:  DefaultPQSegments,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -71,8 +72,9 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        DefaultDynamicEFFactor,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:  DefaultPQEnabled,
-					Segments: DefaultPQSegments,
+					Enabled:   DefaultPQEnabled,
+					Segments:  DefaultPQSegments,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -109,8 +111,9 @@ func Test_UserConfig(t *testing.T) {
 				Skip:                   true,
 				Distance:               "l2-squared",
 				PQ: PQConfig{
-					Enabled:  DefaultPQEnabled,
-					Segments: DefaultPQSegments,
+					Enabled:   DefaultPQEnabled,
+					Segments:  DefaultPQSegments,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -147,8 +150,9 @@ func Test_UserConfig(t *testing.T) {
 				Skip:                   true,
 				Distance:               "manhattan",
 				PQ: PQConfig{
-					Enabled:  DefaultPQEnabled,
-					Segments: DefaultPQSegments,
+					Enabled:   DefaultPQEnabled,
+					Segments:  DefaultPQSegments,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -185,8 +189,9 @@ func Test_UserConfig(t *testing.T) {
 				Skip:                   true,
 				Distance:               "hamming",
 				PQ: PQConfig{
-					Enabled:  DefaultPQEnabled,
-					Segments: DefaultPQSegments,
+					Enabled:   DefaultPQEnabled,
+					Segments:  DefaultPQSegments,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -221,8 +226,9 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:  DefaultPQEnabled,
-					Segments: DefaultPQSegments,
+					Enabled:   DefaultPQEnabled,
+					Segments:  DefaultPQSegments,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
@@ -244,8 +250,9 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":  true,
-					"segments": float64(64),
+					"enabled":   true,
+					"segments":  float64(64),
+					"centroids": float64(DefaultPQCentroids),
 					"encoder": map[string]interface{}{
 						"type":         "tile",
 						"distribution": "normal",
@@ -264,8 +271,9 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:  true,
-					Segments: 64,
+					Enabled:   true,
+					Segments:  64,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         "tile",
 						Distribution: "normal",
@@ -287,8 +295,9 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":  true,
-					"segments": float64(64),
+					"enabled":   true,
+					"segments":  float64(64),
+					"centroids": float64(DefaultPQCentroids),
 					"encoder": map[string]interface{}{
 						"type": "kmeans",
 					},
@@ -306,8 +315,9 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:  true,
-					Segments: 64,
+					Enabled:   true,
+					Segments:  64,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         "kmeans",
 						Distribution: DefaultPQEncoderDistribution,
@@ -329,8 +339,9 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":  true,
-					"segments": float64(64),
+					"enabled":   true,
+					"segments":  float64(64),
+					"centroids": float64(DefaultPQCentroids),
 					"encoder": map[string]interface{}{
 						"type": "bernoulli",
 					},
@@ -352,8 +363,9 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":  true,
-					"segments": float64(64),
+					"enabled":   true,
+					"segments":  float64(64),
+					"centroids": float64(DefaultPQCentroids),
 					"encoder": map[string]interface{}{
 						"distribution": "lognormal",
 					},
@@ -388,8 +400,9 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFFactor:        19,
 				Distance:               DefaultDistanceMetric,
 				PQ: PQConfig{
-					Enabled:  DefaultPQEnabled,
-					Segments: DefaultPQSegments,
+					Enabled:   DefaultPQEnabled,
+					Segments:  DefaultPQSegments,
+					Centroids: DefaultPQCentroids,
 					Encoder: PQEncoder{
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
