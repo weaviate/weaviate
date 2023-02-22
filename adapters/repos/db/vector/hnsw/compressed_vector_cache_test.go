@@ -29,3 +29,12 @@ func TestCompressedVectorCacheGrowth(t *testing.T) {
 	vectorCache.grow(uint64(id))
 	assert.True(t, vectorCache.count == last)
 }
+
+func TestCompressedVectorCacheDoesNotCrashOnPreload(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	vectorCache := newCompressedShardedLockCache(1000000, logger)
+	id := int64(1000)
+	assert.True(t, vectorCache.count < id)
+	vectorCache.preload(uint64(id), []byte{0, 1, 2})
+	assert.True(t, vectorCache.count > id)
+}
