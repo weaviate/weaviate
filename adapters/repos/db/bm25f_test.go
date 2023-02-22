@@ -438,7 +438,7 @@ func TestBM25FWithFilters(t *testing.T) {
 	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, addit)
 
 	require.Nil(t, err)
-	require.True(t, len(res) > 0)
+	require.True(t, len(res) == 1)
 	require.Equal(t, uint64(2), res[0].DocID())
 }
 
