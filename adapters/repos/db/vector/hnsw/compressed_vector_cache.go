@@ -138,6 +138,10 @@ func (n *compressedShardedLockCache) preload(id uint64, vec []byte) {
 
 //nolint:unused
 func (n *compressedShardedLockCache) grow(node uint64) {
+	if node < uint64(atomic.LoadInt64(&n.count)) {
+		return
+	}
+
 	n.maintenanceLock.Lock()
 	defer n.maintenanceLock.Unlock()
 
@@ -147,6 +151,7 @@ func (n *compressedShardedLockCache) grow(node uint64) {
 	newSize := node + minimumIndexGrowthDelta
 	newCache := make([][]byte, newSize)
 	copy(newCache, n.cache)
+	atomic.StoreInt64(&n.count, int64(newSize))
 	n.cache = newCache
 }
 
