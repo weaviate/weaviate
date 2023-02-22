@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewSchemaDumpParams creates a new SchemaDumpParams object
-// with the default values initialized.
+// NewSchemaDumpParams creates a new SchemaDumpParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewSchemaDumpParams() *SchemaDumpParams {
-
 	return &SchemaDumpParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewSchemaDumpParamsWithTimeout creates a new SchemaDumpParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewSchemaDumpParamsWithTimeout(timeout time.Duration) *SchemaDumpParams {
-
 	return &SchemaDumpParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewSchemaDumpParamsWithContext creates a new SchemaDumpParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewSchemaDumpParamsWithContext(ctx context.Context) *SchemaDumpParams {
-
 	return &SchemaDumpParams{
-
 		Context: ctx,
 	}
 }
 
 // NewSchemaDumpParamsWithHTTPClient creates a new SchemaDumpParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewSchemaDumpParamsWithHTTPClient(client *http.Client) *SchemaDumpParams {
-
 	return &SchemaDumpParams{
 		HTTPClient: client,
 	}
@@ -68,12 +65,30 @@ func NewSchemaDumpParamsWithHTTPClient(client *http.Client) *SchemaDumpParams {
 
 /*
 SchemaDumpParams contains all the parameters to send to the API endpoint
-for the schema dump operation typically these are written to a http.Request
+
+	for the schema dump operation.
+
+	Typically these are written to a http.Request.
 */
 type SchemaDumpParams struct {
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the schema dump params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaDumpParams) WithDefaults() *SchemaDumpParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the schema dump params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaDumpParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the schema dump params

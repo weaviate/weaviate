@@ -24,12 +24,14 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewBatchObjectsDeleteParams creates a new BatchObjectsDeleteParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewBatchObjectsDeleteParams() BatchObjectsDeleteParams {
 
 	return BatchObjectsDeleteParams{}
@@ -81,6 +83,11 @@ func (o *BatchObjectsDeleteParams) BindRequest(r *http.Request, route *middlewar
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -88,11 +95,11 @@ func (o *BatchObjectsDeleteParams) BindRequest(r *http.Request, route *middlewar
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
 	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -108,10 +115,10 @@ func (o *BatchObjectsDeleteParams) bindConsistencyLevel(rawData []string, hasKey
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil

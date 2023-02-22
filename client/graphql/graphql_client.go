@@ -36,11 +36,14 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlBatchOK, error)
+	GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlBatchOK, error)
 
-	GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlPostOK, error)
+	GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlPostOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -50,13 +53,12 @@ GraphqlBatch gets a response based on graph q l
 
 Perform a batched GraphQL query
 */
-func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlBatchOK, error) {
+func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlBatchOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewGraphqlBatchParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "graphql.batch",
 		Method:             "POST",
 		PathPattern:        "/graphql/batch",
@@ -68,7 +70,12 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +94,12 @@ GraphqlPost gets a response based on graph q l
 
 Get an object based on GraphQL
 */
-func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlPostOK, error) {
+func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlPostOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewGraphqlPostParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "graphql.post",
 		Method:             "POST",
 		PathPattern:        "/graphql",
@@ -105,7 +111,12 @@ func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientA
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

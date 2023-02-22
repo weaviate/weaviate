@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -53,7 +55,6 @@ func (m *WhereFilterGeoRange) Validate(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilterGeoRange) validateDistance(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Distance) { // not required
 		return nil
 	}
@@ -62,6 +63,8 @@ func (m *WhereFilterGeoRange) validateDistance(formats strfmt.Registry) error {
 		if err := m.Distance.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("distance")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("distance")
 			}
 			return err
 		}
@@ -71,7 +74,6 @@ func (m *WhereFilterGeoRange) validateDistance(formats strfmt.Registry) error {
 }
 
 func (m *WhereFilterGeoRange) validateGeoCoordinates(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.GeoCoordinates) { // not required
 		return nil
 	}
@@ -80,6 +82,58 @@ func (m *WhereFilterGeoRange) validateGeoCoordinates(formats strfmt.Registry) er
 		if err := m.GeoCoordinates.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("geoCoordinates")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("geoCoordinates")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this where filter geo range based on the context it is used
+func (m *WhereFilterGeoRange) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateDistance(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateGeoCoordinates(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *WhereFilterGeoRange) contextValidateDistance(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Distance != nil {
+		if err := m.Distance.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("distance")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("distance")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *WhereFilterGeoRange) contextValidateGeoCoordinates(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.GeoCoordinates != nil {
+		if err := m.GeoCoordinates.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("geoCoordinates")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("geoCoordinates")
 			}
 			return err
 		}
@@ -117,6 +171,11 @@ type WhereFilterGeoRangeDistance struct {
 
 // Validate validates this where filter geo range distance
 func (m *WhereFilterGeoRangeDistance) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this where filter geo range distance based on context it is used
+func (m *WhereFilterGeoRangeDistance) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

@@ -64,9 +64,8 @@ func (o *SchemaObjectsShardsGetReader) ReadResponse(response runtime.ClientRespo
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,7 +75,7 @@ func NewSchemaObjectsShardsGetOK() *SchemaObjectsShardsGetOK {
 }
 
 /*
-SchemaObjectsShardsGetOK handles this case with default header values.
+SchemaObjectsShardsGetOK describes a response with status code 200, with default header values.
 
 Found the status of the shards, returned as body
 */
@@ -84,7 +83,41 @@ type SchemaObjectsShardsGetOK struct {
 	Payload models.ShardStatusList
 }
 
+// IsSuccess returns true when this schema objects shards get o k response has a 2xx status code
+func (o *SchemaObjectsShardsGetOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this schema objects shards get o k response has a 3xx status code
+func (o *SchemaObjectsShardsGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards get o k response has a 4xx status code
+func (o *SchemaObjectsShardsGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema objects shards get o k response has a 5xx status code
+func (o *SchemaObjectsShardsGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards get o k response a status code equal to that given
+func (o *SchemaObjectsShardsGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the schema objects shards get o k response
+func (o *SchemaObjectsShardsGetOK) Code() int {
+	return 200
+}
+
 func (o *SchemaObjectsShardsGetOK) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
+}
+
+func (o *SchemaObjectsShardsGetOK) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetOK  %+v", 200, o.Payload)
 }
 
@@ -108,14 +141,48 @@ func NewSchemaObjectsShardsGetUnauthorized() *SchemaObjectsShardsGetUnauthorized
 }
 
 /*
-SchemaObjectsShardsGetUnauthorized handles this case with default header values.
+SchemaObjectsShardsGetUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type SchemaObjectsShardsGetUnauthorized struct {
 }
 
+// IsSuccess returns true when this schema objects shards get unauthorized response has a 2xx status code
+func (o *SchemaObjectsShardsGetUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards get unauthorized response has a 3xx status code
+func (o *SchemaObjectsShardsGetUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards get unauthorized response has a 4xx status code
+func (o *SchemaObjectsShardsGetUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards get unauthorized response has a 5xx status code
+func (o *SchemaObjectsShardsGetUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards get unauthorized response a status code equal to that given
+func (o *SchemaObjectsShardsGetUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the schema objects shards get unauthorized response
+func (o *SchemaObjectsShardsGetUnauthorized) Code() int {
+	return 401
+}
+
 func (o *SchemaObjectsShardsGetUnauthorized) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
+}
+
+func (o *SchemaObjectsShardsGetUnauthorized) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetUnauthorized ", 401)
 }
 
@@ -130,7 +197,7 @@ func NewSchemaObjectsShardsGetForbidden() *SchemaObjectsShardsGetForbidden {
 }
 
 /*
-SchemaObjectsShardsGetForbidden handles this case with default header values.
+SchemaObjectsShardsGetForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -138,7 +205,41 @@ type SchemaObjectsShardsGetForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects shards get forbidden response has a 2xx status code
+func (o *SchemaObjectsShardsGetForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards get forbidden response has a 3xx status code
+func (o *SchemaObjectsShardsGetForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards get forbidden response has a 4xx status code
+func (o *SchemaObjectsShardsGetForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards get forbidden response has a 5xx status code
+func (o *SchemaObjectsShardsGetForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards get forbidden response a status code equal to that given
+func (o *SchemaObjectsShardsGetForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the schema objects shards get forbidden response
+func (o *SchemaObjectsShardsGetForbidden) Code() int {
+	return 403
+}
+
 func (o *SchemaObjectsShardsGetForbidden) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
+}
+
+func (o *SchemaObjectsShardsGetForbidden) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetForbidden  %+v", 403, o.Payload)
 }
 
@@ -164,7 +265,7 @@ func NewSchemaObjectsShardsGetNotFound() *SchemaObjectsShardsGetNotFound {
 }
 
 /*
-SchemaObjectsShardsGetNotFound handles this case with default header values.
+SchemaObjectsShardsGetNotFound describes a response with status code 404, with default header values.
 
 This class does not exist
 */
@@ -172,7 +273,41 @@ type SchemaObjectsShardsGetNotFound struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects shards get not found response has a 2xx status code
+func (o *SchemaObjectsShardsGetNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards get not found response has a 3xx status code
+func (o *SchemaObjectsShardsGetNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards get not found response has a 4xx status code
+func (o *SchemaObjectsShardsGetNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema objects shards get not found response has a 5xx status code
+func (o *SchemaObjectsShardsGetNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema objects shards get not found response a status code equal to that given
+func (o *SchemaObjectsShardsGetNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the schema objects shards get not found response
+func (o *SchemaObjectsShardsGetNotFound) Code() int {
+	return 404
+}
+
 func (o *SchemaObjectsShardsGetNotFound) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
+}
+
+func (o *SchemaObjectsShardsGetNotFound) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetNotFound  %+v", 404, o.Payload)
 }
 
@@ -198,7 +333,7 @@ func NewSchemaObjectsShardsGetInternalServerError() *SchemaObjectsShardsGetInter
 }
 
 /*
-SchemaObjectsShardsGetInternalServerError handles this case with default header values.
+SchemaObjectsShardsGetInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -206,7 +341,41 @@ type SchemaObjectsShardsGetInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema objects shards get internal server error response has a 2xx status code
+func (o *SchemaObjectsShardsGetInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema objects shards get internal server error response has a 3xx status code
+func (o *SchemaObjectsShardsGetInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema objects shards get internal server error response has a 4xx status code
+func (o *SchemaObjectsShardsGetInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema objects shards get internal server error response has a 5xx status code
+func (o *SchemaObjectsShardsGetInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this schema objects shards get internal server error response a status code equal to that given
+func (o *SchemaObjectsShardsGetInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the schema objects shards get internal server error response
+func (o *SchemaObjectsShardsGetInternalServerError) Code() int {
+	return 500
+}
+
 func (o *SchemaObjectsShardsGetInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaObjectsShardsGetInternalServerError) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/shards][%d] schemaObjectsShardsGetInternalServerError  %+v", 500, o.Payload)
 }
 

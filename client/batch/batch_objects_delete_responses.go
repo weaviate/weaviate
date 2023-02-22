@@ -70,9 +70,8 @@ func (o *BatchObjectsDeleteReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -82,7 +81,7 @@ func NewBatchObjectsDeleteOK() *BatchObjectsDeleteOK {
 }
 
 /*
-BatchObjectsDeleteOK handles this case with default header values.
+BatchObjectsDeleteOK describes a response with status code 200, with default header values.
 
 Request succeeded, see response body to get detailed information about each batched item.
 */
@@ -90,7 +89,41 @@ type BatchObjectsDeleteOK struct {
 	Payload *models.BatchDeleteResponse
 }
 
+// IsSuccess returns true when this batch objects delete o k response has a 2xx status code
+func (o *BatchObjectsDeleteOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this batch objects delete o k response has a 3xx status code
+func (o *BatchObjectsDeleteOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects delete o k response has a 4xx status code
+func (o *BatchObjectsDeleteOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this batch objects delete o k response has a 5xx status code
+func (o *BatchObjectsDeleteOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects delete o k response a status code equal to that given
+func (o *BatchObjectsDeleteOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the batch objects delete o k response
+func (o *BatchObjectsDeleteOK) Code() int {
+	return 200
+}
+
 func (o *BatchObjectsDeleteOK) Error() string {
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
+}
+
+func (o *BatchObjectsDeleteOK) String() string {
 	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteOK  %+v", 200, o.Payload)
 }
 
@@ -116,7 +149,7 @@ func NewBatchObjectsDeleteBadRequest() *BatchObjectsDeleteBadRequest {
 }
 
 /*
-BatchObjectsDeleteBadRequest handles this case with default header values.
+BatchObjectsDeleteBadRequest describes a response with status code 400, with default header values.
 
 Malformed request.
 */
@@ -124,7 +157,41 @@ type BatchObjectsDeleteBadRequest struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch objects delete bad request response has a 2xx status code
+func (o *BatchObjectsDeleteBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects delete bad request response has a 3xx status code
+func (o *BatchObjectsDeleteBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects delete bad request response has a 4xx status code
+func (o *BatchObjectsDeleteBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects delete bad request response has a 5xx status code
+func (o *BatchObjectsDeleteBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects delete bad request response a status code equal to that given
+func (o *BatchObjectsDeleteBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the batch objects delete bad request response
+func (o *BatchObjectsDeleteBadRequest) Code() int {
+	return 400
+}
+
 func (o *BatchObjectsDeleteBadRequest) Error() string {
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *BatchObjectsDeleteBadRequest) String() string {
 	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteBadRequest  %+v", 400, o.Payload)
 }
 
@@ -150,14 +217,48 @@ func NewBatchObjectsDeleteUnauthorized() *BatchObjectsDeleteUnauthorized {
 }
 
 /*
-BatchObjectsDeleteUnauthorized handles this case with default header values.
+BatchObjectsDeleteUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type BatchObjectsDeleteUnauthorized struct {
 }
 
+// IsSuccess returns true when this batch objects delete unauthorized response has a 2xx status code
+func (o *BatchObjectsDeleteUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects delete unauthorized response has a 3xx status code
+func (o *BatchObjectsDeleteUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects delete unauthorized response has a 4xx status code
+func (o *BatchObjectsDeleteUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects delete unauthorized response has a 5xx status code
+func (o *BatchObjectsDeleteUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects delete unauthorized response a status code equal to that given
+func (o *BatchObjectsDeleteUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the batch objects delete unauthorized response
+func (o *BatchObjectsDeleteUnauthorized) Code() int {
+	return 401
+}
+
 func (o *BatchObjectsDeleteUnauthorized) Error() string {
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
+}
+
+func (o *BatchObjectsDeleteUnauthorized) String() string {
 	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnauthorized ", 401)
 }
 
@@ -172,7 +273,7 @@ func NewBatchObjectsDeleteForbidden() *BatchObjectsDeleteForbidden {
 }
 
 /*
-BatchObjectsDeleteForbidden handles this case with default header values.
+BatchObjectsDeleteForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -180,7 +281,41 @@ type BatchObjectsDeleteForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch objects delete forbidden response has a 2xx status code
+func (o *BatchObjectsDeleteForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects delete forbidden response has a 3xx status code
+func (o *BatchObjectsDeleteForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects delete forbidden response has a 4xx status code
+func (o *BatchObjectsDeleteForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects delete forbidden response has a 5xx status code
+func (o *BatchObjectsDeleteForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects delete forbidden response a status code equal to that given
+func (o *BatchObjectsDeleteForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the batch objects delete forbidden response
+func (o *BatchObjectsDeleteForbidden) Code() int {
+	return 403
+}
+
 func (o *BatchObjectsDeleteForbidden) Error() string {
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
+}
+
+func (o *BatchObjectsDeleteForbidden) String() string {
 	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteForbidden  %+v", 403, o.Payload)
 }
 
@@ -206,7 +341,7 @@ func NewBatchObjectsDeleteUnprocessableEntity() *BatchObjectsDeleteUnprocessable
 }
 
 /*
-BatchObjectsDeleteUnprocessableEntity handles this case with default header values.
+BatchObjectsDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -214,7 +349,41 @@ type BatchObjectsDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch objects delete unprocessable entity response has a 2xx status code
+func (o *BatchObjectsDeleteUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects delete unprocessable entity response has a 3xx status code
+func (o *BatchObjectsDeleteUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects delete unprocessable entity response has a 4xx status code
+func (o *BatchObjectsDeleteUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects delete unprocessable entity response has a 5xx status code
+func (o *BatchObjectsDeleteUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects delete unprocessable entity response a status code equal to that given
+func (o *BatchObjectsDeleteUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the batch objects delete unprocessable entity response
+func (o *BatchObjectsDeleteUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *BatchObjectsDeleteUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *BatchObjectsDeleteUnprocessableEntity) String() string {
 	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -240,7 +409,7 @@ func NewBatchObjectsDeleteInternalServerError() *BatchObjectsDeleteInternalServe
 }
 
 /*
-BatchObjectsDeleteInternalServerError handles this case with default header values.
+BatchObjectsDeleteInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -248,7 +417,41 @@ type BatchObjectsDeleteInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch objects delete internal server error response has a 2xx status code
+func (o *BatchObjectsDeleteInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects delete internal server error response has a 3xx status code
+func (o *BatchObjectsDeleteInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects delete internal server error response has a 4xx status code
+func (o *BatchObjectsDeleteInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this batch objects delete internal server error response has a 5xx status code
+func (o *BatchObjectsDeleteInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this batch objects delete internal server error response a status code equal to that given
+func (o *BatchObjectsDeleteInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the batch objects delete internal server error response
+func (o *BatchObjectsDeleteInternalServerError) Code() int {
+	return 500
+}
+
 func (o *BatchObjectsDeleteInternalServerError) Error() string {
+	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *BatchObjectsDeleteInternalServerError) String() string {
 	return fmt.Sprintf("[DELETE /batch/objects][%d] batchObjectsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 

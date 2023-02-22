@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -29,10 +31,12 @@ import (
 type BatchReference struct {
 
 	// Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/<kinds>/<uuid>/<className>/<propertyName>, where <kinds> must be one of 'objects', 'objects' and <className> and <propertyName> must represent the cross-ref property of source class to be used.
+	// Example: weaviate://localhost/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals
 	// Format: uri
 	From strfmt.URI `json:"from,omitempty"`
 
 	// Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/<uuid> for the example of a local cross-ref to an object
+	// Example: weaviate://localhost/97525810-a9a5-4eb0-858a-71449aeb007f
 	// Format: uri
 	To strfmt.URI `json:"to,omitempty"`
 }
@@ -56,7 +60,6 @@ func (m *BatchReference) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchReference) validateFrom(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.From) { // not required
 		return nil
 	}
@@ -69,7 +72,6 @@ func (m *BatchReference) validateFrom(formats strfmt.Registry) error {
 }
 
 func (m *BatchReference) validateTo(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.To) { // not required
 		return nil
 	}
@@ -78,6 +80,11 @@ func (m *BatchReference) validateTo(formats strfmt.Registry) error {
 		return err
 	}
 
+	return nil
+}
+
+// ContextValidate validates this batch reference based on context it is used
+func (m *BatchReference) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

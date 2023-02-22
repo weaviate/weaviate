@@ -29,7 +29,8 @@ import (
 )
 
 // NewBatchReferencesCreateParams creates a new BatchReferencesCreateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewBatchReferencesCreateParams() BatchReferencesCreateParams {
 
 	return BatchReferencesCreateParams{}
@@ -76,6 +77,7 @@ func (o *BatchReferencesCreateParams) BindRequest(r *http.Request, route *middle
 				res = append(res, errors.NewParseError("body", "body", "", err))
 			}
 		} else {
+
 			// validate array of body objects
 			for i := range body {
 				if body[i] == nil {
@@ -86,6 +88,7 @@ func (o *BatchReferencesCreateParams) BindRequest(r *http.Request, route *middle
 					break
 				}
 			}
+
 			if len(res) == 0 {
 				o.Body = body
 			}
@@ -93,11 +96,11 @@ func (o *BatchReferencesCreateParams) BindRequest(r *http.Request, route *middle
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
 	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -113,10 +116,10 @@ func (o *BatchReferencesCreateParams) bindConsistencyLevel(rawData []string, has
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil

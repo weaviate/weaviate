@@ -43,7 +43,7 @@ func NewObjectsReferencesUpdate(ctx *middleware.Context, handler ObjectsReferenc
 }
 
 /*
-ObjectsReferencesUpdate swagger:route PUT /objects/{id}/references/{propertyName} objects objectsReferencesUpdate
+	ObjectsReferencesUpdate swagger:route PUT /objects/{id}/references/{propertyName} objects objectsReferencesUpdate
 
 Replace all references to a class-property.
 
@@ -57,17 +57,16 @@ type ObjectsReferencesUpdate struct {
 func (o *ObjectsReferencesUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewObjectsReferencesUpdateParams()
-
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -80,7 +79,6 @@ func (o *ObjectsReferencesUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }

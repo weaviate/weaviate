@@ -29,7 +29,8 @@ import (
 )
 
 // NewObjectsClassPatchParams creates a new ObjectsClassPatchParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsClassPatchParams() ObjectsClassPatchParams {
 
 	return ObjectsClassPatchParams{}
@@ -86,11 +87,17 @@ func (o *ObjectsClassPatchParams) BindRequest(r *http.Request, route *middleware
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
 		}
 	}
+
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
@@ -105,7 +112,6 @@ func (o *ObjectsClassPatchParams) BindRequest(r *http.Request, route *middleware
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -121,7 +127,6 @@ func (o *ObjectsClassPatchParams) bindClassName(rawData []string, hasKey bool, f
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil
@@ -136,10 +141,10 @@ func (o *ObjectsClassPatchParams) bindConsistencyLevel(rawData []string, hasKey 
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil

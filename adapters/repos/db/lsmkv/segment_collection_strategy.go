@@ -16,12 +16,13 @@ import (
 	"encoding/binary"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func (i *segment) getCollection(key []byte) ([]value, error) {
-	if i.strategy != SegmentStrategySetCollection &&
-		i.strategy != SegmentStrategyMapCollection {
+	if i.strategy != segmentindex.StrategySetCollection &&
+		i.strategy != segmentindex.StrategyMapCollection {
 		return nil, errors.Errorf("get only possible for strategies %q, %q",
 			StrategySetCollection, StrategyMapCollection)
 	}

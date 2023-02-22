@@ -12,301 +12,12 @@
 package lsmkv
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/binary"
 	"io"
-	"os"
-	"path/filepath"
-	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
-
-type segmentHeader struct {
-	level            uint16
-	version          uint16
-	secondaryIndices uint16
-	strategy         SegmentStrategy
-	indexStart       uint64
-}
-
-func (h *segmentHeader) WriteTo(w io.Writer) (int64, error) {
-	if err := binary.Write(w, binary.LittleEndian, &h.level); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, &h.version); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, &h.secondaryIndices); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, h.strategy); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, &h.indexStart); err != nil {
-		return -1, err
-	}
-
-	return int64(SegmentHeaderSize), nil
-}
-
-func (h *segmentHeader) PrimaryIndex(source []byte) ([]byte, error) {
-	if h.secondaryIndices == 0 {
-		return source[h.indexStart:], nil
-	}
-
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.indexStart:h.secondaryIndexOffsetsEnd()])
-	if err != nil {
-		return nil, err
-	}
-
-	// the beginning of the first secondary is also the end of the primary
-	end := offsets[0]
-	return source[h.secondaryIndexOffsetsEnd():end], nil
-}
-
-func (h *segmentHeader) secondaryIndexOffsetsEnd() uint64 {
-	return h.indexStart + (uint64(h.secondaryIndices) * 8)
-}
-
-func (h *segmentHeader) parseSecondaryIndexOffsets(source []byte) ([]uint64, error) {
-	r := bytes.NewReader(source)
-
-	offsets := make([]uint64, h.secondaryIndices)
-	if err := binary.Read(r, binary.LittleEndian, &offsets); err != nil {
-		return nil, err
-	}
-
-	return offsets, nil
-}
-
-func (h *segmentHeader) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
-	if indexID >= h.secondaryIndices {
-		return nil, errors.Errorf("retrieve index %d with len %d",
-			indexID, h.secondaryIndices)
-	}
-
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.indexStart:h.secondaryIndexOffsetsEnd()])
-	if err != nil {
-		return nil, err
-	}
-
-	start := offsets[indexID]
-	if indexID == h.secondaryIndices-1 {
-		// this is the last index, return until EOF
-		return source[start:], nil
-	}
-
-	end := offsets[indexID+1]
-	return source[start:end], nil
-}
-
-func parseSegmentHeader(r io.Reader) (*segmentHeader, error) {
-	out := &segmentHeader{}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.level); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.version); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.secondaryIndices); err != nil {
-		return nil, err
-	}
-
-	if out.version != 0 {
-		return nil, errors.Errorf("unsupported version %d", out.version)
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.strategy); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.indexStart); err != nil {
-		return nil, err
-	}
-
-	return out, nil
-}
-
-type segmentIndices struct {
-	keys                []keyIndex
-	secondaryIndexCount uint16
-	scratchSpacePath    string
-}
-
-func (s segmentIndices) WriteTo(w io.Writer) (int64, error) {
-	currentOffset := uint64(s.keys[len(s.keys)-1].valueEnd)
-	var written int64
-
-	if _, err := os.Stat(s.scratchSpacePath); err == nil {
-		// exists, we need to delete
-		// This could be the case if Weaviate shut down unexpectedly (i.e. crashed)
-		// while a compaction was running. We can safely discard the contents of
-		// the scratch space.
-
-		if err := os.RemoveAll(s.scratchSpacePath); err != nil {
-			return written, errors.Wrap(err, "clean up previous scratch space")
-		}
-	} else if os.IsNotExist(err) {
-		// does not exist yet, nothing to - will be created in the next step
-	} else {
-		return written, errors.Wrap(err, "check for scratch space directory")
-	}
-
-	if err := os.Mkdir(s.scratchSpacePath, 0o777); err != nil {
-		return written, errors.Wrap(err, "create scratch space")
-	}
-
-	primaryFileName := filepath.Join(s.scratchSpacePath, "primary")
-	primaryFD, err := os.Create(primaryFileName)
-	if err != nil {
-		return written, err
-	}
-
-	primaryFDBuffered := bufio.NewWriter(primaryFD)
-
-	n, err := s.buildAndMarshalPrimary(primaryFDBuffered, s.keys)
-	if err != nil {
-		return written, err
-	}
-
-	if err := primaryFDBuffered.Flush(); err != nil {
-		return written, err
-	}
-
-	primaryFD.Seek(0, io.SeekStart)
-
-	// pretend that primary index was already written, then also account for the
-	// additional offset pointers (one for each secondary index)
-	currentOffset = currentOffset + uint64(n) +
-		uint64(s.secondaryIndexCount)*8
-
-	// secondaryIndicesBytes := bytes.NewBuffer(nil)
-	secondaryFileName := filepath.Join(s.scratchSpacePath, "secondary")
-	secondaryFD, err := os.Create(secondaryFileName)
-	if err != nil {
-		return written, err
-	}
-
-	secondaryFDBuffered := bufio.NewWriter(secondaryFD)
-
-	if s.secondaryIndexCount > 0 {
-		offsets := make([]uint64, s.secondaryIndexCount)
-		for pos := range offsets {
-			n, err := s.buildAndMarshalSecondary(secondaryFDBuffered, pos, s.keys)
-			if err != nil {
-				return written, err
-			} else {
-				written += int64(n)
-			}
-
-			offsets[pos] = currentOffset
-			currentOffset = offsets[pos] + uint64(n)
-		}
-
-		if err := binary.Write(w, binary.LittleEndian, &offsets); err != nil {
-			return written, err
-		}
-
-		written += int64(len(offsets)) * 8
-	}
-
-	if err := secondaryFDBuffered.Flush(); err != nil {
-		return written, err
-	}
-
-	secondaryFD.Seek(0, io.SeekStart)
-
-	if n, err := io.Copy(w, primaryFD); err != nil {
-		return written, err
-	} else {
-		written += int64(n)
-	}
-
-	if n, err := io.Copy(w, secondaryFD); err != nil {
-		return written, err
-	} else {
-		written += int64(n)
-	}
-
-	if err := primaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := secondaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := os.RemoveAll(s.scratchSpacePath); err != nil {
-		return written, err
-	}
-
-	return written, nil
-}
-
-// pos indicates the position of a secondary index, assumes unsorted keys and
-// sorts them
-func (s *segmentIndices) buildAndMarshalSecondary(w io.Writer, pos int,
-	keys []keyIndex,
-) (int64, error) {
-	keyNodes := make([]segmentindex.Node, len(keys))
-	i := 0
-	for _, key := range keys {
-		if pos >= len(key.secondaryKeys) {
-			// a secondary key is not guaranteed to be present. For example, a delete
-			// operation could pe performed using only the primary key
-			continue
-		}
-
-		keyNodes[i] = segmentindex.Node{
-			Key:   key.secondaryKeys[pos],
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
-		}
-		i++
-	}
-
-	keyNodes = keyNodes[:i]
-
-	sort.Slice(keyNodes, func(a, b int) bool {
-		return bytes.Compare(keyNodes[a].Key, keyNodes[b].Key) < 0
-	})
-
-	index := segmentindex.NewBalanced(keyNodes)
-	n, err := index.MarshalBinaryInto(w)
-	if err != nil {
-		return 0, err
-	}
-
-	return n, nil
-}
-
-// assumes sorted keys and does NOT sort them again
-func (s *segmentIndices) buildAndMarshalPrimary(w io.Writer, keys []keyIndex) (int64, error) {
-	keyNodes := make([]segmentindex.Node, len(keys))
-	for i, key := range keys {
-		keyNodes[i] = segmentindex.Node{
-			Key:   key.key,
-			Start: uint64(key.valueStart),
-			End:   uint64(key.valueEnd),
-		}
-	}
-	index := segmentindex.NewBalanced(keyNodes)
-
-	n, err := index.MarshalBinaryInto(w)
-	if err != nil {
-		return -1, err
-	}
-
-	return n, nil
-}
 
 // a single node of strategy "replace"
 type segmentReplaceNode struct {
@@ -318,8 +29,8 @@ type segmentReplaceNode struct {
 	offset              int
 }
 
-func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
-	out := keyIndex{}
+func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	out := segmentindex.Key{}
 	written := 0
 
 	buf := make([]byte, 9)
@@ -382,11 +93,11 @@ func (s *segmentReplaceNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
 		written += n
 	}
 
-	return keyIndex{
-		valueStart:    s.offset,
-		valueEnd:      s.offset + written,
-		key:           s.primaryKey,
-		secondaryKeys: s.secondaryKeys,
+	return segmentindex.Key{
+		ValueStart:    s.offset,
+		ValueEnd:      s.offset + written,
+		Key:           s.primaryKey,
+		SecondaryKeys: s.secondaryKeys,
 	}, nil
 }
 
@@ -523,8 +234,8 @@ type segmentCollectionNode struct {
 	offset     int
 }
 
-func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error) {
-	out := keyIndex{}
+func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
+	out := segmentindex.Key{}
 	written := 0
 	valueLen := uint64(len(s.values))
 	buf := make([]byte, 9)
@@ -568,10 +279,10 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (keyIndex, error)
 	}
 	written += n
 
-	out = keyIndex{
-		valueStart: s.offset,
-		valueEnd:   s.offset + written,
-		key:        s.primaryKey,
+	out = segmentindex.Key{
+		ValueStart: s.offset,
+		ValueEnd:   s.offset + written,
+		Key:        s.primaryKey,
 	}
 
 	return out, nil

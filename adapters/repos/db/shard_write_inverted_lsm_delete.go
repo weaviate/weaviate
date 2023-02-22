@@ -87,8 +87,8 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 func (s *Shard) deleteInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
-	if b.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
+		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
 	}
 
 	hash, err := s.generateRowHash()
@@ -98,6 +98,10 @@ func (s *Shard) deleteInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 
 	if err := hashBucket.Put(item.Data, hash); err != nil {
 		return err
+	}
+
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		return b.RoaringSetRemoveOne(item.Data, docID)
 	}
 
 	docIDBytes := make([]byte, 8)

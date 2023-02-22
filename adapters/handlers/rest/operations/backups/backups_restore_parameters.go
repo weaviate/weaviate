@@ -24,12 +24,14 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewBackupsRestoreParams creates a new BackupsRestoreParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewBackupsRestoreParams() BackupsRestoreParams {
 
 	return BackupsRestoreParams{}
@@ -90,6 +92,11 @@ func (o *BackupsRestoreParams) BindRequest(r *http.Request, route *middleware.Ma
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -97,11 +104,11 @@ func (o *BackupsRestoreParams) BindRequest(r *http.Request, route *middleware.Ma
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -117,7 +124,6 @@ func (o *BackupsRestoreParams) bindBackend(rawData []string, hasKey bool, format
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.Backend = raw
 
 	return nil
@@ -132,7 +138,6 @@ func (o *BackupsRestoreParams) bindID(rawData []string, hasKey bool, formats str
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ID = raw
 
 	return nil
