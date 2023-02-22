@@ -199,7 +199,7 @@ func (s *Shard) initVectorIndex(
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
-	err := s.initDBFile(ctx)
+	err := s.initLSMStore(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -248,7 +248,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	return idBytes[15] % IdLockPoolSize
 }
 
-func (s *Shard) initDBFile(ctx context.Context) error {
+func (s *Shard) initLSMStore(ctx context.Context) error {
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -268,13 +268,8 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithDynamicMemtableSizing(
-			s.index.Config.MemtablesInitialSizeMB,
-			s.index.Config.MemtablesMaxSizeMB,
-			s.index.Config.MemtablesMinActiveSeconds,
-			s.index.Config.MemtablesMaxActiveSeconds,
-		),
+		s.dynamicMemtableSizing(),
+		s.memtableIdleConfig(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
@@ -495,6 +490,20 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
+	return lsmkv.WithIdleThreshold(
+		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
+}
+
+func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
+	return lsmkv.WithDynamicMemtableSizing(
+		s.index.Config.MemtablesInitialSizeMB,
+		s.index.Config.MemtablesMaxSizeMB,
+		s.index.Config.MemtablesMinActiveSeconds,
+		s.index.Config.MemtablesMaxActiveSeconds,
+	)
+}
+
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -503,7 +512,8 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
 			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
-			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+			s.memtableIdleConfig(),
+			s.dynamicMemtableSizing(),
 		)
 		if err != nil {
 			return err
@@ -512,7 +522,8 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		err = s.store.CreateOrLoadBucket(ctx,
 			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
 			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+			s.memtableIdleConfig(),
+			s.dynamicMemtableSizing(),
 		)
 		if err != nil {
 			return err
@@ -523,27 +534,29 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	mapOpts := []lsmkv.BucketOption{
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
+	bucketOpts := []lsmkv.BucketOption{
+		s.memtableIdleConfig(),
+		s.dynamicMemtableSizing(),
 	}
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
-			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
+			bucketOpts = append(bucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 	} else {
-		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		mapOpts...)
+		bucketOpts...)
 	if err != nil {
 		return err
 	}
 
 	err = s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+		s.memtableIdleConfig(),
+		s.dynamicMemtableSizing(),
 	)
 	if err != nil {
 		return err
