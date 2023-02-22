@@ -45,10 +45,10 @@ func init() {
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
-      "url": "https://github.com/semi-technologies",
-      "email": "hello@semi.technology"
+      "url": "https://github.com/weaviate",
+      "email": "hello@weaviate.io"
     },
-    "version": "1.18.0-prealpha"
+    "version": "1.18.0-alpha.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -2381,6 +2381,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "name": "force",
+            "in": "query"
           }
         ],
         "responses": {
@@ -3978,7 +3983,7 @@ func init() {
       }
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "classes": {
@@ -4290,7 +4295,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   }
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
@@ -4310,10 +4315,10 @@ func init() {
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
-      "url": "https://github.com/semi-technologies",
-      "email": "hello@semi.technology"
+      "url": "https://github.com/weaviate",
+      "email": "hello@weaviate.io"
     },
-    "version": "1.18.0-prealpha"
+    "version": "1.18.0-alpha.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -6718,6 +6723,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "name": "force",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8492,7 +8502,7 @@ func init() {
       }
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "classes": {
@@ -8813,7 +8823,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   }
 }`))
 }

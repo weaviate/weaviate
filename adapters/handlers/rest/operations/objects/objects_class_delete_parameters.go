@@ -27,7 +27,8 @@ import (
 )
 
 // NewObjectsClassDeleteParams creates a new ObjectsClassDeleteParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsClassDeleteParams() ObjectsClassDeleteParams {
 
 	return ObjectsClassDeleteParams{}
@@ -83,7 +84,6 @@ func (o *ObjectsClassDeleteParams) BindRequest(r *http.Request, route *middlewar
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -99,7 +99,6 @@ func (o *ObjectsClassDeleteParams) bindClassName(rawData []string, hasKey bool, 
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil
@@ -114,10 +113,10 @@ func (o *ObjectsClassDeleteParams) bindConsistencyLevel(rawData []string, hasKey
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil

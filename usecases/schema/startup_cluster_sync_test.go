@@ -115,6 +115,42 @@ func TestStartupSync(t *testing.T) {
 		assert.Contains(t, err.Error(), "corrupt")
 	})
 
+	t.Run("conflict, but sync skipped -> no error", func(t *testing.T) {
+		clusterState := &fakeClusterState{
+			hosts:       []string{"node1", "node2"},
+			syncIgnored: true,
+		}
+
+		txJSON, _ := json.Marshal(ReadSchemaPayload{
+			Schema: &State{
+				ObjectSchema: &models.Schema{
+					Classes: []*models.Class{
+						{
+							Class:           "Bongourno",
+							VectorIndexType: "hnsw",
+						},
+					},
+				},
+			},
+		})
+
+		txClient := &fakeTxClient{
+			openInjectPayload: json.RawMessage(txJSON),
+		}
+
+		_, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
+			ObjectSchema: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class:           "Hola",
+						VectorIndexType: "hnsw",
+					},
+				},
+			},
+		})
+		require.Nil(t, err)
+	})
+
 	t.Run("new node joining, agreement between all", func(t *testing.T) {
 		clusterState := &fakeClusterState{
 			hosts: []string{"node1", "node2"},

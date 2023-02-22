@@ -21,7 +21,8 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 ) ([]uint64, []float32, error) {
 	results := priorityqueue.NewMax(limit)
 
-	for candidate := range allowList {
+	it := allowList.Iterator()
+	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
 		h.RLock()
 		// Hot fix for https://github.com/weaviate/weaviate/issues/1937
 		// this if statement mitigates the problem but it doesn't resolve the issue

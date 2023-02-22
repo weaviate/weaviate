@@ -11,29 +11,28 @@
 
 package lsmkv
 
+import (
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+)
+
 const (
 	// StrategyReplace allows for idem-potent PUT where the latest takes presence
 	StrategyReplace       = "replace"
 	StrategySetCollection = "setcollection"
 	StrategyMapCollection = "mapcollection"
+	StrategyRoaringSet    = "roaringset"
 )
 
-type SegmentStrategy uint16
-
-const (
-	SegmentStrategyReplace SegmentStrategy = iota
-	SegmentStrategySetCollection
-	SegmentStrategyMapCollection
-)
-
-func SegmentStrategyFromString(in string) SegmentStrategy {
+func SegmentStrategyFromString(in string) segmentindex.Strategy {
 	switch in {
 	case StrategyReplace:
-		return SegmentStrategyReplace
+		return segmentindex.StrategyReplace
 	case StrategySetCollection:
-		return SegmentStrategySetCollection
+		return segmentindex.StrategySetCollection
 	case StrategyMapCollection:
-		return SegmentStrategyMapCollection
+		return segmentindex.StrategyMapCollection
+	case StrategyRoaringSet:
+		return segmentindex.StrategyRoaringSet
 	default:
 		panic("unsupported strategy")
 	}

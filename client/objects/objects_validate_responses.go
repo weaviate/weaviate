@@ -64,9 +64,8 @@ func (o *ObjectsValidateReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,14 +75,48 @@ func NewObjectsValidateOK() *ObjectsValidateOK {
 }
 
 /*
-ObjectsValidateOK handles this case with default header values.
+ObjectsValidateOK describes a response with status code 200, with default header values.
 
 Successfully validated.
 */
 type ObjectsValidateOK struct {
 }
 
+// IsSuccess returns true when this objects validate o k response has a 2xx status code
+func (o *ObjectsValidateOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects validate o k response has a 3xx status code
+func (o *ObjectsValidateOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects validate o k response has a 4xx status code
+func (o *ObjectsValidateOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects validate o k response has a 5xx status code
+func (o *ObjectsValidateOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects validate o k response a status code equal to that given
+func (o *ObjectsValidateOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the objects validate o k response
+func (o *ObjectsValidateOK) Code() int {
+	return 200
+}
+
 func (o *ObjectsValidateOK) Error() string {
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK ", 200)
+}
+
+func (o *ObjectsValidateOK) String() string {
 	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateOK ", 200)
 }
 
@@ -98,14 +131,48 @@ func NewObjectsValidateUnauthorized() *ObjectsValidateUnauthorized {
 }
 
 /*
-ObjectsValidateUnauthorized handles this case with default header values.
+ObjectsValidateUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsValidateUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects validate unauthorized response has a 2xx status code
+func (o *ObjectsValidateUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects validate unauthorized response has a 3xx status code
+func (o *ObjectsValidateUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects validate unauthorized response has a 4xx status code
+func (o *ObjectsValidateUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects validate unauthorized response has a 5xx status code
+func (o *ObjectsValidateUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects validate unauthorized response a status code equal to that given
+func (o *ObjectsValidateUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects validate unauthorized response
+func (o *ObjectsValidateUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsValidateUnauthorized) Error() string {
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized ", 401)
+}
+
+func (o *ObjectsValidateUnauthorized) String() string {
 	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnauthorized ", 401)
 }
 
@@ -120,7 +187,7 @@ func NewObjectsValidateForbidden() *ObjectsValidateForbidden {
 }
 
 /*
-ObjectsValidateForbidden handles this case with default header values.
+ObjectsValidateForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -128,7 +195,41 @@ type ObjectsValidateForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects validate forbidden response has a 2xx status code
+func (o *ObjectsValidateForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects validate forbidden response has a 3xx status code
+func (o *ObjectsValidateForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects validate forbidden response has a 4xx status code
+func (o *ObjectsValidateForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects validate forbidden response has a 5xx status code
+func (o *ObjectsValidateForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects validate forbidden response a status code equal to that given
+func (o *ObjectsValidateForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects validate forbidden response
+func (o *ObjectsValidateForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsValidateForbidden) Error() string {
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsValidateForbidden) String() string {
 	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateForbidden  %+v", 403, o.Payload)
 }
 
@@ -154,7 +255,7 @@ func NewObjectsValidateUnprocessableEntity() *ObjectsValidateUnprocessableEntity
 }
 
 /*
-ObjectsValidateUnprocessableEntity handles this case with default header values.
+ObjectsValidateUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -162,7 +263,41 @@ type ObjectsValidateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects validate unprocessable entity response has a 2xx status code
+func (o *ObjectsValidateUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects validate unprocessable entity response has a 3xx status code
+func (o *ObjectsValidateUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects validate unprocessable entity response has a 4xx status code
+func (o *ObjectsValidateUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects validate unprocessable entity response has a 5xx status code
+func (o *ObjectsValidateUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects validate unprocessable entity response a status code equal to that given
+func (o *ObjectsValidateUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the objects validate unprocessable entity response
+func (o *ObjectsValidateUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *ObjectsValidateUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsValidateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -188,7 +323,7 @@ func NewObjectsValidateInternalServerError() *ObjectsValidateInternalServerError
 }
 
 /*
-ObjectsValidateInternalServerError handles this case with default header values.
+ObjectsValidateInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -196,7 +331,41 @@ type ObjectsValidateInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects validate internal server error response has a 2xx status code
+func (o *ObjectsValidateInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects validate internal server error response has a 3xx status code
+func (o *ObjectsValidateInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects validate internal server error response has a 4xx status code
+func (o *ObjectsValidateInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects validate internal server error response has a 5xx status code
+func (o *ObjectsValidateInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects validate internal server error response a status code equal to that given
+func (o *ObjectsValidateInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects validate internal server error response
+func (o *ObjectsValidateInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsValidateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsValidateInternalServerError) String() string {
 	return fmt.Sprintf("[POST /objects/validate][%d] objectsValidateInternalServerError  %+v", 500, o.Payload)
 }
 

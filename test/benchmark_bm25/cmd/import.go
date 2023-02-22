@@ -70,10 +70,20 @@ var importCmd = &cobra.Command{
 		batch := client.Batch().ObjectsBatcher()
 		for i, corp := range c {
 			id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
+			props := map[string]interface{}{
+				"modulo_10":   i % 10,
+				"modulo_100":  i % 100,
+				"modulo_1000": i % 1000,
+			}
+
+			for key, value := range corp {
+				props[key] = value
+			}
+
 			batch.WithObject(&models.Object{
 				ID:         strfmt.UUID(id),
 				Class:      lib.ClassNameFromDatasetID(datasets.Datasets[0].ID),
-				Properties: corp,
+				Properties: props,
 			})
 
 			if i != 0 && i%BatchSize == 0 {
