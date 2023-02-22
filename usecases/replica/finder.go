@@ -26,14 +26,17 @@ import (
 )
 
 var (
-	// ErrConsistencyLevel consistency level cannot be achieved
-	ErrConsistencyLevel = errors.New("cannot achieve consistency level")
+	// msgCLevel consistency level cannot be achieved
+	msgCLevel = "cannot achieve consistency level"
 	// errConflictFindDeleted object exists on one replica but is deleted on the other.
 	//
 	// It depends on the order of operations
 	// Created -> Deleted    => It is safe in this case to propagate deletion to all replicas
 	// Created -> Deleted -> Created => propagating deletion will result in data lost
 	errConflictExistOrDeleted = errors.New("conflict: object has been deleted on another replica")
+
+	// errConflictObjectChanged object changed since last time and cannot be repaired
+	errConflictObjectChanged = errors.New("source object changed during repair")
 )
 
 type (
@@ -46,7 +49,10 @@ type (
 		DigestRead bool
 	}
 	findOneReply senderReply[objects.Replica]
-	existReply   senderReply[bool]
+	existReply   struct {
+		Sender string
+		RepairResponse
+	}
 )
 
 // Finder finds replicated objects
@@ -97,27 +103,86 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, state, err := c.Fetch2(ctx, l, op)
+	replyCh, state, err := c.Pull(ctx, l, op)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
 	}
 	result := <-f.readOne(ctx, shard, id, replyCh, state)
-	return result.data, result.err
+	if err = result.err; err != nil {
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+	}
+	return result.data, err
+}
+
+// batchReply represents the data returned by sender
+// The returned data may result from a direct or digest read request
+type batchReply struct {
+	// Sender hostname of the sender
+	Sender string
+	// IsDigest is this reply from a digest read?
+	IsDigest bool
+	// DirectData returned from a direct read request
+	DirectData []objects.Replica
+	// DigestData returned from a digest read request
+	DigestData []RepairResponse
+}
+
+// GetAll gets all objects which satisfy the giving consistency
+func (f *Finder) GetAll(ctx context.Context, l ConsistencyLevel, shard string,
+	ids []strfmt.UUID,
+) ([]*storobj.Object, error) {
+	c := newReadCoordinator[batchReply](f, shard)
+	n := len(ids)
+	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
+		if fullRead {
+			xs, err := f.RClient.FetchObjects(ctx, host, f.class, shard, ids)
+			if m := len(xs); err == nil && n != m {
+				err = fmt.Errorf("direct read expected %d got %d items", n, m)
+			}
+			return batchReply{Sender: host, IsDigest: false, DirectData: xs}, err
+		} else {
+			xs, err := f.DigestObjects(ctx, host, f.class, shard, ids)
+			if m := len(xs); err == nil && n != m {
+				err = fmt.Errorf("direct read expected %d got %d items", n, m)
+			}
+			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+		}
+	}
+	replyCh, state, err := c.Pull(ctx, l, op)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+	}
+	result := <-f.readAll(ctx, shard, ids, replyCh, state)
+	if err = result.err; err != nil {
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+	}
+
+	return result.data, err
 }
 
 // Exists checks if an object exists which satisfies the giving consistency
-// TODO: implement using new approach
 func (f *Finder) Exists(ctx context.Context, l ConsistencyLevel, shard string, id strfmt.UUID) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard)
-	op := func(ctx context.Context, host string) (existReply, error) {
-		obj, err := f.RClient.Exists(ctx, host, f.class, shard, id)
-		return existReply{host, -1, obj, 0, false}, err
+	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
+		xs, err := f.DigestObjects(ctx, host, f.class, shard, []strfmt.UUID{id})
+		var x RepairResponse
+		if len(xs) == 1 {
+			x = xs[0]
+		}
+		if err == nil && len(xs) != 1 {
+			err = fmt.Errorf("digest read request: empty result")
+		}
+		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Fetch(ctx, l, op)
+	replyCh, state, err := c.Pull(ctx, l, op)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
 	}
-	return readOneExists(replyCh, state)
+	result := <-f.readExistence(ctx, shard, id, replyCh, state)
+	if err = result.err; err != nil {
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+	}
+	return result.data, err
 }
 
 // NodeObject gets object from a specific node.
@@ -173,11 +238,6 @@ func (f *Finder) readOne(ctx context.Context,
 				}
 			}
 		}
-		// Just in case this however should not be possible
-		if n := len(votes); n == 0 || contentIdx < 0 {
-			resultCh <- result[*storobj.Object]{nil, fmt.Errorf("internal error: #responses %d index %d", n, contentIdx)}
-			return
-		}
 
 		obj, err := f.repairOne(ctx, shard, id, votes, st, contentIdx)
 		if err == nil {
@@ -192,7 +252,7 @@ func (f *Finder) readOne(ctx context.Context,
 			}
 			fmt.Fprintf(&sb, "%s:%d", c.sender, c.UTime)
 		}
-		resultCh <- result[*storobj.Object]{nil, fmt.Errorf("%w %q: %q %v", ErrConsistencyLevel, st.CLevel, sb.String(), err)}
+		resultCh <- result[*storobj.Object]{nil, fmt.Errorf("%q: %w", sb.String(), err)}
 	}()
 	return resultCh
 }
@@ -219,7 +279,10 @@ func (f *Finder) repairOne(ctx context.Context, shard string, id strfmt.UUID, vo
 		updates, err = f.RClient.FetchObject(ctx, winner.sender, f.class, shard, id,
 			search.SelectProperties{}, additional.Properties{})
 		if err != nil {
-			return nil, fmt.Errorf("get most recent object from %s: %w", votes[winnerIdx].sender, err)
+			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
+		}
+		if updates.UpdateTime() != lastUTime {
+			return nil, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
 		}
 	}
 
@@ -235,57 +298,11 @@ func (f *Finder) repairOne(ctx context.Context, shard string, id strfmt.UUID, vo
 				return nil, fmt.Errorf("node %q could not repair object: %w", c.sender, err)
 			}
 			if len(resp) > 0 && resp[0].Err != "" && resp[0].UpdateTime != lastUTime {
-				return nil, fmt.Errorf("object changed in the meantime on node %s: %s", c.sender, resp[0].Err)
+				return nil, fmt.Errorf("overwrite %w %s: %s", errConflictObjectChanged, c.sender, resp[0].Err)
 			}
 		}
 	}
 	return updates.Object, nil
-}
-
-// batchReply represents the data returned by sender
-// The returned data may result from a direct or digest read request
-type batchReply struct {
-	// Sender hostname of the sender
-	Sender string
-	// DigestRead is this reply from digest read?
-	DigestRead bool
-	// DirectData returned from a direct read request
-	DirectData []objects.Replica
-	// DigestData returned from a digest read request
-	DigestData []RepairResponse
-}
-
-// GetAll gets all objects which satisfy the giving consistency
-func (f *Finder) GetAll(ctx context.Context, l ConsistencyLevel, shard string,
-	ids []strfmt.UUID,
-) ([]*storobj.Object, error) {
-	c := newReadCoordinator[batchReply](f, shard)
-	n := len(ids)
-	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
-		if fullRead {
-			xs, err := f.RClient.FetchObjects(ctx, host, f.class, shard, ids)
-			if m := len(xs); err == nil && n != m {
-				err = fmt.Errorf("direct read expected %d got %d items", n, m)
-			}
-			return batchReply{Sender: host, DigestRead: false, DirectData: xs}, err
-		} else {
-			xs, err := f.DigestObjects(ctx, host, f.class, shard, ids)
-			if m := len(xs); err == nil && n != m {
-				err = fmt.Errorf("direct read expected %d got %d items", n, m)
-			}
-			return batchReply{Sender: host, DigestRead: true, DigestData: xs}, err
-		}
-	}
-	replyCh, state, err := c.Fetch2(ctx, l, op)
-	if err != nil {
-		return nil, err
-	}
-	result := <-f.readAll(ctx, shard, ids, replyCh, state)
-	if err = result.err; err != nil {
-		err = fmt.Errorf("%w %q: %v", ErrConsistencyLevel, state.CLevel, err)
-	}
-
-	return result.data, err
 }
 
 type vote struct {
@@ -321,7 +338,7 @@ func (f *Finder) readAll(ctx context.Context, shard string, ids []strfmt.UUID, c
 				resultCh <- _Results{nil, fmt.Errorf("source %s: %w", r.Response.Sender, r.Err)}
 				return
 			}
-			if !resp.DigestRead {
+			if !resp.IsDigest {
 				contentIdx = len(votes)
 			}
 
@@ -470,4 +487,101 @@ type iTuple struct {
 	O       int   // object's index
 	T       int64 // last update time
 	Deleted bool
+}
+
+func (f *Finder) readExistence(ctx context.Context,
+	shard string,
+	id strfmt.UUID,
+	ch <-chan simpleResult[existReply],
+	st rState,
+) <-chan result[bool] {
+	resultCh := make(chan result[bool], 1)
+	go func() {
+		defer close(resultCh)
+		var (
+			votes    = make([]boolTuple, 0, len(st.Hosts)) // number of votes per replica
+			maxCount = 0
+		)
+
+		for r := range ch { // len(ch) == st.Level
+			resp := r.Response
+			if r.Err != nil { // a least one node is not responding
+				resultCh <- result[bool]{false, fmt.Errorf("source %s: %w", resp.Sender, r.Err)}
+				return
+			}
+
+			votes = append(votes, boolTuple{resp.Sender, resp.UpdateTime, resp.RepairResponse, 0, nil})
+			for i := range votes { // count number of votes
+				if votes[i].UTime == resp.UpdateTime {
+					votes[i].ack++
+				}
+				if maxCount < votes[i].ack {
+					maxCount = votes[i].ack
+				}
+				if maxCount >= st.Level {
+					resultCh <- result[bool]{!votes[i].o.Deleted, nil}
+					return
+				}
+			}
+		}
+
+		obj, err := f.repairExist(ctx, shard, id, votes, st)
+		if err == nil {
+			resultCh <- result[bool]{obj, nil}
+			return
+		}
+		// TODO: log message
+		var sb strings.Builder
+		for i, c := range votes {
+			if i != 0 {
+				sb.WriteByte(' ')
+			}
+			fmt.Fprintf(&sb, "%s:%d", c.sender, c.UTime)
+		}
+		resultCh <- result[bool]{false, fmt.Errorf("%q: %w", sb.String(), err)}
+	}()
+	return resultCh
+}
+
+func (f *Finder) repairExist(ctx context.Context, shard string, id strfmt.UUID, votes []boolTuple, st rState) (_ bool, err error) {
+	var (
+		lastUTime int64
+		winnerIdx int
+	)
+	for i, x := range votes {
+		if x.o.Deleted {
+			return false, errConflictExistOrDeleted
+		}
+		if x.UTime > lastUTime {
+			lastUTime = x.UTime
+			winnerIdx = i
+		}
+	}
+	// fetch most recent object
+	winner := votes[winnerIdx]
+	resp, err := f.RClient.FetchObject(ctx, winner.sender, f.class, shard, id, search.SelectProperties{}, additional.Properties{})
+	if err != nil {
+		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
+	}
+	if resp.UpdateTime() != lastUTime {
+		return false, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
+	}
+
+	for _, c := range votes { // repair
+		if c.UTime != lastUTime {
+			updates := []*objects.VObject{{
+				LatestObject:    &resp.Object.Object,
+				StaleUpdateTime: c.UTime,
+				// Version:         0,
+			}}
+			resp, err := f.RClient.OverwriteObjects(ctx, c.sender, f.class, shard, updates)
+			if err != nil {
+				return false, fmt.Errorf("node %q could not repair object: %w", c.sender, err)
+			}
+			if len(resp) > 0 && resp[0].Err != "" && resp[0].UpdateTime != lastUTime {
+				return false, fmt.Errorf("overwrite %w %s: %s", errConflictObjectChanged, c.sender, resp[0].Err)
+			}
+		}
+	}
+	return !resp.Deleted, nil
 }
