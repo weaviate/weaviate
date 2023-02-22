@@ -316,23 +316,8 @@ func (s *Shard) allObjectList(ctx context.Context, limit int,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, limit)
-
-	i := 0
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
-	defer cursor.Close()
-
-	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
-		if err != nil {
-			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
-		}
-
-		out[i] = obj
-		i++
-	}
-
-	return out[:i], nil
+	scroll := &filters.Scroll{After: "", Limit: limit}
+	return s.scrollObjectList(ctx, scroll, additional, className)
 }
 
 func (s *Shard) scrollObjectList(ctx context.Context, scroll *filters.Scroll,
