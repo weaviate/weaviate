@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -57,42 +56,6 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	}
 	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
-}
-
-func (c *replicationClient) Exists(ctx context.Context, host, index,
-	shard string, id strfmt.UUID,
-) (bool, error) {
-	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", index, shard, id)
-	method := http.MethodGet
-	url := url.URL{Scheme: "http", Host: host, Path: path}
-	q := url.Query()
-	q.Set("check_exists", "true")
-	url.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
-	if err != nil {
-		return false, errors.Wrap(err, "open http request")
-	}
-
-	res, err := c.client.Do(req)
-	if err != nil {
-		return false, errors.Wrap(err, "send http request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotFound {
-		// this is a legitimate case - the requested ID doesn't exist, don't try
-		// to unmarshal anything
-		return false, nil
-	}
-
-	if res.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(res.Body)
-		return false, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
-			body)
-	}
-
-	return true, nil
 }
 
 func (c *replicationClient) DigestObjects(ctx context.Context,

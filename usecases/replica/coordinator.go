@@ -19,25 +19,25 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// readyOp asks a replica if it is ready to commit
-type readyOp func(_ context.Context, host, requestID string) error
+type (
+	// readyOp asks a replica if it is ready to commit
+	readyOp func(_ context.Context, host, requestID string) error
 
-// readyOp asks a replica to execute the actual operation
-type commitOp[T any] func(_ context.Context, host, requestID string) (T, error)
+	// readyOp asks a replica to execute the actual operation
+	commitOp[T any] func(_ context.Context, host, requestID string) (T, error)
 
-// readOp defines a generic read operation
-type readOp[T any] func(_ context.Context, host string) (T, error)
+	// readOp defines a generic read operation
+	readOp[T any] func(_ context.Context, host string, fullRead bool) (T, error)
 
-type readOp2[T any] func(_ context.Context, host string, fullRead bool) (T, error)
-
-// coordinator coordinates replication of write requests
-type coordinator[T any] struct {
-	Client
-	Resolver *resolver // node-name -> host-address
-	Class    string
-	Shard    string
-	TxID     string // transaction ID
-}
+	// coordinator coordinates replication of write and read requests
+	coordinator[T any] struct {
+		Client
+		Resolver *resolver // node_name -> host_address
+		Class    string
+		Shard    string
+		TxID     string // transaction ID
+	}
+)
 
 func newCoordinator[T any](r *Replicator, shard, requestID string) *coordinator[T] {
 	return &coordinator[T]{
@@ -119,8 +119,8 @@ func (c *coordinator[T]) commitAll(ctx context.Context, replicas []string, op co
 	return replyCh
 }
 
-// Replicate writes on all replicas of specific shard
-func (c *coordinator[T]) Replicate(ctx context.Context, cl ConsistencyLevel, ask readyOp, com commitOp[T]) (<-chan simpleResult[T], int, error) {
+// Push pushes updates to all replicas of a specific shard
+func (c *coordinator[T]) Push(ctx context.Context, cl ConsistencyLevel, ask readyOp, com commitOp[T]) (<-chan simpleResult[T], int, error) {
 	state, err := c.Resolver.State(c.Shard, cl)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
@@ -133,31 +133,9 @@ func (c *coordinator[T]) Replicate(ctx context.Context, cl ConsistencyLevel, ask
 	return c.commitAll(context.Background(), nodes, com), level, nil
 }
 
-func (c *coordinator[T]) Fetch(ctx context.Context, cl ConsistencyLevel, op readOp[T]) (<-chan simpleResult[T], rState, error) {
-	state, err := c.Resolver.State(c.Shard, cl)
-	if err != nil {
-		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
-	}
-	replicas := state.Hosts
-	replyCh := make(chan simpleResult[T], len(replicas))
-	go func() {
-		wg := sync.WaitGroup{}
-		wg.Add(len(replicas))
-		for _, replica := range replicas {
-			go func(replica string) {
-				defer wg.Done()
-				resp, err := op(ctx, replica)
-				replyCh <- simpleResult[T]{resp, err}
-			}(replica)
-		}
-		wg.Wait()
-		close(replyCh)
-	}()
-
-	return replyCh, state, nil
-}
-
-func (c *coordinator[T]) Fetch2(ctx context.Context, cl ConsistencyLevel, op readOp2[T]) (<-chan simpleResult[T], rState, error) {
+// Pull data from replica depending on consistency level
+// Pull involves just as many replicas to satisfy the consistency level
+func (c *coordinator[T]) Pull(ctx context.Context, cl ConsistencyLevel, op readOp[T]) (<-chan simpleResult[T], rState, error) {
 	state, err := c.Resolver.State(c.Shard, cl)
 	if err != nil {
 		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
@@ -178,8 +156,8 @@ func (c *coordinator[T]) Fetch2(ctx context.Context, cl ConsistencyLevel, op rea
 			go func(idx int) {
 				defer wg.Done()
 				resp, err := op(ctx, candidates[idx], idx == 0)
-				// If node is not responding delegate request to another node
 
+				// If node is not responding delegate request to another node
 				for err != nil {
 					if delegate, ok := <-candidatePool; ok {
 						resp, err = op(ctx, delegate, idx == 0)
