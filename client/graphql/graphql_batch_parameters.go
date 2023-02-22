@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewGraphqlBatchParams creates a new GraphqlBatchParams object
-// with the default values initialized.
+// NewGraphqlBatchParams creates a new GraphqlBatchParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewGraphqlBatchParams() *GraphqlBatchParams {
-	var ()
 	return &GraphqlBatchParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewGraphqlBatchParamsWithTimeout creates a new GraphqlBatchParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewGraphqlBatchParamsWithTimeout(timeout time.Duration) *GraphqlBatchParams {
-	var ()
 	return &GraphqlBatchParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewGraphqlBatchParamsWithContext creates a new GraphqlBatchParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewGraphqlBatchParamsWithContext(ctx context.Context) *GraphqlBatchParams {
-	var ()
 	return &GraphqlBatchParams{
-
 		Context: ctx,
 	}
 }
 
 // NewGraphqlBatchParamsWithHTTPClient creates a new GraphqlBatchParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewGraphqlBatchParamsWithHTTPClient(client *http.Client) *GraphqlBatchParams {
-	var ()
 	return &GraphqlBatchParams{
 		HTTPClient: client,
 	}
@@ -70,19 +67,37 @@ func NewGraphqlBatchParamsWithHTTPClient(client *http.Client) *GraphqlBatchParam
 
 /*
 GraphqlBatchParams contains all the parameters to send to the API endpoint
-for the graphql batch operation typically these are written to a http.Request
+
+	for the graphql batch operation.
+
+	Typically these are written to a http.Request.
 */
 type GraphqlBatchParams struct {
 
-	/*Body
-	  The GraphQL queries.
+	/* Body.
 
+	   The GraphQL queries.
 	*/
 	Body models.GraphQLQueries
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the graphql batch params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *GraphqlBatchParams) WithDefaults() *GraphqlBatchParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the graphql batch params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *GraphqlBatchParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the graphql batch params
@@ -136,7 +151,6 @@ func (o *GraphqlBatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err

@@ -22,7 +22,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	//"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -238,16 +237,17 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		allowList helpers.AllowList
 	)
 
-	beforeAll := time.Now()
-
 	if filters != nil {
+		beforeFilter := time.Now()
 		list, err := s.buildAllowList(ctx, filters, additional)
 		if err != nil {
 			return nil, nil, err
 		}
 		allowList = list
+		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
 	}
 
+	beforeVector := time.Now()
 	if limit < 0 {
 		ids, dists, err = s.vectorIndex.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
@@ -260,17 +260,14 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 			return nil, nil, errors.Wrap(err, "vector search")
 		}
 	}
-
-	invertedTook := time.Since(beforeAll)
-	beforeVector := time.Now()
-
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
 
-	hnswTook := time.Since(beforeVector)
+	if filters != nil {
+		s.metrics.FilteredVectorVector(time.Since(beforeVector))
+	}
 
-	var sortTook uint64
 	if len(sort) > 0 {
 		beforeSort := time.Now()
 		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort,
@@ -278,7 +275,9 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search sort")
 		}
-		sortTook = uint64(time.Since(beforeSort))
+		if filters != nil {
+			s.metrics.FilteredVectorSort(time.Since(beforeSort))
+		}
 	}
 
 	beforeObjects := time.Now()
@@ -288,15 +287,10 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	if err != nil {
 		return nil, nil, err
 	}
-	objectsTook := time.Since(beforeObjects)
 
-	s.index.logger.WithField("action", "filtered_vector_search").
-		WithFields(logrus.Fields{
-			"inverted_took":         uint64(invertedTook),
-			"hnsw_took":             uint64(hnswTook),
-			"retrieve_objects_took": uint64(objectsTook),
-			"sort_took":             uint64(sortTook),
-		}).Trace("completed filtered vector search")
+	if filters != nil {
+		s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
+	}
 
 	return objs, dists, nil
 }

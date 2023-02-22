@@ -27,7 +27,8 @@ import (
 )
 
 // NewSchemaObjectsDeleteParams creates a new SchemaObjectsDeleteParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewSchemaObjectsDeleteParams() SchemaObjectsDeleteParams {
 
 	return SchemaObjectsDeleteParams{}
@@ -73,7 +74,6 @@ func (o *SchemaObjectsDeleteParams) BindRequest(r *http.Request, route *middlewa
 	if err := o.bindForce(qForce, qhkForce, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -89,7 +89,6 @@ func (o *SchemaObjectsDeleteParams) bindClassName(rawData []string, hasKey bool,
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil
@@ -104,6 +103,7 @@ func (o *SchemaObjectsDeleteParams) bindForce(rawData []string, hasKey bool, for
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}

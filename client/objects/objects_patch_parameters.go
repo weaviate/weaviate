@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsPatchParams creates a new ObjectsPatchParams object
-// with the default values initialized.
+// NewObjectsPatchParams creates a new ObjectsPatchParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsPatchParams() *ObjectsPatchParams {
-	var ()
 	return &ObjectsPatchParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsPatchParamsWithTimeout creates a new ObjectsPatchParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsPatchParamsWithTimeout(timeout time.Duration) *ObjectsPatchParams {
-	var ()
 	return &ObjectsPatchParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsPatchParamsWithContext creates a new ObjectsPatchParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsPatchParamsWithContext(ctx context.Context) *ObjectsPatchParams {
-	var ()
 	return &ObjectsPatchParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsPatchParamsWithHTTPClient creates a new ObjectsPatchParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsPatchParamsWithHTTPClient(client *http.Client) *ObjectsPatchParams {
-	var ()
 	return &ObjectsPatchParams{
 		HTTPClient: client,
 	}
@@ -70,29 +67,51 @@ func NewObjectsPatchParamsWithHTTPClient(client *http.Client) *ObjectsPatchParam
 
 /*
 ObjectsPatchParams contains all the parameters to send to the API endpoint
-for the objects patch operation typically these are written to a http.Request
+
+	for the objects patch operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsPatchParams struct {
 
-	/*Body
-	  RFC 7396-style patch, the body contains the object to merge into the existing object.
+	/* Body.
 
+	   RFC 7396-style patch, the body contains the object to merge into the existing object.
 	*/
 	Body *models.Object
-	/*ConsistencyLevel
-	  Determines how many replicas must acknowledge a request before it is considered successful
 
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
 	*/
 	ConsistencyLevel *string
-	/*ID
-	  Unique ID of the Object.
 
+	/* ID.
+
+	   Unique ID of the Object.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects patch params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsPatchParams) WithDefaults() *ObjectsPatchParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects patch params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsPatchParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects patch params
@@ -168,7 +187,6 @@ func (o *ObjectsPatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
@@ -179,16 +197,17 @@ func (o *ObjectsPatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 
 		// query param consistency_level
 		var qrConsistencyLevel string
+
 		if o.ConsistencyLevel != nil {
 			qrConsistencyLevel = *o.ConsistencyLevel
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}
 		}
-
 	}
 
 	// path param id

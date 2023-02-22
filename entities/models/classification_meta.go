@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -29,19 +31,24 @@ import (
 type ClassificationMeta struct {
 
 	// time when this classification finished
+	// Example: 2017-07-21T17:32:28Z
 	// Format: date-time
 	Completed strfmt.DateTime `json:"completed,omitempty"`
 
 	// number of objects which were taken into consideration for classification
+	// Example: 147
 	Count int64 `json:"count,omitempty"`
 
 	// number of objects which could not be classified - see error message for details
+	// Example: 7
 	CountFailed int64 `json:"countFailed,omitempty"`
 
 	// number of objects successfully classified
+	// Example: 140
 	CountSucceeded int64 `json:"countSucceeded,omitempty"`
 
 	// time when this classification was started
+	// Example: 2017-07-21T17:32:28Z
 	// Format: date-time
 	Started strfmt.DateTime `json:"started,omitempty"`
 }
@@ -65,7 +72,6 @@ func (m *ClassificationMeta) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ClassificationMeta) validateCompleted(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Completed) { // not required
 		return nil
 	}
@@ -78,7 +84,6 @@ func (m *ClassificationMeta) validateCompleted(formats strfmt.Registry) error {
 }
 
 func (m *ClassificationMeta) validateStarted(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Started) { // not required
 		return nil
 	}
@@ -87,6 +92,11 @@ func (m *ClassificationMeta) validateStarted(formats strfmt.Registry) error {
 		return err
 	}
 
+	return nil
+}
+
+// ContextValidate validates this classification meta based on context it is used
+func (m *ClassificationMeta) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

@@ -30,7 +30,8 @@ import (
 )
 
 // NewObjectsClassReferencesPutParams creates a new ObjectsClassReferencesPutParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsClassReferencesPutParams() ObjectsClassReferencesPutParams {
 
 	return ObjectsClassReferencesPutParams{}
@@ -97,6 +98,11 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = body
 			}
@@ -104,6 +110,7 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
@@ -123,7 +130,6 @@ func (o *ObjectsClassReferencesPutParams) BindRequest(r *http.Request, route *mi
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -139,7 +145,6 @@ func (o *ObjectsClassReferencesPutParams) bindClassName(rawData []string, hasKey
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil
@@ -154,10 +159,10 @@ func (o *ObjectsClassReferencesPutParams) bindConsistencyLevel(rawData []string,
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil
@@ -205,7 +210,6 @@ func (o *ObjectsClassReferencesPutParams) bindPropertyName(rawData []string, has
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.PropertyName = raw
 
 	return nil

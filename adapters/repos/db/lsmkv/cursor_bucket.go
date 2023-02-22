@@ -107,7 +107,7 @@ func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	}
 
 	// check if this is a duplicate key before checking for the remaining errors,
-	// as cases such as 'Deleted' can be better handled inside
+	// as cases such as 'entities.Deleted' can be better handled inside
 	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
 	// segments in the correct order
 	if ids, ok := c.haveDuplicatesInState(id); ok {

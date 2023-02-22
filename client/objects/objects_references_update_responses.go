@@ -64,9 +64,8 @@ func (o *ObjectsReferencesUpdateReader) ReadResponse(response runtime.ClientResp
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,14 +75,48 @@ func NewObjectsReferencesUpdateOK() *ObjectsReferencesUpdateOK {
 }
 
 /*
-ObjectsReferencesUpdateOK handles this case with default header values.
+ObjectsReferencesUpdateOK describes a response with status code 200, with default header values.
 
 Successfully replaced all the references.
 */
 type ObjectsReferencesUpdateOK struct {
 }
 
+// IsSuccess returns true when this objects references update o k response has a 2xx status code
+func (o *ObjectsReferencesUpdateOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects references update o k response has a 3xx status code
+func (o *ObjectsReferencesUpdateOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references update o k response has a 4xx status code
+func (o *ObjectsReferencesUpdateOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects references update o k response has a 5xx status code
+func (o *ObjectsReferencesUpdateOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references update o k response a status code equal to that given
+func (o *ObjectsReferencesUpdateOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the objects references update o k response
+func (o *ObjectsReferencesUpdateOK) Code() int {
+	return 200
+}
+
 func (o *ObjectsReferencesUpdateOK) Error() string {
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
+}
+
+func (o *ObjectsReferencesUpdateOK) String() string {
 	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateOK ", 200)
 }
 
@@ -98,14 +131,48 @@ func NewObjectsReferencesUpdateUnauthorized() *ObjectsReferencesUpdateUnauthoriz
 }
 
 /*
-ObjectsReferencesUpdateUnauthorized handles this case with default header values.
+ObjectsReferencesUpdateUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsReferencesUpdateUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects references update unauthorized response has a 2xx status code
+func (o *ObjectsReferencesUpdateUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references update unauthorized response has a 3xx status code
+func (o *ObjectsReferencesUpdateUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references update unauthorized response has a 4xx status code
+func (o *ObjectsReferencesUpdateUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references update unauthorized response has a 5xx status code
+func (o *ObjectsReferencesUpdateUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references update unauthorized response a status code equal to that given
+func (o *ObjectsReferencesUpdateUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects references update unauthorized response
+func (o *ObjectsReferencesUpdateUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsReferencesUpdateUnauthorized) Error() string {
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
+}
+
+func (o *ObjectsReferencesUpdateUnauthorized) String() string {
 	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnauthorized ", 401)
 }
 
@@ -120,7 +187,7 @@ func NewObjectsReferencesUpdateForbidden() *ObjectsReferencesUpdateForbidden {
 }
 
 /*
-ObjectsReferencesUpdateForbidden handles this case with default header values.
+ObjectsReferencesUpdateForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -128,7 +195,41 @@ type ObjectsReferencesUpdateForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects references update forbidden response has a 2xx status code
+func (o *ObjectsReferencesUpdateForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references update forbidden response has a 3xx status code
+func (o *ObjectsReferencesUpdateForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references update forbidden response has a 4xx status code
+func (o *ObjectsReferencesUpdateForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references update forbidden response has a 5xx status code
+func (o *ObjectsReferencesUpdateForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references update forbidden response a status code equal to that given
+func (o *ObjectsReferencesUpdateForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects references update forbidden response
+func (o *ObjectsReferencesUpdateForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsReferencesUpdateForbidden) Error() string {
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsReferencesUpdateForbidden) String() string {
 	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateForbidden  %+v", 403, o.Payload)
 }
 
@@ -154,7 +255,7 @@ func NewObjectsReferencesUpdateUnprocessableEntity() *ObjectsReferencesUpdateUnp
 }
 
 /*
-ObjectsReferencesUpdateUnprocessableEntity handles this case with default header values.
+ObjectsReferencesUpdateUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -162,7 +263,41 @@ type ObjectsReferencesUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects references update unprocessable entity response has a 2xx status code
+func (o *ObjectsReferencesUpdateUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references update unprocessable entity response has a 3xx status code
+func (o *ObjectsReferencesUpdateUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references update unprocessable entity response has a 4xx status code
+func (o *ObjectsReferencesUpdateUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects references update unprocessable entity response has a 5xx status code
+func (o *ObjectsReferencesUpdateUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects references update unprocessable entity response a status code equal to that given
+func (o *ObjectsReferencesUpdateUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the objects references update unprocessable entity response
+func (o *ObjectsReferencesUpdateUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *ObjectsReferencesUpdateUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsReferencesUpdateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -188,7 +323,7 @@ func NewObjectsReferencesUpdateInternalServerError() *ObjectsReferencesUpdateInt
 }
 
 /*
-ObjectsReferencesUpdateInternalServerError handles this case with default header values.
+ObjectsReferencesUpdateInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -196,7 +331,41 @@ type ObjectsReferencesUpdateInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects references update internal server error response has a 2xx status code
+func (o *ObjectsReferencesUpdateInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects references update internal server error response has a 3xx status code
+func (o *ObjectsReferencesUpdateInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects references update internal server error response has a 4xx status code
+func (o *ObjectsReferencesUpdateInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects references update internal server error response has a 5xx status code
+func (o *ObjectsReferencesUpdateInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects references update internal server error response a status code equal to that given
+func (o *ObjectsReferencesUpdateInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects references update internal server error response
+func (o *ObjectsReferencesUpdateInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsReferencesUpdateInternalServerError) Error() string {
+	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsReferencesUpdateInternalServerError) String() string {
 	return fmt.Sprintf("[PUT /objects/{id}/references/{propertyName}][%d] objectsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
 }
 

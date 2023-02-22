@@ -43,7 +43,7 @@ func NewObjectsReferencesDelete(ctx *middleware.Context, handler ObjectsReferenc
 }
 
 /*
-ObjectsReferencesDelete swagger:route DELETE /objects/{id}/references/{propertyName} objects objectsReferencesDelete
+	ObjectsReferencesDelete swagger:route DELETE /objects/{id}/references/{propertyName} objects objectsReferencesDelete
 
 Delete the single reference that is given in the body from the list of references that this property has.
 
@@ -57,17 +57,16 @@ type ObjectsReferencesDelete struct {
 func (o *ObjectsReferencesDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewObjectsReferencesDeleteParams()
-
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -80,7 +79,6 @@ func (o *ObjectsReferencesDelete) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }

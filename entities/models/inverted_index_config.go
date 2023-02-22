@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -65,7 +67,6 @@ func (m *InvertedIndexConfig) Validate(formats strfmt.Registry) error {
 }
 
 func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Bm25) { // not required
 		return nil
 	}
@@ -74,6 +75,8 @@ func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
 		if err := m.Bm25.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("bm25")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("bm25")
 			}
 			return err
 		}
@@ -83,7 +86,6 @@ func (m *InvertedIndexConfig) validateBm25(formats strfmt.Registry) error {
 }
 
 func (m *InvertedIndexConfig) validateStopwords(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Stopwords) { // not required
 		return nil
 	}
@@ -92,6 +94,58 @@ func (m *InvertedIndexConfig) validateStopwords(formats strfmt.Registry) error {
 		if err := m.Stopwords.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("stopwords")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("stopwords")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this inverted index config based on the context it is used
+func (m *InvertedIndexConfig) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateBm25(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateStopwords(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *InvertedIndexConfig) contextValidateBm25(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Bm25 != nil {
+		if err := m.Bm25.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("bm25")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("bm25")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *InvertedIndexConfig) contextValidateStopwords(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Stopwords != nil {
+		if err := m.Stopwords.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("stopwords")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("stopwords")
 			}
 			return err
 		}
