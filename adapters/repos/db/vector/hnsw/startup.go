@@ -185,6 +185,7 @@ func (h *hnsw) prefillCache() {
 			cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				id := binary.LittleEndian.Uint64(k)
+				h.compressedVectorsCache.grow(id)
 				h.compressedVectorsCache.preload(id, v)
 			}
 			cursor.Close()

@@ -125,7 +125,6 @@ func (n *compressedShardedLockCache) prefetch(id uint64) {
 
 //nolint:unused
 func (n *compressedShardedLockCache) preload(id uint64, vec []byte) {
-	n.grow(id)
 	n.shardedLocks[id%shardFactor].RLock()
 	defer n.shardedLocks[id%shardFactor].RUnlock()
 
