@@ -81,6 +81,7 @@ func (c *UserConfig) SetDefaults() {
 	c.PQ = PQConfig{}
 	c.PQ.Enabled = DefaultPQEnabled
 	c.PQ.Segments = DefaultPQSegments
+	c.PQ.Centroids = DefaultPQCentroids
 	c.PQ.Encoder = PQEncoder{}
 	c.PQ.Encoder.Type = DefaultPQEncoderType
 	c.PQ.Encoder.Distribution = DefaultPQEncoderDistribution
