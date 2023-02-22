@@ -68,8 +68,8 @@ type VectorizerValidator interface {
 }
 
 type ModuleConfig interface {
-	SetClassDefaults(class *models.Class)
-	SetSinglePropertyDefaults(class *models.Class, prop *models.Property)
+	SetClassDefaults(class *models.Class) error
+	SetSinglePropertyDefaults(class *models.Class, prop *models.Property) error
 	ValidateClass(ctx context.Context, class *models.Class) error
 }
 

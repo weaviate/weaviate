@@ -32,8 +32,9 @@ func TestSetClassDefaults(t *testing.T) {
 		}
 
 		p := NewProvider()
-		p.SetClassDefaults(class)
+		err := p.SetClassDefaults(class)
 
+		assert.Nil(t, err)
 		assert.Equal(t, &models.Class{Class: "Foo", Vectorizer: "none"}, class,
 			"the class is not changed")
 	})
@@ -46,8 +47,9 @@ func TestSetClassDefaults(t *testing.T) {
 
 		p := NewProvider()
 		p.Register(&dummyText2VecModuleNoCapabilities{name: "my-module"})
-		p.SetClassDefaults(class)
+		err := p.SetClassDefaults(class)
 
+		assert.Nil(t, err)
 		assert.Equal(t, &models.Class{Class: "Foo", Vectorizer: "my-module"}, class,
 			"the class is not changed")
 	})
@@ -88,8 +90,9 @@ func TestSetClassDefaults(t *testing.T) {
 				name: "my-module",
 			},
 		})
-		p.SetClassDefaults(class)
+		err := p.SetClassDefaults(class)
 
+		assert.Nil(t, err)
 		assert.Equal(t, expected, class,
 			"the defaults were set from config")
 	})
@@ -140,8 +143,9 @@ func TestSetClassDefaults(t *testing.T) {
 				name: "my-module",
 			},
 		})
-		p.SetClassDefaults(class)
+		err := p.SetClassDefaults(class)
 
+		assert.Nil(t, err)
 		assert.Equal(t, expected, class,
 			"the defaults were set from config")
 	})
@@ -166,8 +170,9 @@ func TestValidateClass(t *testing.T) {
 				name: "my-module",
 			},
 		})
-		p.SetClassDefaults(class)
+		err := p.SetClassDefaults(class)
 
+		assert.Nil(t, err)
 		assert.Nil(t, p.ValidateClass(ctx, class))
 	})
 
@@ -186,8 +191,9 @@ func TestValidateClass(t *testing.T) {
 			p.Register(&dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			})
-			p.SetClassDefaults(class)
+			err := p.SetClassDefaults(class)
 
+			assert.Nil(t, err)
 			assert.Nil(t, p.ValidateClass(ctx, class))
 		})
 
@@ -208,9 +214,10 @@ func TestValidateClass(t *testing.T) {
 				name: "my-module",
 			},
 		})
-		p.SetClassDefaults(class)
+		err := p.SetClassDefaults(class)
 
-		err := p.ValidateClass(ctx, class)
+		assert.Nil(t, err)
+		err = p.ValidateClass(ctx, class)
 		require.NotNil(t, err)
 		assert.Equal(t, "module 'my-module': no can do!", err.Error())
 	})
@@ -261,8 +268,9 @@ func TestSetSinglePropertyDefaults(t *testing.T) {
 			name: "my-module",
 		},
 	})
-	p.SetSinglePropertyDefaults(class, prop)
+	err := p.SetSinglePropertyDefaults(class, prop)
 
+	assert.Nil(t, err)
 	assert.Equal(t, expected, prop,
 		"user specified module config is used, for rest the default value is used")
 }
