@@ -138,7 +138,7 @@ func (n *compressedShardedLockCache) preload(id uint64, vec []byte) {
 
 //nolint:unused
 func (n *compressedShardedLockCache) grow(node uint64) {
-	if node < uint64(atomic.LoadInt64(&n.count)) {
+	if node < uint64(len(n.cache)) {
 		return
 	}
 
