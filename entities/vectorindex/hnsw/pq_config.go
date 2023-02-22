@@ -22,6 +22,7 @@ const (
 	DefaultPQSegments            = 0
 	DefaultPQEncoderType         = "kmeans"
 	DefaultPQEncoderDistribution = "log-normal"
+	DefaultPQCentroids           = 256
 )
 
 // Product Quantization encoder configuration
@@ -32,9 +33,10 @@ type PQEncoder struct {
 
 // Product Quantization configuration
 type PQConfig struct {
-	Enabled  bool      `json:"enabled"`
-	Segments int       `json:"segments"`
-	Encoder  PQEncoder `json:"encoder"`
+	Enabled   bool      `json:"enabled"`
+	Segments  int       `json:"segments"`
+	Centroids int       `json:"centroids"`
+	Encoder   PQEncoder `json:"encoder"`
 }
 
 func ValidEncoder(encoder string) (ssdhelpers.Encoder, error) {
@@ -43,8 +45,6 @@ func ValidEncoder(encoder string) (ssdhelpers.Encoder, error) {
 		return ssdhelpers.UseTileEncoder, nil
 	case "kmeans":
 		return ssdhelpers.UseKMeansEncoder, nil
-	case "hybrid":
-		return ssdhelpers.UseTileKMeansHybridEncoder, nil
 	default:
 		return 0, fmt.Errorf("invalid encoder type: %s", encoder)
 	}
@@ -120,6 +120,12 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 
 	if err := optionalIntFromMap(pqConfigMap, "segments", func(v int) {
 		pq.Segments = v
+	}); err != nil {
+		return err
+	}
+
+	if err := optionalIntFromMap(pqConfigMap, "centroids", func(v int) {
+		pq.Centroids = v
 	}); err != nil {
 		return err
 	}
