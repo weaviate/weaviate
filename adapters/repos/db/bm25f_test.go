@@ -23,8 +23,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -82,6 +84,11 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				Tokenization:  "field",
 				IndexInverted: truePointer(),
 			},
+			{
+				Name:          "relatedToGolf",
+				DataType:      []string{string(schema.DataTypeBoolean)},
+				IndexInverted: truePointer(),
+			},
 		},
 	}
 
@@ -113,6 +120,54 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		obj := &models.Object{Class: "MyClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
+		err := repo.PutObject(context.Background(), obj, vector, nil)
+		require.Nil(t, err)
+	}
+}
+
+// DuplicatedFrom SetupClass to make sure this new test does not alter the results of the existing one
+func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
+) {
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		Class:               "FilterClass",
+
+		Properties: []*models.Property{
+			{
+				Name:          "description",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "relatedToGolf",
+				DataType:      []string{string(schema.DataTypeBoolean)},
+				IndexInverted: truePointer(),
+			},
+		},
+	}
+
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	schemaGetter.schema = schema
+
+	migrator := NewMigrator(repo, logger)
+	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+	testData := []map[string]interface{}{}
+	testData = append(testData, map[string]interface{}{"description": "Brooks Koepka appeared a lot in the ms marco dataset. I was surprised to see golf content in there. I assume if the dataset was newer, we'd see a lot more Rory though.", "relatedToGolf": true})
+	testData = append(testData, map[string]interface{}{"description": "While one would expect Koepka to be a somewhat rare name, it did appear in msmarco also outside the context of Brooks.", "relatedToGolf": false})
+
+	for i, data := range testData {
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+
+		obj := &models.Object{Class: "FilterClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+		vector := []float32{1, 3, 5, 0.4}
 		err := repo.PutObject(context.Background(), obj, vector, nil)
 		require.Nil(t, err)
 	}
@@ -325,6 +380,122 @@ func TestBM25FSingleProp(t *testing.T) {
 	// Check scores
 	EqualFloats(t, float32(0.38539), res[0].Score(), 5)
 	EqualFloats(t, float32(0.04250), res[1].Score(), 5)
+}
+
+func TestBM25FWithFilters(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "My",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "journeys",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
+	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+	addit := additional.Properties{}
+	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, addit)
+
+	require.Nil(t, err)
+	require.True(t, len(res) == 1)
+	require.Equal(t, uint64(2), res[0].DocID())
+}
+
+func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	SetupClassForFilterScoringTest(t, repo, schemaGetter, logger, 1.2, 0.75)
+
+	idx := repo.GetIndex("FilterClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			On: &filters.Path{
+				Class:    schema.ClassName("FilterClass"),
+				Property: schema.PropertyName("relatedToGolf"),
+			},
+			Operator: filters.OperatorEqual,
+			Value: &filters.Value{
+				Value: true,
+				Type:  dtBool,
+			},
+		},
+	}
+
+	kwr := &searchparams.KeywordRanking{
+		Type:       "bm25",
+		Properties: []string{"description"},
+		Query:      "koepka golf",
+	}
+
+	addit := additional.Properties{}
+	filtered, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, addit)
+	require.Nil(t, err)
+	unfiltered, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+	require.Nil(t, err)
+
+	require.Len(t, filtered, 1)   // should match exactly one element
+	require.Len(t, unfiltered, 2) // contains irrelevant result
+
+	assert.Equal(t, uint64(0), filtered[0].DocID())   // brooks koepka result
+	assert.Equal(t, uint64(0), unfiltered[0].DocID()) // brooks koepka result
+
+	assert.Equal(t, filtered[0].Score(), unfiltered[0].Score())
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {

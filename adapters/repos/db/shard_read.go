@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -172,19 +173,45 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 		bm25Config := s.index.getInvertedIndexConfig().BM25
 
-		searcher := inverted.NewBM25Searcher(bm25Config, s.store,
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
-		if keywordRanking != nil && keywordRanking.Type == "bm25" {
-			className := s.index.Config.ClassName
-			return searcher.BM25F(ctx, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object {
-				v, _ := s.objectByIndexID(ctx, index, false)
-				return v
-			})
-		} else {
-			return searcher.Objects(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+
+		var bm25objs []*storobj.Object
+		var bm25count []float32
+		var err error
+		var objs helpers.AllowList
+		var filterDocIds helpers.AllowList
+
+		if filters != nil {
+			objs, err = inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
+				s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
+				s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			filterDocIds = objs
 		}
+		if keywordRanking.Type == "bm25" {
+			className := s.index.Config.ClassName
+			bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object { v, _ := s.objectByIndexID(ctx, index, false); return v })
+			if err != nil {
+				return nil, nil, err
+			}
+		} else {
+
+			bm25objs, bm25count, err = bm25searcher.Objects(ctx, filterDocIds, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+		}
+
+		return bm25objs, bm25count, nil
+
 	}
 
 	if filters == nil {
