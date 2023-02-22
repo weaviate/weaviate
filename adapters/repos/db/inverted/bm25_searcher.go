@@ -106,13 +106,10 @@ func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowLi
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, []float32, error) {
-	defer func() {
-		err := recover()
-		if err != nil {
-			fmt.Println(err)
-			debug.PrintStack()
-		}
-	}()
+
+	if keywordRanking == nil {
+		return nil, nil, errors.New("keyword ranking cannot be nil in bm25 search")
+	}
 
 	class, err := schema.GetClassByName(b.schema.Objects, string(className))
 	if err != nil {

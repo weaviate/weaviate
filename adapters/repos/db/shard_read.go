@@ -195,7 +195,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 			filterDocIds = objs
 		}
-		if keywordRanking != nil && keywordRanking.Type == "bm25" {
+		if keywordRanking.Type == "bm25" {
 			className := s.index.Config.ClassName
 			bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object { v, _ := s.objectByIndexID(ctx, index, false); return v })
 			if err != nil {
