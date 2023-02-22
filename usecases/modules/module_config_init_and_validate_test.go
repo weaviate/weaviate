@@ -217,54 +217,54 @@ func TestValidateClass(t *testing.T) {
 }
 
 func TestSetSinglePropertyDefaults(t *testing.T) {
-	t.Run("add property after creating the class", func(t *testing.T) {
-		class := &models.Class{
-			Class: "Foo",
+	class := &models.Class{
+		Class: "Foo",
+		ModuleConfig: map[string]interface{}{
+			"my-module": map[string]interface{}{
+				"per-class-prop-1": "overwritten by user",
+			},
+		},
+		Properties: []*models.Property{{
+			Name:     "Foo",
+			DataType: []string{"string"},
 			ModuleConfig: map[string]interface{}{
 				"my-module": map[string]interface{}{
-					"per-class-prop-1": "overwritten by user",
+					"per-prop-1": "prop overwritten by user",
 				},
 			},
-			Properties: []*models.Property{{
-				Name:     "Foo",
-				DataType: []string{"string"},
-				ModuleConfig: map[string]interface{}{
-					"my-module": map[string]interface{}{
-						"per-prop-1": "prop overwritten by user",
-					},
-				},
-			}},
-			Vectorizer: "my-module",
-		}
-		p := NewProvider()
-		p.Register(&dummyModuleClassConfigurator{
-			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
-				name: "my-module",
+		}},
+		Vectorizer: "my-module",
+	}
+	prop := &models.Property{
+		DataType: []string{"boolean"},
+		ModuleConfig: map[string]interface{}{
+			"my-module": map[string]interface{}{
+				"per-prop-1": "overwritten by user",
 			},
-		})
-		prop := &models.Property{
-			DataType: []string{"boolean"},
-			ModuleConfig: map[string]interface{}{
-				"my-module": map[string]interface{}{
-					"per-prop-1": "overwritten by user",
-				},
+		},
+		Name: "newProp",
+	}
+	expected := &models.Property{
+		DataType: []string{"boolean"},
+		ModuleConfig: map[string]interface{}{
+			"my-module": map[string]interface{}{
+				"per-prop-1": "overwritten by user",
+				"per-prop-2": "prop default value",
 			},
-			Name: "newProp",
-		}
-		expected := &models.Property{
-			DataType: []string{"boolean"},
-			ModuleConfig: map[string]interface{}{
-				"my-module": map[string]interface{}{
-					"per-prop-1": "overwritten by user",
-					"per-prop-2": "prop default value",
-				},
-			},
-			Name: "newProp",
-		}
-		p.SetSinglePropertyDefaults(class, prop)
-		assert.Equal(t, expected, prop,
-			"user specified module config is user, for rest the default value is set")
+		},
+		Name: "newProp",
+	}
+
+	p := NewProvider()
+	p.Register(&dummyModuleClassConfigurator{
+		dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
+			name: "my-module",
+		},
 	})
+	p.SetSinglePropertyDefaults(class, prop)
+
+	assert.Equal(t, expected, prop,
+		"user specified module config is used, for rest the default value is used")
 }
 
 type dummyModuleClassConfigurator struct {
