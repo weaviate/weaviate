@@ -326,8 +326,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			for _, val := range preM {
 				docID := binary.BigEndian.Uint64(val.Key)
 				uniqeDocIDs.Set(docID)
-				_, ok := filterDocIds[docID]
-				if ok {
+				if filterDocIds.Contains(docID) {
 					m = append(m, val)
 				}
 			}
