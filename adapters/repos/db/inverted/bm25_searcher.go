@@ -320,8 +320,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			return termResult, nil, err
 		}
 
-		m := make([]lsmkv.MapPair, 0, len(preM))
+		var m []lsmkv.MapPair
 		if filterDocIds != nil {
+			m = make([]lsmkv.MapPair, 0, len(preM))
 			for _, val := range preM {
 				docID := binary.BigEndian.Uint64(val.Key)
 				uniqeDocIDs.Set(docID)
