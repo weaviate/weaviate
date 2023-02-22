@@ -63,7 +63,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -152,7 +152,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	var bfControl []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -267,7 +267,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	var control []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -897,7 +897,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 
 	var control []uint64
 	t.Run("control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue

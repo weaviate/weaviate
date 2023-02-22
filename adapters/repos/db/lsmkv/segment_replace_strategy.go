@@ -17,11 +17,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func (i *segment) get(key []byte) ([]byte, error) {
-	if i.strategy != SegmentStrategyReplace {
+	if i.strategy != segmentindex.StrategyReplace {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
@@ -62,7 +63,7 @@ func (i *segment) get(key []byte) ([]byte, error) {
 }
 
 func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
-	if i.strategy != SegmentStrategyReplace {
+	if i.strategy != segmentindex.StrategyReplace {
 		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
@@ -76,11 +77,7 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 	node, err := i.secondaryIndices[pos].Get(key)
 	if err != nil {
-		if err == lsmkv.NotFound {
-			return nil, lsmkv.NotFound
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	// We need to copy the data we read from the segment exactly once in this

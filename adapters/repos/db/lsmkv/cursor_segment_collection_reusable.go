@@ -11,7 +11,9 @@
 
 package lsmkv
 
-import "github.com/weaviate/weaviate/entities/lsmkv"
+import (
+	"github.com/weaviate/weaviate/entities/lsmkv"
+)
 
 type segmentCursorCollectionReusable struct {
 	segment    *segment
@@ -51,7 +53,7 @@ func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 		s.segment.contents[s.nextOffset:], &s.nodeBuf)
 
 	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
+	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
 	s.nextOffset = s.nextOffset + uint64(s.nodeBuf.offset)
 	if err != nil {
