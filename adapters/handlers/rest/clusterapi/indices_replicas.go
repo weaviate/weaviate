@@ -50,8 +50,6 @@ type replicator interface {
 	// Read endpoints
 	FetchObject(ctx context.Context, indexName,
 		shardName string, id strfmt.UUID) (objects.Replica, error)
-	DoesExist(ctx context.Context, class,
-		shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, class,
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
@@ -574,18 +572,10 @@ func (i *replicatedIndices) getObject() http.Handler {
 			err  error
 		)
 
-		if r.URL.Query().Get("check_exists") != "" {
-			resp, err = i.shards.DoesExist(r.Context(), index, shard, strfmt.UUID(id))
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		} else {
-			resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		b, err := resp.MarshalBinary()

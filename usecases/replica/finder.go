@@ -169,7 +169,7 @@ func (f *Finder) Exists(ctx context.Context, l ConsistencyLevel, shard string, i
 		if len(xs) == 1 {
 			x = xs[0]
 		}
-		if err == nil && len(xs) != 1 {
+		if err == nil && len(xs) < 1 {
 			err = fmt.Errorf("digest read request: empty result")
 		}
 		return existReply{host, x}, err
@@ -519,7 +519,8 @@ func (f *Finder) readExistence(ctx context.Context,
 					maxCount = votes[i].ack
 				}
 				if maxCount >= st.Level {
-					resultCh <- result[bool]{!votes[i].o.Deleted, nil}
+					exists := !votes[i].o.Deleted && votes[i].o.UpdateTime != 0
+					resultCh <- result[bool]{exists, nil}
 					return
 				}
 			}

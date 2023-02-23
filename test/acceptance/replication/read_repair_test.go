@@ -110,7 +110,8 @@ func readRepair(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
 		time.Sleep(10 * time.Second)
 
-		resp, err := getObjectCL(t, compose.GetWeaviateNode2().URI(), repairObj.Class, repairObj.ID, replica.One)
+		resp, err := getObjectCL(t, compose.GetWeaviateNode2().URI(),
+			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, repairObj.ID, resp.ID)
 		assert.Equal(t, repairObj.Class, resp.Class)
@@ -130,16 +131,24 @@ func readRepair(t *testing.T) {
 		restartNode1(ctx, t, compose)
 	})
 
-	t.Run("run fetch to trigger read repair", func(t *testing.T) {
-		_, err := getObject(t, compose.GetWeaviateNode2().URI(), replaceObj.Class, replaceObj.ID)
+	t.Run("run exists to trigger read repair", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+			replaceObj.Class, replaceObj.ID, replica.All)
 		require.Nil(t, err)
+		require.True(t, exists)
 	})
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
 		time.Sleep(10 * time.Second)
 
-		resp, err := getObjectCL(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, replica.One)
+		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+			replaceObj.Class, replaceObj.ID, replica.One)
+		require.Nil(t, err)
+		require.True(t, exists)
+
+		resp, err := getObjectCL(t, compose.GetWeaviate().URI(),
+			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, replaceObj.ID, resp.ID)
 		assert.Equal(t, replaceObj.Class, resp.Class)

@@ -58,6 +58,11 @@ func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object
 	return helper.GetObject(t, class, id)
 }
 
+func objectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+	helper.SetupClient(host)
+	return helper.ObjectExistsCL(t, class, id, cl)
+}
+
 func getObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (*models.Object, error) {
 	helper.SetupClient(host)
 	return helper.GetObjectCL(t, class, id, cl)
