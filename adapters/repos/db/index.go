@@ -782,6 +782,28 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
+	// If the request is a BM25F with no properties selected, use all possible properties
+	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
+
+		cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
+		if err != nil {
+			return nil, nil, err
+		}
+
+		propHash := cl.Properties
+		// Get keys of hash
+		for _, v := range propHash {
+			if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
+				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+			}
+		}
+
+		// WEAVIATE-471 - error if we can't find a property to search
+		if len(keywordRanking.Properties) == 0 {
+			return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
+		}
+	}
+
 	outObjects := make([]*storobj.Object, 0, len(shardNames)*limit)
 	outScores := make([]float32, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
@@ -794,27 +816,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
-			// If the request is a BM25F with no properties selected, use all possible properties
-			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
-
-				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
-				if err != nil {
-					return nil, nil, err
-				}
-
-				propHash := cl.Properties
-				// Get keys of hash
-				for _, v := range propHash {
-					if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
-						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
-					}
-				}
-
-				// WEAVIATE-471 - error if we can't find a property to search
-				if len(keywordRanking.Properties) == 0 {
-					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
-				}
-			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
