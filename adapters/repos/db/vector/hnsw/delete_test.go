@@ -662,10 +662,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		userConfig.PQ.Encoder.Distribution = "normal"
 		sem := semaphore.NewWeighted(1)
 		sem.Acquire(context.Background(), 1)
-		index.UpdateUserConfig(userConfig, func() {
-			sem.Release(1)
-		})
-		sem.Acquire(context.Background(), 1)
+		index.Compress(0, 256, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)
