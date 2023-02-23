@@ -80,7 +80,8 @@ func (lut *DistanceLookUpTable) LookUp(
 
 type ProductQuantizer struct {
 	ks                  int // centroids
-	bytes               int // bits amount
+	bits                int // bits amount
+	bytes               int // bytes amount
 	m                   int // segments
 	ds                  int // dimensions per segment
 	distance            distancer.Provider
@@ -88,8 +89,10 @@ type ProductQuantizer struct {
 	kms                 []PQEncoder
 	encoderType         Encoder
 	encoderDistribution EncoderDistribution
-	ExtractCode         func(encoded []byte, index int) uint64
-	PutCode             func(code uint64, buffer []byte, index int)
+	extractCode         func(encoded []byte) uint64
+	putCode             func(code uint64, buffer []byte)
+	codingMask          uint64
+	sharpCodes          bool
 }
 
 type PQData struct {
@@ -119,6 +122,7 @@ func NewProductQuantizer(segments int, centroids int, distance distancer.Provide
 	}
 	pq := &ProductQuantizer{
 		ks:                  centroids,
+		bits:                int(math.Log2(float64(centroids))),
 		bytes:               int(math.Log2(float64(centroids-1)))/8 + 1,
 		m:                   segments,
 		ds:                  int(dimensions / segments),
@@ -127,25 +131,37 @@ func NewProductQuantizer(segments int, centroids int, distance distancer.Provide
 		encoderType:         encoderType,
 		encoderDistribution: encoderDistribution,
 	}
-	if pq.bytes < 1 {
-		pq.bytes = 1
-	} else if pq.bytes > 4 {
-		pq.bytes = 4
+	pq.sharpCodes = pq.bits%8 == 0
+	if pq.bits > 32 {
+		return nil, errors.New("Centroids amount not supported, please use a lower value")
 	}
 	switch pq.bytes {
 	case 1:
-		pq.ExtractCode = extractCode8
-		pq.PutCode = putCode8
+		if pq.bits == 8 {
+			pq.extractCode = extractCode8
+			pq.putCode = putCode8
+		} else {
+			pq.extractCode = extractCode16
+			pq.putCode = putCode16
+		}
 	case 2:
-		pq.ExtractCode = extractCode16
-		pq.PutCode = putCode16
+		if pq.bits == 16 {
+			pq.extractCode = extractCode16
+			pq.putCode = putCode16
+		} else {
+			pq.extractCode = extractCode24
+			pq.putCode = putCode24
+		}
 	case 3:
-		pq.ExtractCode = extractCode32
-		pq.PutCode = putCode32
-	case 4:
-		pq.ExtractCode = extractCode64
-		pq.PutCode = putCode64
+		if pq.bits == 32 {
+			pq.extractCode = extractCode24
+			pq.putCode = putCode24
+		} else {
+			pq.extractCode = extractCode32
+			pq.putCode = putCode32
+		}
 	}
+	pq.codingMask = uint64(math.Pow(2, float64(pq.bits))) - 1
 	return pq, nil
 }
 
@@ -159,36 +175,73 @@ func NewProductQuantizerWithEncoders(segments int, centroids int, distance dista
 	return pq, nil
 }
 
-func extractCode8(encoded []byte, index int) uint64 {
-	return uint64(encoded[index])
+func extractCode8(encoded []byte) uint64 {
+	return uint64(encoded[0])
 }
 
-func extractCode16(encoded []byte, index int) uint64 {
-	return uint64(binary.LittleEndian.Uint16(encoded[index*2 : (index+1)*2]))
+func extractCode16(encoded []byte) uint64 {
+	return uint64(binary.BigEndian.Uint16(encoded))
 }
 
-func extractCode32(encoded []byte, index int) uint64 {
-	return uint64(binary.LittleEndian.Uint32(encoded[index*3 : (index+1)*3]))
+func extractCode24(encoded []byte) uint64 {
+	return uint64(binary.BigEndian.Uint32(encoded)) >> 8
 }
 
-func extractCode64(encoded []byte, index int) uint64 {
-	return binary.LittleEndian.Uint64(encoded[index*4 : (index+1)*4])
+func extractCode32(encoded []byte) uint64 {
+	return uint64(binary.BigEndian.Uint32(encoded))
 }
 
-func putCode8(code uint64, buffer []byte, index int) {
-	buffer[index] = byte(code)
+func putCode8(code uint64, buffer []byte) {
+	buffer[0] = byte(code)
 }
 
-func putCode16(code uint64, buffer []byte, index int) {
-	binary.LittleEndian.PutUint16(buffer[index*2:(index+1)*2], uint16(code))
+func putCode16(code uint64, buffer []byte) {
+	binary.BigEndian.PutUint16(buffer, uint16(code))
 }
 
-func putCode32(code uint64, buffer []byte, index int) {
-	binary.LittleEndian.PutUint32(buffer[index*3:(index+1)*3], uint32(code))
+func putCode24(code uint64, buffer []byte) {
+	binary.BigEndian.PutUint32(buffer, uint32(code<<8))
 }
 
-func putCode64(code uint64, buffer []byte, index int) {
-	binary.LittleEndian.PutUint64(buffer[index*4:(index+1)*4], uint64(code))
+func putCode32(code uint64, buffer []byte) {
+	binary.BigEndian.PutUint32(buffer, uint32(code))
+}
+
+func (pq *ProductQuantizer) ExtractCode(encoded []byte, index int) uint64 {
+	correctedIndex := index * pq.bits / 8
+	code := pq.extractCode(encoded[correctedIndex:])
+	if pq.sharpCodes {
+		return code
+	}
+	rest := (index + 1) * pq.bits % 8
+	restFromStart := index * pq.bits % 8
+	if restFromStart < rest {
+		code >>= 16 - rest
+	} else {
+		code >>= 8 - rest
+	}
+	return code & pq.codingMask
+}
+
+func (pq *ProductQuantizer) PutCode(code uint64, encoded []byte, index int) {
+	correctedIndex := index * pq.bits / 8
+	if pq.sharpCodes {
+		pq.putCode(code, encoded[correctedIndex:])
+		return
+	}
+
+	rest := (index + 1) * pq.bits % 8
+	restFromStart := index * pq.bits % 8
+	if restFromStart < rest {
+		code <<= 16 - rest
+	} else {
+		code <<= 8 - rest
+	}
+	m1 := uint64(encoded[correctedIndex])
+	m2 := uint64(pq.bytes * 8)
+	mask := m1 << m2
+	code |= mask
+	pq.putCode(code, encoded[correctedIndex:])
 }
 
 func (pq *ProductQuantizer) ExposeFields() PQData {
