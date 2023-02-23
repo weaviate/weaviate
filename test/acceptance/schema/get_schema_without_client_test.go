@@ -50,7 +50,8 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"dynamicEfFactor":        float64(8),
 					"distance":               "cosine",
 					"pq": map[string]interface{}{
-						"enabled": false,
+						"centroids": float64(256),
+						"enabled":   false,
 						"encoder": map[string]interface{}{
 							"distribution": "log-normal",
 							"type":         "kmeans",
