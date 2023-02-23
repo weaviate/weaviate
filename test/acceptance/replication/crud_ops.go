@@ -73,6 +73,11 @@ func patchObject(t *testing.T, host string, patch *models.Object) {
 	helper.PatchObject(t, patch)
 }
 
+func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
+	helper.SetupClient(host)
+	helper.UpdateObjectCL(t, obj, cl)
+}
+
 func addReferences(t *testing.T, host string, refs []*models.BatchReference) {
 	helper.SetupClient(host)
 	helper.AddReferences(t, refs)
