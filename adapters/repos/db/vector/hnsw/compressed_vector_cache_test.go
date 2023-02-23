@@ -21,11 +21,11 @@ import (
 func TestCompressedVectorCacheGrowth(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	vectorCache := newCompressedShardedLockCache(1000000, logger)
-	id := int64(10)
-	assert.True(t, vectorCache.count < id)
+	id := 100000
+	assert.True(t, len(vectorCache.cache) < id)
 	vectorCache.grow(uint64(id))
-	assert.True(t, vectorCache.count > id)
+	assert.True(t, len(vectorCache.cache) > id)
 	last := vectorCache.count
 	vectorCache.grow(uint64(id))
-	assert.True(t, vectorCache.count == last)
+	assert.True(t, len(vectorCache.cache) == int(last))
 }

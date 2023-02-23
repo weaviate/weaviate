@@ -119,7 +119,7 @@ func NewProductQuantizer(segments int, centroids int, distance distancer.Provide
 	}
 	pq := &ProductQuantizer{
 		ks:                  centroids,
-		bytes:               int(math.Log2(float64(centroids))) / 8,
+		bytes:               int(math.Log2(float64(centroids-1)))/8 + 1,
 		m:                   segments,
 		ds:                  int(dimensions / segments),
 		distance:            distance,
