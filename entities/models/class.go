@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -83,7 +84,6 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Class) validateInvertedIndexConfig(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.InvertedIndexConfig) { // not required
 		return nil
 	}
@@ -92,6 +92,8 @@ func (m *Class) validateInvertedIndexConfig(formats strfmt.Registry) error {
 		if err := m.InvertedIndexConfig.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("invertedIndexConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("invertedIndexConfig")
 			}
 			return err
 		}
@@ -101,7 +103,6 @@ func (m *Class) validateInvertedIndexConfig(formats strfmt.Registry) error {
 }
 
 func (m *Class) validateProperties(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Properties) { // not required
 		return nil
 	}
@@ -115,6 +116,8 @@ func (m *Class) validateProperties(formats strfmt.Registry) error {
 			if err := m.Properties[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("properties" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("properties" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -126,7 +129,6 @@ func (m *Class) validateProperties(formats strfmt.Registry) error {
 }
 
 func (m *Class) validateReplicationConfig(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ReplicationConfig) { // not required
 		return nil
 	}
@@ -135,6 +137,82 @@ func (m *Class) validateReplicationConfig(formats strfmt.Registry) error {
 		if err := m.ReplicationConfig.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("replicationConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("replicationConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this class based on the context it is used
+func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateInvertedIndexConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateProperties(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateReplicationConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Class) contextValidateInvertedIndexConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.InvertedIndexConfig != nil {
+		if err := m.InvertedIndexConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("invertedIndexConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("invertedIndexConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Class) contextValidateProperties(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Properties); i++ {
+
+		if m.Properties[i] != nil {
+			if err := m.Properties[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("properties" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("properties" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *Class) contextValidateReplicationConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ReplicationConfig != nil {
+		if err := m.ReplicationConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("replicationConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("replicationConfig")
 			}
 			return err
 		}

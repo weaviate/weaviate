@@ -20,12 +20,16 @@ import (
 )
 
 type Metrics struct {
-	logger           logrus.FieldLogger
-	monitoring       bool
-	batchTime        prometheus.ObserverVec
-	batchDeleteTime  prometheus.ObserverVec
-	objectTime       prometheus.ObserverVec
-	startupDurations prometheus.ObserverVec
+	logger                logrus.FieldLogger
+	monitoring            bool
+	batchTime             prometheus.ObserverVec
+	batchDeleteTime       prometheus.ObserverVec
+	objectTime            prometheus.ObserverVec
+	startupDurations      prometheus.ObserverVec
+	filteredVectorFilter  prometheus.Observer
+	filteredVectorVector  prometheus.Observer
+	filteredVectorObjects prometheus.Observer
+	filteredVectorSort    prometheus.Observer
 }
 
 func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
@@ -55,6 +59,30 @@ func NewMetrics(logger logrus.FieldLogger, prom *monitoring.PrometheusMetrics,
 	m.startupDurations = prom.StartupDurations.MustCurryWith(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
+	})
+
+	m.filteredVectorFilter = prom.QueriesFilteredVectorDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "filter",
+	})
+
+	m.filteredVectorVector = prom.QueriesFilteredVectorDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "vector",
+	})
+
+	m.filteredVectorObjects = prom.QueriesFilteredVectorDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "objects",
+	})
+
+	m.filteredVectorSort = prom.QueriesFilteredVectorDurations.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+		"operation":  "sort",
 	})
 
 	return m
@@ -219,4 +247,36 @@ func (m *Metrics) BatchDelete(start time.Time, op string) {
 	m.batchDeleteTime.With(prometheus.Labels{
 		"operation": op,
 	}).Observe(float64(took) / float64(time.Millisecond))
+}
+
+func (m *Metrics) FilteredVectorFilter(dur time.Duration) {
+	if !m.monitoring {
+		return
+	}
+
+	m.filteredVectorFilter.Observe(float64(dur) / float64(time.Millisecond))
+}
+
+func (m *Metrics) FilteredVectorVector(dur time.Duration) {
+	if !m.monitoring {
+		return
+	}
+
+	m.filteredVectorVector.Observe(float64(dur) / float64(time.Millisecond))
+}
+
+func (m *Metrics) FilteredVectorObjects(dur time.Duration) {
+	if !m.monitoring {
+		return
+	}
+
+	m.filteredVectorObjects.Observe(float64(dur) / float64(time.Millisecond))
+}
+
+func (m *Metrics) FilteredVectorSort(dur time.Duration) {
+	if !m.monitoring {
+		return
+	}
+
+	m.filteredVectorSort.Observe(float64(dur) / float64(time.Millisecond))
 }

@@ -24,12 +24,14 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewSchemaObjectsShardsUpdateParams creates a new SchemaObjectsShardsUpdateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewSchemaObjectsShardsUpdateParams() SchemaObjectsShardsUpdateParams {
 
 	return SchemaObjectsShardsUpdateParams{}
@@ -85,6 +87,11 @@ func (o *SchemaObjectsShardsUpdateParams) BindRequest(r *http.Request, route *mi
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -92,6 +99,7 @@ func (o *SchemaObjectsShardsUpdateParams) BindRequest(r *http.Request, route *mi
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
@@ -101,7 +109,6 @@ func (o *SchemaObjectsShardsUpdateParams) BindRequest(r *http.Request, route *mi
 	if err := o.bindShardName(rShardName, rhkShardName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -117,7 +124,6 @@ func (o *SchemaObjectsShardsUpdateParams) bindClassName(rawData []string, hasKey
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil
@@ -132,7 +138,6 @@ func (o *SchemaObjectsShardsUpdateParams) bindShardName(rawData []string, hasKey
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ShardName = raw
 
 	return nil

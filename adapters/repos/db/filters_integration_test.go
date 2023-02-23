@@ -876,68 +876,64 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		"1477aed8-f677-4131-a3ad-4deef6176066",
 	}
 
-	coordinates := [][]float32{
-		{7, 1},
-		{8, 2},
-	}
-
 	searchQuery := filters.GeoRange{
 		GeoCoordinates: &models.GeoCoordinates{
 			Latitude:  ptFloat32(6.0),
 			Longitude: ptFloat32(-2.0),
 		},
-		Distance: 100000000, // should be enough to cover the entire earth
+		Distance: 400000, // distance to filter only 1 closest object in both test cases
 	}
 
-	upsert := func(t *testing.T) {
-		for i, id := range ids {
-			repo.PutObject(context.Background(), &models.Object{
-				Class: "GeoUpdateTestClass",
-				ID:    id,
-				Properties: map[string]interface{}{
-					"location": &models.GeoCoordinates{
-						Latitude:  &coordinates[i][0],
-						Longitude: &coordinates[i][1],
+	upsertFn := func(coordinates [][]float32) func(t *testing.T) {
+		return func(t *testing.T) {
+			for i, id := range ids {
+				repo.PutObject(context.Background(), &models.Object{
+					Class: "GeoUpdateTestClass",
+					ID:    id,
+					Properties: map[string]interface{}{
+						"location": &models.GeoCoordinates{
+							Latitude:  &coordinates[i][0],
+							Longitude: &coordinates[i][1],
+						},
 					},
-				},
-			}, []float32{0.5}, nil)
+				}, []float32{0.5}, nil)
+			}
 		}
 	}
 
-	t.Run("import items", upsert)
+	t.Run("import items", upsertFn([][]float32{
+		{7, 1},
+		{8, 2},
+	}))
 
-	t.Run("verify original order", func(t *testing.T) {
+	t.Run("verify 1st object found", func(t *testing.T) {
 		res, err := repo.ClassSearch(context.Background(),
 			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
 				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
 			)))
 
 		require.Nil(t, err)
-		require.Len(t, res, 2)
+		require.Len(t, res, 1)
 		assert.Equal(t, ids[0], res[0].ID)
-		assert.Equal(t, ids[1], res[1].ID)
 	})
 
-	coordinates = [][]float32{
+	t.Run("import items", upsertFn([][]float32{
 		// move item 0 farther away from the search query and item 1 closer to it
 		{23, 14},
 		{6.5, -1},
-	}
+	}))
 
-	t.Run("import items", upsert)
-
-	t.Run("verify updated order", func(t *testing.T) {
+	t.Run("verify 2nd object found", func(t *testing.T) {
 		res, err := repo.ClassSearch(context.Background(),
 			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
 				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
 			)))
 
 		require.Nil(t, err)
-		require.Len(t, res, 2)
+		require.Len(t, res, 1)
 
 		// notice the opposite order
 		assert.Equal(t, ids[1], res[0].ID)
-		assert.Equal(t, ids[0], res[1].ID)
 	})
 }
 

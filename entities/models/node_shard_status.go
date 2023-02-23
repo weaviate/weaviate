@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -38,6 +40,11 @@ type NodeShardStatus struct {
 
 // Validate validates this node shard status
 func (m *NodeShardStatus) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this node shard status based on context it is used
+func (m *NodeShardStatus) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

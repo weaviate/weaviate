@@ -27,7 +27,8 @@ import (
 )
 
 // NewObjectsGetParams creates a new ObjectsGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsGetParams() ObjectsGetParams {
 
 	return ObjectsGetParams{}
@@ -73,7 +74,6 @@ func (o *ObjectsGetParams) BindRequest(r *http.Request, route *middleware.Matche
 	if err := o.bindInclude(qInclude, qhkInclude, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -122,10 +122,10 @@ func (o *ObjectsGetParams) bindInclude(rawData []string, hasKey bool, formats st
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Include = &raw
 
 	return nil

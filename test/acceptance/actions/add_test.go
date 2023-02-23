@@ -110,7 +110,6 @@ func addingObjects(t *testing.T) {
 	})
 
 	t.Run("can add single ref", func(t *testing.T) {
-		fmt.Println("before first")
 		firstID := helper.AssertCreateObject(t, class, map[string]interface{}{})
 		helper.AssertGetObjectEventually(t, class, firstID)
 
