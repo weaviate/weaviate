@@ -47,9 +47,43 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 		},
 	}
 
-	t.Run("assert BinaryMarshaler implementation correctness", func(t *testing.T) {
+	t.Run("when object is present", func(t *testing.T) {
 		expected := VObject{
 			LatestObject:    &obj,
+			StaleUpdateTime: now.UnixMilli(),
+			Version:         1,
+		}
+
+		b, err := expected.MarshalBinary()
+		require.Nil(t, err)
+
+		var received VObject
+		err = received.UnmarshalBinary(b)
+		require.Nil(t, err)
+
+		assert.EqualValues(t, expected, received)
+	})
+
+	t.Run("when object is present", func(t *testing.T) {
+		expected := VObject{
+			LatestObject:    &obj,
+			StaleUpdateTime: now.UnixMilli(),
+			Version:         1,
+		}
+
+		b, err := expected.MarshalBinary()
+		require.Nil(t, err)
+
+		var received VObject
+		err = received.UnmarshalBinary(b)
+		require.Nil(t, err)
+
+		assert.EqualValues(t, expected, received)
+	})
+
+	t.Run("when object is nil", func(t *testing.T) {
+		expected := VObject{
+			LatestObject:    nil,
 			StaleUpdateTime: now.UnixMilli(),
 			Version:         1,
 		}
@@ -95,9 +129,27 @@ func Test_Replica_MarshalBinary(t *testing.T) {
 		VectorLen: 5,
 	}
 
-	t.Run("assert BinaryMarshaler implementation correctness", func(t *testing.T) {
+	t.Run("when object is present", func(t *testing.T) {
 		expected := Replica{
 			Object: &obj,
+			ID:     obj.ID(),
+		}
+
+		b, err := expected.MarshalBinary()
+		require.Nil(t, err)
+
+		var received Replica
+		err = received.UnmarshalBinary(b)
+		require.Nil(t, err)
+
+		assert.EqualValues(t, expected.Object, received.Object)
+		assert.EqualValues(t, expected.ID, received.ID)
+		assert.EqualValues(t, expected.Deleted, received.Deleted)
+	})
+
+	t.Run("when object is nil", func(t *testing.T) {
+		expected := Replica{
+			Object: nil,
 			ID:     obj.ID(),
 		}
 
@@ -171,7 +223,7 @@ func Test_Replicas_MarshalBinary(t *testing.T) {
 		VectorLen: 5,
 	}
 
-	t.Run("assert BinaryMarshaler implementation correctness", func(t *testing.T) {
+	t.Run("when objects are present", func(t *testing.T) {
 		expected := Replicas{
 			{
 				Object: &obj1,
@@ -179,6 +231,34 @@ func Test_Replicas_MarshalBinary(t *testing.T) {
 			},
 			{
 				Object: &obj2,
+				ID:     obj2.ID(),
+			},
+		}
+
+		b, err := expected.MarshalBinary()
+		require.Nil(t, err)
+
+		var received Replicas
+		err = received.UnmarshalBinary(b)
+		require.Nil(t, err)
+
+		assert.Len(t, received, 2)
+		assert.EqualValues(t, expected[0].Object, received[0].Object)
+		assert.EqualValues(t, expected[0].ID, received[0].ID)
+		assert.EqualValues(t, expected[0].Deleted, received[0].Deleted)
+		assert.EqualValues(t, expected[1].Object, received[1].Object)
+		assert.EqualValues(t, expected[1].ID, received[1].ID)
+		assert.EqualValues(t, expected[1].Deleted, received[1].Deleted)
+	})
+
+	t.Run("when there is a nil object", func(t *testing.T) {
+		expected := Replicas{
+			{
+				Object: &obj1,
+				ID:     obj1.ID(),
+			},
+			{
+				Object: nil,
 				ID:     obj2.ID(),
 			},
 		}

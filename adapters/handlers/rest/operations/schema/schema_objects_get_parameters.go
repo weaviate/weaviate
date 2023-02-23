@@ -25,7 +25,8 @@ import (
 )
 
 // NewSchemaObjectsGetParams creates a new SchemaObjectsGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewSchemaObjectsGetParams() SchemaObjectsGetParams {
 
 	return SchemaObjectsGetParams{}
@@ -60,7 +61,6 @@ func (o *SchemaObjectsGetParams) BindRequest(r *http.Request, route *middleware.
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -76,7 +76,6 @@ func (o *SchemaObjectsGetParams) bindClassName(rawData []string, hasKey bool, fo
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil

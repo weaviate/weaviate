@@ -557,7 +557,7 @@
       "type": "object"
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "properties": {
         "classes": {
           "description": "Semantic classes that are available.",
@@ -1612,17 +1612,17 @@
     }
   },
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   },
   "info": {
     "contact": {
-      "email": "hello@semi.technology",
+      "email": "hello@weaviate.io",
       "name": "Weaviate",
-      "url": "https://github.com/semi-technologies"
+      "url": "https://github.com/weaviate"
     },
     "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
-    "version": "1.18.0-prealpha"
+    "version": "1.18.0-alpha.0"
   },
   "parameters": {
     "CommonOffsetParameterQuery": {

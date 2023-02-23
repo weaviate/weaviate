@@ -27,7 +27,8 @@ import (
 )
 
 // NewObjectsClassGetParams creates a new ObjectsClassGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsClassGetParams() ObjectsClassGetParams {
 
 	return ObjectsClassGetParams{}
@@ -101,7 +102,6 @@ func (o *ObjectsClassGetParams) BindRequest(r *http.Request, route *middleware.M
 	if err := o.bindNodeName(qNodeName, qhkNodeName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -117,7 +117,6 @@ func (o *ObjectsClassGetParams) bindClassName(rawData []string, hasKey bool, for
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil
@@ -132,10 +131,10 @@ func (o *ObjectsClassGetParams) bindConsistencyLevel(rawData []string, hasKey bo
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.ConsistencyLevel = &raw
 
 	return nil
@@ -183,10 +182,10 @@ func (o *ObjectsClassGetParams) bindInclude(rawData []string, hasKey bool, forma
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Include = &raw
 
 	return nil
@@ -201,10 +200,10 @@ func (o *ObjectsClassGetParams) bindNodeName(rawData []string, hasKey bool, form
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.NodeName = &raw
 
 	return nil

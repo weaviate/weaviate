@@ -32,9 +32,9 @@ type VObject struct {
 	Version uint64 `json:"version"`
 }
 
-// vobjectMarshaler is a helper for the functions implementing encoding.BinaryMarshaler
+// vobjectMarshaler is a helper for the methods implementing encoding.BinaryMarshaler
 //
-// Because models.Object has an optimized custom MarshalBinary function, that is what
+// Because models.Object has an optimized custom MarshalBinary method, that is what
 // we want to use when serializing, rather than json.Marshal. This is just a thin
 // wrapper around the model bytes resulting from the underlying call to MarshalBinary
 type vobjectMarshaler struct {
@@ -44,12 +44,15 @@ type vobjectMarshaler struct {
 }
 
 func (vo *VObject) MarshalBinary() ([]byte, error) {
-	obj, err := vo.LatestObject.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("marshal object: %w", err)
+	b := vobjectMarshaler{StaleUpdateTime: vo.StaleUpdateTime, Version: vo.Version}
+	if vo.LatestObject != nil {
+		obj, err := vo.LatestObject.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("marshal object: %w", err)
+		}
+		b.LatestObject = obj
 	}
 
-	b := vobjectMarshaler{vo.StaleUpdateTime, vo.Version, obj}
 	return json.Marshal(b)
 }
 
@@ -63,12 +66,14 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 	vo.StaleUpdateTime = b.StaleUpdateTime
 	vo.Version = b.Version
 
-	var obj models.Object
-	err = obj.UnmarshalBinary(b.LatestObject)
-	if err != nil {
-		return fmt.Errorf("unmarshal object: %w", err)
+	if b.LatestObject != nil {
+		var obj models.Object
+		err = obj.UnmarshalBinary(b.LatestObject)
+		if err != nil {
+			return fmt.Errorf("unmarshal object: %w", err)
+		}
+		vo.LatestObject = &obj
 	}
-	vo.LatestObject = &obj
 
 	return nil
 }
@@ -80,9 +85,9 @@ type Replica struct {
 	Object  *storobj.Object `json:"object,omitempty"`
 }
 
-// robjectMarshaler is a helper for the functions implementing encoding.BinaryMarshaler
+// robjectMarshaler is a helper for the methods implementing encoding.BinaryMarshaler
 //
-// Because *storobj.Object has an optimized custom MarshalBinary function, that is what
+// Because *storobj.Object has an optimized custom MarshalBinary method, that is what
 // we want to use when serializing, rather than json.Marshal. This is just a thin
 // wrapper around the storobj bytes resulting from the underlying call to MarshalBinary
 type robjectMarshaler struct {
@@ -92,12 +97,15 @@ type robjectMarshaler struct {
 }
 
 func (ro *Replica) MarshalBinary() ([]byte, error) {
-	obj, err := ro.Object.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("marshal object: %w", err)
+	b := robjectMarshaler{ID: ro.ID, Deleted: ro.Deleted}
+	if ro.Object != nil {
+		obj, err := ro.Object.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("marshal object: %w", err)
+		}
+		b.Object = obj
 	}
 
-	b := robjectMarshaler{ro.ID, ro.Deleted, obj}
 	return json.Marshal(b)
 }
 
@@ -111,12 +119,14 @@ func (ro *Replica) UnmarshalBinary(data []byte) error {
 	ro.ID = b.ID
 	ro.Deleted = b.Deleted
 
-	var obj storobj.Object
-	err = obj.UnmarshalBinary(b.Object)
-	if err != nil {
-		return fmt.Errorf("unmarshal object: %w", err)
+	if b.Object != nil {
+		var obj storobj.Object
+		err = obj.UnmarshalBinary(b.Object)
+		if err != nil {
+			return fmt.Errorf("unmarshal object: %w", err)
+		}
+		ro.Object = &obj
 	}
-	ro.Object = &obj
 
 	return nil
 }
@@ -127,11 +137,15 @@ func (ro Replicas) MarshalBinary() ([]byte, error) {
 	ms := make([]robjectMarshaler, len(ro))
 
 	for i, obj := range ro {
-		b, err := obj.Object.MarshalBinary()
-		if err != nil {
-			return nil, fmt.Errorf("marshal object %q: %w", obj.ID, err)
+		m := robjectMarshaler{ID: obj.ID, Deleted: obj.Deleted}
+		if obj.Object != nil {
+			b, err := obj.Object.MarshalBinary()
+			if err != nil {
+				return nil, fmt.Errorf("marshal object %q: %w", obj.ID, err)
+			}
+			m.Object = b
 		}
-		ms[i] = robjectMarshaler{obj.ID, obj.Deleted, b}
+		ms[i] = m
 	}
 
 	return json.Marshal(ms)
@@ -147,16 +161,16 @@ func (ro *Replicas) UnmarshalBinary(data []byte) error {
 
 	reps := make(Replicas, len(ms))
 	for i, m := range ms {
-		var obj storobj.Object
-		err = obj.UnmarshalBinary(m.Object)
-		if err != nil {
-			return fmt.Errorf("unmarshal object %q: %w", m.ID, err)
+		rep := Replica{ID: m.ID, Deleted: m.Deleted}
+		if m.Object != nil {
+			var obj storobj.Object
+			err = obj.UnmarshalBinary(m.Object)
+			if err != nil {
+				return fmt.Errorf("unmarshal object %q: %w", m.ID, err)
+			}
+			rep.Object = &obj
 		}
-		reps[i] = Replica{
-			ID:      m.ID,
-			Deleted: m.Deleted,
-			Object:  &obj,
-		}
+		reps[i] = rep
 	}
 
 	*ro = reps

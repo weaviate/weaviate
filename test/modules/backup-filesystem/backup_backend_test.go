@@ -45,9 +45,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	backupID := "backup_id"
 	metadataFilename := "backup.json"
 
-	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv("BACKUP_FILESYSTEM_PATH", backupDir))
-	})
+	t.Setenv("BACKUP_FILESYSTEM_PATH", backupDir)
 
 	t.Run("store backup meta in fs", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
@@ -105,9 +103,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 
-	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv("BACKUP_FILESYSTEM_PATH", backupDir))
-	})
+	t.Setenv("BACKUP_FILESYSTEM_PATH", backupDir)
 
 	t.Run("copy objects", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
@@ -140,9 +136,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
 
-	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv("BACKUP_FILESYSTEM_PATH", backupDir))
-	})
+	t.Setenv("BACKUP_FILESYSTEM_PATH", backupDir)
 
 	t.Run("copy files", func(t *testing.T) {
 		fpaths := moduleshelper.CreateTestFiles(t, dataDir)

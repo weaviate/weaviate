@@ -18,8 +18,8 @@
 //	  https
 //	Host: localhost
 //	BasePath: /v1
-//	Version: 1.18.0-prealpha
-//	Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
+//	Version: 1.18.0-alpha.0
+//	Contact: Weaviate<hello@weaviate.io> https://github.com/weaviate
 //
 //	Consumes:
 //	  - application/json

@@ -77,6 +77,9 @@ func TestCacheCleanup(t *testing.T) {
 }
 
 func countCached(c *shardedLockCache) int {
+	c.obtainAllLocks()
+	defer c.releaseAllLocks()
+
 	count := 0
 	for _, vec := range c.cache {
 		if vec != nil {

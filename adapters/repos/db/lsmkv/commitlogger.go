@@ -17,6 +17,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 type commitLogger struct {
@@ -37,7 +38,25 @@ const (
 	// collection strategy - this can handle all cases as updates and deletes are
 	// only appends in a collection strategy
 	CommitTypeCollection
+	CommitTypeRoaringSet
 )
+
+func (ct CommitType) String() string {
+	switch ct {
+	case CommitTypeReplace:
+		return "replace"
+	case CommitTypeCollection:
+		return "collection"
+	case CommitTypeRoaringSet:
+		return "roaringset"
+	default:
+		return "unknown"
+	}
+}
+
+func (ct CommitType) Is(checkedCommitType CommitType) bool {
+	return ct == checkedCommitType
+}
 
 func newCommitLogger(path string) (*commitLogger, error) {
 	out := &commitLogger{
@@ -83,6 +102,22 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 	}
 
 	if _, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
+	if cl.paused {
+		return nil
+	}
+
+	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeRoaringSet); err != nil {
+		return err
+	}
+
+	if _, err := node.KeyIndexAndWriteTo(cl.writer, 0); err != nil {
 		return err
 	}
 

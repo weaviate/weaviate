@@ -24,12 +24,14 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewBackupsCreateParams creates a new BackupsCreateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewBackupsCreateParams() BackupsCreateParams {
 
 	return BackupsCreateParams{}
@@ -85,6 +87,11 @@ func (o *BackupsCreateParams) BindRequest(r *http.Request, route *middleware.Mat
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -107,7 +114,6 @@ func (o *BackupsCreateParams) bindBackend(rawData []string, hasKey bool, formats
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.Backend = raw
 
 	return nil

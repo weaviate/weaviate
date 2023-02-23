@@ -570,7 +570,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 		defer r.Body.Close()
 
 		var (
-			resp any
+			resp objects.Replica
 			err  error
 		)
 
@@ -588,7 +588,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 			}
 		}
 
-		b, err := json.Marshal(resp)
+		b, err := resp.MarshalBinary()
 		if err != nil {
 			http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
 				http.StatusInternalServerError)
@@ -638,7 +638,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
-		b, err := json.Marshal(resp)
+		b, err := objects.Replicas(resp).MarshalBinary()
 		if err != nil {
 			http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
 				http.StatusInternalServerError)
