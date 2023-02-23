@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build benchmarkSiftRecall
-// +build benchmarkSiftRecall
-
 package hnsw_test
 
 import (
@@ -19,6 +16,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,7 +39,15 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
+const rootPath = "doesnt-matter-as-committlogger-is-mocked-out"
+
 func TestRecall(t *testing.T) {
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(rootPath)
 	fmt.Println("Sift1MPQKMeans 10K/1K")
 	efConstruction := 64
 	ef := 32
@@ -64,7 +70,7 @@ func TestRecall(t *testing.T) {
 
 	index, _ := hnsw.New(
 		hnsw.Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			RootPath:              rootPath,
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
@@ -120,6 +126,12 @@ func TestRecall(t *testing.T) {
 }
 
 func TestHnswPqGist(t *testing.T) {
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(rootPath)
 	params := [][]int{
 		//{64, 64, 32},
 		{128, 128, 64},
@@ -170,7 +182,7 @@ func TestHnswPqGist(t *testing.T) {
 			}
 			index, _ := hnsw.New(
 				hnsw.Config{
-					RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+					RootPath:              rootPath,
 					ID:                    "recallbenchmark",
 					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 					DistanceProvider:      distancer,
@@ -220,30 +232,39 @@ func TestHnswPqGist(t *testing.T) {
 }
 
 func TestHnswPqSift(t *testing.T) {
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(rootPath)
 	params := [][]int{
-		{64, 64, 32},
+		//{64, 64, 32},
 		//{128, 128, 64},
-		//{256, 256, 128},
-		//{512, 512, 256},
+		{256, 256, 128, 256},
+		{256, 256, 128, 1024},
+		//{512, 512, 256, 256},
+		//{512, 512, 256, 1024},
 	}
 	dimensions := 128
-	vectors_size := 10000
+	vectors_size := 1000000
 	queries_size := 1000
-	switch_at := 2000
+	switch_at := 200000
 	fmt.Println("Sift1M PQ")
 	before := time.Now()
 	vectors, queries := testinghelpers.ReadVecs(vectors_size, queries_size, dimensions, "sift", "../diskAnn/testdata")
 	k := 100
 	distancer := distancer.NewL2SquaredProvider()
-	//truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata")
+	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata")
 	fmt.Printf("generating data took %s\n", time.Since(before))
-	for segmentRate := 3; segmentRate < 4; segmentRate++ {
+	for segmentRate := 0; segmentRate < 1; segmentRate++ {
 		fmt.Println(segmentRate)
 		fmt.Println()
 		for i := 0; i < len(params); i++ {
 			efConstruction := params[i][0]
 			ef := params[i][1]
 			maxNeighbors := params[i][2]
+			centroids := params[i][3]
 
 			uc := ent.UserConfig{
 				MaxConnections: maxNeighbors,
@@ -253,7 +274,7 @@ func TestHnswPqSift(t *testing.T) {
 					Enabled:  false,
 					Segments: dimensions / int(math.Pow(2, float64(segmentRate))),
 					Encoder: ent.PQEncoder{
-						Type:         "kmeans",
+						Type:         "tile",
 						Distribution: "log-normal",
 					},
 				},
@@ -261,7 +282,7 @@ func TestHnswPqSift(t *testing.T) {
 			}
 			index, _ := hnsw.New(
 				hnsw.Config{
-					RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+					RootPath:              rootPath,
 					ID:                    "recallbenchmark",
 					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 					DistanceProvider:      distancer,
@@ -276,7 +297,7 @@ func TestHnswPqSift(t *testing.T) {
 			})
 			before = time.Now()
 			uc.PQ.Enabled = true
-			index.UpdateUserConfig(uc, func() {}) /*should have configuration.compressed = true*/
+			index.Compress(dimensions/int(math.Pow(2, float64(segmentRate))), centroids, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution)) /*should have configuration.compressed = true*/
 			fmt.Printf("Time to compress: %s", time.Since(before))
 			fmt.Println()
 			ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
@@ -285,30 +306,34 @@ func TestHnswPqSift(t *testing.T) {
 			})
 			fmt.Printf("Building the index took %s\n", time.Since(init))
 
-			index.SearchByVector(queries[0], k, nil)
-			/*
-				var relevant uint64
-				var retrieved int
+			var relevant uint64
+			var retrieved int
 
-				var querying time.Duration = 0
-				ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
-					before = time.Now()
-					results, _, _ := index.SearchByVector(queries[i], k, nil)
-					querying += time.Since(before)
-					retrieved += k
-					relevant += testinghelpers.MatchesInLists(truths[i], results)
-				})
+			var querying time.Duration = 0
+			ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
+				before = time.Now()
+				results, _, _ := index.SearchByVector(queries[i], k, nil)
+				querying += time.Since(before)
+				retrieved += k
+				relevant += testinghelpers.MatchesInLists(truths[i], results)
+			})
 
-				recall := float32(relevant) / float32(retrieved)
-				latency := float32(querying.Microseconds()) / float32(queries_size)
-				fmt.Println(recall, latency)
-				assert.True(t, recall > 0.9)
-				assert.True(t, latency < 100000)*/
+			recall := float32(relevant) / float32(retrieved)
+			latency := float32(querying.Microseconds()) / float32(queries_size)
+			fmt.Println(recall, latency)
+			assert.True(t, recall > 0.9)
+			assert.True(t, latency < 100000)
 		}
 	}
 }
 
 func TestHnswPqSiftDeletes(t *testing.T) {
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(rootPath)
 	params := [][]int{
 		{64, 64, 32},
 	}
@@ -347,7 +372,7 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 			}
 			index, _ := hnsw.New(
 				hnsw.Config{
-					RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+					RootPath:              rootPath,
 					ID:                    "recallbenchmark",
 					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 					DistanceProvider:      distancer,
@@ -392,6 +417,12 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 }
 
 func TestHnswPqDeepImage(t *testing.T) {
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(rootPath)
 	vectors_size := 9990000
 	queries_size := 1000
 	vectors := parseFromTxt("../diskAnn/testdata/deep-image/train.txt", vectors_size)
@@ -436,7 +467,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 			}
 			index, _ := hnsw.New(
 				hnsw.Config{
-					RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+					RootPath:              rootPath,
 					ID:                    "recallbenchmark",
 					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 					DistanceProvider:      distancer,

@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"testing"
 
@@ -25,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"golang.org/x/sync/semaphore"
 )
 
 func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
@@ -515,8 +515,15 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	}
 
 	t.Run("import the test vectors", func(t *testing.T) {
+		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
+		defer func(path string) {
+			err := os.RemoveAll(path)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}(rootPath)
 		index, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			RootPath:              rootPath,
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
@@ -536,8 +543,6 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		sem := semaphore.NewWeighted(1)
-		sem.Acquire(context.Background(), 1)
 		index.Compress(0, 256, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 	})
 
@@ -545,7 +550,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	var bfControl []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -639,8 +644,15 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 	}
 
 	t.Run("import the test vectors", func(t *testing.T) {
+		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
+		defer func(path string) {
+			err := os.RemoveAll(path)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}(rootPath)
 		index, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			RootPath:              rootPath,
 			ID:                    "delete-test",
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
@@ -660,8 +672,6 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		sem := semaphore.NewWeighted(1)
-		sem.Acquire(context.Background(), 1)
 		index.Compress(0, 256, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
