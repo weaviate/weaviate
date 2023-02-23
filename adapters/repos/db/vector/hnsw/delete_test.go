@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -537,10 +538,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		userConfig.PQ.Encoder.Distribution = "normal"
 		sem := semaphore.NewWeighted(1)
 		sem.Acquire(context.Background(), 1)
-		index.UpdateUserConfig(userConfig, func() {
-			sem.Release(1)
-		})
-		sem.Acquire(context.Background(), 1)
+		index.Compress(0, 256, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 	})
 
 	var control []uint64

@@ -170,4 +170,25 @@ func TestPQEncode(t *testing.T) {
 			assert.Equal(t, code, uint64(i))
 		}
 	})
+
+	t.Run("encodes correctly on one code per two bytes 2", func(t *testing.T) {
+		amount := 100
+		centroids := 1024
+		values := make([]byte, 2*amount)
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			pq.PutCode(uint64(i), values, i)
+		}
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
 }
