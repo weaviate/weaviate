@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build benchmarkSiftRecall
+// +build benchmarkSiftRecall
+
 package hnsw_test
 
 import (
