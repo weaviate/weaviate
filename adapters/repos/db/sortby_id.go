@@ -19,18 +19,22 @@ import (
 
 type sortByID struct {
 	objects []*storobj.Object
+	scores  []float32
 }
 
-func (r *sortByID) Swap(i, j int) {
-	r.objects[i], r.objects[j] = r.objects[j], r.objects[i]
+func (s *sortByID) Swap(i, j int) {
+	if len(s.objects) == len(s.scores) {
+		s.scores[i], s.scores[j] = s.scores[j], s.scores[i]
+	}
+	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
 }
 
-func (r *sortByID) Less(i, j int) bool {
-	return r.objects[i].ID() < r.objects[j].ID()
+func (s *sortByID) Less(i, j int) bool {
+	return s.objects[i].ID() < s.objects[j].ID()
 }
 
-func (r *sortByID) Len() int {
-	return len(r.objects)
+func (s *sortByID) Len() int {
+	return len(s.objects)
 }
 
 type sortObjectsByID struct{}
@@ -39,8 +43,9 @@ func newIDSorter() *sortObjectsByID {
 	return &sortObjectsByID{}
 }
 
-func (s *sortObjectsByID) sort(objects []*storobj.Object) []*storobj.Object {
-	sbd := &sortByID{objects}
+func (s *sortObjectsByID) sort(objects []*storobj.Object, scores []float32,
+) ([]*storobj.Object, []float32) {
+	sbd := &sortByID{objects, scores}
 	sort.Sort(sbd)
-	return sbd.objects
+	return sbd.objects, sbd.scores
 }

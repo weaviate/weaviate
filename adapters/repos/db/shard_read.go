@@ -306,17 +306,9 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		return storobj.ObjectsByDocID(bucket, docIDs, additional)
 	}
 
-	if scroll != nil {
-		return s.scrollObjectList(ctx, scroll, additional, className)
+	if scroll == nil {
+		scroll = &filters.Scroll{After: "", Limit: limit}
 	}
-	return s.allObjectList(ctx, limit, additional, className)
-}
-
-func (s *Shard) allObjectList(ctx context.Context, limit int,
-	additional additional.Properties,
-	className schema.ClassName,
-) ([]*storobj.Object, error) {
-	scroll := &filters.Scroll{After: "", Limit: limit}
 	return s.scrollObjectList(ctx, scroll, additional, className)
 }
 
@@ -324,35 +316,29 @@ func (s *Shard) scrollObjectList(ctx context.Context, scroll *filters.Scroll,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	var idBytes []byte
-	var err error
-	if scroll.After != "" {
-		idBytes, err = uuid.MustParse(scroll.After).MarshalBinary()
-		if err != nil {
-			return nil, errors.Wrap(err, "after argument")
-		}
-	}
-	out := make([]*storobj.Object, scroll.Limit)
-
-	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
 
 	var key, val []byte
-	if len(idBytes) == 0 {
-		// start from the beginning
+	if scroll.After == "" {
 		key, val = cursor.First()
 	} else {
-		key, val = cursor.Seek(idBytes)
-		seekID, err := uuid.FromBytes(key)
-		if err == nil && seekID.String() == scroll.After {
+		uuidBytes, err := uuid.MustParse(scroll.After).MarshalBinary()
+		if err != nil {
+			return nil, errors.Wrap(err, "after argument")
+		}
+		key, val = cursor.Seek(uuidBytes)
+		if bytes.Equal(key, uuidBytes) {
 			// move cursor by one if it's the same ID
 			key, val = cursor.Next()
 		}
 	}
 
-	for k, v := key, val; k != nil && i < scroll.Limit; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+	i := 0
+	out := make([]*storobj.Object, scroll.Limit)
+
+	for ; key != nil && i < scroll.Limit; key, val = cursor.Next() {
+		obj, err := storobj.FromBinary(val)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}

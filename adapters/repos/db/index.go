@@ -842,10 +842,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	if len(outObjects) == len(outScores) {
 		if keywordRanking != nil && keywordRanking.Type == "bm25" {
 			for ii := range outObjects {
-
 				oo := outObjects[ii]
-
 				os := outScores[ii]
+
 				if oo.AdditionalProperties() == nil {
 					oo.Object.Additional = make(map[string]interface{})
 				}
@@ -863,27 +862,19 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 			}
 		}
 	}
+
 	if len(sort) > 0 {
 		if len(shardNames) > 1 {
-			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)
+			var err error
+			outObjects, outScores, err = i.sort(outObjects, outScores, sort, limit)
 			if err != nil {
 				return nil, nil, errors.Wrap(err, "sort")
 			}
-			return sortedObjs, nil, nil
 		}
-		return outObjects, nil, nil
-	}
-
-	if keywordRanking != nil {
-		outObjects, _ = i.sortKeywordRanking(outObjects, outScores)
-	}
-
-	if scroll != nil {
-		if len(shardNames) > 1 {
-			sortedObjs := i.sortByID(outObjects, scroll.Limit)
-			return sortedObjs, nil, nil
-		}
-		return outObjects, nil, nil
+	} else if keywordRanking != nil {
+		outObjects, outScores = i.sortKeywordRanking(outObjects, outScores)
+	} else if len(shardNames) > 1 {
+		outObjects, outScores = i.sortByID(outObjects, outScores)
 	}
 
 	// if this search was caused by a reference property
@@ -896,16 +887,18 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// be expected. we won't know that unless we search
 	// and return all referenced object properties.
 	if !additional.ReferenceQuery && len(outObjects) > limit {
+		if len(outObjects) == len(outScores) {
+			outScores = outScores[:limit]
+		}
 		outObjects = outObjects[:limit]
 	}
 
 	return outObjects, outScores, nil
 }
 
-func (i *Index) sortByID(objects []*storobj.Object,
-	limit int,
-) []*storobj.Object {
-	return newIDSorter().sort(objects)
+func (i *Index) sortByID(objects []*storobj.Object, scores []float32,
+) ([]*storobj.Object, []float32) {
+	return newIDSorter().sort(objects, scores)
 }
 
 func (i *Index) sortKeywordRanking(objects []*storobj.Object,
