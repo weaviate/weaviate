@@ -93,7 +93,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	}
 
 	repl := replica.NewReplicator(config.ClassName.String(),
-		sg, nodeResolver, replicaClient)
+		sg, nodeResolver, replicaClient, logger)
 
 	index := &Index{
 		Config:                config,
