@@ -1376,7 +1376,7 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 		got, err := finder.GetAll(ctx, All, shard, ids)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.ErrorIs(t, err, errConflictExistOrDeleted)
-		assert.Equal(t, result, got)
+		assert.Equal(t, nilObjects, got)
 	})
 }
 
