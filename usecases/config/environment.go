@@ -85,21 +85,29 @@ func FromEnv(config *Config) error {
 	if enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
-		if len(os.Getenv("AUTHENTICATION_APIKEY_ALLOWED_KEYS")) > 0 {
-			keys := strings.Split(os.Getenv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"), ",")
+		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
+			keys := strings.Split(keysString, ",")
 			config.Authentication.APIKey.AllowedKeys = keys
+		}
+
+		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
+			keys := strings.Split(keysString, ",")
+			config.Authentication.APIKey.Users = keys
 		}
 	}
 
 	if enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
-		users := strings.Split(os.Getenv("AUTHORIZATION_ADMINLIST_USERS"), ",")
-		roUsers := strings.Split(os.Getenv("AUTHORIZATION_ADMINLIST_READONLY_USERS"),
-			",")
+		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
+		if ok {
+			config.Authorization.AdminList.Users = strings.Split(usersString, ",")
+		}
 
-		config.Authorization.AdminList.ReadOnlyUsers = roUsers
-		config.Authorization.AdminList.Users = users
+		roUsersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_USERS")
+		if ok {
+			config.Authorization.AdminList.ReadOnlyUsers = strings.Split(roUsersString, ",")
+		}
 	}
 
 	clusterCfg, err := parseClusterConfig()
