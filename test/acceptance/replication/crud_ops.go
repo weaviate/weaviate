@@ -58,6 +58,11 @@ func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object
 	return helper.GetObject(t, class, id)
 }
 
+func objectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+	helper.SetupClient(host)
+	return helper.ObjectExistsCL(t, class, id, cl)
+}
+
 func getObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (*models.Object, error) {
 	helper.SetupClient(host)
 	return helper.GetObjectCL(t, class, id, cl)
@@ -71,6 +76,11 @@ func getObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodenam
 func patchObject(t *testing.T, host string, patch *models.Object) {
 	helper.SetupClient(host)
 	helper.PatchObject(t, patch)
+}
+
+func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
+	helper.SetupClient(host)
+	helper.UpdateObjectCL(t, obj, cl)
 }
 
 func addReferences(t *testing.T, host string, refs []*models.BatchReference) {

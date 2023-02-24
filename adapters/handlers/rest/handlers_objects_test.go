@@ -1047,7 +1047,9 @@ type fakeManager struct {
 	deleteRefErr       *uco.Error
 }
 
-func (f *fakeManager) HeadObject(context.Context, *models.Principal, string, strfmt.UUID) (bool, *uco.Error) {
+func (f *fakeManager) HeadObject(context.Context, *models.Principal,
+	string, strfmt.UUID, *additional.ReplicationProperties,
+) (bool, *uco.Error) {
 	return f.headObjectReturn, f.headObjectErr
 }
 
@@ -1057,7 +1059,9 @@ func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
 	return object, nil
 }
 
-func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal, _ *models.Object) error {
+func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal,
+	_ *models.Object, _ *additional.ReplicationProperties,
+) error {
 	panic("not implemented") // TODO: Implement
 }
 

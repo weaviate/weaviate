@@ -71,7 +71,7 @@ func (m *Manager) UpdateObjectReferences(
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"bad inputs", StatusBadRequest, err}
 	}
