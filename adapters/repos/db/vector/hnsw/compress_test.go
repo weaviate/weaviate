@@ -234,6 +234,72 @@ func TestHnswPqGist(t *testing.T) {
 	}
 }
 
+/*
+10K
+128 segments, 16 centroids -> 5.280255291s 0.90662 387.505
+64 segments, 256 centroids -> 6.585159916s 0.9326827 410.413
+
+100K
+128 segments, 16 centroids -> 1m17.634662125s 0.88258 692.081
+64 segments, 256 centroids -> 1m29.259369458s 0.92157 575.844
+
+100000
+128
+Building the index took 47.7846745s
+0.92627 664.66
+
+{64, 64, 32, 256, 0},
+
+	{64, 64, 32, 1024, 1},
+	{64, 64, 32, 4096, 1},
+	{64, 64, 32, 16384, 1},
+	{64, 64, 32, 65536, 1},
+
+generating data took 2.072473792s
+0
+Time to compress: 5m39.750884042s
+Building the index took 16m30.632114542s
+0.91401 747.82
+1
+Time to compress: 13m12.011102334s
+Building the index took 28m12.879802125s
+0.89564 1041.358
+2
+Time to compress: 58m15.252058416s
+Building the index took 1h37m10.217039334s
+0.90836 2299.629
+3
+Time to compress: 3h59m39.032524584s
+Building the index took 5h54m55.046038916s
+0.91295 4786.8
+
+generating data took 2.119674416s
+0
+Start compressing...
+Time to compress: 1m3.037853584s
+Building the index took 3m53.429316209s
+0.40992 169.937
+1
+Start compressing...
+Time to compress: 2m4.653952334s
+Building the index took 5m44.454856667s
+0.46251252 207.299
+2
+Start compressing...
+Time to compress: 4m7.585857584s
+Building the index took 8m36.2004675s
+0.50494 293.362
+3
+Start compressing...
+Time to compress: 8m16.4155035s
+Building the index took 14m37.089003166s
+0.54421 390.49
+4
+Start compressing...
+Time to compress: 16m32.313318708s
+Building the index took 26m46.66661125s
+0.57827 442.589
+*/
 func TestHnswPqSift(t *testing.T) {
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -242,12 +308,12 @@ func TestHnswPqSift(t *testing.T) {
 		}
 	}(rootPath)
 	params := [][]int{
-		//{64, 64, 32},
-		//{128, 128, 64},
-		{256, 256, 128, 256},
-		{256, 256, 128, 1024},
-		//{512, 512, 256, 256},
-		//{512, 512, 256, 1024},
+		{64, 64, 32, 256, 3},
+		{64, 64, 32, 512, 3},
+		{64, 64, 32, 1024, 3},
+		{64, 64, 32, 2048, 3},
+		{64, 64, 32, 4096, 3},
+		{64, 64, 32, 65536, 3},
 	}
 	dimensions := 128
 	vectors_size := 1000000
@@ -260,73 +326,76 @@ func TestHnswPqSift(t *testing.T) {
 	distancer := distancer.NewL2SquaredProvider()
 	truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata")
 	fmt.Printf("generating data took %s\n", time.Since(before))
-	for segmentRate := 0; segmentRate < 1; segmentRate++ {
-		fmt.Println(segmentRate)
-		fmt.Println()
-		for i := 0; i < len(params); i++ {
-			efConstruction := params[i][0]
-			ef := params[i][1]
-			maxNeighbors := params[i][2]
-			centroids := params[i][3]
-
-			uc := ent.UserConfig{
-				MaxConnections: maxNeighbors,
-				EFConstruction: efConstruction,
-				EF:             ef,
-				PQ: ent.PQConfig{
-					Enabled:  false,
-					Segments: dimensions / int(math.Pow(2, float64(segmentRate))),
-					Encoder: ent.PQEncoder{
-						Type:         "tile",
-						Distribution: "log-normal",
-					},
-				},
-				VectorCacheMaxObjects: 10e12,
-			}
-			index, _ := hnsw.New(
-				hnsw.Config{
-					RootPath:              rootPath,
-					ID:                    "recallbenchmark",
-					MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-					DistanceProvider:      distancer,
-					VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-						return vectors[int(id)], nil
-					},
-				}, uc,
-			)
-			init := time.Now()
-			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
-				index.Add(uint64(id), vectors[id])
-			})
-			before = time.Now()
-			uc.PQ.Enabled = true
-			index.Compress(dimensions/int(math.Pow(2, float64(segmentRate))), centroids, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution)) /*should have configuration.compressed = true*/
-			fmt.Printf("Time to compress: %s", time.Since(before))
-			fmt.Println()
-			ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
-				idx := switch_at + int(id)
-				index.Add(uint64(idx), vectors[idx])
-			})
-			fmt.Printf("Building the index took %s\n", time.Since(init))
-
-			var relevant uint64
-			var retrieved int
-
-			var querying time.Duration = 0
-			ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
-				before = time.Now()
-				results, _, _ := index.SearchByVector(queries[i], k, nil)
-				querying += time.Since(before)
-				retrieved += k
-				relevant += testinghelpers.MatchesInLists(truths[i], results)
-			})
-
-			recall := float32(relevant) / float32(retrieved)
-			latency := float32(querying.Microseconds()) / float32(queries_size)
-			fmt.Println(recall, latency)
-			assert.True(t, recall > 0.9)
-			assert.True(t, latency < 100000)
+	for i := 0; i < len(params); i++ {
+		fmt.Println(i)
+		efConstruction := params[i][0]
+		ef := params[i][1]
+		maxNeighbors := params[i][2]
+		centroids := params[i][3]
+		segmentRate := params[i][4]
+		if centroids > switch_at {
+			fmt.Println("Increasing switch at...")
+			switch_at = 650000
 		}
+
+		uc := ent.UserConfig{
+			MaxConnections: maxNeighbors,
+			EFConstruction: efConstruction,
+			EF:             ef,
+			PQ: ent.PQConfig{
+				Enabled:  false,
+				Segments: dimensions / int(math.Pow(2, float64(segmentRate))),
+				Encoder: ent.PQEncoder{
+					Type:         "tile",
+					Distribution: "log-normal",
+				},
+			},
+			VectorCacheMaxObjects: 10e12,
+		}
+		index, _ := hnsw.New(
+			hnsw.Config{
+				RootPath:              rootPath,
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+				DistanceProvider:      distancer,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+			}, uc,
+		)
+		init := time.Now()
+		ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
+			index.Add(uint64(id), vectors[id])
+		})
+		before = time.Now()
+		fmt.Println("Start compressing...")
+		index.Compress(dimensions/int(math.Pow(2, float64(segmentRate))), centroids, false, int(ssdhelpers.UseKMeansEncoder), int(ssdhelpers.LogNormalEncoderDistribution)) /*should have configuration.compressed = true*/
+		fmt.Printf("Time to compress: %s", time.Since(before))
+		fmt.Println()
+		ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
+			idx := switch_at + int(id)
+
+			index.Add(uint64(idx), vectors[idx])
+		})
+		fmt.Printf("Building the index took %s\n", time.Since(init))
+
+		var relevant uint64
+		var retrieved int
+
+		var querying time.Duration = 0
+		ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
+			before = time.Now()
+			results, _, _ := index.SearchByVector(queries[i], k, nil)
+			querying += time.Since(before)
+			retrieved += k
+			relevant += testinghelpers.MatchesInLists(truths[i], results)
+		})
+
+		recall := float32(relevant) / float32(retrieved)
+		latency := float32(querying.Microseconds()) / float32(queries_size)
+		fmt.Println(recall, latency)
+		assert.True(t, recall > 0.9)
+		assert.True(t, latency < 100000)
 	}
 }
 

@@ -80,6 +80,7 @@ func (c *UserConfig) SetDefaults() {
 	c.Distance = DefaultDistanceMetric
 	c.PQ = PQConfig{}
 	c.PQ.Enabled = DefaultPQEnabled
+	c.PQ.BitCompression = DefaultPQBitCompression
 	c.PQ.Segments = DefaultPQSegments
 	c.PQ.Centroids = DefaultPQCentroids
 	c.PQ.Encoder = PQEncoder{}

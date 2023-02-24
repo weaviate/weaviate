@@ -142,7 +142,7 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 			out.Nodes = make([]*vertex, initialSize)
 		case AddPQ:
 			err = c.ReadPQ(fd, out)
-			readThisRound = 8
+			readThisRound = 9
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -528,6 +528,10 @@ func (c *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 	if err != nil {
 		return err
 	}
+	useBitsEncoding, err := c.readByte(r)
+	if err != nil {
+		return err
+	}
 	encoder := ssdhelpers.Encoder(enc)
 	res.PQData = ssdhelpers.PQData{
 		Dimensions:          dims,
@@ -535,6 +539,7 @@ func (c *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 		Ks:                  ks,
 		M:                   m,
 		EncoderDistribution: byte(dist),
+		UseBitsEncoding:     useBitsEncoding != 0,
 	}
 	var encoderReader func(io.Reader, *DeserializationResult, uint16) (ssdhelpers.PQEncoder, error)
 	switch encoder {

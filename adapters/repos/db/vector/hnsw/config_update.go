@@ -109,7 +109,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 		}
 
 		go func() {
-			if err := h.Compress(parsed.PQ.Segments, parsed.PQ.Centroids, int(encoder), int(encoderDistribution)); err != nil {
+			if err := h.Compress(parsed.PQ.Segments, parsed.PQ.Centroids, parsed.PQ.BitCompression, int(encoder), int(encoderDistribution)); err != nil {
 				h.logger.Error(err)
 				h.logger.Error(err)
 				callback()

@@ -37,7 +37,7 @@ func (h *hnsw) initCompressedStore() error {
 	return nil
 }
 
-func (h *hnsw) Compress(segments int, centroids int, encoderType int, encoderDistribution int) error {
+func (h *hnsw) Compress(segments int, centroids int, useBitsEncoding bool, encoderType int, encoderDistribution int) error {
 	if h.nodes[0] == nil {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
@@ -52,7 +52,7 @@ func (h *hnsw) Compress(segments int, centroids int, encoderType int, encoderDis
 	if segments <= 0 {
 		segments = dims
 	}
-	h.pq, err = ssdhelpers.NewProductQuantizer(segments, centroids, h.distancerProvider, dims, ssdhelpers.Encoder(encoderType), ssdhelpers.EncoderDistribution(encoderDistribution))
+	h.pq, err = ssdhelpers.NewProductQuantizer(segments, centroids, useBitsEncoding, h.distancerProvider, dims, ssdhelpers.Encoder(encoderType), ssdhelpers.EncoderDistribution(encoderDistribution))
 	if err != nil {
 		return errors.Wrap(err, "Compressing vectors.")
 	}

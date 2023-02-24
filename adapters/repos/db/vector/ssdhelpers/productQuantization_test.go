@@ -48,6 +48,7 @@ func TestPQKMeans(t *testing.T) {
 	pq, _ := ssdhelpers.NewProductQuantizer(
 		dimensions,
 		256,
+		false,
 		distanceProvider,
 		dimensions,
 		ssdhelpers.UseKMeansEncoder,
@@ -84,7 +85,7 @@ func TestPQKMeans(t *testing.T) {
 	assert.True(t, recall > 0.99)
 }
 
-func TestPQDecode(t *testing.T) {
+func TestPQDecodeBits(t *testing.T) {
 	t.Run("extracts correctly on one code per byte", func(t *testing.T) {
 		amount := 100
 		centroids := 256
@@ -95,6 +96,7 @@ func TestPQDecode(t *testing.T) {
 		pq, _ := ssdhelpers.NewProductQuantizer(
 			amount,
 			centroids,
+			true,
 			nil,
 			amount,
 			ssdhelpers.UseKMeansEncoder,
@@ -114,6 +116,7 @@ func TestPQDecode(t *testing.T) {
 		pq, _ := ssdhelpers.NewProductQuantizer(
 			amount,
 			centroids,
+			true,
 			nil,
 			amount,
 			ssdhelpers.UseKMeansEncoder,
@@ -133,6 +136,7 @@ func TestPQDecode(t *testing.T) {
 		pq, _ := ssdhelpers.NewProductQuantizer(
 			amount,
 			centroids,
+			true,
 			nil,
 			amount,
 			ssdhelpers.UseKMeansEncoder,
@@ -154,6 +158,7 @@ func TestPQDecode(t *testing.T) {
 		pq, _ := ssdhelpers.NewProductQuantizer(
 			amount,
 			centroids,
+			true,
 			nil,
 			amount,
 			ssdhelpers.UseKMeansEncoder,
@@ -166,7 +171,7 @@ func TestPQDecode(t *testing.T) {
 	})
 }
 
-func TestPQEncode(t *testing.T) {
+func TestPQEncodeBits(t *testing.T) {
 	t.Run("encodes correctly on one code per byte", func(t *testing.T) {
 		amount := 100
 		centroids := 256
@@ -174,6 +179,7 @@ func TestPQEncode(t *testing.T) {
 		pq, _ := ssdhelpers.NewProductQuantizer(
 			amount,
 			centroids,
+			true,
 			nil,
 			amount,
 			ssdhelpers.UseKMeansEncoder,
@@ -195,6 +201,7 @@ func TestPQEncode(t *testing.T) {
 		pq, _ := ssdhelpers.NewProductQuantizer(
 			amount,
 			centroids,
+			true,
 			nil,
 			amount,
 			ssdhelpers.UseKMeansEncoder,
@@ -216,6 +223,167 @@ func TestPQEncode(t *testing.T) {
 		pq, _ := ssdhelpers.NewProductQuantizer(
 			amount,
 			centroids,
+			true,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			pq.PutCode(uint64(i), values, i)
+		}
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
+}
+
+func TestPQDecodeBytes(t *testing.T) {
+	t.Run("extracts correctly on one code per byte", func(t *testing.T) {
+		amount := 100
+		centroids := 256
+		values := make([]byte, 0, amount)
+		for i := byte(0); i < byte(amount); i++ {
+			values = append(values, i)
+		}
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			false,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
+
+	t.Run("extracts correctly on 6 bits", func(t *testing.T) {
+		amount := 100
+		centroids := 64
+		values := make([]byte, 0, amount)
+		for i := byte(0); i < byte(amount); i++ {
+			values = append(values, i)
+		}
+
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			false,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
+
+	t.Run("extracts correctly on 12 bits", func(t *testing.T) {
+		amount := 100
+		centroids := 4096
+		values := make([]byte, 2*amount)
+		for i := byte(0); i < byte(amount); i++ {
+			binary.BigEndian.PutUint16(values[2*i:], uint16(i))
+		}
+
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			false,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
+
+	t.Run("extracts correctly on one code per two bytes", func(t *testing.T) {
+		amount := 100
+		centroids := 65536
+		values := make([]byte, 2*amount)
+		for i := 0; i < amount; i++ {
+			binary.BigEndian.PutUint16(values[2*i:], uint16(i))
+		}
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			false,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
+}
+
+func TestPQEncodeBytes(t *testing.T) {
+	t.Run("encodes correctly on one code per byte", func(t *testing.T) {
+		amount := 100
+		centroids := 256
+		values := make([]byte, amount)
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			false,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			pq.PutCode(uint64(i), values, i)
+		}
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
+
+	t.Run("encodes correctly on one code per two bytes", func(t *testing.T) {
+		amount := 100
+		centroids := 65536
+		values := make([]byte, 2*amount)
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			false,
+			nil,
+			amount,
+			ssdhelpers.UseKMeansEncoder,
+			ssdhelpers.LogNormalEncoderDistribution,
+		)
+		for i := 0; i < amount; i++ {
+			pq.PutCode(uint64(i), values, i)
+		}
+		for i := 0; i < amount; i++ {
+			code := pq.ExtractCode(values, i)
+			assert.Equal(t, code, uint64(i))
+		}
+	})
+
+	t.Run("encodes correctly on 10 bits", func(t *testing.T) {
+		amount := 100
+		centroids := 1024
+		values := make([]byte, 2*amount)
+		pq, _ := ssdhelpers.NewProductQuantizer(
+			amount,
+			centroids,
+			false,
 			nil,
 			amount,
 			ssdhelpers.UseKMeansEncoder,

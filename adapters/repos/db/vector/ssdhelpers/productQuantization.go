@@ -93,6 +93,9 @@ type ProductQuantizer struct {
 	putCode             func(code uint64, buffer []byte)
 	codingMask          uint64
 	sharpCodes          bool
+	useBitsEncoding     bool
+	ExtractCode         func(encoded []byte, index int) uint64
+	PutCode             func(code uint64, encoded []byte, index int)
 }
 
 type PQData struct {
@@ -102,6 +105,7 @@ type PQData struct {
 	EncoderType         Encoder
 	EncoderDistribution byte
 	Encoders            []PQEncoder
+	UseBitsEncoding     bool
 }
 
 type PQEncoder interface {
@@ -113,7 +117,7 @@ type PQEncoder interface {
 }
 
 // ToDo: Add a settings struct. Already necessary!!
-func NewProductQuantizer(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder, encoderDistribution EncoderDistribution) (*ProductQuantizer, error) {
+func NewProductQuantizer(segments int, centroids int, useBitsEncoding bool, distance distancer.Provider, dimensions int, encoderType Encoder, encoderDistribution EncoderDistribution) (*ProductQuantizer, error) {
 	if segments <= 0 {
 		return nil, errors.New("Segments cannot be 0 nor negative")
 	}
@@ -130,6 +134,7 @@ func NewProductQuantizer(segments int, centroids int, distance distancer.Provide
 		dimensions:          dimensions,
 		encoderType:         encoderType,
 		encoderDistribution: encoderDistribution,
+		useBitsEncoding:     useBitsEncoding,
 	}
 	pq.sharpCodes = pq.bits%8 == 0
 	if pq.bits > 32 {
@@ -137,36 +142,48 @@ func NewProductQuantizer(segments int, centroids int, distance distancer.Provide
 	}
 	switch pq.bytes {
 	case 1:
-		if pq.bits == 8 {
+		if pq.bits == 8 || !pq.useBitsEncoding {
 			pq.extractCode = extractCode8
 			pq.putCode = putCode8
+			pq.ExtractCode = pq.extractSharpCode
+			pq.PutCode = pq.putSharpCode
 		} else {
 			pq.extractCode = extractCode16
 			pq.putCode = putCode16
+			pq.ExtractCode = pq.extractBitsCode
+			pq.PutCode = pq.putBitsCode
 		}
 	case 2:
-		if pq.bits == 16 {
+		if pq.bits == 16 || !pq.useBitsEncoding {
 			pq.extractCode = extractCode16
 			pq.putCode = putCode16
+			pq.ExtractCode = pq.extractSharpCode
+			pq.PutCode = pq.putSharpCode
 		} else {
 			pq.extractCode = extractCode24
 			pq.putCode = putCode24
+			pq.ExtractCode = pq.extractBitsCode
+			pq.PutCode = pq.putBitsCode
 		}
 	case 3:
-		if pq.bits == 32 {
+		if pq.bits == 32 || !pq.useBitsEncoding {
 			pq.extractCode = extractCode24
 			pq.putCode = putCode24
+			pq.ExtractCode = pq.extractSharpCode
+			pq.PutCode = pq.putSharpCode
 		} else {
 			pq.extractCode = extractCode32
 			pq.putCode = putCode32
+			pq.ExtractCode = pq.extractBitsCode
+			pq.PutCode = pq.putBitsCode
 		}
 	}
 	pq.codingMask = uint64(math.Pow(2, float64(pq.bits))) - 1
 	return pq, nil
 }
 
-func NewProductQuantizerWithEncoders(segments int, centroids int, distance distancer.Provider, dimensions int, encoderType Encoder, encoders []PQEncoder) (*ProductQuantizer, error) {
-	pq, err := NewProductQuantizer(segments, centroids, distance, dimensions, encoderType, LogNormalEncoderDistribution)
+func NewProductQuantizerWithEncoders(segments int, centroids int, useBitsEncoding bool, distance distancer.Provider, dimensions int, encoderType Encoder, encoders []PQEncoder) (*ProductQuantizer, error) {
+	pq, err := NewProductQuantizer(segments, centroids, useBitsEncoding, distance, dimensions, encoderType, LogNormalEncoderDistribution)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +224,7 @@ func putCode32(code uint64, buffer []byte) {
 	binary.BigEndian.PutUint32(buffer, uint32(code))
 }
 
-func (pq *ProductQuantizer) ExtractCode(encoded []byte, index int) uint64 {
+func (pq *ProductQuantizer) extractBitsCode(encoded []byte, index int) uint64 {
 	correctedIndex := index * pq.bits / 8
 	code := pq.extractCode(encoded[correctedIndex:])
 	if pq.sharpCodes {
@@ -223,7 +240,11 @@ func (pq *ProductQuantizer) ExtractCode(encoded []byte, index int) uint64 {
 	return code & pq.codingMask
 }
 
-func (pq *ProductQuantizer) PutCode(code uint64, encoded []byte, index int) {
+func (pq *ProductQuantizer) extractSharpCode(encoded []byte, index int) uint64 {
+	return pq.extractCode(encoded[index*pq.bytes:])
+}
+
+func (pq *ProductQuantizer) putBitsCode(code uint64, encoded []byte, index int) {
 	correctedIndex := index * pq.bits / 8
 	if pq.sharpCodes {
 		pq.putCode(code, encoded[correctedIndex:])
@@ -244,6 +265,10 @@ func (pq *ProductQuantizer) PutCode(code uint64, encoded []byte, index int) {
 	pq.putCode(code, encoded[correctedIndex:])
 }
 
+func (pq *ProductQuantizer) putSharpCode(code uint64, encoded []byte, index int) {
+	pq.putCode(code, encoded[index*pq.bytes:])
+}
+
 func (pq *ProductQuantizer) ExposeFields() PQData {
 	return PQData{
 		Dimensions:          uint16(pq.dimensions),
@@ -252,6 +277,7 @@ func (pq *ProductQuantizer) ExposeFields() PQData {
 		M:                   uint16(pq.m),
 		EncoderDistribution: byte(pq.encoderDistribution),
 		Encoders:            pq.kms,
+		UseBitsEncoding:     pq.useBitsEncoding,
 	}
 }
 
