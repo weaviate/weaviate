@@ -2507,6 +2507,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {

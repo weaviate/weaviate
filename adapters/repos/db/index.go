@@ -735,28 +735,35 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 	return out
 }
 
-func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (i *Index) exists(ctx context.Context, id strfmt.UUID,
+	replProps *additional.ReplicationProperties,
+) (bool, error) {
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return false, err
 	}
 
-	local := i.getSchema.
-		ShardingState(i.Config.ClassName.String()).
-		IsShardLocal(shardName)
-
-	var ok bool
-	if local {
+	var exists bool
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: string(replica.All),
+			}
+		}
+		exists, err = i.replicator.Exists(ctx,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id)
+	} else if i.isLocalShard(shardName) {
 		shard := i.Shards[shardName]
-		ok, err = shard.exists(ctx, id)
+		exists, err = shard.exists(ctx, id)
 	} else {
-		ok, err = i.remote.Exists(ctx, shardName, id)
+		exists, err = i.remote.Exists(ctx, shardName, id)
 	}
+
 	if err != nil {
 		return false, errors.Wrapf(err, "shard %s", shardName)
 	}
 
-	return ok, nil
+	return exists, nil
 }
 
 func (i *Index) IncomingExists(ctx context.Context, shardName string,

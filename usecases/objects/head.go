@@ -16,11 +16,15 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // HeadObject check object's existence in the conncected DB
-func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string, id strfmt.UUID) (bool, *Error) {
+func (m *Manager) HeadObject(ctx context.Context,
+	principal *models.Principal, class string, id strfmt.UUID,
+	repl *additional.ReplicationProperties,
+) (bool, *Error) {
 	path := fmt.Sprintf("objects/%s", id)
 	if class != "" {
 		path = fmt.Sprintf("objects/%s/%s", class, id)
@@ -38,7 +42,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id)
+	ok, err := m.vectorRepo.Exists(ctx, class, id, repl)
 	if err != nil {
 		return false, &Error{"repo.exists", StatusInternalServerError, err}
 	}
