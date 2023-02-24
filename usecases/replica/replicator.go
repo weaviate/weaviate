@@ -13,11 +13,13 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -34,6 +36,9 @@ const (
 	opDeleteObjects
 )
 
+// errBroadcast broadcast error
+var errBroadcast = errors.New("broadcast: cannot reach enough replicas")
+
 type shardingState interface {
 	NodeName() string
 	ResolveParentNodes(class, shardName string) (hosts, nodes []string, err error)
@@ -48,18 +53,23 @@ type Replicator struct {
 	stateGetter    shardingState
 	client         Client
 	resolver       nodeResolver
+	log            logrus.FieldLogger
 	requestCounter atomic.Uint64
 	*Finder
 }
 
 func NewReplicator(className string,
-	stateGetter shardingState, nodeResolver nodeResolver, client Client,
+	stateGetter shardingState,
+	nodeResolver nodeResolver,
+	client Client,
+	l logrus.FieldLogger,
 ) *Replicator {
 	return &Replicator{
 		class:       className,
 		stateGetter: stateGetter,
 		client:      client,
 		resolver:    nodeResolver,
+		log:         l,
 		Finder:      NewFinder(className, stateGetter, nodeResolver, client),
 	}
 }
@@ -67,8 +77,8 @@ func NewReplicator(className string,
 func (r *Replicator) PutObject(ctx context.Context, shard string,
 	obj *storobj.Object, cl ConsistencyLevel,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject))
-	op := func(ctx context.Context, host, requestID string) error {
+	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
+	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj)
 		if err == nil {
 			err = resp.FirstError()
@@ -78,7 +88,7 @@ func (r *Replicator) PutObject(ctx context.Context, shard string,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Push(ctx, cl, op, r.simpleCommit(shard))
+	replyCh, level, err := coord.Push(ctx, cl, isReady, r.simpleCommit(shard))
 	if err != nil {
 		return err
 	}
@@ -88,7 +98,7 @@ func (r *Replicator) PutObject(ctx context.Context, shard string,
 func (r *Replicator) MergeObject(ctx context.Context, shard string,
 	mergeDoc *objects.MergeDocument, cl ConsistencyLevel,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject))
+	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, mergeDoc)
 		if err == nil {
@@ -109,7 +119,7 @@ func (r *Replicator) MergeObject(ctx context.Context, shard string,
 func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 	id strfmt.UUID, cl ConsistencyLevel,
 ) error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject))
+	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id)
 		if err == nil {
@@ -130,7 +140,7 @@ func (r *Replicator) DeleteObject(ctx context.Context, shard string,
 func (r *Replicator) PutObjects(ctx context.Context, shard string,
 	objs []*storobj.Object, cl ConsistencyLevel,
 ) []error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects))
+	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs)
 		if err == nil {
@@ -156,7 +166,7 @@ func (r *Replicator) PutObjects(ctx context.Context, shard string,
 func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 	docIDs []uint64, dryRun bool, cl ConsistencyLevel,
 ) []objects.BatchSimpleObject {
-	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects))
+	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(
 			ctx, host, r.class, shard, requestID, docIDs, dryRun)
@@ -194,7 +204,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context, shard string,
 func (r *Replicator) AddReferences(ctx context.Context, shard string,
 	refs []objects.BatchReference, cl ConsistencyLevel,
 ) []error {
-	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opAddReferences))
+	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opAddReferences), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs)
 		if err == nil {
@@ -310,6 +320,9 @@ func readSimpleResponses(batchSize int, level int, ch <-chan simpleResult[Simple
 			}
 		}
 	}
+	if level > 0 && firstError == nil {
+		firstError = errBroadcast
+	}
 	return errorsFromSimpleResponses(batchSize, urs, firstError)
 }
 
@@ -331,6 +344,9 @@ func readDeletionResponses(batchSize int, level int, ch <-chan simpleResult[Dele
 			}
 		}
 	}
+	if level > 0 && firstError == nil {
+		firstError = errBroadcast
+	}
 	urs = append(urs, rs...)
-	return resultsFromDeletionResponses(batchSize, urs, nil)
+	return resultsFromDeletionResponses(batchSize, urs, firstError)
 }

@@ -105,14 +105,24 @@ func (m *Manager) ResolveParentNodes(class, shardName string,
 	if len(shard.BelongsToNodes) == 0 {
 		return nil, nil, nil
 	}
-
+	resolved = make([]string, 1, len(shard.BelongsToNodes))
+	thisNode := m.NodeName()
+	// Put this node first of the list
+	// So that the replicator can use this node as first active node
 	for _, node := range shard.BelongsToNodes {
 		host, ok := m.clusterState.NodeHostname(node)
 		if ok && host != "" {
+			if thisNode == node {
+				resolved[0] = host
+				continue
+			}
 			resolved = append(resolved, host)
 		} else {
 			unresolved = append(unresolved, node)
 		}
+	}
+	if resolved[0] == "" {
+		resolved = resolved[1:]
 	}
 	return
 }

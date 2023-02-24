@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
+	"github.com/sirupsen/logrus"
 )
 
 type (
@@ -33,13 +33,14 @@ type (
 	coordinator[T any] struct {
 		Client
 		Resolver *resolver // node_name -> host_address
+		log      logrus.FieldLogger
 		Class    string
 		Shard    string
 		TxID     string // transaction ID
 	}
 )
 
-func newCoordinator[T any](r *Replicator, shard, requestID string) *coordinator[T] {
+func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.FieldLogger) *coordinator[T] {
 	return &coordinator[T]{
 		Client: r.client,
 		Resolver: &resolver{
@@ -47,6 +48,7 @@ func newCoordinator[T any](r *Replicator, shard, requestID string) *coordinator[
 			nodeResolver: r.resolver,
 			class:        r.class,
 		},
+		log:   l,
 		Class: r.class,
 		Shard: shard,
 		TxID:  requestID,
@@ -66,46 +68,69 @@ func newReadCoordinator[T any](f *Finder, shard string) *coordinator[T] {
 }
 
 // broadcast sends write request to all replicas (first phase of a two-phase commit)
-func (c *coordinator[T]) broadcast(ctx context.Context, replicas []string, op readyOp, level int) ([]string, error) {
-	errs := make([]error, len(replicas))
-	activeReplicas := make([]string, 0, len(replicas))
-	var g errgroup.Group
-	for i, replica := range replicas {
-		i, replica := i, replica
-		g.Go(func() error {
-			errs[i] = op(ctx, replica, c.TxID)
-			return errs[i]
-		})
-	}
-	firstErr := g.Wait()
-	for i, err := range errs {
-		if err == nil {
-			activeReplicas = append(activeReplicas, replicas[i])
-		}
-	}
-	if len(activeReplicas) < level {
-		firstErr = fmt.Errorf("not enough active replicas found: %w", firstErr)
-	} else {
-		firstErr = nil
+func (c *coordinator[T]) broadcast(ctx context.Context, replicas []string, op readyOp, level int) <-chan string {
+	// prepare tells replicas to be ready
+	prepare := func() <-chan result[string] {
+		resChan := make(chan result[string], len(replicas))
+		go func() { // broadcast
+			defer close(resChan)
+			var wg sync.WaitGroup
+			wg.Add(len(replicas))
+			for _, replica := range replicas {
+				go func(replica string, candidateCh chan<- result[string]) error {
+					defer wg.Done()
+					err := op(ctx, replica, c.TxID)
+					candidateCh <- result[string]{replica, err}
+					return err
+				}(replica, resChan)
+			}
+			wg.Wait()
+		}()
+		return resChan
 	}
 
-	if firstErr != nil {
-		for _, node := range replicas {
-			c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
-		}
-	}
+	// handle responses to prepare requests
+	replicaCh := make(chan string, len(replicas))
+	go func(level int) {
+		defer close(replicaCh)
+		actives := make([]string, 0, level) // cache for active replicas
+		for r := range prepare() {
+			if r.err != nil { // connection error
+				c.log.WithField("op", "broadcast").Error(r.err)
+				continue
+			}
 
-	return activeReplicas, firstErr
+			level--
+			if level > 0 { // cache since level has not been reached yet
+				actives = append(actives, r.data)
+				continue
+			}
+			if level == 0 { // consistency level has been reached
+				for _, x := range actives {
+					replicaCh <- x
+				}
+			}
+			replicaCh <- r.data
+		}
+		if level > 0 { // abort: nothing has been sent to the caller
+			fs := logrus.Fields{"op": "broadcast", "active": len(actives), "total": len(replicas)}
+			c.log.WithFields(fs).Error("abort")
+			for _, node := range replicas {
+				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
+			}
+		}
+	}(level)
+	return replicaCh
 }
 
 // commitAll tells replicas to commit pending updates related to a specific request
 // (second phase of a two-phase commit)
-func (c *coordinator[T]) commitAll(ctx context.Context, replicas []string, op commitOp[T]) <-chan simpleResult[T] {
-	replyCh := make(chan simpleResult[T], len(replicas))
-	go func() {
+func (c *coordinator[T]) commitAll(ctx context.Context, replicaCh <-chan string, op commitOp[T]) <-chan simpleResult[T] {
+	replyCh := make(chan simpleResult[T], cap(replicaCh))
+	go func() { // tells active replicas to commit
 		wg := sync.WaitGroup{}
-		wg.Add(len(replicas))
-		for _, replica := range replicas {
+		for replica := range replicaCh {
+			wg.Add(1)
 			go func(replica string) {
 				defer wg.Done()
 				resp, err := op(ctx, replica, c.TxID)
@@ -126,11 +151,8 @@ func (c *coordinator[T]) Push(ctx context.Context, cl ConsistencyLevel, ask read
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := state.Level
-	nodes, err := c.broadcast(ctx, state.Hosts, ask, level)
-	if err != nil {
-		return nil, level, fmt.Errorf("broadcast: %w", err)
-	}
-	return c.commitAll(context.Background(), nodes, com), level, nil
+	nodeCh := c.broadcast(ctx, state.Hosts, ask, level)
+	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
 
 // Pull data from replica depending on consistency level
