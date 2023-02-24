@@ -38,7 +38,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -138,13 +137,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = func(token string, scopes []string) (*models.Principal, error) {
-		if appState.ServerConfig.Config.Authentication.APIKey.Enabled {
-			return appState.APIKey.ValidateAndExtract(token)
-		} else {
-			return appState.OIDC.ValidateAndExtract(token, scopes)
-		}
-	}
+	api.OidcAuth = NewOpenAPITokenValidator(
+		appState.ServerConfig.Config.Authentication,
+		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)

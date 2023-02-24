@@ -43,7 +43,7 @@ func (c *Client) validateConfig() error {
 	return nil
 }
 
-func (c *Client) ValidateAndExtract(token string) (*models.Principal, error) {
+func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
 	if !c.config.Enabled {
 		return nil, errors.New(401, "apikey auth is not configured, please try another auth scheme or set up weaviate with apikey configured")
 	}
