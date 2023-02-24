@@ -40,6 +40,20 @@ func (c *Client) validateConfig() error {
 		}
 	}
 
+	if len(c.config.Users) < 1 {
+		return fmt.Errorf("need at least one user")
+	}
+
+	for _, key := range c.config.Users {
+		if len(key) == 0 {
+			return fmt.Errorf("users cannot have length 0")
+		}
+	}
+
+	if len(c.config.Users) > 1 && len(c.config.Users) != len(c.config.AllowedKeys) {
+		return fmt.Errorf("length of users and keys must match, alternatively provide single user for all keys")
+	}
+
 	return nil
 }
 
@@ -48,21 +62,31 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 		return nil, errors.New(401, "apikey auth is not configured, please try another auth scheme or set up weaviate with apikey configured")
 	}
 
-	if !c.isTokenAllowed(token) {
+	tokenPos, ok := c.isTokenAllowed(token)
+	if !ok {
 		return nil, errors.New(401, "invalid api key, please provide a valid api key")
 	}
 
 	return &models.Principal{
-		Username: c.config.Username,
+		Username: c.getUser(tokenPos),
 	}, nil
 }
 
-func (c *Client) isTokenAllowed(token string) bool {
-	for _, allowed := range c.config.AllowedKeys {
+func (c *Client) isTokenAllowed(token string) (int, bool) {
+	for i, allowed := range c.config.AllowedKeys {
 		if token == allowed {
-			return true
+			return i, true
 		}
 	}
 
-	return false
+	return -1, false
+}
+
+func (c *Client) getUser(pos int) string {
+	// passed validation guarantees that one of those options will work
+	if pos >= len(c.config.Users) {
+		return c.config.Users[0]
+	}
+
+	return c.config.Users[pos]
 }
