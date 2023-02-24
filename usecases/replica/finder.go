@@ -169,8 +169,8 @@ func (f *Finder) Exists(ctx context.Context, l ConsistencyLevel, shard string, i
 		if len(xs) == 1 {
 			x = xs[0]
 		}
-		if err == nil && len(xs) < 1 {
-			err = fmt.Errorf("digest read request: empty result")
+		if err == nil && len(xs) != 1 {
+			err = fmt.Errorf("malformed digest read response: expected one result, got %d", len(xs))
 		}
 		return existReply{host, x}, err
 	}
