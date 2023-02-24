@@ -245,8 +245,8 @@ case $CONFIG in
 
   local-wcs-oidc-and-apikey)
       AUTHENTICATION_APIKEY_ENABLED=true \
-      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,your-secret-key \
-      AUTHENTICATION_APIKEY_USERS=etienne@semi.technology \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,my-secret-read-only-key \
+      AUTHENTICATION_APIKEY_USERS=etienne@semi.technology,etienne+read-only@semi.technology \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
       AUTHENTICATION_OIDC_ENABLED=true \
       AUTHENTICATION_OIDC_ISSUER=https://auth.wcs.api.weaviate.io/auth/realms/SeMI\
@@ -255,6 +255,7 @@ case $CONFIG in
       AUTHENTICATION_OIDC_CLIENT_ID=wcs \
       AUTHORIZATION_ADMINLIST_ENABLED=true \
       AUTHORIZATION_ADMINLIST_USERS=etienne@semi.technology \
+      AUTHORIZATION_ADMINLIST_READONLY_USERS=etienne+read-only@semi.technology \
       DEFAULT_VECTORIZER_MODULE=none \
       go_run ./cmd/weaviate-server \
         --scheme http \
