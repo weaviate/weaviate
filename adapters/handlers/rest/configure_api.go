@@ -137,7 +137,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = NewOpenAPITokenValidator(
+	api.OidcAuth = NewTokenAuthComposer(
 		appState.ServerConfig.Config.Authentication,
 		appState.APIKey, appState.OIDC)
 

@@ -10,7 +10,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func Test_OpenAPITokenValidator(t *testing.T) {
+func Test_TokenAuthComposer(t *testing.T) {
 	type test struct {
 		name         string
 		token        string
@@ -139,11 +139,71 @@ func Test_OpenAPITokenValidator(t *testing.T) {
 			expectErr:    true,
 			expectErrMsg: "you think I let anyone through?",
 		},
+		{
+			name: "both an enabled, with an 'obvous' api key",
+			config: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled: true,
+				},
+				APIKey: config.APIKey{
+					Enabled: true,
+				},
+			},
+			token: "does not matter",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				return nil, fmt.Errorf("it's a pretty key, but not good enough")
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			expectErr:    true,
+			expectErrMsg: "it's a pretty key, but not good enough",
+		},
+		{
+			name: "both an enabled, empty token",
+			config: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled: true,
+				},
+				APIKey: config.APIKey{
+					Enabled: true,
+				},
+			},
+			token: "",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				return nil, fmt.Errorf("really? an empty one?")
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			expectErr:    true,
+			expectErrMsg: "empty one",
+		},
+		{
+			name: "both an enabled, jwt token",
+			config: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled: true,
+				},
+				APIKey: config.APIKey{
+					Enabled: true,
+				},
+			},
+			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+			apiKey: func(t string, s []string) (*models.Principal, error) {
+				panic("i should never be called")
+			},
+			oidc: func(t string, s []string) (*models.Principal, error) {
+				return nil, fmt.Errorf("john doe ... that sounds like a fake name!")
+			},
+			expectErr:    true,
+			expectErrMsg: "john doe",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			v := NewOpenAPITokenValidator(
+			v := NewTokenAuthComposer(
 				test.config,
 				fakeValidator{v: test.apiKey},
 				fakeValidator{v: test.oidc},
