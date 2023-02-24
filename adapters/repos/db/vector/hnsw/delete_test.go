@@ -543,7 +543,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		index.Compress(0, 256, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 	})
 
 	var control []uint64
@@ -672,7 +672,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		userConfig.PQ.Enabled = true
 		userConfig.PQ.Encoder.Type = "tile"
 		userConfig.PQ.Encoder.Distribution = "normal"
-		index.Compress(0, 256, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)

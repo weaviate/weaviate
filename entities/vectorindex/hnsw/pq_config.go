@@ -19,6 +19,7 @@ import (
 
 const (
 	DefaultPQEnabled             = false
+	DefaultPQBitCompression      = false
 	DefaultPQSegments            = 0
 	DefaultPQEncoderType         = "kmeans"
 	DefaultPQEncoderDistribution = "log-normal"
@@ -33,10 +34,11 @@ type PQEncoder struct {
 
 // Product Quantization configuration
 type PQConfig struct {
-	Enabled   bool      `json:"enabled"`
-	Segments  int       `json:"segments"`
-	Centroids int       `json:"centroids"`
-	Encoder   PQEncoder `json:"encoder"`
+	Enabled        bool      `json:"enabled"`
+	BitCompression bool      `json:"bit-compression"`
+	Segments       int       `json:"segments"`
+	Centroids      int       `json:"centroids"`
+	Encoder        PQEncoder `json:"encoder"`
 }
 
 func ValidEncoder(encoder string) (ssdhelpers.Encoder, error) {
@@ -114,6 +116,12 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 
 	if err := optionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
 		pq.Enabled = v
+	}); err != nil {
+		return err
+	}
+
+	if err := optionalBoolFromMap(pqConfigMap, "bit-compression", func(v bool) {
+		pq.BitCompression = v
 	}); err != nil {
 		return err
 	}
