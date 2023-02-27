@@ -40,6 +40,12 @@ func (o *ObjectsClassReferencesDeleteReader) ReadResponse(response runtime.Clien
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewObjectsClassReferencesDeleteBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewObjectsClassReferencesDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -70,9 +76,8 @@ func (o *ObjectsClassReferencesDeleteReader) ReadResponse(response runtime.Clien
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -82,18 +87,120 @@ func NewObjectsClassReferencesDeleteNoContent() *ObjectsClassReferencesDeleteNoC
 }
 
 /*
-ObjectsClassReferencesDeleteNoContent handles this case with default header values.
+ObjectsClassReferencesDeleteNoContent describes a response with status code 204, with default header values.
 
 Successfully deleted.
 */
 type ObjectsClassReferencesDeleteNoContent struct {
 }
 
+// IsSuccess returns true when this objects class references delete no content response has a 2xx status code
+func (o *ObjectsClassReferencesDeleteNoContent) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects class references delete no content response has a 3xx status code
+func (o *ObjectsClassReferencesDeleteNoContent) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references delete no content response has a 4xx status code
+func (o *ObjectsClassReferencesDeleteNoContent) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects class references delete no content response has a 5xx status code
+func (o *ObjectsClassReferencesDeleteNoContent) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references delete no content response a status code equal to that given
+func (o *ObjectsClassReferencesDeleteNoContent) IsCode(code int) bool {
+	return code == 204
+}
+
+// Code gets the status code for the objects class references delete no content response
+func (o *ObjectsClassReferencesDeleteNoContent) Code() int {
+	return 204
+}
+
 func (o *ObjectsClassReferencesDeleteNoContent) Error() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteNoContent ", 204)
 }
 
+func (o *ObjectsClassReferencesDeleteNoContent) String() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteNoContent ", 204)
+}
+
 func (o *ObjectsClassReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsClassReferencesDeleteBadRequest creates a ObjectsClassReferencesDeleteBadRequest with default headers values
+func NewObjectsClassReferencesDeleteBadRequest() *ObjectsClassReferencesDeleteBadRequest {
+	return &ObjectsClassReferencesDeleteBadRequest{}
+}
+
+/*
+ObjectsClassReferencesDeleteBadRequest describes a response with status code 400, with default header values.
+
+Malformed request.
+*/
+type ObjectsClassReferencesDeleteBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects class references delete bad request response has a 2xx status code
+func (o *ObjectsClassReferencesDeleteBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references delete bad request response has a 3xx status code
+func (o *ObjectsClassReferencesDeleteBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references delete bad request response has a 4xx status code
+func (o *ObjectsClassReferencesDeleteBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references delete bad request response has a 5xx status code
+func (o *ObjectsClassReferencesDeleteBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references delete bad request response a status code equal to that given
+func (o *ObjectsClassReferencesDeleteBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the objects class references delete bad request response
+func (o *ObjectsClassReferencesDeleteBadRequest) Code() int {
+	return 400
+}
+
+func (o *ObjectsClassReferencesDeleteBadRequest) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsClassReferencesDeleteBadRequest) String() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsClassReferencesDeleteBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsClassReferencesDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
@@ -104,14 +211,48 @@ func NewObjectsClassReferencesDeleteUnauthorized() *ObjectsClassReferencesDelete
 }
 
 /*
-ObjectsClassReferencesDeleteUnauthorized handles this case with default header values.
+ObjectsClassReferencesDeleteUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsClassReferencesDeleteUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects class references delete unauthorized response has a 2xx status code
+func (o *ObjectsClassReferencesDeleteUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references delete unauthorized response has a 3xx status code
+func (o *ObjectsClassReferencesDeleteUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references delete unauthorized response has a 4xx status code
+func (o *ObjectsClassReferencesDeleteUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references delete unauthorized response has a 5xx status code
+func (o *ObjectsClassReferencesDeleteUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references delete unauthorized response a status code equal to that given
+func (o *ObjectsClassReferencesDeleteUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects class references delete unauthorized response
+func (o *ObjectsClassReferencesDeleteUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsClassReferencesDeleteUnauthorized) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteUnauthorized ", 401)
+}
+
+func (o *ObjectsClassReferencesDeleteUnauthorized) String() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteUnauthorized ", 401)
 }
 
@@ -126,7 +267,7 @@ func NewObjectsClassReferencesDeleteForbidden() *ObjectsClassReferencesDeleteFor
 }
 
 /*
-ObjectsClassReferencesDeleteForbidden handles this case with default header values.
+ObjectsClassReferencesDeleteForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -134,7 +275,41 @@ type ObjectsClassReferencesDeleteForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references delete forbidden response has a 2xx status code
+func (o *ObjectsClassReferencesDeleteForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references delete forbidden response has a 3xx status code
+func (o *ObjectsClassReferencesDeleteForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references delete forbidden response has a 4xx status code
+func (o *ObjectsClassReferencesDeleteForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references delete forbidden response has a 5xx status code
+func (o *ObjectsClassReferencesDeleteForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references delete forbidden response a status code equal to that given
+func (o *ObjectsClassReferencesDeleteForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects class references delete forbidden response
+func (o *ObjectsClassReferencesDeleteForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsClassReferencesDeleteForbidden) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsClassReferencesDeleteForbidden) String() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteForbidden  %+v", 403, o.Payload)
 }
 
@@ -160,7 +335,7 @@ func NewObjectsClassReferencesDeleteNotFound() *ObjectsClassReferencesDeleteNotF
 }
 
 /*
-ObjectsClassReferencesDeleteNotFound handles this case with default header values.
+ObjectsClassReferencesDeleteNotFound describes a response with status code 404, with default header values.
 
 Successful query result but no resource was found.
 */
@@ -168,7 +343,41 @@ type ObjectsClassReferencesDeleteNotFound struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references delete not found response has a 2xx status code
+func (o *ObjectsClassReferencesDeleteNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references delete not found response has a 3xx status code
+func (o *ObjectsClassReferencesDeleteNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references delete not found response has a 4xx status code
+func (o *ObjectsClassReferencesDeleteNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references delete not found response has a 5xx status code
+func (o *ObjectsClassReferencesDeleteNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references delete not found response a status code equal to that given
+func (o *ObjectsClassReferencesDeleteNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the objects class references delete not found response
+func (o *ObjectsClassReferencesDeleteNotFound) Code() int {
+	return 404
+}
+
 func (o *ObjectsClassReferencesDeleteNotFound) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteNotFound  %+v", 404, o.Payload)
+}
+
+func (o *ObjectsClassReferencesDeleteNotFound) String() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteNotFound  %+v", 404, o.Payload)
 }
 
@@ -194,7 +403,7 @@ func NewObjectsClassReferencesDeleteUnprocessableEntity() *ObjectsClassReference
 }
 
 /*
-ObjectsClassReferencesDeleteUnprocessableEntity handles this case with default header values.
+ObjectsClassReferencesDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -202,7 +411,41 @@ type ObjectsClassReferencesDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references delete unprocessable entity response has a 2xx status code
+func (o *ObjectsClassReferencesDeleteUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references delete unprocessable entity response has a 3xx status code
+func (o *ObjectsClassReferencesDeleteUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references delete unprocessable entity response has a 4xx status code
+func (o *ObjectsClassReferencesDeleteUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references delete unprocessable entity response has a 5xx status code
+func (o *ObjectsClassReferencesDeleteUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references delete unprocessable entity response a status code equal to that given
+func (o *ObjectsClassReferencesDeleteUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the objects class references delete unprocessable entity response
+func (o *ObjectsClassReferencesDeleteUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *ObjectsClassReferencesDeleteUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsClassReferencesDeleteUnprocessableEntity) String() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -228,7 +471,7 @@ func NewObjectsClassReferencesDeleteInternalServerError() *ObjectsClassReference
 }
 
 /*
-ObjectsClassReferencesDeleteInternalServerError handles this case with default header values.
+ObjectsClassReferencesDeleteInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -236,7 +479,41 @@ type ObjectsClassReferencesDeleteInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references delete internal server error response has a 2xx status code
+func (o *ObjectsClassReferencesDeleteInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references delete internal server error response has a 3xx status code
+func (o *ObjectsClassReferencesDeleteInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references delete internal server error response has a 4xx status code
+func (o *ObjectsClassReferencesDeleteInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects class references delete internal server error response has a 5xx status code
+func (o *ObjectsClassReferencesDeleteInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects class references delete internal server error response a status code equal to that given
+func (o *ObjectsClassReferencesDeleteInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects class references delete internal server error response
+func (o *ObjectsClassReferencesDeleteInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsClassReferencesDeleteInternalServerError) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsClassReferencesDeleteInternalServerError) String() string {
 	return fmt.Sprintf("[DELETE /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 

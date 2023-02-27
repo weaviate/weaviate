@@ -118,6 +118,10 @@ type fakeClusterState struct {
 	hosts []string
 }
 
+func (f *fakeClusterState) SchemaSyncIgnored() bool {
+	return false
+}
+
 func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
@@ -137,6 +141,14 @@ func (f *fakeClusterState) NodeCount() int {
 func (f *fakeClusterState) ClusterHealthScore() int {
 	// 0 - healty, >0 - unhealthy
 	return 0
+}
+
+func (f *fakeClusterState) ResolveParentNodes(string, string) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeClusterState) NodeHostname(nodeName string) (string, bool) {
+	return "", false
 }
 
 type NilMigrator struct{}

@@ -61,6 +61,7 @@ type SchemaGetter interface {
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
+	ResolveParentNodes(string, string) ([]string, []string, error)
 }
 
 type VectorizerValidator interface {
@@ -91,9 +92,12 @@ type clusterState interface {
 	AllNames() []string
 	LocalName() string
 	NodeCount() int
+	NodeHostname(nodeName string) (string, bool)
 
 	// ClusterHealthScore gets the whole cluster health, the lower number the better
 	ClusterHealthScore() int
+
+	SchemaSyncIgnored() bool
 }
 
 type scaleOut interface {

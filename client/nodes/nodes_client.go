@@ -36,9 +36,12 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter) (*NodesGetOK, error)
+	NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -46,13 +49,12 @@ type ClientService interface {
 /*
 NodesGet Returns status of Weaviate DB.
 */
-func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter) (*NodesGetOK, error) {
+func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewNodesGetParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "nodes.get",
 		Method:             "GET",
 		PathPattern:        "/nodes",
@@ -64,7 +66,12 @@ func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInf
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

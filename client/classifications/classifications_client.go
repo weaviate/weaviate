@@ -36,11 +36,14 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	ClassificationsGet(params *ClassificationsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsGetOK, error)
+	ClassificationsGet(params *ClassificationsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ClassificationsGetOK, error)
 
-	ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsPostCreated, error)
+	ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ClassificationsPostCreated, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -50,13 +53,12 @@ ClassificationsGet views previously created classification
 
 Get status, results and metadata of a previously created classification
 */
-func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsGetOK, error) {
+func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ClassificationsGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewClassificationsGetParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "classifications.get",
 		Method:             "GET",
 		PathPattern:        "/classifications/{id}",
@@ -68,7 +70,12 @@ func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo r
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +94,12 @@ ClassificationsPost starts a classification
 
 Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.
 */
-func (a *Client) ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsPostCreated, error) {
+func (a *Client) ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ClassificationsPostCreated, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewClassificationsPostParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "classifications.post",
 		Method:             "POST",
 		PathPattern:        "/classifications/",
@@ -105,7 +111,12 @@ func (a *Client) ClassificationsPost(params *ClassificationsPostParams, authInfo
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

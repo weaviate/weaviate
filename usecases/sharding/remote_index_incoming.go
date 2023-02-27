@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/go-openapi/strfmt"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type RemoteIncomingRepo interface {
@@ -61,6 +63,10 @@ type RemoteIndexIncomingRepo interface {
 		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
+	IncomingOverwriteObjects(ctx context.Context, shard string,
+		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
+	IncomingDigestObjects(ctx context.Context, shardName string,
+		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
 
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
@@ -271,4 +277,26 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	}
 
 	return index.IncomingReinitShard(ctx, shardName)
+}
+
+func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
+	indexName, shardName string, vobjects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingOverwriteObjects(ctx, shardName, vobjects)
+}
+
+func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
+	indexName, shardName string, ids []strfmt.UUID,
+) ([]replica.RepairResponse, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingDigestObjects(ctx, shardName, ids)
 }

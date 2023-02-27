@@ -30,7 +30,8 @@ import (
 )
 
 // NewObjectsReferencesCreateParams creates a new ObjectsReferencesCreateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsReferencesCreateParams() ObjectsReferencesCreateParams {
 
 	return ObjectsReferencesCreateParams{}
@@ -86,6 +87,11 @@ func (o *ObjectsReferencesCreateParams) BindRequest(r *http.Request, route *midd
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -93,6 +99,7 @@ func (o *ObjectsReferencesCreateParams) BindRequest(r *http.Request, route *midd
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
@@ -102,7 +109,6 @@ func (o *ObjectsReferencesCreateParams) BindRequest(r *http.Request, route *midd
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -151,7 +157,6 @@ func (o *ObjectsReferencesCreateParams) bindPropertyName(rawData []string, hasKe
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.PropertyName = raw
 
 	return nil

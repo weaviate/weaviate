@@ -21,12 +21,12 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type mockRequestsLog struct{}
@@ -646,7 +646,7 @@ func newMockResolverWithNoModules() *mockResolver {
 }
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)

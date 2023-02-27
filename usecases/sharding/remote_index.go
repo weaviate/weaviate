@@ -57,7 +57,7 @@ type RemoteIndexClient interface {
 	PutObject(ctx context.Context, hostName, indexName, shardName string,
 		obj *storobj.Object) error
 	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
-		objs []*storobj.Object) []error
+		objs []*storobj.Object, repl *additional.ReplicationProperties) []error
 	BatchAddReferences(ctx context.Context, hostName, indexName, shardName string,
 		refs objects.BatchReferences) []error
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
@@ -87,12 +87,6 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
-
-	// FindObject extends GetObject with retries
-	// It exists to not alter the behavior of GetObject when replication is not enabled
-	FindObject(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (*storobj.Object, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -136,7 +130,7 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 			shard.BelongsToNode()), len(objs))
 	}
 
-	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs)
+	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil)
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,

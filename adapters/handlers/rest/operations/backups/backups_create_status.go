@@ -43,7 +43,7 @@ func NewBackupsCreateStatus(ctx *middleware.Context, handler BackupsCreateStatus
 }
 
 /*
-BackupsCreateStatus swagger:route GET /backups/{backend}/{id} backups backupsCreateStatus
+	BackupsCreateStatus swagger:route GET /backups/{backend}/{id} backups backupsCreateStatus
 
 Returns status of backup creation attempt for a set of classes
 */
@@ -55,17 +55,16 @@ type BackupsCreateStatus struct {
 func (o *BackupsCreateStatus) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewBackupsCreateStatusParams()
-
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -78,7 +77,6 @@ func (o *BackupsCreateStatus) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }

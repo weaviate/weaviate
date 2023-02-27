@@ -150,11 +150,13 @@ func (c *CommitLogCombiner) mergeFiles(outName, first, second string) error {
 	if err != nil {
 		return errors.Wrapf(err, "open first source file %q", first)
 	}
+	defer source1.Close()
 
 	source2, err := os.Open(second)
 	if err != nil {
 		return errors.Wrapf(err, "open second source file %q", second)
 	}
+	defer source2.Close()
 
 	_, err = io.Copy(out, source1)
 	if err != nil {

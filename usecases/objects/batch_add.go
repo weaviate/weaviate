@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -26,7 +27,7 @@ import (
 
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
 	err := b.authorizer.Authorize(principal, "create", "batch/objects")
 	if err != nil {
@@ -44,18 +45,18 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())
 	defer b.metrics.BatchDec()
 
-	return b.addObjects(ctx, principal, objects, fields)
+	return b.addObjects(ctx, principal, objects, fields, repl)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string,
+	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
 	if err := b.validateObjectForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields)
+	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl)
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var (
@@ -65,7 +66,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
@@ -81,7 +82,7 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 }
 
 func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string,
+	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) BatchObjects {
 	fieldsToKeep := determineResponseFields(fields)
 	c := make(chan BatchObject, len(classes))
@@ -91,7 +92,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 	// Generate a goroutine for each separate request
 	for i, object := range classes {
 		wg.Add(1)
-		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep)
+		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep, repl)
 	}
 
 	wg.Wait()
@@ -101,7 +102,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
 	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject,
-	fieldsToKeep map[string]struct{},
+	fieldsToKeep map[string]struct{}, repl *additional.ReplicationProperties,
 ) {
 	defer wg.Done()
 
@@ -154,7 +155,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
 		// not possible without the class being present
-		err = validation.New(b.vectorRepo.Exists, b.config).Object(ctx, object, class)
+		err = validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, object, class)
 		ec.Add(err)
 
 		err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)

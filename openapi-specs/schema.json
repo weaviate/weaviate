@@ -557,7 +557,7 @@
       "type": "object"
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "properties": {
         "classes": {
           "description": "Semantic classes that are available.",
@@ -1612,17 +1612,17 @@
     }
   },
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   },
   "info": {
     "contact": {
-      "email": "hello@semi.technology",
+      "email": "hello@weaviate.io",
       "name": "Weaviate",
-      "url": "https://github.com/semi-technologies"
+      "url": "https://github.com/weaviate"
     },
     "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
-    "version": "1.17.3"
+    "version": "1.18.0-alpha.0"
   },
   "parameters": {
     "CommonOffsetParameterQuery": {
@@ -1733,6 +1733,54 @@
         }
       }
     },
+    "/.well-known/openid-configuration": {
+      "get": {
+        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "responses": {
+          "200": {
+            "description": "Successful response, inspect body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "href": {
+                  "description": "The Location to redirect to",
+                  "type": "string"
+                },
+                "clientId": {
+                  "description": "OAuth Client ID",
+                  "type": "string"
+                },
+                "scopes": {
+                  "description": "OAuth Scopes",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-omitempty": true
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, no oidc provider present"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "tags": [
+          "well-known",
+          "oidc",
+          "discovery"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
     "/objects": {
       "get": {
         "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
@@ -1819,6 +1867,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1826,6 +1877,12 @@
             "description": "Object created.",
             "schema": {
               "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -1858,57 +1915,6 @@
         "x-available-in-websocket": false
       }
     },
-    "/objects/validate": {
-      "post": {
-        "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
-        "operationId": "objects.validate",
-        "x-serviceIds": [
-          "weaviate.local.query.meta"
-        ],
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Object"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully validated."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Validate an Object based on a schema.",
-        "tags": [
-          "objects"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
     "/objects/{id}": {
       "delete": {
         "description": "Deletes an Object from the system.",
@@ -1924,6 +1930,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2039,6 +2048,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2103,6 +2115,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2284,11 +2299,20 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "204": {
             "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2344,6 +2368,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2415,6 +2442,9 @@
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2477,6 +2507,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2744,11 +2777,20 @@
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "200": {
             "description": "Successfully added the reference."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2818,11 +2860,20 @@
             "schema": {
               "$ref": "#/definitions/MultipleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "200": {
             "description": "Successfully replaced all the references."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2892,11 +2943,20 @@
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "204": {
             "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2927,6 +2987,57 @@
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "tags": [
+          "objects"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/objects/validate": {
+      "post": {
+        "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
+        "operationId": "objects.validate",
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully validated."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Validate an Object based on a schema.",
         "tags": [
           "objects"
         ],
@@ -2972,6 +3083,9 @@
                 }
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -2982,6 +3096,12 @@
               "items": {
                 "$ref": "#/definitions/ObjectsGetResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -3028,6 +3148,9 @@
             "schema": {
               "$ref": "#/definitions/BatchDelete"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -3035,6 +3158,12 @@
             "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "$ref": "#/definitions/BatchDeleteResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -3087,6 +3216,9 @@
                 "$ref": "#/definitions/BatchReference"
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -3097,6 +3229,12 @@
               "items": {
                 "$ref": "#/definitions/BatchReferenceResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -4094,54 +4232,6 @@
         "tags": [
           "classifications"
         ]
-      }
-    },
-    "/.well-known/openid-configuration": {
-      "get": {
-        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
-        "responses": {
-          "200": {
-            "description": "Successful response, inspect body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "href": {
-                  "description": "The Location to redirect to",
-                  "type": "string"
-                },
-                "clientId": {
-                  "description": "OAuth Client ID",
-                  "type": "string"
-                },
-                "scopes": {
-                  "description": "OAuth Scopes",
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "x-omitempty": true
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found, no oidc provider present"
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "OIDC discovery information if OIDC auth is enabled",
-        "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
       }
     }
   },

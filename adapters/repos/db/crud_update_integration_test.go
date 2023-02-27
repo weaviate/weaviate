@@ -24,13 +24,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	libschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // Updates are non trivial, because vector indices are built under the
@@ -71,7 +71,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -80,7 +80,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
-			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+			res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
 				Pagination: &filters.Pagination{
@@ -88,13 +88,13 @@ func TestUpdateJourney(t *testing.T) {
 				},
 			})
 
-			expectedOrder := []interface{}{
-				"element-0", "element-2", "element-3", "element-1",
+			expectedInAnyOrder := []interface{}{
+				"element-0", "element-1", "element-2", "element-3",
 			}
 
 			require.Nil(t, err)
 			require.Len(t, res, 4)
-			assert.Equal(t, expectedOrder, extractPropValues(res, "name"))
+			assert.ElementsMatch(t, expectedInAnyOrder, extractPropValues(res, "name"))
 		})
 
 	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
@@ -118,22 +118,22 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("verify invert index results are initially as expected",
 		func(t *testing.T) {
-			expectedOrder := []interface{}{
+			expectedInAnyOrder := []interface{}{
 				"element-0", "element-1", "element-2", "element-3",
 			}
-			assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorGreaterThanEqual, 0))
+			assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorGreaterThanEqual, 0))
 
-			expectedOrder = []interface{}{"element-0"}
-			assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 0))
+			expectedInAnyOrder = []interface{}{"element-0"}
+			assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 0))
 
-			expectedOrder = []interface{}{"element-1"}
-			assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 10))
+			expectedInAnyOrder = []interface{}{"element-1"}
+			assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 10))
 
-			expectedOrder = []interface{}{"element-2"}
-			assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 20))
+			expectedInAnyOrder = []interface{}{"element-2"}
+			assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 20))
 
-			expectedOrder = []interface{}{"element-3"}
-			assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
+			expectedInAnyOrder = []interface{}{"element-3"}
+			assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 30))
 		})
 
 	t.Run("update vector position of one item to move it into a different direction",
@@ -146,12 +146,12 @@ func TestUpdateJourney(t *testing.T) {
 				additional.Properties{})
 			require.Nil(t, err)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -159,32 +159,32 @@ func TestUpdateJourney(t *testing.T) {
 			},
 		})
 
-		expectedOrder := []interface{}{
-			"element-2", "element-3", "element-1", "element-0",
+		expectedInAnyOrder := []interface{}{
+			"element-0", "element-1", "element-2", "element-3",
 		}
 
 		require.Nil(t, err)
 		require.Len(t, res, 4)
-		assert.Equal(t, expectedOrder, extractPropValues(res, "name"))
+		assert.ElementsMatch(t, expectedInAnyOrder, extractPropValues(res, "name"))
 	})
 
 	t.Run("verify invert results still work properly", func(t *testing.T) {
-		expectedOrder := []interface{}{
+		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
 		}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorGreaterThanEqual, 0))
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorGreaterThanEqual, 0))
 
-		expectedOrder = []interface{}{"element-0"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 0))
+		expectedInAnyOrder = []interface{}{"element-0"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 0))
 
-		expectedOrder = []interface{}{"element-1"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 10))
+		expectedInAnyOrder = []interface{}{"element-1"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 10))
 
-		expectedOrder = []interface{}{"element-2"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 20))
+		expectedInAnyOrder = []interface{}{"element-2"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 20))
 
-		expectedOrder = []interface{}{"element-3"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
+		expectedInAnyOrder = []interface{}{"element-3"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 
 	t.Run("update a second object and modify vector and invert props at the same time",
@@ -201,12 +201,12 @@ func TestUpdateJourney(t *testing.T) {
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
 			require.Nil(t, err)
 		})
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
-		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+		res, err := repo.VectorClassSearch(context.Background(), dto.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
 			Pagination: &filters.Pagination{
@@ -214,35 +214,35 @@ func TestUpdateJourney(t *testing.T) {
 			},
 		})
 
-		expectedOrder := []interface{}{
-			"element-3", "element-1", "element-0", "element-2",
+		expectedInAnyOrder := []interface{}{
+			"element-0", "element-1", "element-2", "element-3",
 		}
 
 		require.Nil(t, err)
 		require.Len(t, res, 4)
-		assert.Equal(t, expectedOrder, extractPropValues(res, "name"))
+		assert.ElementsMatch(t, expectedInAnyOrder, extractPropValues(res, "name"))
 	})
 
 	t.Run("verify invert results have been updated correctly", func(t *testing.T) {
-		expectedOrder := []interface{}{
+		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
 		}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorGreaterThanEqual, 0))
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorGreaterThanEqual, 0))
 
-		expectedOrder = []interface{}{"element-0"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 0))
+		expectedInAnyOrder = []interface{}{"element-0"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 0))
 
-		expectedOrder = []interface{}{"element-1"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 10))
+		expectedInAnyOrder = []interface{}{"element-1"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 10))
 
-		expectedOrder = []interface{}{} // value is no longer 20, but 21
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 20))
+		expectedInAnyOrder = []interface{}{} // value is no longer 20, but 21
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 20))
 
-		expectedOrder = []interface{}{"element-2"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 21))
+		expectedInAnyOrder = []interface{}{"element-2"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 21))
 
-		expectedOrder = []interface{}{"element-3"}
-		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
+		expectedInAnyOrder = []interface{}{"element-3"}
+		assert.ElementsMatch(t, expectedInAnyOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
 }
 

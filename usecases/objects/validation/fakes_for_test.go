@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -41,6 +42,6 @@ func testSchema() schema.Schema {
 	}
 }
 
-func fakeExists(context.Context, string, strfmt.UUID) (bool, error) {
+func fakeExists(context.Context, string, strfmt.UUID, *additional.ReplicationProperties) (bool, error) {
 	return true, nil
 }

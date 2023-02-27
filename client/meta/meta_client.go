@@ -36,9 +36,12 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter) (*MetaGetOK, error)
+	MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*MetaGetOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -48,13 +51,12 @@ MetaGet returns meta information of the current weaviate instance
 
 Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 */
-func (a *Client) MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter) (*MetaGetOK, error) {
+func (a *Client) MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*MetaGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewMetaGetParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "meta.get",
 		Method:             "GET",
 		PathPattern:        "/meta",
@@ -66,7 +68,12 @@ func (a *Client) MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoW
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

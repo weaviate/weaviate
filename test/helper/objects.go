@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func SetupClient(uri string) {
@@ -58,6 +59,13 @@ func CreateObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := objects.NewObjectsCreateParams().WithBody(object).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
@@ -73,6 +81,14 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 func UpdateObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsUpdateParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func UpdateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := objects.NewObjectsClassPutParams().WithClassName(object.Class).
+		WithID(object.ID).WithBody(object).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassPut(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
