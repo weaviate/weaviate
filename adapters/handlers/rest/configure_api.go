@@ -39,7 +39,6 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
