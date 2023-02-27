@@ -612,7 +612,6 @@ func TestRFJourneyWithFilters(t *testing.T) {
 				Offset: 0,
 				Limit:  -1,
 			},
-			// Filters: filter,
 		}
 
 		prov := modules.NewProvider()
