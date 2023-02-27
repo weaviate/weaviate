@@ -17,14 +17,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_UserConfig(t *testing.T) {
 	type test struct {
-		name        string
-		input       interface{}
-		expected    UserConfig
-		expectedErr string
+		name         string
+		input        interface{}
+		expected     UserConfig
+		expectErr    bool
+		expectErrMsg string
 	}
 
 	tests := []test{
@@ -421,19 +423,55 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "invalid max connections (json)",
+			input: map[string]interface{}{
+				"maxConnections": json.Number("0"),
+			},
+			expectErr: true,
+			expectErrMsg: "maxConnections must be a positive integer " +
+				"with a minimum of 4",
+		},
+		{
+			name: "invalid max connections (float)",
+			input: map[string]interface{}{
+				"maxConnections": float64(3),
+			},
+			expectErr: true,
+			expectErrMsg: "maxConnections must be a positive integer " +
+				"with a minimum of 4",
+		},
+		{
+			name: "invalid efConstruction (json)",
+			input: map[string]interface{}{
+				"efConstruction": json.Number("0"),
+			},
+			expectErr: true,
+			expectErrMsg: "efConstruction must be a positive integer " +
+				"with a minimum of 4",
+		},
+		{
+			name: "invalid efConstruction (float)",
+			input: map[string]interface{}{
+				"efConstruction": float64(3),
+			},
+			expectErr: true,
+			expectErrMsg: "efConstruction must be a positive integer " +
+				"with a minimum of 4",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg, err := ParseUserConfig(test.input)
-
-			if test.expectedErr == "" {
-				assert.Nil(t, err)
-				assert.Equal(t, test.expected, cfg)
-			} else {
-				assert.NotNil(t, err)
-				assert.Contains(t, err.Error(), test.expectedErr)
+			cfg, err := ParseAndValidateConfig(test.input)
+			if test.expectErr {
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), test.expectErrMsg)
+				return
 			}
+
+			assert.Nil(t, err)
+			assert.Equal(t, test.expected, cfg)
 		})
 	}
 }

@@ -42,8 +42,6 @@ type RemoteReplicaIncomingRepo interface {
 	// Read endpoints
 	FetchObject(ctx context.Context, indexName,
 		shardName string, id strfmt.UUID) (objects.Replica, error)
-	DoesExist(ctx context.Context, class,
-		shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, class,
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
@@ -118,12 +116,6 @@ func (rri *RemoteReplicaIncoming) FetchObject(ctx context.Context,
 	indexName, shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
 	return rri.repo.FetchObject(ctx, indexName, shardName, id)
-}
-
-func (rri *RemoteReplicaIncoming) DoesExist(ctx context.Context,
-	indexName, shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
-	return rri.repo.DoesExist(ctx, indexName, shardName, id)
 }
 
 func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,

@@ -218,7 +218,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+		enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, schemaTxClient, scaler,
 	)
 	if err != nil {

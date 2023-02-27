@@ -84,6 +84,14 @@ func UpdateObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func UpdateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := objects.NewObjectsClassPutParams().WithClassName(object.Class).
+		WithID(object.ID).WithBody(object).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassPut(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func PatchObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsPatchParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsPatch(params, nil)

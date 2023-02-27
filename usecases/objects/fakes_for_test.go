@@ -140,7 +140,7 @@ type fakeVectorRepo struct {
 }
 
 func (f *fakeVectorRepo) Exists(ctx context.Context, class string,
-	id strfmt.UUID,
+	id strfmt.UUID, repl *additional.ReplicationProperties,
 ) (bool, error) {
 	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)

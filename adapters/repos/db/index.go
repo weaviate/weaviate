@@ -93,7 +93,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	}
 
 	repl := replica.NewReplicator(config.ClassName.String(),
-		sg, nodeResolver, replicaClient)
+		sg, nodeResolver, replicaClient, logger)
 
 	index := &Index{
 		Config:                config,
@@ -735,28 +735,35 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 	return out
 }
 
-func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (i *Index) exists(ctx context.Context, id strfmt.UUID,
+	replProps *additional.ReplicationProperties,
+) (bool, error) {
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return false, err
 	}
 
-	local := i.getSchema.
-		ShardingState(i.Config.ClassName.String()).
-		IsShardLocal(shardName)
-
-	var ok bool
-	if local {
+	var exists bool
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: string(replica.All),
+			}
+		}
+		exists, err = i.replicator.Exists(ctx,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id)
+	} else if i.isLocalShard(shardName) {
 		shard := i.Shards[shardName]
-		ok, err = shard.exists(ctx, id)
+		exists, err = shard.exists(ctx, id)
 	} else {
-		ok, err = i.remote.Exists(ctx, shardName, id)
+		exists, err = i.remote.Exists(ctx, shardName, id)
 	}
+
 	if err != nil {
 		return false, errors.Wrapf(err, "shard %s", shardName)
 	}
 
-	return ok, nil
+	return exists, nil
 }
 
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
@@ -782,6 +789,28 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
+	// If the request is a BM25F with no properties selected, use all possible properties
+	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
+
+		cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
+		if err != nil {
+			return nil, nil, err
+		}
+
+		propHash := cl.Properties
+		// Get keys of hash
+		for _, v := range propHash {
+			if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
+				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
+			}
+		}
+
+		// WEAVIATE-471 - error if we can't find a property to search
+		if len(keywordRanking.Properties) == 0 {
+			return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
+		}
+	}
+
 	outObjects := make([]*storobj.Object, 0, len(shardNames)*limit)
 	outScores := make([]float32, 0, len(shardNames)*limit)
 	for _, shardName := range shardNames {
@@ -794,27 +823,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var err error
 
 		if local {
-			// If the request is a BM25F with no properties selected, use all possible properties
-			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
-
-				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
-				if err != nil {
-					return nil, nil, err
-				}
-
-				propHash := cl.Properties
-				// Get keys of hash
-				for _, v := range propHash {
-					if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
-						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
-					}
-				}
-
-				// WEAVIATE-471 - error if we can't find a property to search
-				if len(keywordRanking.Properties) == 0 {
-					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
-				}
-			}
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
 			if err != nil {
