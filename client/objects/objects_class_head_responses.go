@@ -64,9 +64,8 @@ func (o *ObjectsClassHeadReader) ReadResponse(response runtime.ClientResponse, c
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,14 +75,48 @@ func NewObjectsClassHeadNoContent() *ObjectsClassHeadNoContent {
 }
 
 /*
-ObjectsClassHeadNoContent handles this case with default header values.
+ObjectsClassHeadNoContent describes a response with status code 204, with default header values.
 
 Object exists.
 */
 type ObjectsClassHeadNoContent struct {
 }
 
+// IsSuccess returns true when this objects class head no content response has a 2xx status code
+func (o *ObjectsClassHeadNoContent) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects class head no content response has a 3xx status code
+func (o *ObjectsClassHeadNoContent) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class head no content response has a 4xx status code
+func (o *ObjectsClassHeadNoContent) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects class head no content response has a 5xx status code
+func (o *ObjectsClassHeadNoContent) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class head no content response a status code equal to that given
+func (o *ObjectsClassHeadNoContent) IsCode(code int) bool {
+	return code == 204
+}
+
+// Code gets the status code for the objects class head no content response
+func (o *ObjectsClassHeadNoContent) Code() int {
+	return 204
+}
+
 func (o *ObjectsClassHeadNoContent) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
+}
+
+func (o *ObjectsClassHeadNoContent) String() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNoContent ", 204)
 }
 
@@ -98,14 +131,48 @@ func NewObjectsClassHeadUnauthorized() *ObjectsClassHeadUnauthorized {
 }
 
 /*
-ObjectsClassHeadUnauthorized handles this case with default header values.
+ObjectsClassHeadUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsClassHeadUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects class head unauthorized response has a 2xx status code
+func (o *ObjectsClassHeadUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class head unauthorized response has a 3xx status code
+func (o *ObjectsClassHeadUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class head unauthorized response has a 4xx status code
+func (o *ObjectsClassHeadUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class head unauthorized response has a 5xx status code
+func (o *ObjectsClassHeadUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class head unauthorized response a status code equal to that given
+func (o *ObjectsClassHeadUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects class head unauthorized response
+func (o *ObjectsClassHeadUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsClassHeadUnauthorized) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
+}
+
+func (o *ObjectsClassHeadUnauthorized) String() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadUnauthorized ", 401)
 }
 
@@ -120,7 +187,7 @@ func NewObjectsClassHeadForbidden() *ObjectsClassHeadForbidden {
 }
 
 /*
-ObjectsClassHeadForbidden handles this case with default header values.
+ObjectsClassHeadForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -128,7 +195,41 @@ type ObjectsClassHeadForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class head forbidden response has a 2xx status code
+func (o *ObjectsClassHeadForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class head forbidden response has a 3xx status code
+func (o *ObjectsClassHeadForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class head forbidden response has a 4xx status code
+func (o *ObjectsClassHeadForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class head forbidden response has a 5xx status code
+func (o *ObjectsClassHeadForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class head forbidden response a status code equal to that given
+func (o *ObjectsClassHeadForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects class head forbidden response
+func (o *ObjectsClassHeadForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsClassHeadForbidden) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsClassHeadForbidden) String() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadForbidden  %+v", 403, o.Payload)
 }
 
@@ -154,14 +255,48 @@ func NewObjectsClassHeadNotFound() *ObjectsClassHeadNotFound {
 }
 
 /*
-ObjectsClassHeadNotFound handles this case with default header values.
+ObjectsClassHeadNotFound describes a response with status code 404, with default header values.
 
 Object doesn't exist.
 */
 type ObjectsClassHeadNotFound struct {
 }
 
+// IsSuccess returns true when this objects class head not found response has a 2xx status code
+func (o *ObjectsClassHeadNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class head not found response has a 3xx status code
+func (o *ObjectsClassHeadNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class head not found response has a 4xx status code
+func (o *ObjectsClassHeadNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class head not found response has a 5xx status code
+func (o *ObjectsClassHeadNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class head not found response a status code equal to that given
+func (o *ObjectsClassHeadNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the objects class head not found response
+func (o *ObjectsClassHeadNotFound) Code() int {
+	return 404
+}
+
 func (o *ObjectsClassHeadNotFound) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
+}
+
+func (o *ObjectsClassHeadNotFound) String() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadNotFound ", 404)
 }
 
@@ -176,7 +311,7 @@ func NewObjectsClassHeadInternalServerError() *ObjectsClassHeadInternalServerErr
 }
 
 /*
-ObjectsClassHeadInternalServerError handles this case with default header values.
+ObjectsClassHeadInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -184,7 +319,41 @@ type ObjectsClassHeadInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class head internal server error response has a 2xx status code
+func (o *ObjectsClassHeadInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class head internal server error response has a 3xx status code
+func (o *ObjectsClassHeadInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class head internal server error response has a 4xx status code
+func (o *ObjectsClassHeadInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects class head internal server error response has a 5xx status code
+func (o *ObjectsClassHeadInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects class head internal server error response a status code equal to that given
+func (o *ObjectsClassHeadInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects class head internal server error response
+func (o *ObjectsClassHeadInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsClassHeadInternalServerError) Error() string {
+	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsClassHeadInternalServerError) String() string {
 	return fmt.Sprintf("[HEAD /objects/{className}/{id}][%d] objectsClassHeadInternalServerError  %+v", 500, o.Payload)
 }
 

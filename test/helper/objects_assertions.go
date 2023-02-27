@@ -12,12 +12,14 @@
 package helper
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func AssertCreateObject(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
@@ -105,6 +107,36 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 		return nil, err
 	}
 	return getResp.Payload, nil
+}
+
+func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
+	cl replica.ConsistencyLevel, include ...string,
+) (*models.Object, error) {
+	req := objects.NewObjectsClassGetParams().WithID(uuid)
+	if class != "" {
+		req.WithClassName(class)
+	}
+	if len(include) > 0 {
+		req.WithInclude(&include[0])
+	}
+	cls := string(cl)
+	req.ConsistencyLevel = &cls
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
+func ObjectExistsCL(t *testing.T, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+	cls := string(cl)
+	req := objects.NewObjectsClassHeadParams().
+		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassHead(req, nil)
+	if err != nil {
+		return false, err
+	}
+	return resp.IsCode(http.StatusNoContent), nil
 }
 
 func GetObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename string) (*models.Object, error) {

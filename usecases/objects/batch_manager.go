@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -39,9 +40,11 @@ type BatchVectorRepo interface {
 }
 
 type batchRepoNew interface {
-	BatchPutObjects(ctx context.Context, objects BatchObjects) (BatchObjects, error)
-	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams) (BatchDeleteResult, error)
-	AddBatchReferences(ctx context.Context, references BatchReferences) (BatchReferences, error)
+	BatchPutObjects(ctx context.Context, objects BatchObjects,
+		repl *additional.ReplicationProperties) (BatchObjects, error)
+	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams, repl *additional.ReplicationProperties) (BatchDeleteResult, error)
+	AddBatchReferences(ctx context.Context, references BatchReferences,
+		repl *additional.ReplicationProperties) (BatchReferences, error)
 }
 
 // NewBatchManager creates a new manager

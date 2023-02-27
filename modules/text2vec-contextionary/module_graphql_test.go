@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
@@ -48,7 +49,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 	type test struct {
 		name           string
 		query          string
-		expectedParams traverser.GetParams
+		expectedParams dto.GetParams
 		resolverReturn interface{}
 		expectedResult interface{}
 	}
@@ -57,7 +58,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 		{
 			name:  "with _additional certainty",
 			query: "{ Get { SomeAction { _additional { certainty distance } } } }",
-			expectedParams: traverser.GetParams{
+			expectedParams: dto.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					Certainty: true,
@@ -82,7 +83,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 		{
 			name:  "with _additional interpretation",
 			query: "{ Get { SomeAction { _additional { interpretation { source { concept weight occurrence } }  } } } }",
-			expectedParams: traverser.GetParams{
+			expectedParams: dto.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
@@ -132,7 +133,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 		{
 			name:  "with _additional nearestNeighbors",
 			query: "{ Get { SomeAction { _additional { nearestNeighbors { neighbors { concept distance } }  } } } }",
-			expectedParams: traverser.GetParams{
+			expectedParams: dto.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
@@ -178,7 +179,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 		{
 			name:  "with _additional featureProjection without any optional parameters",
 			query: "{ Get { SomeAction { _additional { featureProjection { vector }  } } } }",
-			expectedParams: traverser.GetParams{
+			expectedParams: dto.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
@@ -206,7 +207,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 		{
 			name:  "with _additional featureProjection with optional parameters",
 			query: `{ Get { SomeAction { _additional { featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
-			expectedParams: traverser.GetParams{
+			expectedParams: dto.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
@@ -242,7 +243,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 		{
 			name:  "with _additional semanticPath set",
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
-			expectedParams: traverser.GetParams{
+			expectedParams: dto.GetParams{
 				ClassName: "SomeAction",
 				AdditionalProperties: additional.Properties{
 					ModuleParams: map[string]interface{}{
@@ -329,7 +330,7 @@ func TestNearTextRanker(t *testing.T) {
 								}
 							}) { intField } } }`
 
-		expectedParams := traverser.GetParams{
+		expectedParams := dto.GetParams{
 			ClassName:  "SomeAction",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			ModuleParams: map[string]interface{}{
@@ -385,7 +386,7 @@ func TestNearTextRanker(t *testing.T) {
 								}
 							}) { intField } } }`
 
-		expectedParams := traverser.GetParams{
+		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
@@ -424,7 +425,7 @@ func TestNearTextRanker(t *testing.T) {
 								}
 							}) { intField } } }`
 
-		expectedParams := traverser.GetParams{
+		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
@@ -472,7 +473,7 @@ func TestNearTextRanker(t *testing.T) {
 								}
 							}) { intField } } }`
 
-		expectedParams := traverser.GetParams{
+		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
@@ -539,7 +540,7 @@ func TestNearTextRanker(t *testing.T) {
 								}
 							}) { intField } } }`
 
-		expectedParams := traverser.GetParams{
+		expectedParams := dto.GetParams{
 			ClassName:  "SomeThing",
 			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},

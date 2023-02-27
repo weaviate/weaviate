@@ -78,7 +78,7 @@ func Test_HeadObject(t *testing.T) {
 		if tc.authErr == nil && tc.lockErr == nil {
 			m.repo.On("Exists", tc.class, id).Return(tc.mockedOk, tc.mockedErr).Once()
 		}
-		ok, err := m.Manager.HeadObject(context.Background(), nil, tc.class, id)
+		ok, err := m.Manager.HeadObject(context.Background(), nil, tc.class, id, nil)
 		code := 0
 		if err != nil {
 			code = err.Code

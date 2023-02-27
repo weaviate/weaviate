@@ -36,9 +36,12 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) (*GetWellKnownOpenidConfigurationOK, error)
+	GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetWellKnownOpenidConfigurationOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -48,13 +51,12 @@ GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is 
 
 OIDC Discovery page, redirects to the token issuer if one is configured
 */
-func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) (*GetWellKnownOpenidConfigurationOK, error) {
+func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetWellKnownOpenidConfigurationOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewGetWellKnownOpenidConfigurationParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "GetWellKnownOpenidConfiguration",
 		Method:             "GET",
 		PathPattern:        "/.well-known/openid-configuration",
@@ -66,7 +68,12 @@ func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfi
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

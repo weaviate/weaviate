@@ -17,9 +17,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -61,7 +61,7 @@ func TestFilterNullStateError(t *testing.T) {
 		},
 	}
 
-	params := traverser.GetParams{
+	params := dto.GetParams{
 		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 		ClassName:    class.Class,
 		Pagination:   &filters.Pagination{Limit: 5},
@@ -117,14 +117,14 @@ func TestNullArrayClass(t *testing.T) {
 			}
 
 			if name == names[0] {
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}))
-				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjNil, []float32{1}, nil))
+				assert.Nil(t, repo.PutObject(context.Background(), arrayObjEmpty, []float32{1}, nil))
 
 			} else {
 				batch := make([]objects.BatchObject, 2)
 				batch[0] = objects.BatchObject{Object: arrayObjNil, UUID: arrayObjNil.ID}
 				batch[1] = objects.BatchObject{Object: arrayObjEmpty, UUID: arrayObjEmpty.ID}
-				_, err := repo.BatchPutObjects(context.Background(), batch)
+				_, err := repo.BatchPutObjects(context.Background(), batch, nil)
 				assert.Nil(t, err)
 			}
 

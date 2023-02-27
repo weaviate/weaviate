@@ -416,5 +416,8 @@ func parseClusterConfig() (cluster.Config, error) {
 			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
+	cfg.IgnoreStartupSchemaSync = enabled(
+		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
+
 	return cfg, nil
 }

@@ -37,6 +37,7 @@ type indicesPayloads struct {
 	SingleObject              singleObjectPayload
 	MergeDoc                  mergeDocPayload
 	ObjectList                objectListPayload
+	VersionedObjectList       versionedObjectListPayload
 	SearchResults             searchResultsPayload
 	SearchParams              searchParamsPayload
 	ReferenceList             referenceListPayload
@@ -176,16 +177,18 @@ func (p objectListPayload) Marshal(in []*storobj.Object) ([]byte, error) {
 
 	reusableLengthBuf := make([]byte, 8)
 	for _, ind := range in {
-		bytes, err := ind.MarshalBinary()
-		if err != nil {
-			return nil, err
+		if ind != nil {
+			bytes, err := ind.MarshalBinary()
+			if err != nil {
+				return nil, err
+			}
+
+			length := uint64(len(bytes))
+			binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+			out = append(out, reusableLengthBuf...)
+			out = append(out, bytes...)
 		}
-
-		length := uint64(len(bytes))
-		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
-
-		out = append(out, reusableLengthBuf...)
-		out = append(out, bytes...)
 	}
 
 	return out, nil
@@ -218,6 +221,86 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 		}
 
 		out = append(out, obj)
+	}
+
+	return out, nil
+}
+
+type versionedObjectListPayload struct{}
+
+func (p versionedObjectListPayload) MIME() string {
+	return "application/vnd.weaviate.vobject.list+octet-stream"
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	reusableLengthBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := r.Read(reusableLengthBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		ln := binary.LittleEndian.Uint64(reusableLengthBuf)
+		payloadBytes := make([]byte, ln)
+		_, err = r.Read(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		var vobj objects.VObject
+		err = vobj.UnmarshalBinary(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, &vobj)
 	}
 
 	return out, nil

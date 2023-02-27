@@ -37,13 +37,26 @@ func (m *Manager) deleteClass(ctx context.Context, className string, force bool)
 		DeleteClassPayload{className, force}, DefaultTxTTL)
 	if err != nil {
 		// possible causes for errors could be nodes down (we expect every node to
-		// the up for a schema transaction) or concurrent transactions from other
+		// be up for a schema transaction) or concurrent transactions from other
 		// nodes
 		return errors.Wrap(err, "open cluster-wide transaction")
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
-		return errors.Wrap(err, "commit cluster-wide transaction")
+		// Only log the commit error, but do not abort the changes locally. Once
+		// we've told others to commit, we also need to commit ourselves!
+		//
+		// The idea is that if we abort our changes we are guaranteed to create an
+		// inconsistency as soon as any other node honored the commit. This would
+		// for example be the case in a 3-node cluster where node 1 is the
+		// coordinator, node 2 honored the commit and node 3 died during the commit
+		// phase.
+		//
+		// In this scenario it is far more desirable to make sure that node 1 and
+		// node 2 stay in sync, as node 3 - who may or may not have missed the
+		// update - can use a local WAL from the first TX phase to replay any
+		// missing changes once it's back.
+		m.logger.WithError(err).Errorf("not every node was able to commit")
 	}
 
 	return m.deleteClassApplyChanges(ctx, className, force)

@@ -116,7 +116,12 @@ func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Clas
 }
 
 type fakeClusterState struct {
-	hosts []string
+	hosts       []string
+	syncIgnored bool
+}
+
+func (f *fakeClusterState) SchemaSyncIgnored() bool {
+	return f.syncIgnored
 }
 
 func (f *fakeClusterState) Hostnames() []string {
@@ -137,6 +142,15 @@ func (f *fakeClusterState) NodeCount() int {
 
 func (f *fakeClusterState) ClusterHealthScore() int {
 	return 0
+}
+
+func (f *fakeClusterState) ResolveParentNodes(string, string,
+) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeClusterState) NodeHostname(string) (string, bool) {
+	return "", false
 }
 
 type fakeTxClient struct {

@@ -99,8 +99,8 @@ func (s *Shard) addIndexedPropertyLengthToProps(docID uint64, propName string, l
 		return errors.Errorf("no bucket prop '%s' found", propName+filters.InternalPropertyLength)
 	}
 
-	if bLength.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	if bLength.Strategy() != lsmkv.StrategySetCollection && bLength.Strategy() != lsmkv.StrategyRoaringSet {
+		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
 	}
 
 	hashBucketPropertyLength := s.store.Bucket(helpers.HashBucketFromPropNameLSM(propName + filters.InternalPropertyLength))
@@ -121,6 +121,11 @@ func (s *Shard) addIndexedPropertyLengthToProps(docID uint64, propName string, l
 	if err := hashBucketPropertyLength.Put(key, hash); err != nil {
 		return err
 	}
+
+	if bLength.Strategy() == lsmkv.StrategyRoaringSet {
+		return bLength.RoaringSetAddOne(key, docID)
+	}
+
 	docIDBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(docIDBytes, docID)
 
@@ -138,8 +143,8 @@ func (s *Shard) addIndexedNullStateToProps(docID uint64, propName string, isNil 
 		return errors.Errorf("no nil-hash bucket for prop '%s' found", propName+filters.InternalNullIndex)
 	}
 
-	if bNullState.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	if bNullState.Strategy() != lsmkv.StrategySetCollection && bNullState.Strategy() != lsmkv.StrategyRoaringSet {
+		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
 	}
 
 	hash, err := s.generateRowHash()
@@ -156,6 +161,11 @@ func (s *Shard) addIndexedNullStateToProps(docID uint64, propName string, isNil 
 	if err := hashBucketNullState.Put([]byte{key}, hash); err != nil {
 		return err
 	}
+
+	if bNullState.Strategy() == lsmkv.StrategyRoaringSet {
+		return bNullState.RoaringSetAddOne([]byte{key}, docID)
+	}
+
 	docIDBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(docIDBytes, docID)
 
@@ -202,8 +212,8 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
-	if b.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
+		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
 	}
 
 	hash, err := s.generateRowHash()
@@ -213,6 +223,10 @@ func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 
 	if err := hashBucket.Put(item.Data, hash); err != nil {
 		return err
+	}
+
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		return b.RoaringSetAddOne(item.Data, docID)
 	}
 
 	docIDBytes := make([]byte, 8)
@@ -224,8 +238,8 @@ func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv.Bucket,
 	item inverted.MergeItem,
 ) error {
-	if b.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
+		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
 	}
 
 	hash, err := s.generateRowHash()
@@ -235,6 +249,14 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 
 	if err := hashBucket.Put(item.Data, hash); err != nil {
 		return err
+	}
+
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		docIDs := make([]uint64, len(item.DocIDs))
+		for i, idTuple := range item.DocIDs {
+			docIDs[i] = idTuple.DocID
+		}
+		return b.RoaringSetAddList(item.Data, docIDs)
 	}
 
 	docIDs := make([][]byte, len(item.DocIDs))

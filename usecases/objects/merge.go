@@ -35,7 +35,9 @@ type MergeDocument struct {
 	AdditionalProperties models.AdditionalProperties `json:"additionalProperties"`
 }
 
-func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal, updates *models.Object) *Error {
+func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
+	updates *models.Object, repl *additional.ReplicationProperties,
+) *Error {
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
@@ -48,24 +50,26 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal, 
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
-	if err := m.validateObject(ctx, principal, updates); err != nil {
+	if err := m.validateObject(ctx, principal, updates, repl); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	if updates.Properties == nil {
 		updates.Properties = map[string]interface{}{}
 	}
-	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, nil)
+	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl)
 	if err != nil {
 		return &Error{"repo.object", StatusInternalServerError, err}
 	}
 	if obj == nil {
 		return &Error{"not found", StatusNotFound, err}
 	}
-	return m.patchObject(ctx, principal, obj, updates)
+	return m.patchObject(ctx, principal, obj, updates, repl)
 }
 
 // patchObject patches an existing object obj with updates
-func (m *Manager) patchObject(ctx context.Context, principal *models.Principal, obj *search.Result, updates *models.Object) *Error {
+func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
+	obj *search.Result, updates *models.Object, repl *additional.ReplicationProperties,
+) *Error {
 	cls, id := updates.Class, updates.ID
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, cls, obj.Schema,
@@ -86,7 +90,7 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal, 
 		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
-	if err := m.vectorRepo.Merge(ctx, mergeDoc); err != nil {
+	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl); err != nil {
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 

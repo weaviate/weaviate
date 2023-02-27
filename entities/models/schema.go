@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -25,7 +26,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Schema Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).
+// Schema Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).
 //
 // swagger:model Schema
 type Schema struct {
@@ -60,7 +61,6 @@ func (m *Schema) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Schema) validateClasses(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Classes) { // not required
 		return nil
 	}
@@ -74,6 +74,8 @@ func (m *Schema) validateClasses(formats strfmt.Registry) error {
 			if err := m.Classes[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("classes" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("classes" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -85,13 +87,46 @@ func (m *Schema) validateClasses(formats strfmt.Registry) error {
 }
 
 func (m *Schema) validateMaintainer(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Maintainer) { // not required
 		return nil
 	}
 
 	if err := validate.FormatOf("maintainer", "body", "email", m.Maintainer.String(), formats); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this schema based on the context it is used
+func (m *Schema) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateClasses(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Schema) contextValidateClasses(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Classes); i++ {
+
+		if m.Classes[i] != nil {
+			if err := m.Classes[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("classes" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("classes" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil

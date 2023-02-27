@@ -30,7 +30,8 @@ import (
 )
 
 // NewObjectsUpdateParams creates a new ObjectsUpdateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsUpdateParams() ObjectsUpdateParams {
 
 	return ObjectsUpdateParams{}
@@ -50,6 +51,10 @@ type ObjectsUpdateParams struct {
 	  In: body
 	*/
 	Body *models.Object
+	/*Determines how many replicas must acknowledge a request before it is considered successful
+	  In: query
+	*/
+	ConsistencyLevel *string
 	/*Unique ID of the Object.
 	  Required: true
 	  In: path
@@ -66,6 +71,8 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
 		var body models.Object
@@ -81,6 +88,11 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -88,14 +100,37 @@ func (o *ObjectsUpdateParams) BindRequest(r *http.Request, route *middleware.Mat
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
+	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
+	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindConsistencyLevel binds and validates parameter ConsistencyLevel from query.
+func (o *ObjectsUpdateParams) bindConsistencyLevel(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.ConsistencyLevel = &raw
+
 	return nil
 }
 

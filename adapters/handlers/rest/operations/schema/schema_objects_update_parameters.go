@@ -24,12 +24,14 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewSchemaObjectsUpdateParams creates a new SchemaObjectsUpdateParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewSchemaObjectsUpdateParams() SchemaObjectsUpdateParams {
 
 	return SchemaObjectsUpdateParams{}
@@ -85,6 +87,11 @@ func (o *SchemaObjectsUpdateParams) BindRequest(r *http.Request, route *middlewa
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.ObjectClass = &body
 			}
@@ -107,7 +114,6 @@ func (o *SchemaObjectsUpdateParams) bindClassName(rawData []string, hasKey bool,
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil

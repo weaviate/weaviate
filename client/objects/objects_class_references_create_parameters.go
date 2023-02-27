@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsClassReferencesCreateParams creates a new ObjectsClassReferencesCreateParams object
-// with the default values initialized.
+// NewObjectsClassReferencesCreateParams creates a new ObjectsClassReferencesCreateParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsClassReferencesCreateParams() *ObjectsClassReferencesCreateParams {
-	var ()
 	return &ObjectsClassReferencesCreateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsClassReferencesCreateParamsWithTimeout creates a new ObjectsClassReferencesCreateParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsClassReferencesCreateParamsWithTimeout(timeout time.Duration) *ObjectsClassReferencesCreateParams {
-	var ()
 	return &ObjectsClassReferencesCreateParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsClassReferencesCreateParamsWithContext creates a new ObjectsClassReferencesCreateParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsClassReferencesCreateParamsWithContext(ctx context.Context) *ObjectsClassReferencesCreateParams {
-	var ()
 	return &ObjectsClassReferencesCreateParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsClassReferencesCreateParamsWithHTTPClient creates a new ObjectsClassReferencesCreateParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsClassReferencesCreateParamsWithHTTPClient(client *http.Client) *ObjectsClassReferencesCreateParams {
-	var ()
 	return &ObjectsClassReferencesCreateParams{
 		HTTPClient: client,
 	}
@@ -70,31 +67,60 @@ func NewObjectsClassReferencesCreateParamsWithHTTPClient(client *http.Client) *O
 
 /*
 ObjectsClassReferencesCreateParams contains all the parameters to send to the API endpoint
-for the objects class references create operation typically these are written to a http.Request
+
+	for the objects class references create operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsClassReferencesCreateParams struct {
 
-	/*Body*/
+	// Body.
 	Body *models.SingleRef
-	/*ClassName
-	  The class name as defined in the schema
 
+	/* ClassName.
+
+	   The class name as defined in the schema
 	*/
 	ClassName string
-	/*ID
-	  Unique ID of the Object.
 
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
+	*/
+	ConsistencyLevel *string
+
+	/* ID.
+
+	   Unique ID of the Object.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
-	/*PropertyName
-	  Unique name of the property related to the Object.
 
+	/* PropertyName.
+
+	   Unique name of the property related to the Object.
 	*/
 	PropertyName string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects class references create params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassReferencesCreateParams) WithDefaults() *ObjectsClassReferencesCreateParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects class references create params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassReferencesCreateParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects class references create params
@@ -152,6 +178,17 @@ func (o *ObjectsClassReferencesCreateParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects class references create params
+func (o *ObjectsClassReferencesCreateParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsClassReferencesCreateParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects class references create params
+func (o *ObjectsClassReferencesCreateParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects class references create params
 func (o *ObjectsClassReferencesCreateParams) WithID(id strfmt.UUID) *ObjectsClassReferencesCreateParams {
 	o.SetID(id)
@@ -181,7 +218,6 @@ func (o *ObjectsClassReferencesCreateParams) WriteToRequest(r runtime.ClientRequ
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
@@ -191,6 +227,23 @@ func (o *ObjectsClassReferencesCreateParams) WriteToRequest(r runtime.ClientRequ
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
 	}
 
 	// path param id

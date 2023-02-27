@@ -49,6 +49,51 @@ func (o *ObjectsClassReferencesCreateOK) WriteResponse(rw http.ResponseWriter, p
 	rw.WriteHeader(200)
 }
 
+// ObjectsClassReferencesCreateBadRequestCode is the HTTP code returned for type ObjectsClassReferencesCreateBadRequest
+const ObjectsClassReferencesCreateBadRequestCode int = 400
+
+/*
+ObjectsClassReferencesCreateBadRequest Malformed request.
+
+swagger:response objectsClassReferencesCreateBadRequest
+*/
+type ObjectsClassReferencesCreateBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassReferencesCreateBadRequest creates ObjectsClassReferencesCreateBadRequest with default headers values
+func NewObjectsClassReferencesCreateBadRequest() *ObjectsClassReferencesCreateBadRequest {
+
+	return &ObjectsClassReferencesCreateBadRequest{}
+}
+
+// WithPayload adds the payload to the objects class references create bad request response
+func (o *ObjectsClassReferencesCreateBadRequest) WithPayload(payload *models.ErrorResponse) *ObjectsClassReferencesCreateBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class references create bad request response
+func (o *ObjectsClassReferencesCreateBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassReferencesCreateBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsClassReferencesCreateUnauthorizedCode is the HTTP code returned for type ObjectsClassReferencesCreateUnauthorized
 const ObjectsClassReferencesCreateUnauthorizedCode int = 401
 

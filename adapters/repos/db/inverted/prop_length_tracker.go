@@ -257,6 +257,10 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 		bucket++
 	}
 
+	if totalCount == 0 {
+		return 0, nil
+	}
+
 	return sum / totalCount, nil
 }
 
