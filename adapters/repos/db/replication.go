@@ -333,48 +333,45 @@ func (db *DB) OverwriteObjects(ctx context.Context,
 // It returns nil if all object have been successfully overwritten
 // and otherwise a list of failed operations.
 func (i *Index) overwriteObjects(ctx context.Context,
-	shard string, list []*objects.VObject,
+	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	result := make([]replica.RepairResponse, 0, len(list)/2)
+	result := make([]replica.RepairResponse, 0, len(updates)/2)
 	s := i.Shards[shard]
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
-	for _, update := range list {
-		id := update.LatestObject.ID
-		found, err := s.objectByID(ctx, id, nil, additional.Properties{})
+	for i, u := range updates {
+		// Just in case but this should not happen
+		data := u.LatestObject
+		if data == nil || data.ID == "" {
+			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
+			result = append(result, replica.RepairResponse{Err: msg})
+			continue
+		}
+		// valid update
+		found, err := s.objectByID(ctx, data.ID, nil, additional.Properties{})
 		var curUpdateTime int64 // 0 means object doesn't exist on this node
 		if found != nil {
 			curUpdateTime = found.LastUpdateTimeUnix()
 		}
-		if err != nil {
-			result = append(result, replica.RepairResponse{
-				ID:  id.String(),
-				Err: "not found",
-			})
-			continue
-		}
-		// the stored object is not the most recent version. in
-		// this case, we overwrite it with the more recent one.
-		if curUpdateTime == update.StaleUpdateTime {
-			err := s.putObject(ctx, storobj.FromObject(update.LatestObject, update.LatestObject.Vector))
+		r := replica.RepairResponse{ID: data.ID.String(), UpdateTime: curUpdateTime}
+		switch {
+		case err != nil:
+			r.Err = "not found: " + err.Error()
+		case curUpdateTime == u.StaleUpdateTime:
+			// the stored object is not the most recent version. in
+			// this case, we overwrite it with the more recent one.
+			err := s.putObject(ctx, storobj.FromObject(data, data.Vector))
 			if err != nil {
-				result = append(result, replica.RepairResponse{
-					ID:         id.String(),
-					UpdateTime: curUpdateTime,
-					// Version: , todo
-					Err: fmt.Sprintf("overwrite stale object: %v", err),
-				})
-				continue
+				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
 			}
-		} else {
-			// todo set version once implemented
-			result = append(result, replica.RepairResponse{
-				ID:         id.String(),
-				UpdateTime: curUpdateTime,
-				// Version: , todo
-				Err: "conflict",
-			})
+		case curUpdateTime != data.LastUpdateTimeUnix:
+			// object changed and its state differs from recent known state
+			r.Err = "conflict"
+		}
+
+		if r.Err != "" { // include only unsuccessful responses
+			result = append(result, r)
 		}
 	}
 	if len(result) == 0 {
