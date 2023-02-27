@@ -12,6 +12,8 @@
 package apikey
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 
 	errors "github.com/go-openapi/errors"
@@ -20,7 +22,8 @@ import (
 )
 
 type Client struct {
-	config config.APIKey
+	config     config.APIKey
+	keystorage [][sha256.Size]byte
 }
 
 func New(cfg config.Config) (*Client, error) {
@@ -32,7 +35,16 @@ func New(cfg config.Config) (*Client, error) {
 		return nil, fmt.Errorf("invalid apikey config: %w", err)
 	}
 
+	c.parseKeys()
+
 	return c, nil
+}
+
+func (c *Client) parseKeys() {
+	c.keystorage = make([][sha256.Size]byte, len(c.config.AllowedKeys))
+	for i, rawKey := range c.config.AllowedKeys {
+		c.keystorage[i] = sha256.Sum256([]byte(rawKey))
+	}
 }
 
 func (c *Client) validateConfig() error {
@@ -84,8 +96,10 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 }
 
 func (c *Client) isTokenAllowed(token string) (int, bool) {
-	for i, allowed := range c.config.AllowedKeys {
-		if token == allowed {
+	tokenHash := sha256.Sum256([]byte(token))
+
+	for i, allowed := range c.keystorage {
+		if subtle.ConstantTimeCompare(tokenHash[:], allowed[:]) == 1 {
 			return i, true
 		}
 	}
