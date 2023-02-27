@@ -33,7 +33,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
+func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedIndexConfig {
 	return &models.InvertedIndexConfig{
 		Bm25: &models.BM25Config{
 			K1: k1,
@@ -41,7 +41,7 @@ func BM25FinvertedConfig(k1, b float32) *models.InvertedIndexConfig {
 		},
 		CleanupIntervalSeconds: 60,
 		Stopwords: &models.StopwordConfig{
-			Preset: "none",
+			Preset: stopWordPreset,
 		},
 		IndexNullState:      true,
 		IndexPropertyLength: true,
@@ -62,7 +62,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 ) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -130,7 +130,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 ) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "FilterClass",
 
 		Properties: []*models.Property{
@@ -625,7 +625,7 @@ func TestBM25FCompare(t *testing.T) {
 func Test_propertyIsIndexed(t *testing.T) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(1, 1),
+		InvertedIndexConfig: BM25FinvertedConfig(1, 1, "none"),
 		Class:               "MyClass",
 
 		Properties: []*models.Property{
@@ -672,12 +672,13 @@ func Test_propertyIsIndexed(t *testing.T) {
 	})
 }
 
-func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32,
-) {
+func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32, preset string,
+) string {
+	className := "DocumentsPreset_" + preset
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
-		Class:               "Documents",
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, preset),
+		Class:               className,
 
 		Properties: []*models.Property{
 			{
@@ -688,14 +689,11 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 			},
 		},
 	}
-
-	schema := schema.Schema{
+	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
 		},
 	}
-
-	schemaGetter.schema = schema
 
 	migrator := NewMigrator(repo, logger)
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
@@ -709,12 +707,13 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 	for i, data := range testData {
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 
-		obj := &models.Object{Class: "Documents", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
 		err := repo.PutObject(context.Background(), obj, vector, nil)
 		require.Nil(t, err)
 	}
+	return className
 }
 
 func TestBM25F_ComplexDocuments(t *testing.T) {
@@ -722,6 +721,11 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{},
+		},
+	}
 	repo := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -733,15 +737,15 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 	require.Nil(t, err)
 	defer repo.Shutdown(context.Background())
 
-	SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75)
+	classNone := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "none")
+	idxNone := repo.GetIndex(schema.ClassName(classNone))
+	require.NotNil(t, idxNone)
 
-	idx := repo.GetIndex("Documents")
-	require.NotNil(t, idx)
+	addit := additional.Properties{}
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
-		addit := additional.Properties{}
-		res, _, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, addit)
+		res, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, addit)
 		require.Nil(t, err)
 
 		// Print results
@@ -760,5 +764,35 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		EqualFloats(t, float32(0.89207935), res[0].Score(), 5)
 		EqualFloats(t, float32(0.5427927), res[1].Score(), 5)
 		EqualFloats(t, float32(0.39563084), res[2].Score(), 5)
+	})
+
+	t.Run("Results without stopwords", func(t *testing.T) {
+		kwrNoStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "example losing business"}
+		resNoStopwords, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, addit)
+		require.Nil(t, err)
+
+		classEn := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
+		idxEn := repo.GetIndex(schema.ClassName(classEn))
+		require.NotNil(t, idxEn)
+		kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}
+		resStopwords, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, addit)
+		require.Nil(t, err)
+
+		require.Equal(t, len(resNoStopwords), len(resStopwords))
+		for i, resNo := range resNoStopwords {
+			resYes := resStopwords[i]
+			require.Equal(t, resNo.DocID(), resYes.DocID())
+			require.Equal(t, resNo.Score(), resYes.Score())
+		}
+
+		kwrStopwordsDuplicate := &searchparams.KeywordRanking{Type: "bm25", Query: "on an example on losing the business on"}
+		resStopwordsDuplicate, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, addit)
+		require.Nil(t, err)
+		require.Equal(t, len(resNoStopwords), len(resStopwordsDuplicate))
+		for i, resNo := range resNoStopwords {
+			resYes := resStopwordsDuplicate[i]
+			require.Equal(t, resNo.DocID(), resYes.DocID())
+			require.Equal(t, resNo.Score(), resYes.Score())
+		}
 	})
 }
