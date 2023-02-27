@@ -125,9 +125,9 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
-		replaceAll := strings.ReplaceAll(textResponse, "\n", "")
+		trimmedResponse := strings.Trim(textResponse, "\n")
 		return &ent.GenerateResult{
-			Result: &replaceAll,
+			Result: &trimmedResponse,
 		}, nil
 	}
 	return &ent.GenerateResult{

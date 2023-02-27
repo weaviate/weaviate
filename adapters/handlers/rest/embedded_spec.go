@@ -1330,6 +1330,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -5648,6 +5651,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {

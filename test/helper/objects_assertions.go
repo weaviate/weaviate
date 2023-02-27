@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -125,6 +126,17 @@ func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
 		return nil, err
 	}
 	return getResp.Payload, nil
+}
+
+func ObjectExistsCL(t *testing.T, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+	cls := string(cl)
+	req := objects.NewObjectsClassHeadParams().
+		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassHead(req, nil)
+	if err != nil {
+		return false, err
+	}
+	return resp.IsCode(http.StatusNoContent), nil
 }
 
 func GetObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename string) (*models.Object, error) {

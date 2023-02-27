@@ -57,12 +57,12 @@ func (m *Manager) AddObjectReference(
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID)
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl)
 		if err != nil {
 			return &Error{"source object", StatusInternalServerError, err}
 		}

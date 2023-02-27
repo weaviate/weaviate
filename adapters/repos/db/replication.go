@@ -525,9 +525,3 @@ func (i *Index) fetchObjects(ctx context.Context,
 
 	return resp, nil
 }
-
-func (db *DB) DoesExist(ctx context.Context,
-	class, shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
-	panic("not implemented")
-}
