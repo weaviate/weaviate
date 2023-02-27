@@ -98,8 +98,9 @@ func NewSearcher(params *Params, logger logrus.FieldLogger,
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
 func (s *Searcher) Search(ctx context.Context) (Results, error) {
 	var (
-		found   [][]*Result
-		weights []float64
+		found     [][]*Result
+		weights   []float64
+		outErrors []error
 	)
 
 	if s.params.Query != "" {
@@ -107,43 +108,35 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 
 		if alpha < 1 {
 			res, err := s.sparseSearch()
-			if err == nil {
 
-				found = append(found, res)
-				weights = append(weights, 1-alpha)
-			}
+			found = append(found, res)
+			weights = append(weights, 1-alpha)
+			outErrors = append(outErrors, err)
+
 		}
 
 		if alpha > 0 {
 			res, err := s.denseSearch(ctx)
-			if err == nil {
 
-				found = append(found, res)
-				weights = append(weights, alpha)
-			}
+			found = append(found, res)
+			weights = append(weights, alpha)
+			outErrors = append(outErrors, err)
 		}
 	} else {
 		ss := s.params.SubSearches
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
 			res, weight, err := s.handleSubSearch(ctx, &subsearch)
-			if err == nil {
 
-				if res == nil {
-					continue
-				}
-
-				found = append(found, res)
-				weights = append(weights, weight)
-			}
+			found = append(found, res)
+			weights = append(weights, weight)
+			outErrors = append(outErrors, err)
 		}
 	}
 
 	fused := FusionReciprocal(weights, found)
 
 	if s.params.Limit >= 1 && (len(fused) > s.params.Limit) { //-1 is possible?
-		s.logger.Debugf("found more hybrid search results than limit, "+
-			"limiting %v results to %v\n",
-			len(fused), s.params.Limit)
+		s.logger.Debugf("found more hybrid search results than limit, limiting %v results to %v\n", len(fused), s.params.Limit)
 		fused = fused[:s.params.Limit]
 	}
 
@@ -157,6 +150,9 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 		}
 	}
 
+	if len(outErrors) > 0 {
+		return fused, fmt.Errorf("hybrid search: %v", outErrors)
+	}
 	return fused, nil
 }
 
