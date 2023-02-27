@@ -15,10 +15,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func ValidateScroll(className schema.ClassName, offset int, filters *LocalFilter, sort []Sort) error {
+func ValidateScroll(className schema.ClassName, scroll *Scroll, offset int, filters *LocalFilter, sort []Sort) error {
 	if className == "" {
 		return fmt.Errorf("class parameter cannot be empty")
 	}
@@ -34,6 +36,11 @@ func ValidateScroll(className schema.ClassName, offset int, filters *LocalFilter
 			params = append(params, "sort")
 		}
 		return fmt.Errorf("%s cannot be set with after and limit parameters", strings.Join(params, ","))
+	}
+	if scroll.After != "" {
+		if _, err := uuid.Parse(scroll.After); err != nil {
+			return errors.Wrapf(err, "after parameter '%s' is not a valid uuid", scroll.After)
+		}
 	}
 	return nil
 }
