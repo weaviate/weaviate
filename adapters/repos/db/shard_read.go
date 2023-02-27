@@ -325,7 +325,7 @@ func (s *Shard) scrollObjectList(ctx context.Context, scroll *filters.Scroll,
 	} else {
 		uuidBytes, err := uuid.MustParse(scroll.After).MarshalBinary()
 		if err != nil {
-			return nil, errors.Wrap(err, "after argument")
+			return nil, errors.Wrap(err, "after argument is not a valid uuid")
 		}
 		key, val = cursor.Seek(uuidBytes)
 		if bytes.Equal(key, uuidBytes) {

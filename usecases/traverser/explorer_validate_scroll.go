@@ -26,7 +26,7 @@ func (e *Explorer) validateScroll(params dto.GetParams) error {
 			return fmt.Errorf("other params cannot be set with after and limit parameters")
 		}
 		if err := filters.ValidateScroll(schema.ClassName(params.ClassName),
-			params.Pagination.Offset, params.Filters, params.Sort); err != nil {
+			params.Scroll, params.Pagination.Offset, params.Filters, params.Sort); err != nil {
 			return err
 		}
 	}
