@@ -100,8 +100,7 @@ type VectorRepo interface {
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*search.Result, error)
 	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-		sort []filters.Sort, scroll *filters.Scroll,
-		additional additional.Properties) (search.Results, error)
+		sort []filters.Sort, additional additional.Properties) (search.Results, error)
 	AddReference(ctx context.Context, className string, source strfmt.UUID, propName string, ref *models.SingleRef, repl *additional.ReplicationProperties) error
 	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties) error
 	Query(context.Context, *QueryInput) (search.Results, *Error)

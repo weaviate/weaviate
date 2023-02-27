@@ -272,14 +272,14 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 // ObjectSearch search each index.
 // Deprecated by Query which searches a specific index
 func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter, sort []filters.Sort, scroll *filters.Scroll,
+	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties,
 ) (search.Results, error) {
-	return d.objectSearch(ctx, offset, limit, filters, sort, scroll, additional)
+	return d.objectSearch(ctx, offset, limit, filters, sort, additional)
 }
 
 func (d *DB) objectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter, sort []filters.Sort, scroll *filters.Scroll,
+	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties,
 ) (search.Results, error) {
 	var found []*storobj.Object
@@ -294,7 +294,7 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	d.indexLock.RLock()
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, scroll, additional)
+		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, nil, additional)
 		if err != nil {
 			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())

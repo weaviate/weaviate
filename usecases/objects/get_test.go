@@ -277,36 +277,6 @@ func Test_GetAction(t *testing.T) {
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
 
-	t.Run("cursor api only after and limit parameters", func(t *testing.T) {
-		reset()
-		id := strfmt.UUID("99ee9968-22ec-416a-9032-cff80f2f7fdf")
-
-		results := []search.Result{
-			{
-				ID:        id,
-				ClassName: "ActionClass",
-				Schema:    map[string]interface{}{"foo": "bar"},
-			},
-		}
-		vectorRepo.On("ObjectSearch", 0, 2, mock.Anything, mock.Anything,
-			&filters.Scroll{After: "99ee9968-22ec-416a-9032-cff80f2f7fdf", Limit: 2},
-			mock.Anything).Return(results, nil).Once()
-
-		expected := []*models.Object{
-			{
-				ID:            id,
-				Class:         "ActionClass",
-				Properties:    map[string]interface{}{"foo": "bar"},
-				VectorWeights: (map[string]string)(nil),
-			},
-		}
-
-		res, err := manager.GetObjects(context.Background(), &models.Principal{},
-			nil, ptInt64(2), nil, nil, ptString("99ee9968-22ec-416a-9032-cff80f2f7fdf"), additional.Properties{})
-		require.Nil(t, err)
-		assert.Equal(t, expected, res)
-	})
-
 	t.Run("additional props", func(t *testing.T) {
 		t.Run("on get single requests", func(t *testing.T) {
 			t.Run("feature projection", func(t *testing.T) {

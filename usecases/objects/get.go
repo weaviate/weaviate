@@ -143,13 +143,11 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
-	// TODO: after
-	scroll, err := m.getScroll(after, offset, limit)
-	if err != nil {
-		return nil, NewErrInternal("list objects: %v", err)
+	if after != nil {
+		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
-		nil, m.getSort(sort, order), scroll, additional)
+		nil, m.getSort(sort, order), additional)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}
