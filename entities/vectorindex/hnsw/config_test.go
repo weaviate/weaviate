@@ -358,7 +358,7 @@ func Test_UserConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: "invalid encoder type: bernoulli",
+			expectErrMsg: "invalid encoder type: bernoulli",
 		},
 
 		{
@@ -383,7 +383,7 @@ func Test_UserConfig(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: "invalid encoder distribution: lognormal",
+			expectErrMsg: "invalid encoder distribution: lognormal",
 		},
 
 		{
