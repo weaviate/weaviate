@@ -349,12 +349,12 @@ func (i *Index) overwriteObjects(ctx context.Context,
 			continue
 		}
 		// valid update
-		r := replica.RepairResponse{ID: data.ID.String(), UpdateTime: u.StaleUpdateTime}
 		found, err := s.objectByID(ctx, data.ID, nil, additional.Properties{})
 		var curUpdateTime int64 // 0 means object doesn't exist on this node
 		if found != nil {
 			curUpdateTime = found.LastUpdateTimeUnix()
 		}
+		r := replica.RepairResponse{ID: data.ID.String(), UpdateTime: curUpdateTime}
 		switch {
 		case err != nil:
 			r.Err = "not found: " + err.Error()
@@ -367,7 +367,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 			}
 		case curUpdateTime != data.LastUpdateTimeUnix:
 			// object changed and its state differs from recent known state
-			r.UpdateTime, r.Err = curUpdateTime, "conflict"
+			r.Err = "conflict"
 		}
 
 		if r.Err != "" { // include only unsuccessful responses

@@ -302,7 +302,7 @@ func (f *Finder) repairOne(ctx context.Context, shard string, id strfmt.UUID, vo
 			if err != nil {
 				return fmt.Errorf("node %q could not repair object: %w", vote.sender, err)
 			}
-			if len(resp) > 0 && resp[0].Err != "" && resp[0].UpdateTime != lastUTime {
+			if len(resp) > 0 && resp[0].Err != "" {
 				return fmt.Errorf("overwrite %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
 			}
 			return nil
@@ -605,7 +605,7 @@ func (f *Finder) repairExist(ctx context.Context, shard string, id strfmt.UUID, 
 			if err != nil {
 				return fmt.Errorf("node %q could not repair object: %w", vote.sender, err)
 			}
-			if len(resp) > 0 && resp[0].Err != "" && resp[0].UpdateTime != lastUTime {
+			if len(resp) > 0 && resp[0].Err != "" {
 				return fmt.Errorf("overwrite %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
 			}
 			return nil
