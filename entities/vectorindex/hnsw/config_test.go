@@ -339,50 +339,28 @@ func Test_UserConfig(t *testing.T) {
 		{
 			name: "with invalid encoder",
 			input: map[string]interface{}{
-				"cleanupIntervalSeconds": float64(11),
-				"maxConnections":         float64(12),
-				"efConstruction":         float64(13),
-				"vectorCacheMaxObjects":  float64(14),
-				"ef":                     float64(15),
-				"flatSearchCutoff":       float64(16),
-				"dynamicEfMin":           float64(17),
-				"dynamicEfMax":           float64(18),
-				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":         true,
-					"bit-compression": false,
-					"segments":        float64(64),
-					"centroids":       float64(DefaultPQCentroids),
+					"enabled": true,
 					"encoder": map[string]interface{}{
 						"type": "bernoulli",
 					},
 				},
 			},
+			expectErr:    true,
 			expectErrMsg: "invalid encoder type: bernoulli",
 		},
 
 		{
 			name: "with invalid distribution",
 			input: map[string]interface{}{
-				"cleanupIntervalSeconds": float64(11),
-				"maxConnections":         float64(12),
-				"efConstruction":         float64(13),
-				"vectorCacheMaxObjects":  float64(14),
-				"ef":                     float64(15),
-				"flatSearchCutoff":       float64(16),
-				"dynamicEfMin":           float64(17),
-				"dynamicEfMax":           float64(18),
-				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":         true,
-					"bit-compression": false,
-					"segments":        float64(64),
-					"centroids":       float64(DefaultPQCentroids),
+					"enabled": true,
 					"encoder": map[string]interface{}{
 						"distribution": "lognormal",
 					},
 				},
 			},
+			expectErr:    true,
 			expectErrMsg: "invalid encoder distribution: lognormal",
 		},
 
@@ -468,10 +446,10 @@ func Test_UserConfig(t *testing.T) {
 				require.NotNil(t, err)
 				assert.Contains(t, err.Error(), test.expectErrMsg)
 				return
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, test.expected, cfg)
 			}
-
-			assert.Nil(t, err)
-			assert.Equal(t, test.expected, cfg)
 		})
 	}
 }
