@@ -30,7 +30,8 @@ import (
 )
 
 // NewObjectsClassReferencesDeleteParams creates a new ObjectsClassReferencesDeleteParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsClassReferencesDeleteParams() ObjectsClassReferencesDeleteParams {
 
 	return ObjectsClassReferencesDeleteParams{}
@@ -55,6 +56,10 @@ type ObjectsClassReferencesDeleteParams struct {
 	  In: path
 	*/
 	ClassName string
+	/*Determines how many replicas must acknowledge a request before it is considered successful
+	  In: query
+	*/
+	ConsistencyLevel *string
 	/*Unique ID of the Object.
 	  Required: true
 	  In: path
@@ -76,6 +81,8 @@ func (o *ObjectsClassReferencesDeleteParams) BindRequest(r *http.Request, route 
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
 		var body models.SingleRef
@@ -91,6 +98,11 @@ func (o *ObjectsClassReferencesDeleteParams) BindRequest(r *http.Request, route 
 				res = append(res, err)
 			}
 
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
 			if len(res) == 0 {
 				o.Body = &body
 			}
@@ -98,8 +110,14 @@ func (o *ObjectsClassReferencesDeleteParams) BindRequest(r *http.Request, route 
 	} else {
 		res = append(res, errors.Required("body", "body", ""))
 	}
+
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
+	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -112,7 +130,6 @@ func (o *ObjectsClassReferencesDeleteParams) BindRequest(r *http.Request, route 
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -128,8 +145,25 @@ func (o *ObjectsClassReferencesDeleteParams) bindClassName(rawData []string, has
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
+
+	return nil
+}
+
+// bindConsistencyLevel binds and validates parameter ConsistencyLevel from query.
+func (o *ObjectsClassReferencesDeleteParams) bindConsistencyLevel(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.ConsistencyLevel = &raw
 
 	return nil
 }
@@ -176,7 +210,6 @@ func (o *ObjectsClassReferencesDeleteParams) bindPropertyName(rawData []string, 
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.PropertyName = raw
 
 	return nil

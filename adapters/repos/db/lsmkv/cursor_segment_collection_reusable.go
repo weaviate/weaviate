@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type segmentCursorCollectionReusable struct {
@@ -30,10 +30,6 @@ func (s *segment) newCollectionCursorReusable() *segmentCursorCollectionReusable
 func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, error) {
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
-			return nil, nil, NotFound
-		}
-
 		return nil, nil, err
 	}
 
@@ -50,14 +46,14 @@ func (s *segmentCursorCollectionReusable) seek(key []byte) ([]byte, []value, err
 
 func (s *segmentCursorCollectionReusable) next() ([]byte, []value, error) {
 	if s.nextOffset >= s.segment.dataEndPos {
-		return nil, nil, NotFound
+		return nil, nil, lsmkv.NotFound
 	}
 
 	err := s.segment.collectionStratParseDataWithKeyInto(
 		s.segment.contents[s.nextOffset:], &s.nodeBuf)
 
 	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
+	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
 	s.nextOffset = s.nextOffset + uint64(s.nodeBuf.offset)
 	if err != nil {

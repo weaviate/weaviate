@@ -36,6 +36,7 @@ func main() {
 
 	fd, err := os.Open("deprecations.yml")
 	fatal(err)
+	defer fd.Close()
 
 	var deprecations struct {
 		// yaml tags not working on the go-swagger model, so we need to do the
@@ -150,7 +151,7 @@ func ptString(in string) *string {
 
 var ByID = map[string]models.Deprecation{
 {{- range .Deprecations }}
-	{{ printf "%q" .ID }}: { 
+	{{ printf "%q" .ID }}: {
 		ID: {{ printf "%q" .ID }},
 		Locations: []string{
 		{{- range $index, $element := .Locations }}

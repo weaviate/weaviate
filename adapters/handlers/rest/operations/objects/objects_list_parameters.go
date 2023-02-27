@@ -117,7 +117,6 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 	if err := o.bindSort(qSort, qhkSort, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -133,10 +132,10 @@ func (o *ObjectsListParams) bindClass(rawData []string, hasKey bool, formats str
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Class = &raw
 
 	return nil
@@ -151,10 +150,10 @@ func (o *ObjectsListParams) bindInclude(rawData []string, hasKey bool, formats s
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Include = &raw
 
 	return nil
@@ -169,6 +168,7 @@ func (o *ObjectsListParams) bindLimit(rawData []string, hasKey bool, formats str
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
@@ -191,6 +191,7 @@ func (o *ObjectsListParams) bindOffset(rawData []string, hasKey bool, formats st
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		// Default values have been previously initialized by NewObjectsListParams()
 		return nil
@@ -214,10 +215,10 @@ func (o *ObjectsListParams) bindOrder(rawData []string, hasKey bool, formats str
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Order = &raw
 
 	return nil
@@ -232,10 +233,10 @@ func (o *ObjectsListParams) bindSort(rawData []string, hasKey bool, formats strf
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Sort = &raw
 
 	return nil

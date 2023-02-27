@@ -17,6 +17,7 @@ package batch
 // Editing this file might prove futile when you re-run the generate command
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -49,7 +50,7 @@ func NewBatchObjectsCreate(ctx *middleware.Context, handler BatchObjectsCreateHa
 }
 
 /*
-BatchObjectsCreate swagger:route POST /batch/objects batch objects batchObjectsCreate
+	BatchObjectsCreate swagger:route POST /batch/objects batch objects batchObjectsCreate
 
 Creates new Objects based on a Object template as a batch.
 
@@ -63,17 +64,16 @@ type BatchObjectsCreate struct {
 func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewBatchObjectsCreateParams()
-
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -86,7 +86,6 @@ func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }
@@ -97,10 +96,10 @@ func (o *BatchObjectsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 type BatchObjectsCreateBody struct {
 
 	// Define which fields need to be returned. Default value is ALL
-	Fields []*string `yaml:"fields" json:"fields"`
+	Fields []*string `json:"fields" yaml:"fields"`
 
 	// objects
-	Objects []*models.Object `yaml:"objects" json:"objects"`
+	Objects []*models.Object `json:"objects" yaml:"objects"`
 }
 
 // Validate validates this batch objects create body
@@ -141,7 +140,6 @@ func (o *BatchObjectsCreateBody) validateFieldsItemsEnum(path, location string, 
 }
 
 func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Fields) { // not required
 		return nil
 	}
@@ -162,7 +160,6 @@ func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
 }
 
 func (o *BatchObjectsCreateBody) validateObjects(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Objects) { // not required
 		return nil
 	}
@@ -176,6 +173,42 @@ func (o *BatchObjectsCreateBody) validateObjects(formats strfmt.Registry) error 
 			if err := o.Objects[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch objects create body based on the context it is used
+func (o *BatchObjectsCreateBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateObjects(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *BatchObjectsCreateBody) contextValidateObjects(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(o.Objects); i++ {
+
+		if o.Objects[i] != nil {
+			if err := o.Objects[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

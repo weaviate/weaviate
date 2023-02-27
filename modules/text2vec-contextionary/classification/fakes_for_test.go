@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -27,7 +29,6 @@ import (
 	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 type fakeSchemaGetter struct {
@@ -51,6 +52,11 @@ func (f *fakeSchemaGetter) NodeName() string {
 }
 
 func (f *fakeSchemaGetter) ClusterHealthScore() int {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
+) ([]string, []string, error) {
 	panic("not implemented")
 }
 
@@ -174,14 +180,16 @@ func (f *fakeVectorRepoKNN) ZeroShotSearch(ctx context.Context, vector []float32
 }
 
 func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
 	return nil, fmt.Errorf("vector class search not implemented in fake")
 }
 
-func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context,
+	objects objects.BatchObjects, _ *additional.ReplicationProperties,
+) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -254,7 +262,9 @@ func (f *fakeVectorRepoContextual) ZeroShotSearch(ctx context.Context, vector []
 	panic("not implemented")
 }
 
-func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects objects.BatchObjects) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context,
+	objects objects.BatchObjects, _ *additional.ReplicationProperties,
+) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 	for _, batchObject := range objects {
@@ -264,7 +274,7 @@ func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects 
 }
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
-	params traverser.GetParams,
+	params dto.GetParams,
 ) ([]search.Result, error) {
 	if params.SearchVector == nil {
 		filteredTargets := matchClassName(f.targets, params.ClassName)

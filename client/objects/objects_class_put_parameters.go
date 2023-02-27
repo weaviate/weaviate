@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsClassPutParams creates a new ObjectsClassPutParams object
-// with the default values initialized.
+// NewObjectsClassPutParams creates a new ObjectsClassPutParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsClassPutParams() *ObjectsClassPutParams {
-	var ()
 	return &ObjectsClassPutParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsClassPutParamsWithTimeout creates a new ObjectsClassPutParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsClassPutParamsWithTimeout(timeout time.Duration) *ObjectsClassPutParams {
-	var ()
 	return &ObjectsClassPutParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsClassPutParamsWithContext creates a new ObjectsClassPutParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsClassPutParamsWithContext(ctx context.Context) *ObjectsClassPutParams {
-	var ()
 	return &ObjectsClassPutParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsClassPutParamsWithHTTPClient creates a new ObjectsClassPutParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsClassPutParamsWithHTTPClient(client *http.Client) *ObjectsClassPutParams {
-	var ()
 	return &ObjectsClassPutParams{
 		HTTPClient: client,
 	}
@@ -70,23 +67,51 @@ func NewObjectsClassPutParamsWithHTTPClient(client *http.Client) *ObjectsClassPu
 
 /*
 ObjectsClassPutParams contains all the parameters to send to the API endpoint
-for the objects class put operation typically these are written to a http.Request
+
+	for the objects class put operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsClassPutParams struct {
 
-	/*Body*/
+	// Body.
 	Body *models.Object
-	/*ClassName*/
-	ClassName string
-	/*ID
-	  The uuid of the data object to update.
 
+	// ClassName.
+	ClassName string
+
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
+	*/
+	ConsistencyLevel *string
+
+	/* ID.
+
+	   The uuid of the data object to update.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects class put params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassPutParams) WithDefaults() *ObjectsClassPutParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects class put params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassPutParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects class put params
@@ -144,6 +169,17 @@ func (o *ObjectsClassPutParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects class put params
+func (o *ObjectsClassPutParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsClassPutParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects class put params
+func (o *ObjectsClassPutParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects class put params
 func (o *ObjectsClassPutParams) WithID(id strfmt.UUID) *ObjectsClassPutParams {
 	o.SetID(id)
@@ -162,7 +198,6 @@ func (o *ObjectsClassPutParams) WriteToRequest(r runtime.ClientRequest, reg strf
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
@@ -172,6 +207,23 @@ func (o *ObjectsClassPutParams) WriteToRequest(r runtime.ClientRequest, reg strf
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
 	}
 
 	// path param id

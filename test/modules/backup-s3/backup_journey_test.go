@@ -13,7 +13,6 @@ package test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -46,11 +45,10 @@ func Test_BackupJourney(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 
-		t.Run("pre-instance env setup", func(t *testing.T) {
-			require.Nil(t, os.Setenv(envS3AccessKey, s3BackupJourneyAccessKey))
-			require.Nil(t, os.Setenv(envS3SecretKey, s3BackupJourneySecretKey))
-			require.Nil(t, os.Setenv(envS3Bucket, s3BackupJourneyBucketName))
-		})
+		t.Log("pre-instance env setup")
+		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
+		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
+		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
 			WithBackendS3(s3BackupJourneyBucketName).
@@ -79,11 +77,10 @@ func Test_BackupJourney(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 
-		t.Run("pre-instance env setup", func(t *testing.T) {
-			require.Nil(t, os.Setenv(envS3AccessKey, s3BackupJourneyAccessKey))
-			require.Nil(t, os.Setenv(envS3SecretKey, s3BackupJourneySecretKey))
-			require.Nil(t, os.Setenv(envS3Bucket, s3BackupJourneyBucketName))
-		})
+		t.Log("pre-instance env setup")
+		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
+		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
+		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
 			WithBackendS3(s3BackupJourneyBucketName).

@@ -20,13 +20,15 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
 )
 
 // NewObjectsDeleteParams creates a new ObjectsDeleteParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsDeleteParams() ObjectsDeleteParams {
 
 	return ObjectsDeleteParams{}
@@ -41,6 +43,10 @@ type ObjectsDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*Determines how many replicas must acknowledge a request before it is considered successful
+	  In: query
+	*/
+	ConsistencyLevel *string
 	/*Unique ID of the Object.
 	  Required: true
 	  In: path
@@ -57,14 +63,38 @@ func (o *ObjectsDeleteParams) BindRequest(r *http.Request, route *middleware.Mat
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
+	qConsistencyLevel, qhkConsistencyLevel, _ := qs.GetOK("consistency_level")
+	if err := o.bindConsistencyLevel(qConsistencyLevel, qhkConsistencyLevel, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindConsistencyLevel binds and validates parameter ConsistencyLevel from query.
+func (o *ObjectsDeleteParams) bindConsistencyLevel(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.ConsistencyLevel = &raw
+
 	return nil
 }
 

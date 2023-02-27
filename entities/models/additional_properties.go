@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 )
 
@@ -27,5 +29,10 @@ type AdditionalProperties map[string]interface{}
 
 // Validate validates this additional properties
 func (m AdditionalProperties) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this additional properties based on context it is used
+func (m AdditionalProperties) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }

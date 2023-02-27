@@ -34,3 +34,6 @@ weaviate-wikipedia-*
 # the local path when extracting the wiki dataset
 var/weaviate/
 
+# IDE files
+.idea
+.vscode/

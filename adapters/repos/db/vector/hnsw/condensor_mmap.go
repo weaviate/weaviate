@@ -32,6 +32,7 @@ func (c *MmapCondensor) Do(fileName string) error {
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
+	defer fd.Close()
 
 	index, err := c.analyze(fd)
 	if err != nil {

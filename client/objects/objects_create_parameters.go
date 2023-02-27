@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsCreateParams creates a new ObjectsCreateParams object
-// with the default values initialized.
+// NewObjectsCreateParams creates a new ObjectsCreateParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsCreateParams() *ObjectsCreateParams {
-	var ()
 	return &ObjectsCreateParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsCreateParamsWithTimeout creates a new ObjectsCreateParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsCreateParamsWithTimeout(timeout time.Duration) *ObjectsCreateParams {
-	var ()
 	return &ObjectsCreateParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsCreateParamsWithContext creates a new ObjectsCreateParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsCreateParamsWithContext(ctx context.Context) *ObjectsCreateParams {
-	var ()
 	return &ObjectsCreateParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsCreateParamsWithHTTPClient creates a new ObjectsCreateParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsCreateParamsWithHTTPClient(client *http.Client) *ObjectsCreateParams {
-	var ()
 	return &ObjectsCreateParams{
 		HTTPClient: client,
 	}
@@ -70,16 +67,40 @@ func NewObjectsCreateParamsWithHTTPClient(client *http.Client) *ObjectsCreatePar
 
 /*
 ObjectsCreateParams contains all the parameters to send to the API endpoint
-for the objects create operation typically these are written to a http.Request
+
+	for the objects create operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsCreateParams struct {
 
-	/*Body*/
+	// Body.
 	Body *models.Object
+
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
+	*/
+	ConsistencyLevel *string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects create params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsCreateParams) WithDefaults() *ObjectsCreateParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects create params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsCreateParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects create params
@@ -126,6 +147,17 @@ func (o *ObjectsCreateParams) SetBody(body *models.Object) {
 	o.Body = body
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects create params
+func (o *ObjectsCreateParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsCreateParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects create params
+func (o *ObjectsCreateParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ObjectsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -133,10 +165,26 @@ func (o *ObjectsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
+		}
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
 		}
 	}
 

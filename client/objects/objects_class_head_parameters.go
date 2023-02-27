@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewObjectsClassHeadParams creates a new ObjectsClassHeadParams object
-// with the default values initialized.
+// NewObjectsClassHeadParams creates a new ObjectsClassHeadParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsClassHeadParams() *ObjectsClassHeadParams {
-	var ()
 	return &ObjectsClassHeadParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsClassHeadParamsWithTimeout creates a new ObjectsClassHeadParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsClassHeadParamsWithTimeout(timeout time.Duration) *ObjectsClassHeadParams {
-	var ()
 	return &ObjectsClassHeadParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsClassHeadParamsWithContext creates a new ObjectsClassHeadParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsClassHeadParamsWithContext(ctx context.Context) *ObjectsClassHeadParams {
-	var ()
 	return &ObjectsClassHeadParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsClassHeadParamsWithHTTPClient creates a new ObjectsClassHeadParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsClassHeadParamsWithHTTPClient(client *http.Client) *ObjectsClassHeadParams {
-	var ()
 	return &ObjectsClassHeadParams{
 		HTTPClient: client,
 	}
@@ -68,24 +65,51 @@ func NewObjectsClassHeadParamsWithHTTPClient(client *http.Client) *ObjectsClassH
 
 /*
 ObjectsClassHeadParams contains all the parameters to send to the API endpoint
-for the objects class head operation typically these are written to a http.Request
+
+	for the objects class head operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsClassHeadParams struct {
 
-	/*ClassName
-	  The class name as defined in the schema
+	/* ClassName.
 
+	   The class name as defined in the schema
 	*/
 	ClassName string
-	/*ID
-	  The uuid of the data object
 
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
+	*/
+	ConsistencyLevel *string
+
+	/* ID.
+
+	   The uuid of the data object
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects class head params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassHeadParams) WithDefaults() *ObjectsClassHeadParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects class head params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassHeadParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects class head params
@@ -132,6 +156,17 @@ func (o *ObjectsClassHeadParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects class head params
+func (o *ObjectsClassHeadParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsClassHeadParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects class head params
+func (o *ObjectsClassHeadParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects class head params
 func (o *ObjectsClassHeadParams) WithID(id strfmt.UUID) *ObjectsClassHeadParams {
 	o.SetID(id)
@@ -154,6 +189,23 @@ func (o *ObjectsClassHeadParams) WriteToRequest(r runtime.ClientRequest, reg str
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
 	}
 
 	// path param id

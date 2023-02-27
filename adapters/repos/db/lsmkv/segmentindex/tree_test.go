@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func TestTree(t *testing.T) {
@@ -190,7 +191,7 @@ func TestTree(t *testing.T) {
 			assert.Equal(t, uint64(102), n.End)
 
 			n, err = dTree.Seek([]byte("zzzzz"))
-			assert.Equal(t, NotFound, err)
+			assert.Equal(t, lsmkv.NotFound, err)
 		})
 
 		t.Run("get all keys (for building bloom filters at segment init time)", func(t *testing.T) {

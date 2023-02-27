@@ -194,8 +194,8 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		grouped := result.Get("Get", "Company").AsSlice()
 		require.Len(t, grouped, 1)
 		groupedName := grouped[0].(map[string]interface{})["name"].(string)
-		assert.Equal(t, "Apple Inc. (Google Incorporated, Google Inc., "+
-			"Microsoft Incorporated, Apple, Apple Incorporated, Google, Microsoft Inc., Microsoft)",
+		assert.Equal(t, "Microsoft Inc. (Microsoft Incorporated, Microsoft, Apple Inc., "+
+			"Apple Incorporated, Apple, Google Inc., Google Incorporated, Google)",
 			groupedName)
 
 		companyCities := grouped[0].(map[string]interface{})["inCity"].([]interface{})
@@ -211,6 +211,11 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		// match all records. checking the previous payload with the one below is a sanity check
 		// for the sake of validating the fix for [github issue 1958]
 		// (https://github.com/weaviate/weaviate/issues/1958)
+		// UPDATE: due to introducing roaring bitmaps as set holding docIDs of filtered documents
+		// internal order of results returned has changed from property value based to docID based,
+		// but set content remain unchanged
+		// for that reason grouped name in the following test is different with and without filters,
+		// though it still contains the same elements
 		queryWithoutWhere := `
 			{
 				Get {
@@ -227,7 +232,10 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		`
 		result = graphqlhelper.AssertGraphQL(t, helper.RootAuth, queryWithoutWhere)
 		groupedWithoutWhere := result.Get("Get", "Company").AsSlice()
-		assert.Equal(t, grouped, groupedWithoutWhere)
+		groupedWithoutWhereName := groupedWithoutWhere[0].(map[string]interface{})["name"].(string)
+		assert.Equal(t, "Apple Inc. (Google Incorporated, Google Inc., Microsoft Incorporated, "+
+			"Apple, Apple Incorporated, Google, Microsoft Inc., Microsoft)",
+			groupedWithoutWhereName)
 
 		companyCities = groupedWithoutWhere[0].(map[string]interface{})["inCity"].([]interface{})
 		assert.ElementsMatch(t, expectedCities, companyCities)
