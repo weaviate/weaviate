@@ -64,6 +64,7 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	envSettings["GOOGLE_CLOUD_PROJECT"] = projectID
 	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, "9090")
+	envSettings["BACKUP_GCS_USE_AUTH"] = "false"
 	return &DockerContainer{GCS, endpoint, container, envSettings}, nil
 }
 

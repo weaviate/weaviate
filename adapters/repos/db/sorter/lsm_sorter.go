@@ -26,7 +26,7 @@ import (
 
 type LSMSorter interface {
 	Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error)
-	SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids []uint64) ([]uint64, error)
+	SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error)
 	SortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
 		ids []uint64, dists []float32) ([]uint64, []float32, error)
 }
@@ -60,8 +60,8 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 	return helper.getSorted(ctx)
 }
 
-func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids []uint64) ([]uint64, error) {
-	helper, err := s.createHelper(sort, validateLimit(limit, len(ids)))
+func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
+	helper, err := s.createHelper(sort, validateLimit(limit, ids.Len()))
 	if err != nil {
 		return nil, err
 	}
@@ -120,11 +120,12 @@ func (h *lsmSorterHelper) getSorted(ctx context.Context) ([]uint64, error) {
 	return h.creator.extractDocIDs(sorter.getSorted()), nil
 }
 
-func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs []uint64) ([]uint64, error) {
+func (h *lsmSorterHelper) getSortedDocIDs(ctx context.Context, docIDs helpers.AllowList) ([]uint64, error) {
 	sorter := newInsertSorter(h.comparator, h.limit)
 	docIDBytes := make([]byte, 8)
+	it := docIDs.Iterator()
 
-	for _, docID := range docIDs {
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		objData, err := h.bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {

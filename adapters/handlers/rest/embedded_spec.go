@@ -45,10 +45,10 @@ func init() {
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
-      "url": "https://github.com/semi-technologies",
-      "email": "hello@semi.technology"
+      "url": "https://github.com/weaviate",
+      "email": "hello@weaviate.io"
     },
-    "version": "1.17.4"
+    "version": "1.18.0-alpha.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -434,6 +434,9 @@ func init() {
                 }
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -444,6 +447,12 @@ func init() {
               "items": {
                 "$ref": "#/definitions/ObjectsGetResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -490,6 +499,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BatchDelete"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -497,6 +509,12 @@ func init() {
             "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "$ref": "#/definitions/BatchDeleteResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -549,6 +567,9 @@ func init() {
                 "$ref": "#/definitions/BatchReference"
               }
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -559,6 +580,12 @@ func init() {
               "items": {
                 "$ref": "#/definitions/BatchReferenceResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -979,6 +1006,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -986,6 +1016,12 @@ func init() {
             "description": "Object created.",
             "schema": {
               "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -1168,6 +1204,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1229,11 +1268,20 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "204": {
             "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1282,6 +1330,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1343,6 +1394,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1422,11 +1476,20 @@ func init() {
             "schema": {
               "$ref": "#/definitions/MultipleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "200": {
             "description": "Successfully replaced all the references."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1496,11 +1559,20 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "200": {
             "description": "Successfully added the reference."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1570,11 +1642,20 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
           "204": {
             "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1695,6 +1776,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1751,6 +1835,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -1853,6 +1940,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -3896,7 +3986,7 @@ func init() {
       }
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "classes": {
@@ -4208,7 +4298,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   }
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
@@ -4228,10 +4318,10 @@ func init() {
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
-      "url": "https://github.com/semi-technologies",
-      "email": "hello@semi.technology"
+      "url": "https://github.com/weaviate",
+      "email": "hello@weaviate.io"
     },
-    "version": "1.17.4"
+    "version": "1.18.0-alpha.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -4617,6 +4707,12 @@ func init() {
                 }
               }
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4627,6 +4723,12 @@ func init() {
               "items": {
                 "$ref": "#/definitions/ObjectsGetResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -4673,6 +4775,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BatchDelete"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4680,6 +4788,12 @@ func init() {
             "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "$ref": "#/definitions/BatchDeleteResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -4732,6 +4846,12 @@ func init() {
                 "$ref": "#/definitions/BatchReference"
               }
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4742,6 +4862,12 @@ func init() {
               "items": {
                 "$ref": "#/definitions/BatchReferenceResponse"
               }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -5183,6 +5309,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5190,6 +5322,12 @@ func init() {
             "description": "Object created.",
             "schema": {
               "$ref": "#/definitions/Object"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -5381,6 +5519,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5442,11 +5586,23 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
           "204": {
             "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5495,6 +5651,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5556,6 +5718,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5635,11 +5803,23 @@ func init() {
             "schema": {
               "$ref": "#/definitions/MultipleRef"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
             "description": "Successfully replaced all the references."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5709,11 +5889,23 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
           "200": {
             "description": "Successfully added the reference."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5783,11 +5975,23 @@ func init() {
             "schema": {
               "$ref": "#/definitions/SingleRef"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
           "204": {
             "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5911,6 +6115,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5967,6 +6177,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6069,6 +6285,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Object"
             }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8289,7 +8511,7 @@ func init() {
       }
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "classes": {
@@ -8610,7 +8832,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   }
 }`))
 }

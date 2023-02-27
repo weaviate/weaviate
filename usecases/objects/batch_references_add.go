@@ -17,13 +17,14 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // AddReferences Class Instances in batch to the connected DB
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
-	refs []*models.BatchReference,
+	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
 	err := b.authorizer.Authorize(principal, "update", "batch/*")
 	if err != nil {
@@ -39,16 +40,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
-	return b.addReferences(ctx, refs)
+	return b.addReferences(ctx, refs, repl)
 }
 
-func (b *BatchManager) addReferences(ctx context.Context, refs []*models.BatchReference) (BatchReferences, error) {
+func (b *BatchManager) addReferences(ctx context.Context, refs []*models.BatchReference,
+	repl *additional.ReplicationProperties,
+) (BatchReferences, error) {
 	if err := b.validateReferenceForm(refs); err != nil {
 		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
 
 	batchReferences := b.validateReferencesConcurrently(refs)
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences); err != nil {
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil

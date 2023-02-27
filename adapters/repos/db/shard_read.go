@@ -20,7 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -173,19 +173,45 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 		bm25Config := s.index.getInvertedIndexConfig().BM25
 
-		searcher := inverted.NewBM25Searcher(bm25Config, s.store,
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
-		if keywordRanking != nil && keywordRanking.Type == "bm25" {
-			className := s.index.Config.ClassName
-			return searcher.BM25F(ctx, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object {
-				v, _ := s.objectByIndexID(ctx, index, false)
-				return v
-			})
-		} else {
-			return searcher.Objects(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+
+		var bm25objs []*storobj.Object
+		var bm25count []float32
+		var err error
+		var objs helpers.AllowList
+		var filterDocIds helpers.AllowList
+
+		if filters != nil {
+			objs, err = inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
+				s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
+				s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			filterDocIds = objs
 		}
+		if keywordRanking.Type == "bm25" {
+			className := s.index.Config.ClassName
+			bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object { v, _ := s.objectByIndexID(ctx, index, false); return v })
+			if err != nil {
+				return nil, nil, err
+			}
+		} else {
+
+			bm25objs, bm25count, err = bm25searcher.Objects(ctx, filterDocIds, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+		}
+
+		return bm25objs, bm25count, nil
+
 	}
 
 	if filters == nil {
@@ -210,16 +236,17 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		allowList helpers.AllowList
 	)
 
-	beforeAll := time.Now()
-
 	if filters != nil {
+		beforeFilter := time.Now()
 		list, err := s.buildAllowList(ctx, filters, additional)
 		if err != nil {
 			return nil, nil, err
 		}
 		allowList = list
+		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
 	}
 
+	beforeVector := time.Now()
 	if limit < 0 {
 		ids, dists, err = s.vectorIndex.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
@@ -232,17 +259,14 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 			return nil, nil, errors.Wrap(err, "vector search")
 		}
 	}
-
-	invertedTook := time.Since(beforeAll)
-	beforeVector := time.Now()
-
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
 
-	hnswTook := time.Since(beforeVector)
+	if filters != nil {
+		s.metrics.FilteredVectorVector(time.Since(beforeVector))
+	}
 
-	var sortTook uint64
 	if len(sort) > 0 {
 		beforeSort := time.Now()
 		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort,
@@ -250,7 +274,9 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search sort")
 		}
-		sortTook = uint64(time.Since(beforeSort))
+		if filters != nil {
+			s.metrics.FilteredVectorSort(time.Since(beforeSort))
+		}
 	}
 
 	beforeObjects := time.Now()
@@ -260,15 +286,10 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 	if err != nil {
 		return nil, nil, err
 	}
-	objectsTook := time.Since(beforeObjects)
 
-	s.index.logger.WithField("action", "filtered_vector_search").
-		WithFields(logrus.Fields{
-			"inverted_took":         uint64(invertedTook),
-			"hnsw_took":             uint64(hnswTook),
-			"retrieve_objects_took": uint64(objectsTook),
-			"sort_took":             uint64(sortTook),
-		}).Trace("completed filtered vector search")
+	if filters != nil {
+		s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
+	}
 
 	return objs, dists, nil
 }
@@ -384,7 +405,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	var docID uint64
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	existing, err := bucket.Get([]byte(idBytes))
+	existing, err := bucket.Get(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "unexpected error on previous lookup")
 	}
@@ -420,4 +441,14 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	return nil
+}
+
+func (s *Shard) wasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return false, err
+	}
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	return bucket.WasDeleted(idBytes)
 }

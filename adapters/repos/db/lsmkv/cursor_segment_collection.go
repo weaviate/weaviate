@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type segmentCursorCollection struct {
@@ -40,10 +40,6 @@ func (sg *SegmentGroup) newCollectionCursors() ([]innerCursorCollection, func())
 func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
-			return nil, nil, NotFound
-		}
-
 		return nil, nil, err
 	}
 
@@ -51,7 +47,7 @@ func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
 		s.segment.contents[node.Start:node.End])
 
 	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
+	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
 	s.nextOffset = node.End
 	if err != nil {
@@ -63,14 +59,14 @@ func (s *segmentCursorCollection) seek(key []byte) ([]byte, []value, error) {
 
 func (s *segmentCursorCollection) next() ([]byte, []value, error) {
 	if s.nextOffset >= s.segment.dataEndPos {
-		return nil, nil, NotFound
+		return nil, nil, lsmkv.NotFound
 	}
 
 	parsed, err := s.segment.collectionStratParseDataWithKey(
 		s.segment.contents[s.nextOffset:])
 
 	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
+	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
 	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 	if err != nil {
@@ -86,7 +82,7 @@ func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 		s.segment.contents[s.nextOffset:])
 
 	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
+	// could be 'entities.Deleted' which would require that the offset is still advanced
 	// for the next cycle
 	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 	if err != nil {

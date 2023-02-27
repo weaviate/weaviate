@@ -29,6 +29,7 @@ func (m *Manager) AddObjectReference(
 	ctx context.Context,
 	principal *models.Principal,
 	input *AddReferenceInput,
+	repl *additional.ReplicationProperties,
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
@@ -56,12 +57,12 @@ func (m *Manager) AddObjectReference(
 	}
 	defer unlock()
 
-	validator := validation.New(m.vectorRepo.Exists, m.config)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
 	if err := input.validate(ctx, principal, validator, m.schemaManager); err != nil {
 		return &Error{"validate inputs", StatusBadRequest, err}
 	}
 	if !deprecatedEndpoint {
-		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID)
+		ok, err := m.vectorRepo.Exists(ctx, input.Class, input.ID, repl)
 		if err != nil {
 			return &Error{"source object", StatusInternalServerError, err}
 		}
@@ -70,8 +71,7 @@ func (m *Manager) AddObjectReference(
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(
-		ctx, input.Class, input.ID, input.Property, &input.Ref); err != nil {
+	if err := m.vectorRepo.AddReference(ctx, input.Class, input.ID, input.Property, &input.Ref, repl); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 

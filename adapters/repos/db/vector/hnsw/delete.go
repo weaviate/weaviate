@@ -116,7 +116,7 @@ func (h *hnsw) resetUnsecured() error {
 }
 
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
-	deleteList := helpers.AllowList{}
+	deleteList := helpers.NewAllowList()
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
@@ -150,7 +150,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
-	deleteList = helpers.AllowList{}
+	deleteList = helpers.NewAllowList()
 	for id := range h.tombstones {
 		if lenOfNodes <= id {
 			// we're trying to delete an id outside the possible range, nothing to do
@@ -160,7 +160,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 		deleteList.Insert(id)
 	}
 
-	if len(deleteList) == 0 {
+	if deleteList.IsEmpty() {
 		return false, nil
 	}
 
@@ -219,7 +219,8 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 		return false, nil
 	}
 
-	for id := range deleteList {
+	it := deleteList.Iterator()
+	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if h.getEntrypoint() == id {
 			// this a special case because:
 			//
@@ -537,7 +538,8 @@ func (h *hnsw) addTombstone(id uint64) error {
 }
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
-	for id := range deleteList {
+	it := deleteList.Iterator()
+	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
 		delete(h.tombstones, id)

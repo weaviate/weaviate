@@ -17,6 +17,7 @@ package batch
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,6 +46,12 @@ func (o *BatchObjectsCreateReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewBatchObjectsCreateBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewBatchObjectsCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -69,9 +76,8 @@ func (o *BatchObjectsCreateReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -81,7 +87,7 @@ func NewBatchObjectsCreateOK() *BatchObjectsCreateOK {
 }
 
 /*
-BatchObjectsCreateOK handles this case with default header values.
+BatchObjectsCreateOK describes a response with status code 200, with default header values.
 
 Request succeeded, see response body to get detailed information about each batched item.
 */
@@ -89,7 +95,41 @@ type BatchObjectsCreateOK struct {
 	Payload []*models.ObjectsGetResponse
 }
 
+// IsSuccess returns true when this batch objects create o k response has a 2xx status code
+func (o *BatchObjectsCreateOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this batch objects create o k response has a 3xx status code
+func (o *BatchObjectsCreateOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects create o k response has a 4xx status code
+func (o *BatchObjectsCreateOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this batch objects create o k response has a 5xx status code
+func (o *BatchObjectsCreateOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects create o k response a status code equal to that given
+func (o *BatchObjectsCreateOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the batch objects create o k response
+func (o *BatchObjectsCreateOK) Code() int {
+	return 200
+}
+
 func (o *BatchObjectsCreateOK) Error() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateOK  %+v", 200, o.Payload)
+}
+
+func (o *BatchObjectsCreateOK) String() string {
 	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateOK  %+v", 200, o.Payload)
 }
 
@@ -107,20 +147,122 @@ func (o *BatchObjectsCreateOK) readResponse(response runtime.ClientResponse, con
 	return nil
 }
 
+// NewBatchObjectsCreateBadRequest creates a BatchObjectsCreateBadRequest with default headers values
+func NewBatchObjectsCreateBadRequest() *BatchObjectsCreateBadRequest {
+	return &BatchObjectsCreateBadRequest{}
+}
+
+/*
+BatchObjectsCreateBadRequest describes a response with status code 400, with default header values.
+
+Malformed request.
+*/
+type BatchObjectsCreateBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this batch objects create bad request response has a 2xx status code
+func (o *BatchObjectsCreateBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects create bad request response has a 3xx status code
+func (o *BatchObjectsCreateBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects create bad request response has a 4xx status code
+func (o *BatchObjectsCreateBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects create bad request response has a 5xx status code
+func (o *BatchObjectsCreateBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects create bad request response a status code equal to that given
+func (o *BatchObjectsCreateBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the batch objects create bad request response
+func (o *BatchObjectsCreateBadRequest) Code() int {
+	return 400
+}
+
+func (o *BatchObjectsCreateBadRequest) Error() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *BatchObjectsCreateBadRequest) String() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *BatchObjectsCreateBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *BatchObjectsCreateBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewBatchObjectsCreateUnauthorized creates a BatchObjectsCreateUnauthorized with default headers values
 func NewBatchObjectsCreateUnauthorized() *BatchObjectsCreateUnauthorized {
 	return &BatchObjectsCreateUnauthorized{}
 }
 
 /*
-BatchObjectsCreateUnauthorized handles this case with default header values.
+BatchObjectsCreateUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type BatchObjectsCreateUnauthorized struct {
 }
 
+// IsSuccess returns true when this batch objects create unauthorized response has a 2xx status code
+func (o *BatchObjectsCreateUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects create unauthorized response has a 3xx status code
+func (o *BatchObjectsCreateUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects create unauthorized response has a 4xx status code
+func (o *BatchObjectsCreateUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects create unauthorized response has a 5xx status code
+func (o *BatchObjectsCreateUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects create unauthorized response a status code equal to that given
+func (o *BatchObjectsCreateUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the batch objects create unauthorized response
+func (o *BatchObjectsCreateUnauthorized) Code() int {
+	return 401
+}
+
 func (o *BatchObjectsCreateUnauthorized) Error() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnauthorized ", 401)
+}
+
+func (o *BatchObjectsCreateUnauthorized) String() string {
 	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnauthorized ", 401)
 }
 
@@ -135,7 +277,7 @@ func NewBatchObjectsCreateForbidden() *BatchObjectsCreateForbidden {
 }
 
 /*
-BatchObjectsCreateForbidden handles this case with default header values.
+BatchObjectsCreateForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -143,7 +285,41 @@ type BatchObjectsCreateForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch objects create forbidden response has a 2xx status code
+func (o *BatchObjectsCreateForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects create forbidden response has a 3xx status code
+func (o *BatchObjectsCreateForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects create forbidden response has a 4xx status code
+func (o *BatchObjectsCreateForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects create forbidden response has a 5xx status code
+func (o *BatchObjectsCreateForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects create forbidden response a status code equal to that given
+func (o *BatchObjectsCreateForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the batch objects create forbidden response
+func (o *BatchObjectsCreateForbidden) Code() int {
+	return 403
+}
+
 func (o *BatchObjectsCreateForbidden) Error() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *BatchObjectsCreateForbidden) String() string {
 	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateForbidden  %+v", 403, o.Payload)
 }
 
@@ -169,7 +345,7 @@ func NewBatchObjectsCreateUnprocessableEntity() *BatchObjectsCreateUnprocessable
 }
 
 /*
-BatchObjectsCreateUnprocessableEntity handles this case with default header values.
+BatchObjectsCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
@@ -177,7 +353,41 @@ type BatchObjectsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch objects create unprocessable entity response has a 2xx status code
+func (o *BatchObjectsCreateUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects create unprocessable entity response has a 3xx status code
+func (o *BatchObjectsCreateUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects create unprocessable entity response has a 4xx status code
+func (o *BatchObjectsCreateUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects create unprocessable entity response has a 5xx status code
+func (o *BatchObjectsCreateUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects create unprocessable entity response a status code equal to that given
+func (o *BatchObjectsCreateUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the batch objects create unprocessable entity response
+func (o *BatchObjectsCreateUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *BatchObjectsCreateUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *BatchObjectsCreateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -203,7 +413,7 @@ func NewBatchObjectsCreateInternalServerError() *BatchObjectsCreateInternalServe
 }
 
 /*
-BatchObjectsCreateInternalServerError handles this case with default header values.
+BatchObjectsCreateInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -211,7 +421,41 @@ type BatchObjectsCreateInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this batch objects create internal server error response has a 2xx status code
+func (o *BatchObjectsCreateInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects create internal server error response has a 3xx status code
+func (o *BatchObjectsCreateInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects create internal server error response has a 4xx status code
+func (o *BatchObjectsCreateInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this batch objects create internal server error response has a 5xx status code
+func (o *BatchObjectsCreateInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this batch objects create internal server error response a status code equal to that given
+func (o *BatchObjectsCreateInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the batch objects create internal server error response
+func (o *BatchObjectsCreateInternalServerError) Code() int {
+	return 500
+}
+
 func (o *BatchObjectsCreateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *BatchObjectsCreateInternalServerError) String() string {
 	return fmt.Sprintf("[POST /batch/objects][%d] batchObjectsCreateInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -282,7 +526,6 @@ func (o *BatchObjectsCreateBody) validateFieldsItemsEnum(path, location string, 
 }
 
 func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Fields) { // not required
 		return nil
 	}
@@ -303,7 +546,6 @@ func (o *BatchObjectsCreateBody) validateFields(formats strfmt.Registry) error {
 }
 
 func (o *BatchObjectsCreateBody) validateObjects(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Objects) { // not required
 		return nil
 	}
@@ -317,6 +559,42 @@ func (o *BatchObjectsCreateBody) validateObjects(formats strfmt.Registry) error 
 			if err := o.Objects[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this batch objects create body based on the context it is used
+func (o *BatchObjectsCreateBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateObjects(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *BatchObjectsCreateBody) contextValidateObjects(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(o.Objects); i++ {
+
+		if o.Objects[i] != nil {
+			if err := o.Objects[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("body" + "." + "objects" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

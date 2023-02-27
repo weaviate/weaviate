@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -58,7 +59,6 @@ func (m *ObjectsListResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ObjectsListResponse) validateDeprecations(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -72,6 +72,8 @@ func (m *ObjectsListResponse) validateDeprecations(formats strfmt.Registry) erro
 			if err := m.Deprecations[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("deprecations" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -83,7 +85,6 @@ func (m *ObjectsListResponse) validateDeprecations(formats strfmt.Registry) erro
 }
 
 func (m *ObjectsListResponse) validateObjects(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Objects) { // not required
 		return nil
 	}
@@ -97,6 +98,66 @@ func (m *ObjectsListResponse) validateObjects(formats strfmt.Registry) error {
 			if err := m.Objects[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("objects" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this objects list response based on the context it is used
+func (m *ObjectsListResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateDeprecations(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateObjects(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ObjectsListResponse) contextValidateDeprecations(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Deprecations); i++ {
+
+		if m.Deprecations[i] != nil {
+			if err := m.Deprecations[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ObjectsListResponse) contextValidateObjects(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.Objects); i++ {
+
+		if m.Objects[i] != nil {
+			if err := m.Objects[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("objects" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("objects" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

@@ -138,7 +138,13 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
+// Client is used by replicator to communicate with other nodes
 type Client interface {
+	RClient
+	WClient
+}
+
+type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
@@ -157,7 +163,41 @@ type Client interface {
 
 // RClient is the client used to read from remote replicas
 type RClient interface {
-	FindObject(ctx context.Context, host, index, shard string,
+	// FetchObject fetches one object
+	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (*storobj.Object, error)
+		additional additional.Properties) (objects.Replica, error)
+
+	// FetchObjects fetches objects specified in ids list.
+	FetchObjects(_ context.Context, host, index, shard string,
+		ids []strfmt.UUID) ([]objects.Replica, error)
+
+	// OverwriteObjects conditionally updates existing objects.
+	OverwriteObjects(_ context.Context, host, index, shard string,
+		_ []*objects.VObject) ([]RepairResponse, error)
+
+	// DigestObjects finds a list of objects and returns a compact representation
+	// of a list of the objects. This is used by the replicator to optimize the
+	// number of bytes transferred over the network when fetching a replicated
+	// object
+	DigestObjects(ctx context.Context, host, index, shard string,
+		ids []strfmt.UUID) ([]RepairResponse, error)
 }
+
+type RepairResponse struct {
+	ID         string // object id
+	Version    int64  // sender's current version of the object
+	UpdateTime int64  // sender's current update time
+	Err        string
+	Deleted    bool
+}
+
+func fromReplicas(xs []objects.Replica) []*storobj.Object {
+	rs := make([]*storobj.Object, len(xs))
+	for i := range xs {
+		rs[i] = xs[i].Object
+	}
+	return rs
+}
+
+// Ticket: Extend adapter/client with retry strategy for exists() and getobjects()

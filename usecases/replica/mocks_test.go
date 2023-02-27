@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
@@ -20,19 +21,39 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeRClient struct {
 	mock.Mock
 }
 
-func (f *fakeRClient) FindObject(ctx context.Context, host, index, shard string,
+func (f *fakeRClient) FetchObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
-) (*storobj.Object, error) {
+) (objects.Replica, error) {
 	args := f.Called(ctx, host, index, shard, id, props, additional)
-	return args.Get(0).(*storobj.Object), args.Error(1)
+	return args.Get(0).(objects.Replica), args.Error(1)
+}
+
+func (f *fakeRClient) FetchObjects(ctx context.Context, host, index,
+	shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	args := f.Called(ctx, host, index, shard, ids)
+	return args.Get(0).([]objects.Replica), args.Error(1)
+}
+
+func (f *fakeRClient) OverwriteObjects(ctx context.Context, host, index, shard string,
+	xs []*objects.VObject,
+) ([]RepairResponse, error) {
+	args := f.Called(ctx, host, index, shard, xs)
+	return args.Get(0).([]RepairResponse), args.Error(1)
+}
+
+func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard string,
+	ids []strfmt.UUID,
+) ([]RepairResponse, error) {
+	args := f.Called(ctx, host, index, shard, ids)
+	return args.Get(0).([]RepairResponse), args.Error(1)
 }
 
 type fakeClient struct {
@@ -91,34 +112,40 @@ func (f *fakeClient) Abort(ctx context.Context, host, index, shard, requestID st
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
-func (f *fakeClient) FindObject(ctx context.Context, host, index, shard string,
-	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
-) (*storobj.Object, error) {
-	args := f.Called(ctx, host, index, shard, id, props, additional)
-	return args.Get(0).(*storobj.Object), args.Error(1)
-}
-
 // Replica finder
 type fakeShardingState struct {
 	ShardToReplicas map[string][]string
+	nodeResolver    *fakeNodeResolver
 }
 
-func newFakeShardingState(shardToReplicas map[string][]string) *fakeShardingState {
-	return &fakeShardingState{ShardToReplicas: shardToReplicas}
-}
-
-func (f *fakeShardingState) ShardingState(class string) *sharding.State {
-	state := sharding.State{}
-	state.Physical = make(map[string]sharding.Physical)
-	for shard, nodes := range f.ShardToReplicas {
-		state.Physical[shard] = sharding.Physical{BelongsToNodes: nodes}
-	}
-	return &state
+func newFakeShardingState(shardToReplicas map[string][]string, resolver *fakeNodeResolver) *fakeShardingState {
+	return &fakeShardingState{ShardToReplicas: shardToReplicas, nodeResolver: resolver}
 }
 
 func (f *fakeShardingState) NodeName() string {
 	return "Coordinator"
+}
+
+func (f *fakeShardingState) ResolveParentNodes(_ string, shard string,
+) ([]string, []string, error) {
+	reps, ok := f.ShardToReplicas[shard]
+	if !ok {
+		return nil, nil, fmt.Errorf("sharding state not found")
+	}
+
+	var resolved []string
+	var unresolved []string
+
+	for _, rep := range reps {
+		host, found := f.nodeResolver.NodeHostname(rep)
+		if found && host != "" {
+			resolved = append(resolved, host)
+		} else {
+			unresolved = append(unresolved, rep)
+		}
+	}
+
+	return resolved, unresolved, nil
 }
 
 // node resolver

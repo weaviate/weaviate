@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsClassPatchParams creates a new ObjectsClassPatchParams object
-// with the default values initialized.
+// NewObjectsClassPatchParams creates a new ObjectsClassPatchParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsClassPatchParams() *ObjectsClassPatchParams {
-	var ()
 	return &ObjectsClassPatchParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsClassPatchParamsWithTimeout creates a new ObjectsClassPatchParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsClassPatchParamsWithTimeout(timeout time.Duration) *ObjectsClassPatchParams {
-	var ()
 	return &ObjectsClassPatchParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsClassPatchParamsWithContext creates a new ObjectsClassPatchParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsClassPatchParamsWithContext(ctx context.Context) *ObjectsClassPatchParams {
-	var ()
 	return &ObjectsClassPatchParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsClassPatchParamsWithHTTPClient creates a new ObjectsClassPatchParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsClassPatchParamsWithHTTPClient(client *http.Client) *ObjectsClassPatchParams {
-	var ()
 	return &ObjectsClassPatchParams{
 		HTTPClient: client,
 	}
@@ -70,29 +67,57 @@ func NewObjectsClassPatchParamsWithHTTPClient(client *http.Client) *ObjectsClass
 
 /*
 ObjectsClassPatchParams contains all the parameters to send to the API endpoint
-for the objects class patch operation typically these are written to a http.Request
+
+	for the objects class patch operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsClassPatchParams struct {
 
-	/*Body
-	  RFC 7396-style patch, the body contains the object to merge into the existing object.
+	/* Body.
 
+	   RFC 7396-style patch, the body contains the object to merge into the existing object.
 	*/
 	Body *models.Object
-	/*ClassName
-	  The class name as defined in the schema
 
+	/* ClassName.
+
+	   The class name as defined in the schema
 	*/
 	ClassName string
-	/*ID
-	  The uuid of the data object to update.
 
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
+	*/
+	ConsistencyLevel *string
+
+	/* ID.
+
+	   The uuid of the data object to update.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects class patch params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassPatchParams) WithDefaults() *ObjectsClassPatchParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects class patch params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassPatchParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects class patch params
@@ -150,6 +175,17 @@ func (o *ObjectsClassPatchParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the objects class patch params
+func (o *ObjectsClassPatchParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsClassPatchParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects class patch params
+func (o *ObjectsClassPatchParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WithID adds the id to the objects class patch params
 func (o *ObjectsClassPatchParams) WithID(id strfmt.UUID) *ObjectsClassPatchParams {
 	o.SetID(id)
@@ -168,7 +204,6 @@ func (o *ObjectsClassPatchParams) WriteToRequest(r runtime.ClientRequest, reg st
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
@@ -178,6 +213,23 @@ func (o *ObjectsClassPatchParams) WriteToRequest(r runtime.ClientRequest, reg st
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
+		}
 	}
 
 	// path param id

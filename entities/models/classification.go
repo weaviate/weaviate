@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/go-openapi/errors"
@@ -31,21 +32,26 @@ import (
 type Classification struct {
 
 	// base the text-based classification on these fields (of type text)
+	// Example: ["description"]
 	BasedOnProperties []string `json:"basedOnProperties"`
 
 	// class (name) which is used in this classification
+	// Example: City
 	Class string `json:"class,omitempty"`
 
 	// which ref-property to set as part of the classification
+	// Example: ["inCountry"]
 	ClassifyProperties []string `json:"classifyProperties"`
 
 	// error message if status == failed
+	// Example: classify xzy: something went wrong
 	Error string `json:"error,omitempty"`
 
 	// filters
 	Filters *ClassificationFilters `json:"filters,omitempty"`
 
 	// ID to uniquely identify this classification run
+	// Example: ee722219-b8ec-4db1-8f8d-5150bb1a9e0c
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
@@ -56,6 +62,7 @@ type Classification struct {
 	Settings interface{} `json:"settings,omitempty"`
 
 	// status of this classification
+	// Example: running
 	// Enum: [running completed failed]
 	Status string `json:"status,omitempty"`
 
@@ -90,7 +97,6 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateFilters(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Filters) { // not required
 		return nil
 	}
@@ -99,6 +105,8 @@ func (m *Classification) validateFilters(formats strfmt.Registry) error {
 		if err := m.Filters.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters")
 			}
 			return err
 		}
@@ -108,7 +116,6 @@ func (m *Classification) validateFilters(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -121,7 +128,6 @@ func (m *Classification) validateID(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateMeta(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Meta) { // not required
 		return nil
 	}
@@ -130,6 +136,8 @@ func (m *Classification) validateMeta(formats strfmt.Registry) error {
 		if err := m.Meta.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("meta")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("meta")
 			}
 			return err
 		}
@@ -171,7 +179,6 @@ func (m *Classification) validateStatusEnum(path, location string, value string)
 }
 
 func (m *Classification) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -179,6 +186,56 @@ func (m *Classification) validateStatus(formats strfmt.Registry) error {
 	// value enum
 	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this classification based on the context it is used
+func (m *Classification) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateFilters(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateMeta(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *Classification) contextValidateFilters(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Filters != nil {
+		if err := m.Filters.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Classification) contextValidateMeta(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Meta != nil {
+		if err := m.Meta.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("meta")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("meta")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -240,7 +297,6 @@ func (m *ClassificationFilters) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ClassificationFilters) validateSourceWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.SourceWhere) { // not required
 		return nil
 	}
@@ -249,6 +305,8 @@ func (m *ClassificationFilters) validateSourceWhere(formats strfmt.Registry) err
 		if err := m.SourceWhere.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters" + "." + "sourceWhere")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters" + "." + "sourceWhere")
 			}
 			return err
 		}
@@ -258,7 +316,6 @@ func (m *ClassificationFilters) validateSourceWhere(formats strfmt.Registry) err
 }
 
 func (m *ClassificationFilters) validateTargetWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.TargetWhere) { // not required
 		return nil
 	}
@@ -267,6 +324,8 @@ func (m *ClassificationFilters) validateTargetWhere(formats strfmt.Registry) err
 		if err := m.TargetWhere.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters" + "." + "targetWhere")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters" + "." + "targetWhere")
 			}
 			return err
 		}
@@ -276,7 +335,6 @@ func (m *ClassificationFilters) validateTargetWhere(formats strfmt.Registry) err
 }
 
 func (m *ClassificationFilters) validateTrainingSetWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.TrainingSetWhere) { // not required
 		return nil
 	}
@@ -285,6 +343,78 @@ func (m *ClassificationFilters) validateTrainingSetWhere(formats strfmt.Registry
 		if err := m.TrainingSetWhere.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("filters" + "." + "trainingSetWhere")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters" + "." + "trainingSetWhere")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this classification filters based on the context it is used
+func (m *ClassificationFilters) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateSourceWhere(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTargetWhere(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateTrainingSetWhere(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ClassificationFilters) contextValidateSourceWhere(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.SourceWhere != nil {
+		if err := m.SourceWhere.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters" + "." + "sourceWhere")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters" + "." + "sourceWhere")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ClassificationFilters) contextValidateTargetWhere(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TargetWhere != nil {
+		if err := m.TargetWhere.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters" + "." + "targetWhere")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters" + "." + "targetWhere")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ClassificationFilters) contextValidateTrainingSetWhere(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.TrainingSetWhere != nil {
+		if err := m.TrainingSetWhere.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("filters" + "." + "trainingSetWhere")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("filters" + "." + "trainingSetWhere")
 			}
 			return err
 		}
