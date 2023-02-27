@@ -14,8 +14,9 @@ package stopwords
 import (
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type StopwordDetector interface {
@@ -27,7 +28,7 @@ type Detector struct {
 	stopwords map[string]struct{}
 }
 
-func NewDetectorFromConfig(config schema.StopwordConfig) (*Detector, error) {
+func NewDetectorFromConfig(config models.StopwordConfig) (*Detector, error) {
 	d, err := NewDetectorFromPreset(config.Preset)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create new detector from config")
