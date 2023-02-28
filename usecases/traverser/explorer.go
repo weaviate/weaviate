@@ -240,7 +240,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
 		res, dists, err := e.search.ClassObjectVectorSearch(
-			ctx, params.ClassName, vec, 0, hybridSearchLimit, nil)
+			ctx, params.ClassName, vec, 0, hybridSearchLimit, params.Filters)
 		if err != nil {
 			return nil, nil, err
 		}

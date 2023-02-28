@@ -38,7 +38,7 @@ func hybridOperands(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
 ) graphql.InputObjectConfigFieldMap {
 	ss := graphql.NewInputObject(graphql.InputObjectConfig{
-		Name:   class.Class + "SubSearch",
+		Name:   class.Class + "HybridSubSearch",
 		Fields: hybridSubSearch(classObject, class, modulesProvider),
 	})
 	fieldMap := graphql.InputObjectConfigFieldMap{
@@ -80,7 +80,7 @@ func hybridSubSearch(classObject *graphql.Object,
 			Description: "Sparse Search",
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
-					Name:        fmt.Sprintf("%sBM25InpObj", prefixName),
+					Name:        fmt.Sprintf("%sHybridAggregateBM25InpObj", prefixName),
 					Fields:      bm25Fields(prefixName),
 					Description: "BM25f search",
 				},
