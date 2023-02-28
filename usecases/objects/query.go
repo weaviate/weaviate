@@ -24,7 +24,7 @@ type QueryInput struct {
 	Class      string
 	Offset     int
 	Limit      int
-	Scroll     *filters.Scroll
+	Cursor     *filters.Cursor
 	Filters    *filters.LocalFilter
 	Sort       []filters.Sort
 	Additional additional.Properties
@@ -46,13 +46,13 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 		return nil, err
 	}
 	sort := m.getSort(q.Sort, q.Order)
-	scroll := m.getScroll(q.After, q.Limit)
+	cursor := m.getCursor(q.After, q.Limit)
 	return &QueryInput{
 		Class:      q.Class,
 		Offset:     smartOffset,
 		Limit:      smartLimit,
 		Sort:       sort,
-		Scroll:     scroll,
+		Cursor:     cursor,
 		Additional: q.Additional,
 	}, nil
 }

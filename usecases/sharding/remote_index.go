@@ -74,7 +74,7 @@ type RemoteIndexClient interface {
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
 		searchVector []float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-		scroll *filters.Scroll, additional additional.Properties,
+		cursor *filters.Cursor, additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
@@ -236,7 +236,7 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 	searchVector []float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	scroll *filters.Scroll, additional additional.Properties,
+	cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
@@ -249,7 +249,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 	}
 
 	return ri.client.SearchShard(ctx, host, ri.class, shardName, searchVector, limit,
-		filters, keywordRanking, sort, scroll, additional)
+		filters, keywordRanking, sort, cursor, additional)
 }
 
 func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,

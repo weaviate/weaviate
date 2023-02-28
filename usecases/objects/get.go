@@ -241,13 +241,13 @@ func (m *Manager) trackUsageList(res search.Results) {
 	m.metrics.AddUsageDimensions(res[0].ClassName, "get_rest", "list_include_vector", res[0].Dims)
 }
 
-func (m *Manager) getScroll(after *string, limit *int64) *filters.Scroll {
+func (m *Manager) getCursor(after *string, limit *int64) *filters.Cursor {
 	if after != nil {
 		if limit == nil {
 			// limit -1 means that no limit param was set
-			return &filters.Scroll{After: *after, Limit: -1}
+			return &filters.Cursor{After: *after, Limit: -1}
 		}
-		return &filters.Scroll{After: *after, Limit: int(*limit)}
+		return &filters.Cursor{After: *after, Limit: int(*limit)}
 	}
 	return nil
 }

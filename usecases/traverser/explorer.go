@@ -122,7 +122,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid 'sort' parameter")
 	}
 
-	if err := e.validateScroll(params); err != nil {
+	if err := e.validateCursor(params); err != nil {
 		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 

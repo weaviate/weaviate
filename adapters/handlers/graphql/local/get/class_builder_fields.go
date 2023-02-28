@@ -316,7 +316,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, err
 		}
 
-		scroll, err := filters.ExtractScrollFromArgs(p.Args)
+		cursor, err := filters.ExtractCursorFromArgs(p.Args)
 		if err != nil {
 			return nil, err
 		}
@@ -395,7 +395,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			Filters:              filters,
 			ClassName:            className,
 			Pagination:           pagination,
-			Scroll:               scroll,
+			Cursor:               cursor,
 			Properties:           properties,
 			Sort:                 sort,
 			NearVector:           nearVectorParams,

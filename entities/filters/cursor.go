@@ -11,14 +11,14 @@
 
 package filters
 
-type Scroll struct {
+type Cursor struct {
 	After string
 	Limit int
 }
 
-// ExtractScrollFromArgs gets the limit key out of a map. Not specific to
+// ExtractCursorFromArgs gets the limit key out of a map. Not specific to
 // GQL, but can be used from GQL
-func ExtractScrollFromArgs(args map[string]interface{}) (*Scroll, error) {
+func ExtractCursorFromArgs(args map[string]interface{}) (*Cursor, error) {
 	after, afterOk := args["after"]
 
 	limit, limitOk := args["limit"]
@@ -30,7 +30,7 @@ func ExtractScrollFromArgs(args map[string]interface{}) (*Scroll, error) {
 		return nil, nil
 	}
 
-	return &Scroll{
+	return &Cursor{
 		After: after.(string),
 		Limit: limit.(int),
 	}, nil
