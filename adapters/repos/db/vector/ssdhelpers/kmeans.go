@@ -230,7 +230,6 @@ func (m *KMeans) Fit(data [][]float32) error { // init centers using min/max per
 func (m *KMeans) clearData() {
 	m.data.points = nil
 	m.data.cc = nil
-	m.data.changes = nil
 }
 
 func (m *KMeans) Center(point []float32) []float32 {
