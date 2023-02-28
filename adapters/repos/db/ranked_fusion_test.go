@@ -572,7 +572,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		},
 	}
 
-	t.Run("Hybrid", func(t *testing.T) {
+	t.Run("Hybrid with filter - no results expected", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
@@ -599,7 +599,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		require.Equal(t, 0, len(hybridResults))
 	})
 
-	t.Run("Hybrid with filter", func(t *testing.T) {
+	t.Run("Hybrid", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
