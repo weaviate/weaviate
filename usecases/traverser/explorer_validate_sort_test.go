@@ -40,7 +40,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: nil, Order: "asce"}},
 			},
-			expectedError: errors.New(`invalid 'sort' filter: sort parameter at position 0: ` +
+			expectedError: errors.New(`invalid 'sort' parameter: sort parameter at position 0: ` +
 				`invalid order parameter, possible values are: ["asc", "desc"] not: "asce"`),
 		},
 		{
@@ -49,7 +49,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: nil, Order: "asc"}},
 			},
-			expectedError: errors.New("invalid 'sort' filter: sort parameter at position 0: " +
+			expectedError: errors.New("invalid 'sort' parameter: sort parameter at position 0: " +
 				"path parameter cannot be empty"),
 		},
 		{
@@ -58,7 +58,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 				ClassName: "NonExistentClass",
 				Sort:      []filters.Sort{{Path: []string{"property"}, Order: "asc"}},
 			},
-			expectedError: errors.New("invalid 'sort' filter: sort parameter at position 0: " +
+			expectedError: errors.New("invalid 'sort' parameter: sort parameter at position 0: " +
 				"class \"NonExistentClass\" does not exist in schema"),
 		},
 		{
@@ -67,7 +67,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: []string{"nonexistentproperty"}, Order: "asc"}},
 			},
-			expectedError: errors.New("invalid 'sort' filter: sort parameter at position 0: " +
+			expectedError: errors.New("invalid 'sort' parameter: sort parameter at position 0: " +
 				"no such prop with name 'nonexistentproperty' found in class 'ClassOne' in the schema. " +
 				"Check your schema files for which properties in this class are available"),
 		},
@@ -77,7 +77,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: []string{"ref_prop"}, Order: "asc"}},
 			},
-			expectedError: errors.New("invalid 'sort' filter: sort parameter at position 0: " +
+			expectedError: errors.New("invalid 'sort' parameter: sort parameter at position 0: " +
 				"sorting by reference not supported, " +
 				"property \"ref_prop\" is a ref prop to the class \"ClassTwo\""),
 		},
@@ -87,7 +87,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: []string{"ref", "prop"}, Order: "asc"}},
 			},
-			expectedError: errors.New("invalid 'sort' filter: sort parameter at position 0: " +
+			expectedError: errors.New("invalid 'sort' parameter: sort parameter at position 0: " +
 				"sorting by reference not supported, " +
 				"path must have exactly one argument"),
 		},
@@ -97,7 +97,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 				ClassName: "ClassOne",
 				Sort:      []filters.Sort{{Path: nil, Order: "asce"}},
 			},
-			expectedError: errors.New(`invalid 'sort' filter: sort parameter at position 0: ` +
+			expectedError: errors.New(`invalid 'sort' parameter: sort parameter at position 0: ` +
 				`invalid order parameter, possible values are: ["asc", "desc"] not: "asce"`),
 		},
 	}
@@ -112,7 +112,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: nil, Order: "desce"},
 				},
 			},
-			expectedError: errors.New(`invalid 'sort' filter: ` +
+			expectedError: errors.New(`invalid 'sort' parameter: ` +
 				`sort parameter at position 0: ` +
 				`invalid order parameter, possible values are: ["asc", "desc"] not: "asce", ` +
 				`sort parameter at position 1: ` +
@@ -127,7 +127,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 0: path parameter cannot be empty, " +
 				"sort parameter at position 1: path parameter cannot be empty"),
 		},
@@ -140,7 +140,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"property"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 0: " +
 				"class \"NonExistentClass\" does not exist in schema, " +
 				"sort parameter at position 1: " +
@@ -155,7 +155,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"nonexistentproperty2"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 0: " +
 				"no such prop with name 'nonexistentproperty1' found in class 'ClassOne' in the schema. " +
 				"Check your schema files for which properties in this class are available, " +
@@ -172,7 +172,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"ref_prop"}, Order: "desc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 0: " +
 				"sorting by reference not supported, " +
 				"property \"ref_prop\" is a ref prop to the class \"ClassTwo\", " +
@@ -189,7 +189,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"ref", "prop"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 0: " +
 				"sorting by reference not supported, " +
 				"path must have exactly one argument, " +
@@ -206,7 +206,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"ref", "prop"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 0: " +
 				"sorting by reference not supported, " +
 				"property \"ref_prop\" is a ref prop to the class \"ClassTwo\", " +
@@ -223,7 +223,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"ref", "prop"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 0: " +
 				"sorting by reference not supported, " +
 				"property \"ref_prop\" is a ref prop to the class \"ClassTwo\", " +
@@ -243,7 +243,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: nil, Order: "desce"},
 				},
 			},
-			expectedError: errors.New(`invalid 'sort' filter: ` +
+			expectedError: errors.New(`invalid 'sort' parameter: ` +
 				`sort parameter at position 1: ` +
 				`invalid order parameter, possible values are: ["asc", "desc"] not: "desce"`),
 		},
@@ -256,7 +256,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 1: path parameter cannot be empty"),
 		},
 		{
@@ -268,7 +268,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"nonexistentproperty2"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 1: " +
 				"no such prop with name 'nonexistentproperty2' found in class 'ClassOne' in the schema. " +
 				"Check your schema files for which properties in this class are available"),
@@ -282,7 +282,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"ref_prop"}, Order: "desc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 1: " +
 				"sorting by reference not supported, " +
 				"property \"ref_prop\" is a ref prop to the class \"ClassTwo\""),
@@ -296,7 +296,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"ref", "prop"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 1: " +
 				"sorting by reference not supported, " +
 				"path must have exactly one argument"),
@@ -311,7 +311,7 @@ func Test_Explorer_GetClass_WithSort(t *testing.T) {
 					{Path: []string{"ref", "prop"}, Order: "asc"},
 				},
 			},
-			expectedError: errors.New("invalid 'sort' filter: " +
+			expectedError: errors.New("invalid 'sort' parameter: " +
 				"sort parameter at position 1: " +
 				"sorting by reference not supported, " +
 				"property \"ref_prop\" is a ref prop to the class \"ClassTwo\", " +

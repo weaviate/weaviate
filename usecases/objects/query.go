@@ -24,6 +24,7 @@ type QueryInput struct {
 	Class      string
 	Offset     int
 	Limit      int
+	Cursor     *filters.Cursor
 	Filters    *filters.LocalFilter
 	Sort       []filters.Sort
 	Additional additional.Properties
@@ -33,6 +34,7 @@ type QueryParams struct {
 	Class      string
 	Offset     *int64
 	Limit      *int64
+	After      *string
 	Sort       *string
 	Order      *string
 	Additional additional.Properties
@@ -43,11 +45,14 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 	if err != nil {
 		return nil, err
 	}
+	sort := m.getSort(q.Sort, q.Order)
+	cursor := m.getCursor(q.After, q.Limit)
 	return &QueryInput{
 		Class:      q.Class,
 		Offset:     smartOffset,
 		Limit:      smartLimit,
-		Sort:       m.getSort(q.Sort, q.Order),
+		Sort:       sort,
+		Cursor:     cursor,
 		Additional: q.Additional,
 	}, nil
 }

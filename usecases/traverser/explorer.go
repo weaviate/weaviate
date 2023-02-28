@@ -119,7 +119,11 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
-		return nil, errors.Wrap(err, "invalid 'sort' filter")
+		return nil, errors.Wrap(err, "invalid 'sort' parameter")
+	}
+
+	if err := e.validateCursor(params); err != nil {
+		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 
 	if params.KeywordRanking != nil {

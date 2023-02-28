@@ -1274,8 +1274,250 @@ func TestCRUD(t *testing.T) {
 			assert.Equal(t, expected, res)
 		})
 	})
+
 }
 
+func TestCRUD_Query(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+	thingclass := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Class:               "TheBestThingClass",
+		Properties: []*models.Property{
+			{
+				Name:         "stringProp",
+				DataType:     []string{string(schema.DataTypeString)},
+				Tokenization: "word",
+			},
+		},
+	}
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(testCtx())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("creating the thing class", func(t *testing.T) {
+		require.Nil(t,
+			migrator.AddClass(context.Background(), thingclass, schemaGetter.shardState))
+	})
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{thingclass},
+		},
+	}
+
+	t.Run("scroll through all objects", func(t *testing.T) {
+		// prepare
+		className := "TheBestThingClass"
+		thingID1 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000001")
+		thingID2 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000002")
+		thingID3 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000003")
+		thingID4 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000004")
+		thingID5 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000005")
+		thingID6 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000006")
+		thingID7 := strfmt.UUID("7c8183ae-150d-433f-92b6-ed095b000007")
+		testData := []struct {
+			id         strfmt.UUID
+			className  string
+			stringProp string
+			phone      uint64
+			longitude  float32
+		}{
+			{
+				id:         thingID1,
+				className:  className,
+				stringProp: "a very short text",
+			},
+			{
+				id:         thingID2,
+				className:  className,
+				stringProp: "zebra lives in Zoo",
+			},
+			{
+				id:         thingID3,
+				className:  className,
+				stringProp: "the best thing class",
+			},
+			{
+				id:         thingID4,
+				className:  className,
+				stringProp: "car",
+			},
+			{
+				id:         thingID5,
+				className:  className,
+				stringProp: "a very short text",
+			},
+			{
+				id:         thingID6,
+				className:  className,
+				stringProp: "zebra lives in Zoo",
+			},
+			{
+				id:         thingID7,
+				className:  className,
+				stringProp: "fossil fuels",
+			},
+		}
+		for _, td := range testData {
+			object := &models.Object{
+				CreationTimeUnix:   1565612833990,
+				LastUpdateTimeUnix: 1000001,
+				ID:                 td.id,
+				Class:              td.className,
+				Properties: map[string]interface{}{
+					"stringProp": td.stringProp,
+				},
+			}
+			vector := []float32{1.1, 1.3, 1.5, 1.4}
+			err := repo.PutObject(context.Background(), object, vector, nil)
+			assert.Nil(t, err)
+		}
+		// toParams helper method
+		toParams := func(className string, offset, limit int,
+			cursor *filters.Cursor, filters *filters.LocalFilter, sort []filters.Sort,
+		) *objects.QueryInput {
+			return &objects.QueryInput{
+				Class:      className,
+				Offset:     offset,
+				Limit:      limit,
+				Cursor:     cursor,
+				Filters:    filters,
+				Sort:       sort,
+				Additional: additional.Properties{},
+			}
+		}
+		// run scrolling through all results
+		tests := []struct {
+			name               string
+			className          string
+			cursor             *filters.Cursor
+			query              *objects.QueryInput
+			expectedThingIDs   []strfmt.UUID
+			constainsErrorMsgs []string
+		}{
+			{
+				name:             "all results with step limit: 100",
+				query:            toParams(className, 0, 100, &filters.Cursor{After: "", Limit: 100}, nil, nil),
+				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
+			},
+			{
+				name:             "all results with step limit: 1",
+				query:            toParams(className, 0, 1, &filters.Cursor{After: "", Limit: 1}, nil, nil),
+				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
+			},
+			{
+				name:             "all results with step limit: 1 after: thingID4",
+				query:            toParams(className, 0, 1, &filters.Cursor{After: thingID4.String(), Limit: 1}, nil, nil),
+				expectedThingIDs: []strfmt.UUID{thingID5, thingID6, thingID7},
+			},
+			{
+				name:             "all results with step limit: 1 after: thingID7",
+				query:            toParams(className, 0, 1, &filters.Cursor{After: thingID7.String(), Limit: 1}, nil, nil),
+				expectedThingIDs: []strfmt.UUID{},
+			},
+			{
+				name:             "all results with step limit: 3",
+				query:            toParams(className, 0, 3, &filters.Cursor{After: "", Limit: 3}, nil, nil),
+				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
+			},
+			{
+				name:             "all results with step limit: 7",
+				query:            toParams(className, 0, 7, &filters.Cursor{After: "", Limit: 7}, nil, nil),
+				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
+			},
+			{
+				name:               "error on empty class",
+				query:              toParams("", 0, 7, &filters.Cursor{After: "", Limit: 7}, nil, nil),
+				constainsErrorMsgs: []string{"class not found"},
+			},
+			{
+				name: "error on sort parameter",
+				query: toParams(className, 0, 7,
+					&filters.Cursor{After: "", Limit: 7}, nil,
+					[]filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
+				),
+				cursor:             &filters.Cursor{After: "", Limit: 7},
+				constainsErrorMsgs: []string{"sort cannot be set with after and limit parameters"},
+			},
+			{
+				name: "error on offset parameter",
+				query: toParams(className, 10, 7,
+					&filters.Cursor{After: "", Limit: 7}, nil,
+					nil,
+				),
+				cursor:             &filters.Cursor{After: "", Limit: 7},
+				constainsErrorMsgs: []string{"offset cannot be set with after and limit parameters"},
+			},
+			{
+				name: "error on offset and sort parameter",
+				query: toParams(className, 10, 7,
+					&filters.Cursor{After: "", Limit: 7}, nil,
+					[]filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
+				),
+				cursor:             &filters.Cursor{After: "", Limit: 7},
+				constainsErrorMsgs: []string{"offset,sort cannot be set with after and limit parameters"},
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if len(tt.constainsErrorMsgs) > 0 {
+					res, err := repo.Query(context.Background(), tt.query)
+					require.NotNil(t, err)
+					assert.Nil(t, res)
+					for _, errorMsg := range tt.constainsErrorMsgs {
+						assert.Contains(t, err.Error(), errorMsg)
+					}
+				} else {
+					cursorSearch := func(t *testing.T, className string, cursor *filters.Cursor) []strfmt.UUID {
+						res, err := repo.Query(context.Background(), toParams(className, 0, cursor.Limit, cursor, nil, nil))
+						require.Nil(t, err)
+						var ids []strfmt.UUID
+						for i := range res {
+							ids = append(ids, res[i].ID)
+						}
+						return ids
+					}
+
+					var thingIds []strfmt.UUID
+					cursor := tt.query.Cursor
+					for {
+						result := cursorSearch(t, tt.query.Class, cursor)
+						thingIds = append(thingIds, result...)
+						if len(result) == 0 {
+							break
+						}
+						after := result[len(result)-1]
+						cursor = &filters.Cursor{After: after.String(), Limit: cursor.Limit}
+					}
+
+					require.Equal(t, len(tt.expectedThingIDs), len(thingIds))
+					for i := range tt.expectedThingIDs {
+						assert.Equal(t, tt.expectedThingIDs[i], thingIds[i])
+					}
+				}
+			})
+		}
+		// clean up
+		for _, td := range testData {
+			err := repo.DeleteObject(context.Background(), td.className, td.id, nil)
+			assert.Nil(t, err)
+		}
+	})
+}
 func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	total := 100
 	individual := total / 4
