@@ -222,6 +222,65 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 	})
 }
 
+// This test prevents a regression of
+// https://github.com/weaviate/weaviate/issues/2692
+//
+// In this issue, any time a class had no vector index set, any other update to
+// the class would be blocked
+func TestUpdateClassWithoutVectorIndex(t *testing.T) {
+	className := "IAintGotNoVectorIndex"
+
+	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
+		assert.NotContains(t, GetObjectClassNames(t), className)
+	})
+
+	defer func(t *testing.T) {
+		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+	}(t)
+
+	t.Run("initially creating the class", func(t *testing.T) {
+		c := &models.Class{
+			Class: className,
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				Stopwords: &models.StopwordConfig{
+					Preset: "en",
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "text_prop",
+					DataType: []string{"text"},
+				},
+			},
+			VectorIndexConfig: map[string]interface{}{
+				"skip": true,
+			},
+		}
+
+		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		_, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+		assert.Nil(t, err)
+	})
+
+	t.Run("obtaining the class, making an innocent change and trying to update it", func(t *testing.T) {
+		params := schema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+
+		class := res.Payload
+
+		class.InvertedIndexConfig.Stopwords.Preset = "none"
+
+		updateParams := schema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(class)
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.Nil(t, err)
+	})
+}
+
 // TODO: https://github.com/weaviate/weaviate/issues/973
 // // This test prevents a regression on the fix for this bug:
 // // https://github.com/weaviate/weaviate/issues/831

@@ -98,7 +98,7 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "failed with status: 500 error: nope, not gonna happen estimated time: 20")
+		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: nope, not gonna happen estimated time: 20")
 	})
 
 	t.Run("when HuggingFace key is passed using X-Huggingface-Api-Key header", func(t *testing.T) {
@@ -179,7 +179,7 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "failed with status: 500 error: with warnings "+
+		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: with warnings "+
 			"warnings: [There was an inference error: CUDA error: all CUDA-capable devices are busy or unavailable\n"+
 			"CUDA kernel errors might be asynchronously reported at some other API call,so the stacktrace below might be incorrect.\n"+
 			"For debugging consider passing CUDA_LAUNCH_BLOCKING=1.]")
