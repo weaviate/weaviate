@@ -75,7 +75,7 @@ type TestQuery struct {
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "StandardTest",
 		Properties: []*models.Property{
 			{
@@ -227,7 +227,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) *models.Class {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "MyClass",
 		Properties: []*models.Property{
 			{
