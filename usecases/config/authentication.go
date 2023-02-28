@@ -17,6 +17,7 @@ import "fmt"
 type Authentication struct {
 	OIDC            OIDC            `json:"oidc" yaml:"oidc"`
 	AnonymousAccess AnonymousAccess `json:"anonymous_access" yaml:"anonymous_access"`
+	APIKey          APIKey
 }
 
 // Validate the Authentication configuration. This only validates at a general
@@ -31,7 +32,7 @@ func (a Authentication) Validate() error {
 }
 
 func (a Authentication) anyAuthMethodSelected() bool {
-	return a.AnonymousAccess.Enabled || a.OIDC.Enabled
+	return a.AnonymousAccess.Enabled || a.OIDC.Enabled || a.APIKey.Enabled
 }
 
 // AnonymousAccess considers users without any auth information as
@@ -51,4 +52,10 @@ type OIDC struct {
 	UsernameClaim     string   `yaml:"username_claim" json:"username_claim"`
 	GroupsClaim       string   `yaml:"groups_claim" json:"groups_claim"`
 	Scopes            []string `yaml:"scopes" json:"scopes"`
+}
+
+type APIKey struct {
+	Enabled     bool     `json:"enabled" yaml:"enabled"`
+	Users       []string `json:"users" yaml:"users"`
+	AllowedKeys []string `json:"allowed_keys" yaml:"allowed_keys"`
 }
