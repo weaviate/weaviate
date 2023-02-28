@@ -258,10 +258,10 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":         true,
-					"bit-compression": false,
-					"segments":        float64(64),
-					"centroids":       float64(DefaultPQCentroids),
+					"enabled":        true,
+					"bitCompression": false,
+					"segments":       float64(64),
+					"centroids":      float64(DefaultPQCentroids),
 					"encoder": map[string]interface{}{
 						"type":         "tile",
 						"distribution": "normal",
@@ -304,10 +304,10 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"pq": map[string]interface{}{
-					"enabled":         true,
-					"bit-compression": false,
-					"segments":        float64(64),
-					"centroids":       float64(DefaultPQCentroids),
+					"enabled":        true,
+					"bitCompression": false,
+					"segments":       float64(64),
+					"centroids":      float64(DefaultPQCentroids),
 					"encoder": map[string]interface{}{
 						"type": "kmeans",
 					},
