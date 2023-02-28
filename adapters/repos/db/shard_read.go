@@ -162,7 +162,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
@@ -214,7 +214,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	}
 
 	if filters == nil {
-		objs, err := s.objectList(ctx, limit, sort, additional, s.index.Config.ClassName)
+		objs, err := s.objectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -294,7 +294,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
@@ -306,21 +306,39 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		return storobj.ObjectsByDocID(bucket, docIDs, additional)
 	}
 
-	return s.allObjectList(ctx, limit, additional, className)
+	if cursor == nil {
+		cursor = &filters.Cursor{After: "", Limit: limit}
+	}
+	return s.cursorObjectList(ctx, cursor, additional, className)
 }
 
-func (s *Shard) allObjectList(ctx context.Context, limit int,
+func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, limit)
-
-	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
 
-	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+	var key, val []byte
+	if c.After == "" {
+		key, val = cursor.First()
+	} else {
+		uuidBytes, err := uuid.MustParse(c.After).MarshalBinary()
+		if err != nil {
+			return nil, errors.Wrap(err, "after argument is not a valid uuid")
+		}
+		key, val = cursor.Seek(uuidBytes)
+		if bytes.Equal(key, uuidBytes) {
+			// move cursor by one if it's the same ID
+			key, val = cursor.Next()
+		}
+	}
+
+	i := 0
+	out := make([]*storobj.Object, c.Limit)
+
+	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
+		obj, err := storobj.FromBinary(val)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}

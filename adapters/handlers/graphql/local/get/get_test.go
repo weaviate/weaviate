@@ -1344,6 +1344,31 @@ func TestExtractPaginationWithOnlyOffset(t *testing.T) {
 	resolver.AssertResolve(t, query)
 }
 
+func TestExtractCursor(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	expectedParams := dto.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Cursor: &filters.Cursor{
+			After: "8ef8d5cc-c101-4fbd-a016-84e766b93ecf",
+			Limit: 2,
+		},
+		Pagination: &filters.Pagination{
+			Offset: 0,
+			Limit:  2,
+		},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := `{ Get { SomeAction(after: "8ef8d5cc-c101-4fbd-a016-84e766b93ecf" limit: 2) { intField } } }`
+	resolver.AssertResolve(t, query)
+}
+
 func TestExtractGroupParams(t *testing.T) {
 	t.Parallel()
 
