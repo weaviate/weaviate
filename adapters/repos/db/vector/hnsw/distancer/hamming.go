@@ -64,7 +64,15 @@ func (l HammingProvider) New(a []float32) Distancer {
 }
 
 func (l HammingProvider) Step(x, y []float32) float32 {
-	return hammingImpl(x, y)
+	var sum float32 // default value of float in golang is 0
+
+	for i := range x {
+		if x[i] != y[i] {
+			sum += float32(1)
+		}
+	}
+
+	return sum
 }
 
 func (l HammingProvider) Wrap(x float32) float32 {
