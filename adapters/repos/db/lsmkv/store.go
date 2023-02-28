@@ -355,37 +355,33 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
 
-	updateBucketPath := func(src string) string {
-		return strings.Replace(src, currBucketDir, newBucketDir, 1)
-	}
-	bucket.flushLock.Lock()
-	bucket.dir = newBucketDir
-	bucket.disk.dir = newBucketDir
-	if bucket.active != nil {
-		bucket.active.path = updateBucketPath(bucket.active.path)
-		bucket.active.commitlog.path = updateBucketPath(bucket.active.commitlog.path)
-	}
-	if bucket.flushing != nil {
-		bucket.flushing.path = updateBucketPath(bucket.flushing.path)
-		bucket.flushing.commitlog.path = updateBucketPath(bucket.flushing.commitlog.path)
-	}
-	bucket.flushLock.Unlock()
+	updateDir := func(bucket *Bucket, currBucketDir, newBucketDir string) {
+		updatePath := func(src string) string {
+			return strings.Replace(src, currBucketDir, newBucketDir, 1)
+		}
 
-	updateReplacementBucketPath := func(src string) string {
-		return strings.Replace(src, currReplacementBucketDir, newReplacementBucketDir, 1)
+		bucket.flushLock.Lock()
+		bucket.dir = newBucketDir
+		if bucket.active != nil {
+			bucket.active.path = updatePath(bucket.active.path)
+			bucket.active.commitlog.path = updatePath(bucket.active.commitlog.path)
+		}
+		if bucket.flushing != nil {
+			bucket.flushing.path = updatePath(bucket.flushing.path)
+			bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
+		}
+		bucket.flushLock.Unlock()
+
+		bucket.disk.maintenanceLock.Lock()
+		bucket.disk.dir = newBucketDir
+		for _, segment := range bucket.disk.segments {
+			segment.path = updatePath(segment.path)
+		}
+		bucket.disk.maintenanceLock.Unlock()
 	}
-	replacementBucket.flushLock.Lock()
-	replacementBucket.dir = newReplacementBucketDir
-	replacementBucket.disk.dir = newReplacementBucketDir
-	if replacementBucket.active != nil {
-		replacementBucket.active.path = updateReplacementBucketPath(replacementBucket.active.path)
-		replacementBucket.active.commitlog.path = updateReplacementBucketPath(replacementBucket.active.commitlog.path)
-	}
-	if replacementBucket.flushing != nil {
-		replacementBucket.flushing.path = updateReplacementBucketPath(replacementBucket.flushing.path)
-		replacementBucket.flushing.commitlog.path = updateReplacementBucketPath(replacementBucket.flushing.commitlog.path)
-	}
-	replacementBucket.flushLock.Unlock()
+
+	updateDir(bucket, currBucketDir, newBucketDir)
+	updateDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
 
 	if err := bucket.Shutdown(ctx); err != nil {
 		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
