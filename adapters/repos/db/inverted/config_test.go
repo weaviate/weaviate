@@ -185,7 +185,7 @@ func TestConfigFromModel(t *testing.T) {
 				K1: k1,
 				B:  b,
 			},
-			Stopwords: schema.StopwordConfig{
+			Stopwords: models.StopwordConfig{
 				Preset: "en",
 			},
 		}
@@ -223,7 +223,7 @@ func TestConfigFromModel(t *testing.T) {
 		}
 
 		expected := schema.InvertedIndexConfig{
-			Stopwords: schema.StopwordConfig{
+			Stopwords: models.StopwordConfig{
 				Preset: "en",
 			},
 		}

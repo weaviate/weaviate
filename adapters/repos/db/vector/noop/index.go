@@ -13,10 +13,12 @@ package noop
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type Index struct{}
@@ -44,7 +46,20 @@ func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit 
 }
 
 func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
-	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
+	switch t := updated.(type) {
+	case hnsw.UserConfig:
+		// the fact that we are in the noop index means that 'skip' must have been
+		// set to true before, so changing it now is not possible. But if it
+		// stays, we don't mind.
+		if t.Skip {
+			return nil
+		}
+		return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
+
+	default:
+		return fmt.Errorf("unrecognized vector index config: %T", updated)
+
+	}
 }
 
 func (i *Index) Drop(context.Context) error {

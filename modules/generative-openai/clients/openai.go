@@ -117,12 +117,14 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode > 399 {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
-		}
-		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
+	if res.StatusCode >= 500 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
+		return nil, errors.Errorf(errorMessage)
+	} else if res.StatusCode >= 400 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
+		return nil, errors.Errorf(errorMessage)
 	}
+
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
 		trimmedResponse := strings.Trim(textResponse, "\n")
@@ -133,6 +135,13 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	return &ent.GenerateResult{
 		Result: nil,
 	}, nil
+}
+
+func getErrorMessage(statusCode int, resBodyError *openAIApiError, errorTemplate string) string {
+	if resBodyError != nil {
+		return fmt.Sprintf(errorTemplate, statusCode, resBodyError.Message)
+	}
+	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
 func (v *openai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
