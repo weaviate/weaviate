@@ -486,11 +486,6 @@ func (c *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, 
 
 func (c *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
 	ds := int(res.PQData.Dimensions / res.PQData.M)
-	kms := ssdhelpers.NewKMeansWithFilter(
-		int(res.PQData.Ks),
-		ds,
-		ssdhelpers.FilterSegment(int(i), ds),
-	)
 	centers := make([][]float32, 0, res.PQData.Ks)
 	for k := uint16(0); k < res.PQData.Ks; k++ {
 		center := make([]float32, 0, ds)
@@ -503,7 +498,12 @@ func (c *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult
 		}
 		centers = append(centers, center)
 	}
-	kms.SetCenters(centers)
+	kms := ssdhelpers.NewKMeansWithCenters(
+		int(res.PQData.Ks),
+		ds,
+		ssdhelpers.FilterSegment(int(i), ds),
+		centers,
+	)
 	return kms, nil
 }
 
