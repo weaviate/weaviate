@@ -11,9 +11,11 @@
 
 package schema
 
+import "github.com/weaviate/weaviate/entities/models"
+
 type InvertedIndexConfig struct {
 	BM25                BM25Config
-	Stopwords           StopwordConfig
+	Stopwords           models.StopwordConfig
 	IndexTimestamps     bool
 	IndexNullState      bool
 	IndexPropertyLength bool
@@ -22,10 +24,4 @@ type InvertedIndexConfig struct {
 type BM25Config struct {
 	K1 float64
 	B  float64
-}
-
-type StopwordConfig struct {
-	Preset    string
-	Additions []string
-	Removals  []string
 }

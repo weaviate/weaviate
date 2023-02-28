@@ -75,7 +75,7 @@ type TestQuery struct {
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "StandardTest",
 		Properties: []*models.Property{
 			{
@@ -144,7 +144,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -181,7 +181,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -227,7 +227,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) *models.Class {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "MyClass",
 		Properties: []*models.Property{
 			{
@@ -277,6 +277,7 @@ func TestRFJourney(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
+		QueryLimit:                20,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(context.TODO())
@@ -459,6 +460,149 @@ func TestRFJourney(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
+				Query:  "Elephant Parade",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  -1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) > 0)
+
+		fmt.Println("--- Start results for hybrid ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+	})
+}
+
+func TestRFJourneyWithFilters(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		QueryLimit:                20,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(context.TODO())
+	require.Nil(t, err)
+	defer repo.Shutdown(context.Background())
+
+	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "elephant",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "elephant",
+						Type:  schema.DataType("string"),
+					},
+				},
+			},
+		},
+	}
+
+	filter1 := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "My",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "journeys",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("Hybrid with filter - no results expected", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "elephant",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  100,
+			},
+			Filters: filter1,
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+		require.Equal(t, 0, len(hybridResults))
+	})
+
+	t.Run("Hybrid", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
 				Limit:  100,
@@ -478,6 +622,7 @@ func TestRFJourney(t *testing.T) {
 		explorer := traverser.NewExplorer(repo, log, prov, metrics)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
+		require.Equal(t, 1, len(hybridResults))
 
 		fmt.Println("--- Start results for hybrid ---")
 		for _, r := range hybridResults {
@@ -486,6 +631,43 @@ func TestRFJourney(t *testing.T) {
 			description := schema["description"].(string)
 			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
 		}
+		require.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000002"), hybridResults[0].ID)
+	})
+
+	t.Run("Hybrid with filter", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "elephant",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  -1,
+			},
+			Filters: filter,
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(hybridResults))
+
+		fmt.Println("--- Start results for hybrid ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+		require.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000002"), hybridResults[0].ID)
 	})
 }
 

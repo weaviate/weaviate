@@ -55,7 +55,7 @@ func ConfigFromModel(iicm *models.InvertedIndexConfig) schema.InvertedIndexConfi
 	}
 
 	if iicm.Stopwords == nil {
-		conf.Stopwords = schema.StopwordConfig{
+		conf.Stopwords = models.StopwordConfig{
 			Preset: stopwords.EnglishPreset,
 		}
 	} else {

@@ -349,8 +349,8 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters,
-					nil, additional.Properties{})
+				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters, nil,
+					additional.Properties{})
 				assert.Nil(t, err)
 
 				assert.Len(t, res, expected)

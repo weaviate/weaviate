@@ -54,7 +54,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
+	err = c.doCustomMarshal(c.timeoutUnit*20, req, nil, &resp)
 	return resp, err
 }
 
@@ -72,7 +72,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	err = c.do(c.timeoutUnit*20, req, body, &resp)
 	return resp, err
 }
 

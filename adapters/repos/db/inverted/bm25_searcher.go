@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
 
@@ -132,12 +134,23 @@ func (b *BM25Searcher) wand(
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
+	var stopWordDetector *stopwords.Detector
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
+		var err error
+		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
+		if err != nil {
+			return nil, nil, err
+		}
+
+	}
+
 	// There are currently cases, for different tokenization:
 	// Text, string and field.
 	// For the first two the query is tokenized accordingly and for the last one the full query is used. The respective
 	// properties are then searched for the search terms and the results at the end are combined using WAND
-
 	queryTextTerms, duplicateTextBoost := helpers.TokenizeTextAndCountDuplicates(fullQuery)
+	queryTextTerms, duplicateTextBoost = b.removeStopwordsFromQueryTerms(queryTextTerms, duplicateTextBoost, stopWordDetector)
+	// No stopword filtering for strings as they should retain the value as is
 	queryStringTerms, duplicateStringBoost := helpers.TokenizeStringAndCountDuplicates(fullQuery)
 
 	propertyNamesFullQuery := make([]string, 0)
@@ -233,6 +246,31 @@ func (b *BM25Searcher) wand(
 	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices)
 }
 
+func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string, duplicateBoost []int, detector *stopwords.Detector) ([]string, []int) {
+	if detector == nil || len(queryTerms) == 0 {
+		return queryTerms, duplicateBoost
+	}
+
+	i := 0
+WordLoop:
+	for {
+		if i == len(queryTerms) {
+			return queryTerms, duplicateBoost
+		}
+		queryTerm := queryTerms[i]
+		if detector.IsStopword(queryTerm) {
+			queryTerms[i] = queryTerms[len(queryTerms)-1]
+			queryTerms = queryTerms[:len(queryTerms)-1]
+			duplicateBoost[i] = duplicateBoost[len(duplicateBoost)-1]
+			duplicateBoost = duplicateBoost[:len(duplicateBoost)-1]
+
+			continue WordLoop
+		}
+
+		i++
+	}
+}
+
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []map[uint64]int) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
@@ -302,7 +340,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	var docMapPairs []docPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}
-	uniqeDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+	uniqueDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
 	for _, propName := range propertyNames {
 
@@ -320,7 +358,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			m = make([]lsmkv.MapPair, 0, len(preM))
 			for _, val := range preM {
 				docID := binary.BigEndian.Uint64(val.Key)
-				uniqeDocIDs.Set(docID)
+				uniqueDocIDs.Set(docID)
 				if filterDocIds.Contains(docID) {
 					m = append(m, val)
 				}
@@ -377,7 +415,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 	var n float64
 	if filterDocIds != nil {
-		n = float64(uniqeDocIDs.GetCardinality())
+		n = float64(uniqueDocIDs.GetCardinality())
 	} else {
 		n = float64(len(docMapPairs))
 	}
