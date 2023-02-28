@@ -38,6 +38,6 @@ func Concurrently(n uint64, action Action) {
 
 func FilterSegment(i int, ds int) FilterFunc {
 	return func(x []float32) []float32 {
-		return  x[i*ds : (i+1)*ds]
+		return x[i*ds : (i+1)*ds]
 	}
 }

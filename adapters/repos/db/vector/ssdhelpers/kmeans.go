@@ -56,6 +56,7 @@ func NewKMeans(k int, dimensions int, filter FilterFunc) *KMeans {
 	}
 	return kMeans
 }
+
 func NewKMeansWithCenters(k int, dimensions int, filter FilterFunc, centers [][]float32) *KMeans {
 	kmeans := NewKMeans(k, dimensions, filter)
 	kmeans.centers = centers
