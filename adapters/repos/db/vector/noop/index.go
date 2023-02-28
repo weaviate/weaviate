@@ -51,7 +51,7 @@ func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 		// the fact that we are in the noop index means that 'skip' must have been
 		// set to false before, so changing it now is not possible. But if it
 		// stays, we don't mind.
-		if t.Skip == true {
+		if t.Skip {
 			return nil
 		}
 		return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
