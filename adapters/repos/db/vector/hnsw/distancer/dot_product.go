@@ -29,11 +29,6 @@ var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32)
 	return sum
 }
 
-// ToDo: also have an ASM implementation
-var dotProductStepImplementation func(x, y float32) float32 = func(x, y float32) float32 {
-	return x * y
-}
-
 type DotProduct struct {
 	a []float32
 }
@@ -82,8 +77,8 @@ func (d DotProductProvider) New(a []float32) Distancer {
 	return &DotProduct{a: a}
 }
 
-func (d DotProductProvider) Step(x, y float32) float32 {
-	return dotProductStepImplementation(x, y)
+func (d DotProductProvider) Step(x, y []float32) float32 {
+	return dotProductImplementation(x, y)
 }
 
 func (d DotProductProvider) Wrap(x float32) float32 {

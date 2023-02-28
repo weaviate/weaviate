@@ -63,11 +63,8 @@ func (l HammingProvider) New(a []float32) Distancer {
 	return &Hamming{a: a}
 }
 
-func (l HammingProvider) Step(x, y float32) float32 {
-	if x == y {
-		return 0
-	}
-	return 1
+func (l HammingProvider) Step(x, y []float32) float32 {
+	return hammingImpl(x, y)
 }
 
 func (l HammingProvider) Wrap(x float32) float32 {
