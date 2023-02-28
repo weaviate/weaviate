@@ -239,7 +239,7 @@ func (pq *ProductQuantizer) extractBitsCode(encoded []byte, index int) uint64 {
 func (pq *ProductQuantizer) putBitsCode(code uint64, encoded []byte, index int) {
 	correctedIndex := index * pq.bits / 8
 	if pq.sharpCodes {
-		pq.putCode(code, encoded, correctedIndex)
+		pq.putCode(code, encoded[correctedIndex:], 0)
 		return
 	}
 
@@ -254,7 +254,7 @@ func (pq *ProductQuantizer) putBitsCode(code uint64, encoded []byte, index int) 
 	m2 := uint64(pq.bytes * 8)
 	mask := m1 << m2
 	code |= mask
-	pq.putCode(code, encoded, correctedIndex)
+	pq.putCode(code, encoded[correctedIndex:], 0)
 }
 
 func (pq *ProductQuantizer) ExposeFields() PQData {
