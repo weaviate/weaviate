@@ -117,11 +117,11 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode >= 400 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
-		return nil, errors.Errorf(errorMessage)
-	} else if res.StatusCode >= 500 {
+	if res.StatusCode >= 500 {
 		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
+		return nil, errors.Errorf(errorMessage)
+	} else if res.StatusCode >= 400 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
 		return nil, errors.Errorf(errorMessage)
 	}
 

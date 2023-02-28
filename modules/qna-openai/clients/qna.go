@@ -98,12 +98,13 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode >= 400 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
-		return nil, errors.Errorf(errorMessage)
-	} else if res.StatusCode >= 500 {
+	if res.StatusCode >= 500 {
 		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
 		return nil, errors.Errorf(errorMessage)
+	} else if res.StatusCode >= 400 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
+		return nil, errors.Errorf(errorMessage)
+
 	}
 
 	if len(resBody.Choices) > 0 && resBody.Choices[0].Text != "" {

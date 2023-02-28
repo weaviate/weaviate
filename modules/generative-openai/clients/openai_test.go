@@ -79,7 +79,7 @@ func TestGetAnswer(t *testing.T) {
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "some error from the server")
+		assert.Contains(t, err.Error(), "connection to OpenAI failed with status: 500 error: some error from the server")
 	})
 }
 
