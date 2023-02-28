@@ -232,6 +232,37 @@ case $CONFIG in
         --port 8080
     ;;
 
+  local-apikey)
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,your-secret-key \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      DEFAULT_VECTORIZER_MODULE=none \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
+
+  local-wcs-oidc-and-apikey)
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,my-secret-read-only-key \
+      AUTHENTICATION_APIKEY_USERS=etienne@semi.technology,etienne+read-only@semi.technology \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      AUTHENTICATION_OIDC_ENABLED=true \
+      AUTHENTICATION_OIDC_ISSUER=https://auth.wcs.api.weaviate.io/auth/realms/SeMI\
+      AUTHENTICATION_OIDC_USERNAME_CLAIM=email \
+      AUTHENTICATION_OIDC_GROUPS_CLAIM=groups \
+      AUTHENTICATION_OIDC_CLIENT_ID=wcs \
+      AUTHORIZATION_ADMINLIST_ENABLED=true \
+      AUTHORIZATION_ADMINLIST_USERS=etienne@semi.technology \
+      AUTHORIZATION_ADMINLIST_READONLY_USERS=etienne+read-only@semi.technology \
+      DEFAULT_VECTORIZER_MODULE=none \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
+
   local-multi-text)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \

@@ -136,6 +136,11 @@ const (
 	After = "Show the results after the first x results (pagination option)"
 )
 
+// Cursor API
+const (
+	AfterID = "Show the results after a given ID"
+)
+
 const (
 	SortPath  = "Specify the path from the Objects fields to the property name (e.g. ['Get', 'City', 'population'] leads to the 'population' property of a 'City' object)"
 	SortOrder = "Specify the sort order, either ascending (asc) which is default or descending (desc)"

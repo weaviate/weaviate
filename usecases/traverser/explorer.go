@@ -119,7 +119,11 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
-		return nil, errors.Wrap(err, "invalid 'sort' filter")
+		return nil, errors.Wrap(err, "invalid 'sort' parameter")
+	}
+
+	if err := e.validateCursor(params); err != nil {
+		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 
 	if params.KeywordRanking != nil {
@@ -240,7 +244,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
 		res, dists, err := e.search.ClassObjectVectorSearch(
-			ctx, params.ClassName, vec, 0, hybridSearchLimit, nil)
+			ctx, params.ClassName, vec, 0, hybridSearchLimit, params.Filters)
 		if err != nil {
 			return nil, nil, err
 		}

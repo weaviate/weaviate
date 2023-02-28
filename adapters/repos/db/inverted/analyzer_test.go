@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestAnalyzer(t *testing.T) {
@@ -382,145 +381,8 @@ func TestAnalyzer(t *testing.T) {
 	})
 }
 
-func TestAnalyzer_ConfigurableStopwords(t *testing.T) {
-	type testcase struct {
-		cfg               schema.StopwordConfig
-		input             string
-		expectedCountable int
-	}
-
-	runTest := func(t *testing.T, tests []testcase) {
-		for _, test := range tests {
-			a := newTestAnalyzer(t, test.cfg)
-
-			textCountable := a.Text(models.PropertyTokenizationWord, test.input)
-			assert.Equal(t, test.expectedCountable, len(textCountable))
-
-			stringCountable := a.String(models.PropertyTokenizationWord, test.input)
-			assert.Equal(t, test.expectedCountable, len(stringCountable))
-		}
-	}
-
-	t.Run("with en preset, additions", func(t *testing.T) {
-		tests := []testcase{
-			{
-				cfg: schema.StopwordConfig{
-					Preset:    "en",
-					Additions: []string{"dog"},
-				},
-				input:             "dog dog dog dog",
-				expectedCountable: 0,
-			},
-			{
-				cfg: schema.StopwordConfig{
-					Preset:    "en",
-					Additions: []string{"dog"},
-				},
-				input:             "dog dog dog cat",
-				expectedCountable: 1,
-			},
-			{
-				cfg: schema.StopwordConfig{
-					Preset:    "en",
-					Additions: []string{"dog"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 1,
-			},
-		}
-
-		runTest(t, tests)
-	})
-
-	t.Run("with no preset, additions", func(t *testing.T) {
-		tests := []testcase{
-			{
-				cfg: schema.StopwordConfig{
-					Preset:    "none",
-					Additions: []string{"dog"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 4,
-			},
-		}
-
-		runTest(t, tests)
-	})
-
-	t.Run("with en preset, removals", func(t *testing.T) {
-		tests := []testcase{
-			{
-				cfg: schema.StopwordConfig{
-					Preset:   "en",
-					Removals: []string{"a"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 3,
-			},
-			{
-				cfg: schema.StopwordConfig{
-					Preset:   "en",
-					Removals: []string{"a", "is", "the"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 5,
-			},
-		}
-
-		runTest(t, tests)
-	})
-
-	t.Run("with en preset, removals", func(t *testing.T) {
-		tests := []testcase{
-			{
-				cfg: schema.StopwordConfig{
-					Preset:   "en",
-					Removals: []string{"a"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 3,
-			},
-			{
-				cfg: schema.StopwordConfig{
-					Preset:   "en",
-					Removals: []string{"a", "is", "the"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 5,
-			},
-		}
-
-		runTest(t, tests)
-	})
-
-	t.Run("with en preset, additions, removals", func(t *testing.T) {
-		tests := []testcase{
-			{
-				cfg: schema.StopwordConfig{
-					Preset:    "en",
-					Additions: []string{"dog"},
-					Removals:  []string{"a"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 2,
-			},
-			{
-				cfg: schema.StopwordConfig{
-					Preset:    "en",
-					Additions: []string{"dog", "best"},
-					Removals:  []string{"a", "the", "is"},
-				},
-				input:             "a dog is the best",
-				expectedCountable: 3,
-			},
-		}
-
-		runTest(t, tests)
-	})
-}
-
 func TestAnalyzer_DefaultEngPreset(t *testing.T) {
-	a := newTestAnalyzer(t, schema.StopwordConfig{Preset: "en"})
+	a := newTestAnalyzer(t, models.StopwordConfig{Preset: "en"})
 	input := "hello you-beautiful_world"
 
 	textCountableWord := a.Text(models.PropertyTokenizationWord, input)
@@ -568,7 +430,7 @@ func (fsd fakeStopwordDetector) IsStopword(word string) bool {
 	return false
 }
 
-func newTestAnalyzer(t *testing.T, cfg schema.StopwordConfig) *Analyzer {
+func newTestAnalyzer(t *testing.T, cfg models.StopwordConfig) *Analyzer {
 	sd, err := stopwords.NewDetectorFromConfig(cfg)
 	require.Nil(t, err)
 
