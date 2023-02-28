@@ -54,8 +54,8 @@ func (d CosineDistanceProvider) New(a []float32) Distancer {
 	return &CosineDistance{a: a}
 }
 
-func (d CosineDistanceProvider) Step(x, y float32) float32 {
-	return dotProductStepImplementation(x, y)
+func (d CosineDistanceProvider) Step(x, y []float32) float32 {
+	return dotProductImplementation(x, y)
 }
 
 func (d CosineDistanceProvider) Wrap(x float32) float32 {

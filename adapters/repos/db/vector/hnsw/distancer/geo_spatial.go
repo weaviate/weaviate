@@ -62,7 +62,7 @@ func (p GeoProvider) Type() string {
 	return "geo"
 }
 
-func (d GeoProvider) Step(x, y float32) float32 {
+func (d GeoProvider) Step(x, y []float32) float32 {
 	panic("Not implemented")
 }
 

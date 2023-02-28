@@ -77,7 +77,7 @@ func TestDotDistancerStepbyStep(t *testing.T) {
 		distanceProvider := NewDotProductProvider()
 		sum := float32(0.0)
 		for i := range vec1 {
-			sum += distanceProvider.Step(vec1[i], vec2[i])
+			sum += distanceProvider.Step([]float32{vec1[i]}, []float32{vec2[i]})
 		}
 		control := distanceProvider.Wrap(sum)
 

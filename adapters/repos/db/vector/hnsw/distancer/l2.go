@@ -17,15 +17,11 @@ var l2SquaredImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
 	var sum float32
 
 	for i := range a {
-		sum += l2SquaredStepImpl(a[i], b[i])
+		diff := a[i] - b[i]
+		sum += diff * diff
 	}
 
 	return sum
-}
-
-var l2SquaredStepImpl func(a, b float32) float32 = func(a, b float32) float32 {
-	diff := a - b
-	return diff * diff
 }
 
 type L2Squared struct {
@@ -64,8 +60,15 @@ func (l L2SquaredProvider) New(a []float32) Distancer {
 	return &L2Squared{a: a}
 }
 
-func (l L2SquaredProvider) Step(x, y float32) float32 {
-	return l2SquaredStepImpl(x, y)
+func (l L2SquaredProvider) Step(a, b []float32) float32 {
+	var sum float32
+
+	for i := range a {
+		diff := a[i] - b[i]
+		sum += diff * diff
+	}
+
+	return sum
 }
 
 func (l L2SquaredProvider) Wrap(x float32) float32 {

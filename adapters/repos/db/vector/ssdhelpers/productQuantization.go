@@ -28,10 +28,9 @@ const (
 )
 
 type DistanceLookUpTable struct {
-	calculated  [][]atomic.Bool
-	distances   [][]float32
-	center      []float32
-	segmentSize int
+	calculated [][]atomic.Bool
+	distances  [][]float32
+	center     []float32
 }
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
@@ -43,10 +42,9 @@ func NewDistanceLookUpTable(segments int, centroids int, center []float32) *Dist
 	}
 
 	return &DistanceLookUpTable{
-		distances:   distances,
-		calculated:  calculated,
-		center:      center,
-		segmentSize: len(center) / segments,
+		distances:  distances,
+		calculated: calculated,
+		center:     center,
 	}
 }
 
@@ -56,19 +54,13 @@ func (lut *DistanceLookUpTable) LookUp(
 ) float32 {
 	var sum float32
 
-	k := 0
 	for i := range pq.kms {
 		c := pq.ExtractCode(encoded, i)
 		if lut.calculated[i][c].Load() {
 			sum += lut.distances[i][c]
-			k += lut.segmentSize
 		} else {
 			centroid := pq.kms[i].Centroid(c)
-			dist := float32(0)
-			for _, centroidX := range centroid {
-				dist += pq.distance.Step(lut.center[k], centroidX)
-				k++
-			}
+			dist := pq.distance.Step(lut.center[i*pq.ds:(i+1)*pq.ds], centroid)
 			lut.distances[i][c] = dist
 			lut.calculated[i][c].Store(true)
 			sum += dist
@@ -286,9 +278,7 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float3
 	for i := 0; i < pq.m; i++ {
 		cX := pq.kms[i].Centroid(pq.ExtractCode(x, i))
 		cY := pq.kms[i].Centroid(pq.ExtractCode(y, i))
-		for j := range cX {
-			dist += pq.distance.Step(cX[j], cY[j])
-		}
+		dist += pq.distance.Step(cX, cY)
 	}
 
 	return pq.distance.Wrap(dist)
@@ -296,13 +286,9 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float3
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) float32 {
 	dist := float32(0)
-	k := 0
 	for i := 0; i < pq.m; i++ {
 		cY := pq.kms[i].Centroid(pq.ExtractCode(encoded, i))
-		for j := range cY {
-			dist += pq.distance.Step(x[k], cY[j])
-			k++
-		}
+		dist += pq.distance.Step(x[i*pq.ds:(i+1)*pq.ds], cY)
 	}
 	return pq.distance.Wrap(dist)
 }
