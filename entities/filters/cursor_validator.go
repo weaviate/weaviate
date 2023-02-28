@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func ValidateScroll(className schema.ClassName, scroll *Scroll, offset int, filters *LocalFilter, sort []Sort) error {
+func ValidateCursor(className schema.ClassName, cursor *Cursor, offset int, filters *LocalFilter, sort []Sort) error {
 	if className == "" {
 		return fmt.Errorf("class parameter cannot be empty")
 	}
@@ -37,12 +37,12 @@ func ValidateScroll(className schema.ClassName, scroll *Scroll, offset int, filt
 		}
 		return fmt.Errorf("%s cannot be set with after and limit parameters", strings.Join(params, ","))
 	}
-	if scroll.After != "" {
-		if _, err := uuid.Parse(scroll.After); err != nil {
-			return errors.Wrapf(err, "after parameter '%s' is not a valid uuid", scroll.After)
+	if cursor.After != "" {
+		if _, err := uuid.Parse(cursor.After); err != nil {
+			return errors.Wrapf(err, "after parameter '%s' is not a valid uuid", cursor.After)
 		}
 	}
-	if scroll.Limit < 0 {
+	if cursor.Limit < 0 {
 		return fmt.Errorf("limit parameter must be set")
 	}
 	return nil

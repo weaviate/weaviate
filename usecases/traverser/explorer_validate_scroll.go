@@ -19,14 +19,14 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (e *Explorer) validateScroll(params dto.GetParams) error {
-	if params.Scroll != nil {
+func (e *Explorer) validateCursor(params dto.GetParams) error {
+	if params.Cursor != nil {
 		if params.Group != nil || params.HybridSearch != nil || params.KeywordRanking != nil ||
 			params.NearObject != nil || params.NearVector != nil || len(params.ModuleParams) > 0 {
 			return fmt.Errorf("other params cannot be set with after and limit parameters")
 		}
-		if err := filters.ValidateScroll(schema.ClassName(params.ClassName),
-			params.Scroll, params.Pagination.Offset, params.Filters, params.Sort); err != nil {
+		if err := filters.ValidateCursor(schema.ClassName(params.ClassName),
+			params.Cursor, params.Pagination.Offset, params.Filters, params.Sort); err != nil {
 			return err
 		}
 	}

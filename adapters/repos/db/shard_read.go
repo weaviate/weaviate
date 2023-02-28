@@ -162,7 +162,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, scroll *filters.Scroll, additional additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
@@ -214,7 +214,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	}
 
 	if filters == nil {
-		objs, err := s.objectList(ctx, limit, sort, scroll, additional, s.index.Config.ClassName)
+		objs, err := s.objectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
@@ -294,7 +294,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	sort []filters.Sort, scroll *filters.Scroll, additional additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
@@ -306,13 +306,13 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		return storobj.ObjectsByDocID(bucket, docIDs, additional)
 	}
 
-	if scroll == nil {
-		scroll = &filters.Scroll{After: "", Limit: limit}
+	if cursor == nil {
+		cursor = &filters.Cursor{After: "", Limit: limit}
 	}
-	return s.scrollObjectList(ctx, scroll, additional, className)
+	return s.cursorObjectList(ctx, cursor, additional, className)
 }
 
-func (s *Shard) scrollObjectList(ctx context.Context, scroll *filters.Scroll,
+func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
@@ -320,10 +320,10 @@ func (s *Shard) scrollObjectList(ctx context.Context, scroll *filters.Scroll,
 	defer cursor.Close()
 
 	var key, val []byte
-	if scroll.After == "" {
+	if c.After == "" {
 		key, val = cursor.First()
 	} else {
-		uuidBytes, err := uuid.MustParse(scroll.After).MarshalBinary()
+		uuidBytes, err := uuid.MustParse(c.After).MarshalBinary()
 		if err != nil {
 			return nil, errors.Wrap(err, "after argument is not a valid uuid")
 		}
@@ -335,9 +335,9 @@ func (s *Shard) scrollObjectList(ctx context.Context, scroll *filters.Scroll,
 	}
 
 	i := 0
-	out := make([]*storobj.Object, scroll.Limit)
+	out := make([]*storobj.Object, c.Limit)
 
-	for ; key != nil && i < scroll.Limit; key, val = cursor.Next() {
+	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
 		obj, err := storobj.FromBinary(val)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)

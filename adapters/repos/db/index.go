@@ -783,7 +783,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, scroll *filters.Scroll,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
@@ -824,13 +824,13 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		if local {
 			shard := i.Shards[shardName]
-			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, scroll, additional)
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 			}
 		} else {
 			objs, scores, err = i.remote.SearchShard(
-				ctx, shardName, nil, limit, filters, keywordRanking, sort, scroll, additional)
+				ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, additional)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 			}
@@ -994,7 +994,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVector []float32, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	scroll *filters.Scroll, additional additional.Properties,
+	cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
@@ -1003,7 +1003,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 
 	if searchVector == nil {
 		// TODO: after
-		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, sort, scroll, additional)
+		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 		}

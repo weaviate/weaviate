@@ -69,7 +69,7 @@ func (db *DB) ClassObjectSearch(ctx context.Context,
 	}
 
 	res, dist, err := idx.objectSearch(ctx, totalLimit, params.Filters,
-		params.KeywordRanking, params.Sort, params.Scroll, params.AdditionalProperties)
+		params.KeywordRanking, params.Sort, params.Cursor, params.AdditionalProperties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -257,12 +257,12 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 	if idx == nil {
 		return nil, &objects.Error{Msg: "class not found " + q.Class, Code: objects.StatusNotFound}
 	}
-	if q.Scroll != nil {
-		if err := filters.ValidateScroll(schema.ClassName(q.Class), q.Scroll, q.Offset, q.Filters, q.Sort); err != nil {
+	if q.Cursor != nil {
+		if err := filters.ValidateCursor(schema.ClassName(q.Class), q.Cursor, q.Offset, q.Filters, q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "cursor api: invalid 'after' parameter", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
-	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Scroll, q.Additional)
+	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Cursor, q.Additional)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}

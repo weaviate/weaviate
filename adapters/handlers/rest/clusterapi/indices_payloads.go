@@ -342,7 +342,7 @@ type searchParamsPayload struct{}
 
 func (p searchParamsPayload) Marshal(vector []float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, scroll *filters.Scroll, addP additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, addP additional.Properties,
 ) ([]byte, error) {
 	type params struct {
 		SearchVector   []float32                    `json:"searchVector"`
@@ -350,17 +350,17 @@ func (p searchParamsPayload) Marshal(vector []float32, limit int,
 		Filters        *filters.LocalFilter         `json:"filters"`
 		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
 		Sort           []filters.Sort               `json:"sort"`
-		Scroll         *filters.Scroll              `json:"scroll"`
+		Cursor         *filters.Cursor              `json:"cursor"`
 		Additional     additional.Properties        `json:"additional"`
 	}
 
-	par := params{vector, limit, filter, keywordRanking, sort, scroll, addP}
+	par := params{vector, limit, filter, keywordRanking, sort, cursor, addP}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Scroll, additional.Properties, error,
+	*filters.Cursor, additional.Properties, error,
 ) {
 	type searchParametersPayload struct {
 		SearchVector   []float32                    `json:"searchVector"`
@@ -369,13 +369,13 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
 		Filters        *filters.LocalFilter         `json:"filters"`
 		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
 		Sort           []filters.Sort               `json:"sort"`
-		Scroll         *filters.Scroll              `json:"scroll"`
+		Cursor         *filters.Cursor              `json:"cursor"`
 		Additional     additional.Properties        `json:"additional"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
 	return par.SearchVector, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Scroll, par.Additional, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.Additional, err
 }
 
 func (p searchParamsPayload) MIME() string {

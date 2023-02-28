@@ -1388,13 +1388,13 @@ func TestCRUD_Query(t *testing.T) {
 		}
 		// toParams helper method
 		toParams := func(className string, offset, limit int,
-			scroll *filters.Scroll, filters *filters.LocalFilter, sort []filters.Sort,
+			cursor *filters.Cursor, filters *filters.LocalFilter, sort []filters.Sort,
 		) *objects.QueryInput {
 			return &objects.QueryInput{
 				Class:      className,
 				Offset:     offset,
 				Limit:      limit,
-				Scroll:     scroll,
+				Cursor:     cursor,
 				Filters:    filters,
 				Sort:       sort,
 				Additional: additional.Properties{},
@@ -1404,71 +1404,71 @@ func TestCRUD_Query(t *testing.T) {
 		tests := []struct {
 			name               string
 			className          string
-			scroll             *filters.Scroll
+			cursor             *filters.Cursor
 			query              *objects.QueryInput
 			expectedThingIDs   []strfmt.UUID
 			constainsErrorMsgs []string
 		}{
 			{
 				name:             "all results with step limit: 100",
-				query:            toParams(className, 0, 100, &filters.Scroll{After: "", Limit: 100}, nil, nil),
+				query:            toParams(className, 0, 100, &filters.Cursor{After: "", Limit: 100}, nil, nil),
 				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
 			},
 			{
 				name:             "all results with step limit: 1",
-				query:            toParams(className, 0, 1, &filters.Scroll{After: "", Limit: 1}, nil, nil),
+				query:            toParams(className, 0, 1, &filters.Cursor{After: "", Limit: 1}, nil, nil),
 				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
 			},
 			{
 				name:             "all results with step limit: 1 after: thingID4",
-				query:            toParams(className, 0, 1, &filters.Scroll{After: thingID4.String(), Limit: 1}, nil, nil),
+				query:            toParams(className, 0, 1, &filters.Cursor{After: thingID4.String(), Limit: 1}, nil, nil),
 				expectedThingIDs: []strfmt.UUID{thingID5, thingID6, thingID7},
 			},
 			{
 				name:             "all results with step limit: 1 after: thingID7",
-				query:            toParams(className, 0, 1, &filters.Scroll{After: thingID7.String(), Limit: 1}, nil, nil),
+				query:            toParams(className, 0, 1, &filters.Cursor{After: thingID7.String(), Limit: 1}, nil, nil),
 				expectedThingIDs: []strfmt.UUID{},
 			},
 			{
 				name:             "all results with step limit: 3",
-				query:            toParams(className, 0, 3, &filters.Scroll{After: "", Limit: 3}, nil, nil),
+				query:            toParams(className, 0, 3, &filters.Cursor{After: "", Limit: 3}, nil, nil),
 				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
 			},
 			{
 				name:             "all results with step limit: 7",
-				query:            toParams(className, 0, 7, &filters.Scroll{After: "", Limit: 7}, nil, nil),
+				query:            toParams(className, 0, 7, &filters.Cursor{After: "", Limit: 7}, nil, nil),
 				expectedThingIDs: []strfmt.UUID{thingID1, thingID2, thingID3, thingID4, thingID5, thingID6, thingID7},
 			},
 			{
 				name:               "error on empty class",
-				query:              toParams("", 0, 7, &filters.Scroll{After: "", Limit: 7}, nil, nil),
+				query:              toParams("", 0, 7, &filters.Cursor{After: "", Limit: 7}, nil, nil),
 				constainsErrorMsgs: []string{"class not found"},
 			},
 			{
 				name: "error on sort parameter",
 				query: toParams(className, 0, 7,
-					&filters.Scroll{After: "", Limit: 7}, nil,
+					&filters.Cursor{After: "", Limit: 7}, nil,
 					[]filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
 				),
-				scroll:             &filters.Scroll{After: "", Limit: 7},
+				cursor:             &filters.Cursor{After: "", Limit: 7},
 				constainsErrorMsgs: []string{"sort cannot be set with after and limit parameters"},
 			},
 			{
 				name: "error on offset parameter",
 				query: toParams(className, 10, 7,
-					&filters.Scroll{After: "", Limit: 7}, nil,
+					&filters.Cursor{After: "", Limit: 7}, nil,
 					nil,
 				),
-				scroll:             &filters.Scroll{After: "", Limit: 7},
+				cursor:             &filters.Cursor{After: "", Limit: 7},
 				constainsErrorMsgs: []string{"offset cannot be set with after and limit parameters"},
 			},
 			{
 				name: "error on offset and sort parameter",
 				query: toParams(className, 10, 7,
-					&filters.Scroll{After: "", Limit: 7}, nil,
+					&filters.Cursor{After: "", Limit: 7}, nil,
 					[]filters.Sort{{Path: []string{"stringProp"}, Order: "asc"}},
 				),
-				scroll:             &filters.Scroll{After: "", Limit: 7},
+				cursor:             &filters.Cursor{After: "", Limit: 7},
 				constainsErrorMsgs: []string{"offset,sort cannot be set with after and limit parameters"},
 			},
 		}
@@ -1482,8 +1482,8 @@ func TestCRUD_Query(t *testing.T) {
 						assert.Contains(t, err.Error(), errorMsg)
 					}
 				} else {
-					scrollSearch := func(t *testing.T, className string, scroll *filters.Scroll) []strfmt.UUID {
-						res, err := repo.Query(context.Background(), toParams(className, 0, scroll.Limit, scroll, nil, nil))
+					cursorSearch := func(t *testing.T, className string, cursor *filters.Cursor) []strfmt.UUID {
+						res, err := repo.Query(context.Background(), toParams(className, 0, cursor.Limit, cursor, nil, nil))
 						require.Nil(t, err)
 						var ids []strfmt.UUID
 						for i := range res {
@@ -1493,15 +1493,15 @@ func TestCRUD_Query(t *testing.T) {
 					}
 
 					var thingIds []strfmt.UUID
-					scroll := tt.query.Scroll
+					cursor := tt.query.Cursor
 					for {
-						result := scrollSearch(t, tt.query.Class, scroll)
+						result := cursorSearch(t, tt.query.Class, cursor)
 						thingIds = append(thingIds, result...)
 						if len(result) == 0 {
 							break
 						}
 						after := result[len(result)-1]
-						scroll = &filters.Scroll{After: after.String(), Limit: scroll.Limit}
+						cursor = &filters.Cursor{After: after.String(), Limit: cursor.Limit}
 					}
 
 					require.Equal(t, len(tt.expectedThingIDs), len(thingIds))

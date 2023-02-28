@@ -49,7 +49,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (date field class)", addDateFieldClass)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (class without properties)", addTestDataNoProperties)
-	t.Run("import test data (cursor api)", addTestDataScrollSearch)
+	t.Run("import test data (cursor api)", addTestDataCursorSearch)
 
 	// explore tests
 	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
@@ -65,7 +65,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with sort", gettingObjectsWithSort)
 	t.Run("getting objects with hybrid search", getWithHybridSearch)
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
-	t.Run("cursor through results", getWithScrollSearch)
+	t.Run("cursor through results", getWithCursorSearch)
 
 	// aggregate tests
 	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
@@ -100,7 +100,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, arrayClassName)
 	deleteObjectClass(t, duplicatesClassName)
 	deleteObjectClass(t, noPropsClassName)
-	deleteObjectClass(t, "ScrollClass")
+	deleteObjectClass(t, "CursorClass")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -1002,8 +1002,8 @@ const (
 	cursorClassID7 = strfmt.UUID("00000000-0000-0000-0000-000000000007")
 )
 
-func addTestDataScrollSearch(t *testing.T) {
-	className := "ScrollClass"
+func addTestDataCursorSearch(t *testing.T) {
+	className := "CursorClass"
 	ids := []strfmt.UUID{
 		cursorClassID1,
 		cursorClassID2,

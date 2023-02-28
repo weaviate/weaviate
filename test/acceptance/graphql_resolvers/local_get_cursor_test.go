@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
-func getWithScrollSearch(t *testing.T) {
+func getWithCursorSearch(t *testing.T) {
 	t.Run("listing objects using cursor api", func(t *testing.T) {
 		tests := []struct {
 			name             string
@@ -36,7 +36,7 @@ func getWithScrollSearch(t *testing.T) {
 		}{
 			{
 				name:      `cursor with after: "" limit: 2`,
-				className: "ScrollClass",
+				className: "CursorClass",
 				after:     "",
 				limit:     2,
 				expectedIDs: []strfmt.UUID{
@@ -51,7 +51,7 @@ func getWithScrollSearch(t *testing.T) {
 			},
 			{
 				name:      fmt.Sprintf("cursor with after: \"%s\" limit: 1", cursorClassID4),
-				className: "ScrollClass",
+				className: "CursorClass",
 				after:     cursorClassID4.String(),
 				limit:     1,
 				expectedIDs: []strfmt.UUID{
@@ -62,55 +62,55 @@ func getWithScrollSearch(t *testing.T) {
 			},
 			{
 				name:             "error with offset",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `limit: 1 after: "" offset: 1`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: offset cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with nearObject",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           fmt.Sprintf("limit: 1 after: \"\" nearObject:{id:\"%s\"}", cursorClassID1),
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with nearVector",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `limit: 1 after: "" nearVector:{vector:[0.1, 0.2]}`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with hybrid",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `limit: 1 after: "" hybrid:{query:"cursor api"}`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with bm25",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `limit: 1 after: "" bm25:{query:"cursor api"}`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with sort",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `limit: 1 after: "" sort:{path:"name"}`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: sort cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with where",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `limit: 1 after: "" where:{path:"id" operator:Like valueString:"*"}`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: where cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with bm25, hybrid and offset",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `limit: 1 after: "" bm25:{query:"cursor api"} hybrid:{query:"cursor api"} offset:1`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with no limit set",
-				className:        "ScrollClass",
+				className:        "CursorClass",
 				filter:           `after:"00000000-0000-0000-0000-000000000000"`,
 				expectedErrorMsg: "cursor api: invalid 'after' parameter: limit parameter must be set",
 			},

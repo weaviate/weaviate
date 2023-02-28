@@ -1344,7 +1344,7 @@ func TestExtractPaginationWithOnlyOffset(t *testing.T) {
 	resolver.AssertResolve(t, query)
 }
 
-func TestExtractScroll(t *testing.T) {
+func TestExtractCursor(t *testing.T) {
 	t.Parallel()
 
 	resolver := newMockResolver()
@@ -1352,7 +1352,7 @@ func TestExtractScroll(t *testing.T) {
 	expectedParams := dto.GetParams{
 		ClassName:  "SomeAction",
 		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
-		Scroll: &filters.Scroll{
+		Cursor: &filters.Cursor{
 			After: "8ef8d5cc-c101-4fbd-a016-84e766b93ecf",
 			Limit: 2,
 		},
