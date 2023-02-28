@@ -42,5 +42,8 @@ func ValidateScroll(className schema.ClassName, scroll *Scroll, offset int, filt
 			return errors.Wrapf(err, "after parameter '%s' is not a valid uuid", scroll.After)
 		}
 	}
+	if scroll.Limit < 0 {
+		return fmt.Errorf("limit parameter must be set")
+	}
 	return nil
 }
