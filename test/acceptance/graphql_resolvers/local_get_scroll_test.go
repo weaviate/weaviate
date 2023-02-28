@@ -24,7 +24,7 @@ import (
 )
 
 func getWithScrollSearch(t *testing.T) {
-	t.Run("listing objects using scroll api", func(t *testing.T) {
+	t.Run("listing objects using cursor api", func(t *testing.T) {
 		tests := []struct {
 			name             string
 			className        string
@@ -35,88 +35,88 @@ func getWithScrollSearch(t *testing.T) {
 			expectedErrorMsg string
 		}{
 			{
-				name:      `scroll with after: "" limit: 2`,
+				name:      `cursor with after: "" limit: 2`,
 				className: "ScrollClass",
 				after:     "",
 				limit:     2,
 				expectedIDs: []strfmt.UUID{
-					scrollClassID1,
-					scrollClassID2,
-					scrollClassID3,
-					scrollClassID4,
-					scrollClassID5,
-					scrollClassID6,
-					scrollClassID7,
+					cursorClassID1,
+					cursorClassID2,
+					cursorClassID3,
+					cursorClassID4,
+					cursorClassID5,
+					cursorClassID6,
+					cursorClassID7,
 				},
 			},
 			{
-				name:      fmt.Sprintf("scroll with after: \"%s\" limit: 1", scrollClassID4),
+				name:      fmt.Sprintf("cursor with after: \"%s\" limit: 1", cursorClassID4),
 				className: "ScrollClass",
-				after:     scrollClassID4.String(),
+				after:     cursorClassID4.String(),
 				limit:     1,
 				expectedIDs: []strfmt.UUID{
-					scrollClassID5,
-					scrollClassID6,
-					scrollClassID7,
+					cursorClassID5,
+					cursorClassID6,
+					cursorClassID7,
 				},
 			},
 			{
 				name:             "error with offset",
 				className:        "ScrollClass",
 				filter:           `limit: 1 after: "" offset: 1`,
-				expectedErrorMsg: "invalid 'after' filter: offset cannot be set with after and limit parameters",
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: offset cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with nearObject",
 				className:        "ScrollClass",
-				filter:           fmt.Sprintf("limit: 1 after: \"\" nearObject:{id:\"%s\"}", scrollClassID1),
-				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
+				filter:           fmt.Sprintf("limit: 1 after: \"\" nearObject:{id:\"%s\"}", cursorClassID1),
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with nearVector",
 				className:        "ScrollClass",
 				filter:           `limit: 1 after: "" nearVector:{vector:[0.1, 0.2]}`,
-				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with hybrid",
 				className:        "ScrollClass",
-				filter:           `limit: 1 after: "" hybrid:{query:"scroll api"}`,
-				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
+				filter:           `limit: 1 after: "" hybrid:{query:"cursor api"}`,
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with bm25",
 				className:        "ScrollClass",
-				filter:           `limit: 1 after: "" bm25:{query:"scroll api"}`,
-				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
+				filter:           `limit: 1 after: "" bm25:{query:"cursor api"}`,
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with sort",
 				className:        "ScrollClass",
 				filter:           `limit: 1 after: "" sort:{path:"name"}`,
-				expectedErrorMsg: "invalid 'after' filter: sort cannot be set with after and limit parameters",
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: sort cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with where",
 				className:        "ScrollClass",
 				filter:           `limit: 1 after: "" where:{path:"id" operator:Like valueString:"*"}`,
-				expectedErrorMsg: "invalid 'after' filter: where cannot be set with after and limit parameters",
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: where cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with bm25, hybrid and offset",
 				className:        "ScrollClass",
-				filter:           `limit: 1 after: "" bm25:{query:"scroll api"} hybrid:{query:"scroll api"} offset:1`,
-				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
+				filter:           `limit: 1 after: "" bm25:{query:"cursor api"} hybrid:{query:"cursor api"} offset:1`,
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with no limit set",
 				className:        "ScrollClass",
 				filter:           `after:"00000000-0000-0000-0000-000000000000"`,
-				expectedErrorMsg: "invalid 'after' filter: limit parameter must be set",
+				expectedErrorMsg: "cursor api: invalid 'after' parameter: limit parameter must be set",
 			},
 			// multi shard
 			{
-				name:      `multi shard scroll with after: "" limit: 1`,
+				name:      `multi shard cursor with after: "" limit: 1`,
 				className: "MultiShard",
 				after:     "",
 				limit:     1,
@@ -151,29 +151,29 @@ func getWithScrollSearch(t *testing.T) {
 						}
 						return ids
 					}
-					// use scroll api
-					scrollSearch := func(t *testing.T, className, after string, limit int) []strfmt.UUID {
-						scroll := fmt.Sprintf(`(limit: %v after: "%s")`, limit, after)
-						result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, scroll))
+					// use cursor api
+					cursorSearch := func(t *testing.T, className, after string, limit int) []strfmt.UUID {
+						cursor := fmt.Sprintf(`(limit: %v after: "%s")`, limit, after)
+						result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(query, cursor))
 						cities := result.Get("Get", className).AsSlice()
 						return parseResults(t, cities)
 					}
 
-					var scrollIDs []strfmt.UUID
+					var cursorIDs []strfmt.UUID
 					after, limit := tt.after, tt.limit
 					for {
-						result := scrollSearch(t, tt.className, after, limit)
-						scrollIDs = append(scrollIDs, result...)
+						result := cursorSearch(t, tt.className, after, limit)
+						cursorIDs = append(cursorIDs, result...)
 						if len(result) == 0 {
 							break
 						}
 						after = result[len(result)-1].String()
 					}
 
-					assert.ElementsMatch(t, tt.expectedIDs, scrollIDs)
-					require.Equal(t, len(tt.expectedIDs), len(scrollIDs))
+					assert.ElementsMatch(t, tt.expectedIDs, cursorIDs)
+					require.Equal(t, len(tt.expectedIDs), len(cursorIDs))
 					for i := range tt.expectedIDs {
-						assert.Equal(t, tt.expectedIDs[i], scrollIDs[i])
+						assert.Equal(t, tt.expectedIDs[i], cursorIDs[i])
 					}
 				}
 			})

@@ -49,7 +49,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (date field class)", addDateFieldClass)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (class without properties)", addTestDataNoProperties)
-	t.Run("import test data (scroll api)", addTestDataScrollSearch)
+	t.Run("import test data (cursor api)", addTestDataScrollSearch)
 
 	// explore tests
 	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
@@ -65,7 +65,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with sort", gettingObjectsWithSort)
 	t.Run("getting objects with hybrid search", getWithHybridSearch)
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
-	t.Run("scroll through results", getWithScrollSearch)
+	t.Run("cursor through results", getWithScrollSearch)
 
 	// aggregate tests
 	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
@@ -993,25 +993,25 @@ func addTestDataNearObjectSearch(t *testing.T) {
 }
 
 const (
-	scrollClassID1 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
-	scrollClassID2 = strfmt.UUID("00000000-0000-0000-0000-000000000002")
-	scrollClassID3 = strfmt.UUID("00000000-0000-0000-0000-000000000003")
-	scrollClassID4 = strfmt.UUID("00000000-0000-0000-0000-000000000004")
-	scrollClassID5 = strfmt.UUID("00000000-0000-0000-0000-000000000005")
-	scrollClassID6 = strfmt.UUID("00000000-0000-0000-0000-000000000006")
-	scrollClassID7 = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+	cursorClassID1 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	cursorClassID2 = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	cursorClassID3 = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+	cursorClassID4 = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+	cursorClassID5 = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+	cursorClassID6 = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+	cursorClassID7 = strfmt.UUID("00000000-0000-0000-0000-000000000007")
 )
 
 func addTestDataScrollSearch(t *testing.T) {
 	className := "ScrollClass"
 	ids := []strfmt.UUID{
-		scrollClassID1,
-		scrollClassID2,
-		scrollClassID3,
-		scrollClassID4,
-		scrollClassID5,
-		scrollClassID6,
-		scrollClassID7,
+		cursorClassID1,
+		cursorClassID2,
+		cursorClassID3,
+		cursorClassID4,
+		cursorClassID5,
+		cursorClassID6,
+		cursorClassID7,
 	}
 	names := []string{
 		"Mount Everest",

@@ -259,7 +259,7 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 	}
 	if q.Scroll != nil {
 		if err := filters.ValidateScroll(schema.ClassName(q.Class), q.Scroll, q.Offset, q.Filters, q.Sort); err != nil {
-			return nil, &objects.Error{Msg: "scroll", Code: objects.StatusBadRequest, Err: err}
+			return nil, &objects.Error{Msg: "cursor api: invalid 'after' parameter", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Scroll, q.Additional)
