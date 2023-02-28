@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.18.0-alpha.0"
+    "version": "1.18.0-alpha.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -928,6 +928,9 @@ func init() {
         "summary": "Get a list of Objects.",
         "operationId": "objects.list",
         "parameters": [
+          {
+            "$ref": "#/parameters/CommonAfterParameterQuery"
+          },
           {
             "$ref": "#/parameters/CommonOffsetParameterQuery"
           },
@@ -4205,6 +4208,12 @@ func init() {
     }
   },
   "parameters": {
+    "CommonAfterParameterQuery": {
+      "type": "string",
+      "description": "The starting ID of the result window.",
+      "name": "after",
+      "in": "query"
+    },
     "CommonClassParameterQuery": {
       "type": "string",
       "description": "Class parameter specifies the class from which to query objects",
@@ -4321,7 +4330,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.18.0-alpha.0"
+    "version": "1.18.0-alpha.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -5210,6 +5219,12 @@ func init() {
         "summary": "Get a list of Objects.",
         "operationId": "objects.list",
         "parameters": [
+          {
+            "type": "string",
+            "description": "The starting ID of the result window.",
+            "name": "after",
+            "in": "query"
+          },
           {
             "type": "integer",
             "format": "int64",
@@ -8739,6 +8754,12 @@ func init() {
     }
   },
   "parameters": {
+    "CommonAfterParameterQuery": {
+      "type": "string",
+      "description": "The starting ID of the result window.",
+      "name": "after",
+      "in": "query"
+    },
     "CommonClassParameterQuery": {
       "type": "string",
       "description": "Class parameter specifies the class from which to query objects",

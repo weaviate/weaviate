@@ -22,7 +22,7 @@ func bm25Argument(className string) *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:   fmt.Sprintf("%sBm25InpObj", prefix),
+				Name:   fmt.Sprintf("%sHybridGetBm25InpObj", prefix),
 				Fields: bm25Fields(prefix),
 			},
 		),

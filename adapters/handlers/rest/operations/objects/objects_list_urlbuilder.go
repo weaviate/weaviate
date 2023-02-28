@@ -26,6 +26,7 @@ import (
 
 // ObjectsListURL generates an URL for the objects list operation
 type ObjectsListURL struct {
+	After   *string
 	Class   *string
 	Include *string
 	Limit   *int64
@@ -66,6 +67,14 @@ func (o *ObjectsListURL) Build() (*url.URL, error) {
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 
 	qs := make(url.Values)
+
+	var afterQ string
+	if o.After != nil {
+		afterQ = *o.After
+	}
+	if afterQ != "" {
+		qs.Set("after", afterQ)
+	}
 
 	var classQ string
 	if o.Class != nil {

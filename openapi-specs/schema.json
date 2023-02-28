@@ -1622,9 +1622,16 @@
     },
     "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
-    "version": "1.18.0-alpha.0"
+    "version": "1.18.0-alpha.1"
   },
   "parameters": {
+    "CommonAfterParameterQuery": {
+      "description": "The starting ID of the result window.",
+      "in": "query",
+      "name": "after",
+      "required": false,
+      "type": "string"
+    },
     "CommonOffsetParameterQuery": {
       "description": "The starting index of the result window. Default value is 0.",
       "format": "int64",
@@ -1789,6 +1796,9 @@
           "weaviate.local.query"
         ],
         "parameters": [
+          {
+            "$ref": "#/parameters/CommonAfterParameterQuery"
+          },
           {
             "$ref": "#/parameters/CommonOffsetParameterQuery"
           },

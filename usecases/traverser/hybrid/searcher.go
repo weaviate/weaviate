@@ -107,37 +107,34 @@ func (s *Searcher) Search(ctx context.Context) (Results, error) {
 
 		if alpha < 1 {
 			res, err := s.sparseSearch()
-			if err != nil {
-				return nil, err
-			}
+			if err == nil {
 
-			found = append(found, res)
-			weights = append(weights, 1-alpha)
+				found = append(found, res)
+				weights = append(weights, 1-alpha)
+			}
 		}
 
 		if alpha > 0 {
 			res, err := s.denseSearch(ctx)
-			if err != nil {
-				return nil, err
-			}
+			if err == nil {
 
-			found = append(found, res)
-			weights = append(weights, alpha)
+				found = append(found, res)
+				weights = append(weights, alpha)
+			}
 		}
 	} else {
 		ss := s.params.SubSearches
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
 			res, weight, err := s.handleSubSearch(ctx, &subsearch)
-			if err != nil {
-				return nil, err
-			}
+			if err == nil {
 
-			if res == nil {
-				continue
-			}
+				if res == nil {
+					continue
+				}
 
-			found = append(found, res)
-			weights = append(weights, weight)
+				found = append(found, res)
+				weights = append(weights, weight)
+			}
 		}
 	}
 

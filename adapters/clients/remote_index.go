@@ -405,10 +405,10 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 func (c *RemoteIndex) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties,
+	cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	paramsBytes, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, limit, filters, keywordRanking, sort, additional)
+		Marshal(vector, limit, filters, keywordRanking, sort, cursor, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "marshal request payload")
 	}

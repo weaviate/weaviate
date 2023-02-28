@@ -97,7 +97,8 @@ type shards interface {
 	Search(ctx context.Context, indexName, shardName string,
 		vector []float32, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-		additional additional.Properties) ([]*storobj.Object, []float32, error)
+		cursor *filters.Cursor, additional additional.Properties,
+	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindDocIDs(ctx context.Context, indexName, shardName string,
@@ -581,7 +582,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, certainty, limit, filters, keywordRanking, sort, additional, err := IndicesPayloads.SearchParams.
+		vector, certainty, limit, filters, keywordRanking, sort, cursor, additional, err := IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -590,7 +591,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		}
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, certainty, limit, filters, keywordRanking, sort, additional)
+			vector, certainty, limit, filters, keywordRanking, sort, cursor, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

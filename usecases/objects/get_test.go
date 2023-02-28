@@ -183,7 +183,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -216,7 +216,7 @@ func Test_GetAction(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{Vector: true})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{Vector: true})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -245,7 +245,7 @@ func Test_GetAction(t *testing.T) {
 		}
 
 		res, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(7), ptInt64(2), nil, nil, additional.Properties{})
+			ptInt64(7), ptInt64(2), nil, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -254,7 +254,7 @@ func Test_GetAction(t *testing.T) {
 		reset()
 
 		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(201), ptInt64(2), nil, nil, additional.Properties{})
+			ptInt64(201), ptInt64(2), nil, nil, nil, additional.Properties{})
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -263,7 +263,7 @@ func Test_GetAction(t *testing.T) {
 		reset()
 
 		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(0), ptInt64(202), nil, nil, additional.Properties{})
+			ptInt64(0), ptInt64(202), nil, nil, nil, additional.Properties{})
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -272,7 +272,7 @@ func Test_GetAction(t *testing.T) {
 		reset()
 
 		_, err := manager.GetObjects(context.Background(), &models.Principal{},
-			ptInt64(150), ptInt64(150), nil, nil, additional.Properties{})
+			ptInt64(150), ptInt64(150), nil, nil, nil, additional.Properties{})
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "query maximum results exceeded")
 	})
@@ -385,7 +385,7 @@ func Test_GetAction(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
 					{
@@ -424,7 +424,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
@@ -445,7 +445,7 @@ func Test_GetAction(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
 					{
@@ -474,7 +474,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
@@ -507,8 +507,8 @@ func Test_GetAction(t *testing.T) {
 					},
 				},
 			}
-			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
-				mock.Anything).Return(result, nil).Once()
+			vectorRepo.On("ObjectSearch", mock.AnythingOfType("int"), mock.AnythingOfType("int"), expectedSort,
+				mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
 			projectorFake.multi = []search.Result{
 				{
 					ID:        id,
@@ -533,7 +533,7 @@ func Test_GetAction(t *testing.T) {
 			}
 
 			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, &asc, additional.Properties{})
+				&sort, &asc, nil, additional.Properties{})
 			require.Nil(t, err)
 			assert.Equal(t, expected, res)
 		})
@@ -560,7 +560,7 @@ func Test_GetAction(t *testing.T) {
 					},
 				},
 			}
-			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything, mock.Anything,
 				mock.Anything).Return(result, nil).Once()
 			projectorFake.multi = []search.Result{
 				{
@@ -586,7 +586,7 @@ func Test_GetAction(t *testing.T) {
 			}
 
 			res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, &asc, additional.Properties{})
+				&sort, &asc, nil, additional.Properties{})
 			require.Nil(t, err)
 			assert.Equal(t, expected, res)
 		})
@@ -609,11 +609,11 @@ func Test_GetAction(t *testing.T) {
 				},
 			}
 
-			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything, mock.Anything,
 				mock.Anything).Return(result, nil).Once()
 
 			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, nil, additional.Properties{})
+				&sort, nil, nil, additional.Properties{})
 			require.Nil(t, err)
 		})
 
@@ -636,11 +636,11 @@ func Test_GetAction(t *testing.T) {
 				},
 			}
 
-			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything, mock.Anything,
 				mock.Anything).Return(result, nil).Once()
 
 			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				&sort, nil, additional.Properties{})
+				&sort, nil, nil, additional.Properties{})
 			require.Nil(t, err)
 		})
 
@@ -659,11 +659,11 @@ func Test_GetAction(t *testing.T) {
 				},
 			}
 
-			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything,
+			vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, expectedSort, mock.Anything, mock.Anything,
 				mock.Anything).Return(result, nil).Once()
 
 			_, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10),
-				nil, &order, additional.Properties{})
+				nil, &order, nil, additional.Properties{})
 			require.Nil(t, err)
 		})
 	})
@@ -752,7 +752,7 @@ func Test_GetThing(t *testing.T) {
 				Schema:    map[string]interface{}{"foo": "bar"},
 			},
 		}
-		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 			mock.Anything).Return(results, nil).Once()
 
 		expected := []*models.Object{
@@ -764,7 +764,7 @@ func Test_GetThing(t *testing.T) {
 			},
 		}
 
-		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, additional.Properties{})
+		res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, nil, nil, nil, nil, additional.Properties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -858,7 +858,7 @@ func Test_GetThing(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				extender.multi = []search.Result{
 					{
@@ -897,7 +897,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"nearestNeighbors": true,
@@ -918,7 +918,7 @@ func Test_GetThing(t *testing.T) {
 						Schema:    map[string]interface{}{"foo": "bar"},
 					},
 				}
-				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+				vectorRepo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything).Return(result, nil).Once()
 				projectorFake.multi = []search.Result{
 					{
@@ -947,7 +947,7 @@ func Test_GetThing(t *testing.T) {
 					},
 				}
 
-				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil,
+				res, err := manager.GetObjects(context.Background(), &models.Principal{}, nil, ptInt64(10), nil, nil, nil,
 					additional.Properties{
 						ModuleParams: map[string]interface{}{
 							"featureProjection": getDefaultParam("featureProjection"),
