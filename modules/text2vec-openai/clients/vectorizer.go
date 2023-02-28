@@ -123,11 +123,13 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode > 399 {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
-		}
-		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
+	if res.StatusCode >= 500 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
+		return nil, errors.Errorf(errorMessage)
+	}
+	if res.StatusCode >= 400 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
+		return nil, errors.Errorf(errorMessage)
 	}
 
 	if len(resBody.Data) != 1 {
@@ -139,6 +141,13 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     resBody.Data[0].Embedding,
 	}, nil
+}
+
+func getErrorMessage(statusCode int, resBodyError *openAIApiError, errorTemplate string) string {
+	if resBodyError != nil {
+		return fmt.Sprintf(errorTemplate, statusCode, resBodyError.Message)
+	}
+	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
