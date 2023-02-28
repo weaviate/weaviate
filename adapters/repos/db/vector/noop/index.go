@@ -49,7 +49,7 @@ func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	switch t := updated.(type) {
 	case hnsw.UserConfig:
 		// the fact that we are in the noop index means that 'skip' must have been
-		// set to false before, so changing it now is not possible. But if it
+		// set to true before, so changing it now is not possible. But if it
 		// stays, we don't mind.
 		if t.Skip {
 			return nil
