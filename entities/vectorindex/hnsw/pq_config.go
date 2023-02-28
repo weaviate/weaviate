@@ -35,7 +35,7 @@ type PQEncoder struct {
 // Product Quantization configuration
 type PQConfig struct {
 	Enabled        bool      `json:"enabled"`
-	BitCompression bool      `json:"bit-compression"`
+	BitCompression bool      `json:"bitCompression"`
 	Segments       int       `json:"segments"`
 	Centroids      int       `json:"centroids"`
 	Encoder        PQEncoder `json:"encoder"`
@@ -120,7 +120,7 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 		return err
 	}
 
-	if err := optionalBoolFromMap(pqConfigMap, "bit-compression", func(v bool) {
+	if err := optionalBoolFromMap(pqConfigMap, "bitCompression", func(v bool) {
 		pq.BitCompression = v
 	}); err != nil {
 		return err
