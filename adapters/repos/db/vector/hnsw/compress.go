@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"sync"
 
 	"github.com/pkg/errors"
 
@@ -27,11 +26,11 @@ import (
 func (h *hnsw) initCompressedStore() error {
 	store, err := lsmkv.New(fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName), "", h.logger, nil)
 	if err != nil {
-		return errors.Wrapf(err, "init hnsw")
+		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
 	}
 	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
 	if err != nil {
-		return errors.Wrapf(err, "init hnsw")
+		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 	}
 	h.compressedStore = store
 	return nil
@@ -43,10 +42,13 @@ func (h *hnsw) Compress(segments int, centroids int, useBitsEncoding bool, encod
 	}
 	err := h.initCompressedStore()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "Initializing compressed vector store")
 	}
 
-	vec, _ := h.vectorForID(context.Background(), h.nodes[0].id)
+	vec, err := h.vectorForID(context.Background(), h.nodes[0].id)
+	if err != nil {
+		return errors.Wrap(err, "Inferring data dimensions")
+	}
 	dims := len(vec)
 	// segments == 0 (default value) means use as many sements as dimensions
 	if segments <= 0 {
@@ -71,14 +73,13 @@ func (h *hnsw) Compress(segments int, centroids int, useBitsEncoding bool, encod
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	ssdhelpers.Concurrently(uint64(len(cleanData)),
-		func(_, index uint64, _ *sync.Mutex) {
+		func(index uint64) {
 			encoded := h.pq.Encode(cleanData[index])
 			h.storeCompressedVector(index, encoded)
 			h.compressedVectorsCache.preload(index, encoded)
 		})
 	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
-		fmt.Println(err)
-		return err
+		return errors.Wrap(err, "Adding PQ to the commit logger")
 	}
 
 	h.compressed.Store(true)

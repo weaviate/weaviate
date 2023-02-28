@@ -23,43 +23,43 @@ import (
 type FilterFunc func([]float32) []float32
 
 type KMeans struct {
-	K                  int
-	DeltaThreshold     float32
-	IterationThreshold int
+	K                  int     // How many centroids
+	DeltaThreshold     float32 // Used to stop fitting if there are not too much changes in the centroids anymore
+	IterationThreshold int     // Used to stop fitting after a certain amount of iterations
 	Distance           distancer.Provider
-	centers            [][]float32
-	dimensions         int
-	filter             FilterFunc
+	centers            [][]float32 // The current centroids
+	dimensions         int         // Dimensions of the data
+	filter             FilterFunc  // Use when applying KMeans on a slice of the original vectors
 
-	data KMeansPartitionData
+	data KMeansPartitionData // Non persistent data used only during the fitting process
 }
 
 type KMeansPartitionData struct {
-	changes      int
-	points       []uint64
-	cc           [][]uint64
-	maxDistances []float32
-	maxPoints    [][]float32
+	changes int        // How many vectors has jumped to a new cluster
+	points  []uint64   // Cluster assigned to each point
+	cc      [][]uint64 // Partition of the data into the clusters
 }
 
-func NewKMeans(k int, dimensions int) *KMeans {
+func NewKMeans(k int, dimensions int, filter FilterFunc) *KMeans {
+	if filter == nil {
+		filter = func(x []float32) []float32 {
+			return x
+		}
+	}
 	kMeans := &KMeans{
 		K:                  k,
 		DeltaThreshold:     0.01,
 		IterationThreshold: 10,
 		Distance:           distancer.NewL2SquaredProvider(),
 		dimensions:         dimensions,
-		filter: func(x []float32) []float32 {
-			return x
-		},
+		filter:             filter,
 	}
 	return kMeans
 }
-
-func NewKMeansWithFilter(k int, dimensions int, filter FilterFunc) *KMeans {
-	kMeans := NewKMeans(k, dimensions)
-	kMeans.filter = filter
-	return kMeans
+func NewKMeansWithCenters(k int, dimensions int, filter FilterFunc, centers [][]float32) *KMeans {
+	kmeans := NewKMeans(k, dimensions, filter)
+	kmeans.centers = centers
+	return kmeans
 }
 
 func (m *KMeans) ExposeDataForRestore() []byte {
@@ -73,7 +73,7 @@ func (m *KMeans) ExposeDataForRestore() []byte {
 }
 
 func (m *KMeans) Add(x []float32) {
-	panic("Not implemented (KMeans.Add)")
+	// nothing to do here
 }
 
 func (m *KMeans) Centers() [][]float32 {
@@ -95,8 +95,9 @@ func (m *KMeans) nNearest(point []float32, n int) ([]uint64, []float32) {
 		mins[i] = 0
 		minD[i] = math.MaxFloat32
 	}
+	filteredPoint := m.filter(point)
 	for i, c := range m.centers {
-		distance, _, _ := m.Distance.SingleDist(m.filter(point), c)
+		distance, _, _ := m.Distance.SingleDist(filteredPoint, c)
 		j := 0
 		for (j < n) && minD[j] < distance {
 			j++
@@ -118,13 +119,8 @@ func (m *KMeans) NNearest(point []float32, n int) []uint64 {
 	return nearest
 }
 
-func (m *KMeans) SetCenters(centers [][]float32) {
-	// ToDo: check size
-	m.centers = centers
-}
-
 func (m *KMeans) initCenters(data [][]float32) {
-	if m.centers != nil {
+	if len(m.centers) == m.K {
 		return
 	}
 	m.centers = make([][]float32, 0, m.K)
@@ -143,13 +139,9 @@ func (m *KMeans) recluster(data [][]float32) {
 		if point == nil {
 			continue
 		}
-		cis, dis := m.nNearest(point, 1)
-		ci, di := cis[0], dis[0]
+		cis, _ := m.nNearest(point, 1)
+		ci := cis[0]
 		m.data.cc[ci] = append(m.data.cc[ci], uint64(p))
-		if di > m.data.maxDistances[ci] {
-			m.data.maxDistances[ci] = di
-			m.data.maxPoints[ci] = m.filter(point)
-		}
 		if m.data.points[p] != ci {
 			m.data.points[p] = ci
 			m.data.changes++
@@ -181,16 +173,12 @@ func (m *KMeans) resortOnEmptySets(data [][]float32) {
 
 func (m *KMeans) recalcCenters(data [][]float32) {
 	for index := 0; index < m.K; index++ {
-		m.centers[index] = make([]float32, m.dimensions)
 		for j := range m.centers[index] {
 			m.centers[index][j] = 0
 		}
 		size := len(m.data.cc[index])
 		for _, ci := range m.data.cc[index] {
 			vec := data[ci]
-			if vec == nil {
-				panic("")
-			}
 			v := m.filter(vec)
 			for j := 0; j < m.dimensions; j++ {
 				m.centers[index][j] += v[j]
@@ -219,8 +207,6 @@ func (m *KMeans) Fit(data [][]float32) error { // init centers using min/max per
 	for i := 0; m.data.changes > 0; i++ {
 		m.data.changes = 0
 		m.data.cc = make([][]uint64, m.K)
-		m.data.maxDistances = make([]float32, m.K)
-		m.data.maxPoints = make([][]float32, m.K)
 		for j := range m.data.cc {
 			m.data.cc[j] = make([]uint64, 0)
 		}
@@ -244,8 +230,7 @@ func (m *KMeans) Fit(data [][]float32) error { // init centers using min/max per
 func (m *KMeans) clearData() {
 	m.data.points = nil
 	m.data.cc = nil
-	m.data.maxDistances = nil
-	m.data.maxPoints = nil
+	m.data.changes = nil
 }
 
 func (m *KMeans) Center(point []float32) []float32 {

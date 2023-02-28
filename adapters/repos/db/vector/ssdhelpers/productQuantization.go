@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
-	"sync"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -331,7 +330,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 	switch pq.encoderType {
 	case UseTileEncoder:
 		pq.kms = make([]PQEncoder, pq.m)
-		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
+		Concurrently(uint64(pq.m), func(i uint64) {
 			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i), pq.encoderDistribution)
 			for j := 0; j < len(data); j++ {
 				pq.kms[i].Add(data[j])
@@ -340,8 +339,8 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 		})
 	case UseKMeansEncoder:
 		pq.kms = make([]PQEncoder, pq.m)
-		Concurrently(uint64(pq.m), func(_ uint64, i uint64, _ *sync.Mutex) {
-			pq.kms[i] = NewKMeansWithFilter(
+		Concurrently(uint64(pq.m), func(i uint64) {
+			pq.kms[i] = NewKMeans(
 				int(pq.ks),
 				pq.ds,
 				FilterSegment(int(i), pq.ds),

@@ -84,14 +84,16 @@ func (c *UserConfig) SetDefaults() {
 	c.Skip = DefaultSkip
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
 	c.Distance = DefaultDistanceMetric
-	c.PQ = PQConfig{}
-	c.PQ.Enabled = DefaultPQEnabled
-	c.PQ.BitCompression = DefaultPQBitCompression
-	c.PQ.Segments = DefaultPQSegments
-	c.PQ.Centroids = DefaultPQCentroids
-	c.PQ.Encoder = PQEncoder{}
-	c.PQ.Encoder.Type = DefaultPQEncoderType
-	c.PQ.Encoder.Distribution = DefaultPQEncoderDistribution
+	c.PQ = PQConfig{
+		Enabled:        DefaultPQEnabled,
+		BitCompression: DefaultPQBitCompression,
+		Segments:       DefaultPQSegments,
+		Centroids:      DefaultPQCentroids,
+		Encoder: PQEncoder{
+			Type:         DefaultPQEncoderType,
+			Distribution: DefaultPQEncoderDistribution,
+		},
+	}
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further

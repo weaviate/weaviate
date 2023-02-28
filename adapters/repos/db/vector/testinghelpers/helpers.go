@@ -20,7 +20,6 @@ import (
 	"math/rand"
 	"os"
 	"sort"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -151,7 +150,7 @@ func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFu
 
 	distances := make([]distanceAndIndex, len(vectors))
 
-	ssdhelpers.Concurrently(uint64(len(vectors)), func(_, i uint64, _ *sync.Mutex) {
+	ssdhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
 		dist := distance(query, vectors[i])
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
@@ -187,7 +186,7 @@ func BuildTruths(queries_size int, vectors_size int, queries [][]float32, vector
 		return loadTruths(fileName, queries_size, k)
 	}
 
-	ssdhelpers.Concurrently(uint64(len(queries)), func(_ uint64, i uint64, _ *sync.Mutex) {
+	ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 		truths[i] = BruteForce(vectors, queries[i], k, distance)
 	})
 
