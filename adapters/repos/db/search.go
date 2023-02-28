@@ -348,6 +348,9 @@ func (db *DB) getTotalLimit(pagination *filters.Pagination, addl additional.Prop
 	}
 
 	totalLimit := pagination.Offset + db.getLimit(pagination.Limit)
+	if totalLimit == 0 {
+		return 0, fmt.Errorf("invalid default limit: %v", db.getLimit(pagination.Limit))
+	}
 	if !addl.ReferenceQuery && totalLimit > int(db.config.QueryMaximumResults) {
 		return 0, errors.New("query maximum results exceeded")
 	}

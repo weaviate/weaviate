@@ -302,7 +302,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	var docMapPairs []docPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}
-	uniqeDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+	uniqueDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
 	for _, propName := range propertyNames {
 
@@ -320,7 +320,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			m = make([]lsmkv.MapPair, 0, len(preM))
 			for _, val := range preM {
 				docID := binary.BigEndian.Uint64(val.Key)
-				uniqeDocIDs.Set(docID)
+				uniqueDocIDs.Set(docID)
 				if filterDocIds.Contains(docID) {
 					m = append(m, val)
 				}
@@ -377,7 +377,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 	var n float64
 	if filterDocIds != nil {
-		n = float64(uniqeDocIDs.GetCardinality())
+		n = float64(uniqueDocIDs.GetCardinality())
 	} else {
 		n = float64(len(docMapPairs))
 	}
