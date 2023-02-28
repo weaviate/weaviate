@@ -47,7 +47,7 @@ func TestPQKMeans(t *testing.T) {
 
 	pq, _ := ssdhelpers.NewProductQuantizer(
 		dimensions,
-		256,
+		512,
 		false,
 		distanceProvider,
 		dimensions,
