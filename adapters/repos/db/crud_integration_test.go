@@ -39,7 +39,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func TestCRUD_(t *testing.T) {
+func TestCRUD(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 

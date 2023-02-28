@@ -63,50 +63,56 @@ func getWithScrollSearch(t *testing.T) {
 			{
 				name:             "error with offset",
 				className:        "ScrollClass",
-				filter:           "offset: 1",
+				filter:           `limit: 1 after: "" offset: 1`,
 				expectedErrorMsg: "invalid 'after' filter: offset cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with nearObject",
 				className:        "ScrollClass",
-				filter:           fmt.Sprintf("nearObject:{id:\"%s\"}", scrollClassID1),
+				filter:           fmt.Sprintf("limit: 1 after: \"\" nearObject:{id:\"%s\"}", scrollClassID1),
 				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with nearVector",
 				className:        "ScrollClass",
-				filter:           `nearVector:{vector:[0.1, 0.2]}`,
+				filter:           `limit: 1 after: "" nearVector:{vector:[0.1, 0.2]}`,
 				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with hybrid",
 				className:        "ScrollClass",
-				filter:           `hybrid:{query:"scroll api"}`,
+				filter:           `limit: 1 after: "" hybrid:{query:"scroll api"}`,
 				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with bm25",
 				className:        "ScrollClass",
-				filter:           `bm25:{query:"scroll api"}`,
+				filter:           `limit: 1 after: "" bm25:{query:"scroll api"}`,
 				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with sort",
 				className:        "ScrollClass",
-				filter:           `sort:{path:"name"}`,
+				filter:           `limit: 1 after: "" sort:{path:"name"}`,
 				expectedErrorMsg: "invalid 'after' filter: sort cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with where",
 				className:        "ScrollClass",
-				filter:           `where:{path:"id" operator:Like valueString:"*"}`,
+				filter:           `limit: 1 after: "" where:{path:"id" operator:Like valueString:"*"}`,
 				expectedErrorMsg: "invalid 'after' filter: where cannot be set with after and limit parameters",
 			},
 			{
 				name:             "error with bm25, hybrid and offset",
 				className:        "ScrollClass",
-				filter:           `bm25:{query:"scroll api"} hybrid:{query:"scroll api"} offset:1`,
+				filter:           `limit: 1 after: "" bm25:{query:"scroll api"} hybrid:{query:"scroll api"} offset:1`,
 				expectedErrorMsg: "invalid 'after' filter: other params cannot be set with after and limit parameters",
+			},
+			{
+				name:             "error with no limit set",
+				className:        "ScrollClass",
+				filter:           `after:"00000000-0000-0000-0000-000000000000"`,
+				expectedErrorMsg: "invalid 'after' filter: limit parameter must be set",
 			},
 			// multi shard
 			{
@@ -125,7 +131,7 @@ func getWithScrollSearch(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				query := "{ Get { " + tt.className + " %s { _additional { id } } } }"
 				if len(tt.expectedErrorMsg) > 0 {
-					errQuery := fmt.Sprintf(query, fmt.Sprintf("(limit: 1 after: \"\" %s)", tt.filter))
+					errQuery := fmt.Sprintf(query, fmt.Sprintf("(%s)", tt.filter))
 					result := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, errQuery)
 					assert.Len(t, result, 1)
 
