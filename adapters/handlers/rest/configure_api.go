@@ -165,20 +165,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
 	replicationClient := clients.NewReplicationClient(clusterHttpClient)
 	repo := db.New(appState.Logger, db.Config{
-		ServerVersion:                    config.ServerVersion,
-		GitHash:                          config.GitHash,
-		MemtablesFlushIdleAfter:          appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
-		MemtablesInitialSizeMB:           10,
-		MemtablesMaxSizeMB:               appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
-		MemtablesMinActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
-		MemtablesMaxActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
-		RootPath:                         appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:                       appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults:              appState.ServerConfig.Config.QueryMaximumResults,
-		MaxImportGoroutinesFactor:        appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:            appState.ServerConfig.Config.TrackVectorDimensions,
-		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
-		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
+		ServerVersion:             config.ServerVersion,
+		GitHash:                   config.GitHash,
+		MemtablesFlushIdleAfter:   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesInitialSizeMB:    10,
+		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
+		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
+		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
+		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
+		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
 	appState.DB = repo
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
@@ -287,7 +286,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, schemaManager, repo, appState)
 
+	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
+	reindexFinished := make(chan error)
+	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		// start reindexing inverted indexes (if requested by user) in the background
+		// allowing db to complete api configuration and start handling requests
+		go func() {
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Reindexing sets to roaring sets")
+			// FIXME to avoid import cycles tasks are passed as strings
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, "ShardInvertedReindexTaskSetToRoaringSet")
+		}()
+	}
+
 	api.ServerShutdown = func() {
+		// stop reindexing on server shutdown
+		reindexCtxCancel()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 

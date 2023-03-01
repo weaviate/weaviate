@@ -42,11 +42,10 @@ func Benchmark_Migration(b *testing.B) {
 			logger := logrus.New()
 			schemaGetter := &fakeSchemaGetter{shardState: shardState}
 			repo := New(logger, Config{
-				RootPath:                         dirName,
-				QueryMaximumResults:              1000,
-				MaxImportGoroutinesFactor:        1,
-				TrackVectorDimensions:            true,
-				ReindexVectorDimensionsAtStartup: false,
+				RootPath:                  dirName,
+				QueryMaximumResults:       1000,
+				MaxImportGoroutinesFactor: 1,
+				TrackVectorDimensions:     true,
 			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 			repo.SetSchemaGetter(schemaGetter)
 			err := repo.WaitForStartup(testCtx())
@@ -89,7 +88,6 @@ func Benchmark_Migration(b *testing.B) {
 
 			fmt.Printf("Added vectors, now migrating\n")
 
-			repo.config.ReindexVectorDimensionsAtStartup = true
 			repo.config.TrackVectorDimensions = true
 			migrator.RecalculateVectorDimensions(context.TODO())
 			fmt.Printf("Benchmark complete")
@@ -106,11 +104,10 @@ func Test_Migration(t *testing.T) {
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{
-		RootPath:                         dirName,
-		QueryMaximumResults:              1000,
-		MaxImportGoroutinesFactor:        1,
-		TrackVectorDimensions:            true,
-		ReindexVectorDimensionsAtStartup: false,
+		RootPath:                  dirName,
+		QueryMaximumResults:       1000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -158,7 +155,6 @@ func Test_Migration(t *testing.T) {
 
 	dimBefore := GetDimensionsFromRepo(repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
-	repo.config.ReindexVectorDimensionsAtStartup = true
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
 	dimAfter := GetDimensionsFromRepo(repo, "Test")
