@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build !race
+// +build !race
+
 package ssdhelpers_test
 
 import (
@@ -36,7 +39,7 @@ func distance(dp distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-func TestPQKMeans(t *testing.T) {
+func Test_NoRacePQKMeans(t *testing.T) {
 	rand.Seed(0)
 	dimensions := 128
 	vectors_size := 1000
@@ -85,7 +88,7 @@ func TestPQKMeans(t *testing.T) {
 	assert.True(t, recall > 0.99)
 }
 
-func TestPQDecodeBits(t *testing.T) {
+func Test_NoRacePQDecodeBits(t *testing.T) {
 	t.Run("extracts correctly on one code per byte", func(t *testing.T) {
 		amount := 100
 		centroids := 256
@@ -171,7 +174,7 @@ func TestPQDecodeBits(t *testing.T) {
 	})
 }
 
-func TestPQEncodeBits(t *testing.T) {
+func Test_NoRacePQEncodeBits(t *testing.T) {
 	t.Run("encodes correctly on one code per byte", func(t *testing.T) {
 		amount := 100
 		centroids := 256
@@ -239,7 +242,7 @@ func TestPQEncodeBits(t *testing.T) {
 	})
 }
 
-func TestPQDecodeBytes(t *testing.T) {
+func Test_NoRacePQDecodeBytes(t *testing.T) {
 	t.Run("extracts correctly on one code per byte", func(t *testing.T) {
 		amount := 100
 		centroids := 256
@@ -331,7 +334,7 @@ func TestPQDecodeBytes(t *testing.T) {
 	})
 }
 
-func TestPQEncodeBytes(t *testing.T) {
+func Test_NoRacePQEncodeBytes(t *testing.T) {
 	t.Run("encodes correctly on one code per byte", func(t *testing.T) {
 		amount := 100
 		centroids := 256

@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build !race
+// +build !race
+
 package ssdhelpers_test
 
 import (
@@ -21,7 +24,7 @@ import (
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-func TestKMeansNNearest(t *testing.T) {
+func Test_NoRaceKMeansNNearest(t *testing.T) {
 	distanceProvider := distancer.NewL2SquaredProvider()
 	vectors := [][]float32{
 		{0, 5},
@@ -50,7 +53,7 @@ func TestKMeansNNearest(t *testing.T) {
 	}
 }
 
-func TestRandomData(t *testing.T) {
+func Test_NoRaceRandomData(t *testing.T) {
 	vectors_size := 10000
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, 128)
 	before := time.Now()
