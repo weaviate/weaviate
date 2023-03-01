@@ -50,10 +50,6 @@ func TestKMeansNNearest(t *testing.T) {
 	}
 }
 
-func extractSegment(i int, v []float32) []float32 {
-	return v[i*1 : (i+1)*1]
-}
-
 func TestRandomData(t *testing.T) {
 	vectors_size := 10000
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, 128)
