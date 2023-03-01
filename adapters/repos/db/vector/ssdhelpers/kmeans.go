@@ -125,7 +125,9 @@ func (m *KMeans) initCenters(data [][]float32) {
 		for vec == nil {
 			vec = data[rand.Intn(len(data))]
 		}
-		m.centers = append(m.centers, vec[m.segment*m.dimensions:(m.segment+1)*m.dimensions])
+		vecCopy := make([]float32, m.dimensions)
+		copy(vecCopy, vec[m.segment*m.dimensions:(m.segment+1)*m.dimensions])
+		m.centers = append(m.centers, vecCopy)
 	}
 }
 
@@ -169,7 +171,6 @@ func (m *KMeans) resortOnEmptySets(data [][]float32) {
 
 func (m *KMeans) recalcCenters(data [][]float32) {
 	for index := 0; index < m.K; index++ {
-		m.centers[index] = make([]float32, m.dimensions)
 		for j := range m.centers[index] {
 			m.centers[index][j] = 0
 		}
