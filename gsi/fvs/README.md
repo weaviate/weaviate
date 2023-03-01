@@ -1,15 +1,15 @@
 
-GSI Technology's Gemini Fast Vector Search (FVS)
+# GSI Technology's Gemini Fast Vector Search (FVS)
 
-# Introduction
+## Introduction
 
 The Weaviate Gemini Plugin leverages GSI Technologies FVS Software Library.
 
 This directory provides profiling, debugging, and benchmark utilities and scripts for FVS.
 
-# Benchmarks
+## Benchmarks
 
-## 1M of Deep1B
+### 1M of Deep1B
 
 [Deep1M of Deep1B]("results/gemini_fvs.png")
 
