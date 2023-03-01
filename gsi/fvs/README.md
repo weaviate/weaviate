@@ -11,7 +11,7 @@ This directory provides profiling, debugging, and benchmark utilities and script
 
 ### 1M of Deep1B
 
-![Deep1M of Deep1B]("results/gemini_fvs.png")
+![Deep1M of Deep1B](results/gemini_fvs.png)
 
 To reproduce the benchmarks shown above, do the following:
 * login to a system with Gemini FVS installed
