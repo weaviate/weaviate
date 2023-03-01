@@ -12,6 +12,7 @@
 package test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -140,7 +141,13 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 
 	defer func(t *testing.T) {
 		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
-		helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+		assert.Nil(t, err)
+		if err != nil {
+			if typed, ok := err.(*schema.SchemaObjectsDeleteBadRequest); ok {
+				fmt.Println(typed.Payload.Error[0].Message)
+			}
+		}
 	}(t)
 
 	t.Run("initially creating the class", func(t *testing.T) {
@@ -236,7 +243,13 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 
 	defer func(t *testing.T) {
 		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
-		helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
+		assert.Nil(t, err)
+		if err != nil {
+			if typed, ok := err.(*schema.SchemaObjectsDeleteBadRequest); ok {
+				fmt.Println(typed.Payload.Error[0].Message)
+			}
+		}
 	}(t)
 
 	t.Run("initially creating the class", func(t *testing.T) {
