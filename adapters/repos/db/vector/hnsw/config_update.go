@@ -79,6 +79,7 @@ func validateImmutableIntField(u immutableInt,
 func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
+		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
 
@@ -101,10 +102,12 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 
 		encoder, err := ent.ValidEncoder(parsed.PQ.Encoder.Type)
 		if err != nil {
+			callback()
 			return err
 		}
 		encoderDistribution, err := ent.ValidEncoderDistribution(parsed.PQ.Encoder.Distribution)
 		if err != nil {
+			callback()
 			return err
 		}
 
@@ -120,5 +123,6 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 		}()
 	}
 
+	callback()
 	return nil
 }
