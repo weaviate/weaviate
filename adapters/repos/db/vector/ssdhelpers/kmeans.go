@@ -29,7 +29,7 @@ type KMeans struct {
 	Distance           distancer.Provider
 	centers            [][]float32 // The current centroids
 	dimensions         int         // Dimensions of the data
-	filter             FilterFunc  // Use when applying KMeans on a slice of the original vectors
+	segment            int         // Segment where it operates
 
 	data KMeansPartitionData // Non persistent data used only during the fitting process
 }
@@ -40,25 +40,20 @@ type KMeansPartitionData struct {
 	cc      [][]uint64 // Partition of the data into the clusters
 }
 
-func NewKMeans(k int, dimensions int, filter FilterFunc) *KMeans {
-	if filter == nil {
-		filter = func(x []float32) []float32 {
-			return x
-		}
-	}
+func NewKMeans(k int, dimensions int, segment int) *KMeans {
 	kMeans := &KMeans{
 		K:                  k,
 		DeltaThreshold:     0.01,
 		IterationThreshold: 10,
 		Distance:           distancer.NewL2SquaredProvider(),
 		dimensions:         dimensions,
-		filter:             filter,
+		segment:            segment,
 	}
 	return kMeans
 }
 
-func NewKMeansWithCenters(k int, dimensions int, filter FilterFunc, centers [][]float32) *KMeans {
-	kmeans := NewKMeans(k, dimensions, filter)
+func NewKMeansWithCenters(k int, dimensions int, segment int, centers [][]float32) *KMeans {
+	kmeans := NewKMeans(k, dimensions, segment)
 	kmeans.centers = centers
 	return kmeans
 }
@@ -96,7 +91,7 @@ func (m *KMeans) nNearest(point []float32, n int) ([]uint64, []float32) {
 		mins[i] = 0
 		minD[i] = math.MaxFloat32
 	}
-	filteredPoint := m.filter(point)
+	filteredPoint := point[m.segment*m.dimensions : (m.segment+1)*m.dimensions]
 	for i, c := range m.centers {
 		distance, _, _ := m.Distance.SingleDist(filteredPoint, c)
 		j := 0
@@ -130,7 +125,7 @@ func (m *KMeans) initCenters(data [][]float32) {
 		for vec == nil {
 			vec = data[rand.Intn(len(data))]
 		}
-		m.centers = append(m.centers, m.filter(vec))
+		m.centers = append(m.centers, vec[m.segment*m.dimensions:(m.segment+1)*m.dimensions])
 	}
 }
 
@@ -174,13 +169,14 @@ func (m *KMeans) resortOnEmptySets(data [][]float32) {
 
 func (m *KMeans) recalcCenters(data [][]float32) {
 	for index := 0; index < m.K; index++ {
+		m.centers[index] = make([]float32, m.dimensions)
 		for j := range m.centers[index] {
 			m.centers[index][j] = 0
 		}
 		size := len(m.data.cc[index])
 		for _, ci := range m.data.cc[index] {
 			vec := data[ci]
-			v := m.filter(vec)
+			v := vec[m.segment*m.dimensions : (m.segment+1)*m.dimensions]
 			for j := 0; j < m.dimensions; j++ {
 				m.centers[index][j] += v[j]
 			}

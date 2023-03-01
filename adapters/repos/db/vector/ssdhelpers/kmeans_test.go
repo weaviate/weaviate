@@ -34,7 +34,7 @@ func TestKMeansNNearest(t *testing.T) {
 	kmeans := ssdhelpers.NewKMeans(
 		3,
 		2,
-		nil,
+		0,
 	)
 	kmeans.Fit(vectors)
 	centers := make([]uint64, 6)
@@ -61,9 +61,7 @@ func TestRandomData(t *testing.T) {
 	kmeans := ssdhelpers.NewKMeans(
 		256,
 		1,
-		func(x []float32) []float32 {
-			return extractSegment(int(10), x)
-		},
+		10,
 	)
 	kmeans.Fit(vectors)
 	assert.True(t, time.Since(before).Seconds() < 50)
