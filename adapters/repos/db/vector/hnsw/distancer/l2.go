@@ -59,3 +59,18 @@ func (l L2SquaredProvider) Type() string {
 func (l L2SquaredProvider) New(a []float32) Distancer {
 	return &L2Squared{a: a}
 }
+
+func (l L2SquaredProvider) Step(a, b []float32) float32 {
+	var sum float32
+
+	for i := range a {
+		diff := a[i] - b[i]
+		sum += diff * diff
+	}
+
+	return sum
+}
+
+func (l L2SquaredProvider) Wrap(x float32) float32 {
+	return x
+}

@@ -27,6 +27,9 @@ type breakCleanUpTombstonedNodesFunc func() bool
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
 func (h *hnsw) Delete(id uint64) error {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
 	h.deleteVsInsertLock.Lock()
 	defer h.deleteVsInsertLock.Unlock()
 
@@ -274,7 +277,16 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		return true, nil
 	}
 
-	neighborVec, err := h.vectorForID(context.Background(), neighbor)
+	var neighborVec []float32
+	if h.compressed.Load() {
+		vec, err := h.compressedVectorsCache.get(context.Background(), neighbor)
+		if err == nil {
+			neighborVec = h.pq.Decode(vec)
+		}
+	} else {
+		neighborVec, err = h.cache.get(context.Background(), neighbor)
+	}
+
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {

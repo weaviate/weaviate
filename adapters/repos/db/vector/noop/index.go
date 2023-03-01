@@ -45,7 +45,8 @@ func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit 
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
+func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+	callback()
 	switch t := updated.(type) {
 	case hnsw.UserConfig:
 		// the fact that we are in the noop index means that 'skip' must have been

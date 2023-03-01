@@ -16,6 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type Logger struct {
@@ -39,6 +40,7 @@ const (
 	ResetIndex
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
+	AddPQ
 )
 
 func NewLogger(fileName string) *Logger {
@@ -68,6 +70,27 @@ func (l *Logger) AddNode(id uint64, level int) error {
 	toWrite[0] = byte(AddNode)
 	binary.LittleEndian.PutUint64(toWrite[1:9], id)
 	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
+	_, err := l.bufw.Write(toWrite)
+	return err
+}
+
+func (l *Logger) AddPQ(data ssdhelpers.PQData) error {
+	toWrite := make([]byte, 10)
+	toWrite[0] = byte(AddPQ)
+	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
+	toWrite[3] = byte(data.EncoderType)
+	binary.LittleEndian.PutUint16(toWrite[4:6], data.Ks)
+	binary.LittleEndian.PutUint16(toWrite[6:8], data.M)
+	toWrite[8] = data.EncoderDistribution
+	if data.UseBitsEncoding {
+		toWrite[9] = 1
+	} else {
+		toWrite[9] = 0
+	}
+
+	for _, encoder := range data.Encoders {
+		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
+	}
 	_, err := l.bufw.Write(toWrite)
 	return err
 }
