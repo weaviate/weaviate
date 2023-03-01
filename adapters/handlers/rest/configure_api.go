@@ -258,15 +258,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	// start reindexing inverted indexes (if requested) as soon as possible
-	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing sets to roaring sets")
-		// FIXME to avoid import cycles tasks are passed as strings
-		migrator.InvertedReindex(ctx, "ShardInvertedReindexTaskSetToRoaringSet")
-	}
-
 	objectsManager := objects.NewManager(appState.Locks,
 		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorRepo, appState.Modules,
@@ -295,7 +286,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, schemaManager, repo, appState)
 
+	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
+	reindexFinished := make(chan error)
+	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		// start reindexing inverted indexes (if requested by user) in the background
+		// allowing db to complete api configuration and start handling requests
+		go func() {
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Reindexing sets to roaring sets")
+			// FIXME to avoid import cycles tasks are passed as strings
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, "ShardInvertedReindexTaskSetToRoaringSet")
+		}()
+	}
+
 	api.ServerShutdown = func() {
+		// stop reindexing on server shutdown
+		reindexCtxCancel()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
