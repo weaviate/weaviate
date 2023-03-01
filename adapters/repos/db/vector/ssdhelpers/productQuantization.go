@@ -326,7 +326,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 			pq.kms[i] = NewKMeans(
 				int(pq.ks),
 				pq.ds,
-				FilterSegment(int(i), pq.ds),
+				int(i),
 			)
 			err := pq.kms[i].Fit(data)
 			if err != nil {

@@ -501,7 +501,7 @@ func (c *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult
 	kms := ssdhelpers.NewKMeansWithCenters(
 		int(res.PQData.Ks),
 		ds,
-		ssdhelpers.FilterSegment(int(i), ds),
+		int(i),
 		centers,
 	)
 	return kms, nil
