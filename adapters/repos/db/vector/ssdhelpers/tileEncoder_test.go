@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build !race
+// +build !race
+
 package ssdhelpers_test
 
 import (
@@ -20,7 +23,7 @@ import (
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
-func TestTileEncoderEncode(t *testing.T) {
+func Test_NoRaceTileEncoderEncode(t *testing.T) {
 	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.LogNormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64() + 100)})
@@ -31,7 +34,7 @@ func TestTileEncoderEncode(t *testing.T) {
 	assert.Equal(t, encoder.Encode([]float32{1000}), uint64(16))
 }
 
-func TestTileEncoderCentroids(t *testing.T) {
+func Test_NoRaceTileEncoderCentroids(t *testing.T) {
 	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.LogNormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64() + 100)})
@@ -42,7 +45,7 @@ func TestTileEncoderCentroids(t *testing.T) {
 	assert.Equal(t, math.Round(float64(encoder.Centroid(14)[0])), 101.0)
 }
 
-func TestNormalTileEncoderEncode(t *testing.T) {
+func Test_NoRaceNormalTileEncoderEncode(t *testing.T) {
 	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.NormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64())})
@@ -53,7 +56,7 @@ func TestNormalTileEncoderEncode(t *testing.T) {
 	assert.Equal(t, encoder.Encode([]float32{1000}), uint64(16))
 }
 
-func TestNormalTileEncoderCentroids(t *testing.T) {
+func Test_NoRaceNormalTileEncoderCentroids(t *testing.T) {
 	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.NormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64())})
