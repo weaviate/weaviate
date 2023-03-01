@@ -6,6 +6,7 @@ import sys
 import shutil
 import os
 import socket
+import argparse
 
 #
 # external/installed packages
@@ -19,26 +20,14 @@ from swagger_client.models import *
 # constants
 #
 
-Allocation_id = "fd283b38-3e4a-11eb-a205-7085c2c5e516"
-
-# path to retrieve/store configs and data
-Benchmark_Data_File = "/tmp/gemini_fvs.csv"
-
-# benchmark datasets
-Benchmark_Datasets = [
-    {   "name":         "deep1M-q1000",
-        "dataset_path": "/mnt/nas1/fvs_benchmark_datasets/deep-1M.npy",
-        "queries_path": "/mnt/nas1/fvs_benchmark_datasets/deep-queries-1000.npy",
-        "tries":        1 }
-]
-
 # the dataframe/csv columns
-Benchmark_Data_Columns = [ "name", "allocationid", "datasetid", \
+Benchmark_Data_Columns = [ \
+        "allocationid", "datasetid", \
+        "dataset_path", "queries_path", \
+        "bits", "ts_start", \
         "ts_train_start", "ts_train_end", \
-        "ts_query_start", "ts_query_end" ]
-
-# set to True to save the query results
-Query_Results_Save = True
+        "ts_query_start", "ts_query_end", \
+        "response", "recall" ]
 
 #
 # globals
@@ -51,54 +40,35 @@ benchmark_data = None
 # functions
 #
 
-def init_benchmark_data():
-    '''Validate and setup benchmark data in preparation for benchmarking.'''
+def compute_recall(a, b):
+    '''Computes the recall metric on query results.'''
+
+    nq, rank = a.shape
+    intersect = [ numpy.intersect1d(a[i, :rank], b[i, :rank]).size for i in range(nq) ]
+    ninter = sum( intersect )
+    return ninter / a.size, intersect
+
+def run_benchmark(args):
+    '''Run a specific benchmark.'''
 
     global benchmark_data
 
-    for dataset in Benchmark_Datasets:
-        print("Validating config for", dataset["name"],"...")
-
-        if not os.path.exists( dataset["dataset_path"] ):
-            raise Exception("The datset path does not exist->", dataset["dataset_path"])
-
-        if not os.path.exists( dataset["queries_path"] ):
-            raise Exception("The queries_path does not exist->", dataset["queries_path"])
-
-        print("...is ok.")
-
-    if os.path.exists( Benchmark_Data_File ):
-        print("Validating committed benchmark data at", Benchmark_Data_File )
-        benchmark_data = pd.read_csv( Benchmark_Data_File)
-
-        if benchmark_data.columns != Benchmark_Data_Columns:
-            raise Exception("Expected these columns->", Benchmark_Data_Columns, \
-                    "but got these->", benchmark_data.columns)
-
-    else:
-        benchmark_data = pd.DataFrame(columns=Benchmark_Data_Columns)
-
-
-def run_benchmark(benchmark_dataset):
-    '''Run a specific benchmark dataset.'''
-
-    global benchmark_data
-
-    print("Running benchmark for dataset=%s" % benchmark_dataset["name"] )
+    # Capture the human readable date time now
+    ts_start = time.ctime()
 
     # Make sure dataset is under /home/public
     dataset_public_path = os.path.join("/home/public", \
-            os.path.basename( benchmark_dataset["dataset_path"] ) )
+            os.path.basename( args.dataset ) )
     if not os.path.exists(dataset_public_path):
         print("Copy dataset to /home/public/ ...")
-        shutil.copyfile( benchmark_dataset["dataset_path"], dataset_public_path)    
+        shutil.copyfile( args.dataset, dataset_public_path)    
 
     # Make sure queries is under /home/public
     queries_public_path = os.path.join("/home/public", \
-            os.path.basename( benchmark_dataset["queries_path"] ) )
+            os.path.basename( args.queries ) )
     if not os.path.exists(queries_public_path):
         print("Copy queries to /home/public/ ...")
-        shutil.copyfile( benchmark_dataset["queries_path"], queries_public_path)    
+        shutil.copyfile( args.queries, queries_public_path)    
 
     # Setup connection to local FVS api
     server = socket.gethostbyname(socket.gethostname())
@@ -117,16 +87,19 @@ def run_benchmark(benchmark_dataset):
     # Configure the FVS api
     config.verify_ssl = False
     config.host = f'http://{server}:{port}/{version}'
-    
+  
+    # Capture the supplied allocation id
+    Allocation_id = args.allocation
+
     # Set default header
     api_config.default_headers["allocationToken"] = Allocation_id
 
     # Import dataset
-    print("Importing the dataset...")
+    print("Importing the dataset. Training with nbit=%d ..." % args.bits)
     ts_train_start = time.time()
     response = gsi_datasets_apis.controllers_dataset_controller_import_dataset(
                     ImportDatasetRequest(ds_file_path=dataset_public_path, train_ind=True, \
-                            nbits=768), allocation_token=Allocation_id)
+                            nbits=args.bits), allocation_token=Allocation_id)
     dataset_id = response.dataset_id
     print("...got dataset_id=", dataset_id)
 
@@ -166,16 +139,18 @@ def run_benchmark(benchmark_dataset):
     ts_query_start = time.time()
     response = gsi_search_apis.controllers_search_controller_search(
                     SearchRequest(allocation_id=Allocation_id, dataset_id=dataset_id, 
-                        queries_file_path=queries_path, topk=10), allocation_token=Allocation_id)
+                        queries_file_path=queries_path, topk=args.neighbors), allocation_token=Allocation_id)
     ts_query_end = time.time()
     print("search result=", response.search)
     inds = numpy.array(response.indices)
-    if Query_Results_Save:
-        fname = "/tmp/query_inds.npy"
+    if args.save:
+        # Save results alongside the csv
+        path = os.path.dirname(args.output)
+        fname = os.path.join(path, "query_inds.npy")
         numpy.save(fname, inds)
         print("Saved query results indices to", fname)
         dist = numpy.array(response.distance)
-        fname = "/tmp/query_inds.npy"
+        fname = os.path.join(path, "query_dists.npy")
         numpy.save(fname, dist)
         print("Saved query results distances to", fname)
 
@@ -195,48 +170,84 @@ def run_benchmark(benchmark_dataset):
     gsi_datasets_apis.controllers_dataset_controller_remove_dataset(dataset_id=dataset_id, 
             allocation_token=Allocation_id)
 
+    # Load ground truth
+    print("Loading ground truth...")
+    gt = numpy.load(args.groundtruth)
+    if gt.shape[1]<args.neighbors:
+        raise Exception("Invalid ground truth array shape->" + str(gt.shape))
+    if gt.shape[0] != inds.shape[0]:
+        raise Exception("Invalid ground truth array shape->" + str(gt.shape))
+    gt = gt[:, 0:args.neighbors] # we only care about the firt 'neighbors'
+
+    # Compute recall...
+    recall, intersection = compute_recall( gt, inds )
+
     # Store and commit the results
-    benchmark_data = benchmark_data.append( \
-            {   "name": benchmark_dataset["name"], \
-                "allocationid": Allocation_id, \
+    new_row = pd.DataFrame( [\
+            {   "allocationid": Allocation_id, \
                 "datasetid": dataset_id, \
+                "dataset_path": args.dataset, \
+                "queries_path": args.queries, \
+                "bits" : args.bits, \
+                "ts_start": ts_start, \
                 "ts_train_start": ts_train_start, \
                 "ts_train_end": ts_train_end, \
                 "ts_query_start": ts_query_start, \
-                "ts_query_end": ts_query_end },
-            ignore_index=True )
-    benchmark_data.to_csv( Benchmark_Data_File, index=True)
-    print("Committed benchmark result.")
+                "ts_query_end": ts_query_end, \
+                "response": response.search, \
+                "recall": recall}])
+    benchmark_data = pd.concat([ benchmark_data, new_row ])
+    benchmark_data.to_csv( args.output, index=False)
+    print("Committed benchmark result to %s." % args.output)
 
-    print("Done benchmark for dataset=%s" % benchmark_dataset["name"] )
-
-def run_all_benchmarks():
-    '''Determine the benchmarks we need to run and run them.'''
-
+def init_args():
+    '''Initialize benchmark parameters.'''
+    
     global benchmark_data
 
-    print("Running all required benchmarks...")
+    parser = argparse.ArgumentParser(
+                    prog = sys.argv[0],
+                    description = 'Gemini FVS Benchmark Script')
+    parser.add_argument('-a','--allocation', required=True)
+    parser.add_argument('-o','--output', required=True)
+    parser.add_argument('-d','--dataset', required=True)
+    parser.add_argument('-q','--queries', required=True)
+    parser.add_argument('-g','--groundtruth', required=True)
+    parser.add_argument('-b','--bits', required=False, default=768, type=int)
+    parser.add_argument('-n','--neighbors', required=False, default=10, type=int)
+    parser.add_argument('-s','--save', required=False, default=False, action='store_true')
+    #parser.add_argument('-n','--tries', required=False, default=5)
+    args = parser.parse_args()
 
-    # Iterate benchmark datasets
-    for dset in Benchmark_Datasets:
-      
-        name = dset["name"]
-        tries = dset["tries"]
+    if not os.path.exists( args.dataset ):
+        raise Exception("The datset path does not exist->", args.dataset)
 
-        # get benchmark data rows for this dataset which completed
-        rows = benchmark_data[ \
-                (benchmark_data["name"]==name) & \
-                (benchmark_data["ts_query_end"]>0) ]
-        print("For dataset=%s, %d/%d run(s) completed." % (name, rows.shape[0], tries))
+    if not os.path.exists( args.queries ):
+        raise Exception("The queries path does not exist->", args.queries)
+    
+    if not os.path.exists( args.groundtruth ):
+        raise Exception("The groundtruth path does not exist->", args.groundtruth)
 
-        # try to complete the benchmarks for this dataset (up to 'tries')
-        for _ in range(tries-rows.shape[0]):
-            run_benchmark(dset)
+    if os.path.exists( args.output ):
+        print("Warning: Found file at ", args.output )
+        benchmark_data = pd.read_csv( args.output )
 
-    print("Done running all required benchmarks.")
+        csv_columns = list(benchmark_data.columns).sort()
+        schema_columns = Benchmark_Data_Columns.sort()
+
+        if csv_columns != schema_columns:
+            raise Exception("Expected these columns->", schema_columns, \
+                    "but got these->", csv_columns)
+
+    else:
+        benchmark_data = pd.DataFrame(columns=Benchmark_Data_Columns)
+
+    return args
 
 if __name__ == "__main__":
 
-    init_benchmark_data()
+    args = init_args()
 
-    run_all_benchmarks()
+    run_benchmark(args)
+
+    print("Done.")
