@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -35,5 +37,24 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 		return segmentindex.StrategyRoaringSet
 	default:
 		panic("unsupported strategy")
+	}
+}
+
+func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
+	if len(expectedStrategies) == 0 {
+		expectedStrategies = []string{StrategyReplace, StrategySetCollection, StrategyMapCollection, StrategyRoaringSet}
+	}
+
+	for _, s := range expectedStrategies {
+		if s == strategy {
+			return true
+		}
+	}
+	return false
+}
+
+func CheckExpectedStrategy(strategy string, expectedStrategies ...string) {
+	if !IsExpectedStrategy(strategy, expectedStrategies...) {
+		panic(fmt.Sprintf("one of strategies %v expected, strategy '%s' found", expectedStrategies, strategy))
 	}
 }
