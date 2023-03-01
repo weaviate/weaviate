@@ -55,6 +55,9 @@ func (r *ShardInvertedReindexer) AddTask(task ShardInvertedReindexTask) {
 
 func (r *ShardInvertedReindexer) Do(ctx context.Context) error {
 	for _, task := range r.tasks {
+		if err := r.checkContextExpired(ctx, "remaining tasks skipped due to context canceled"); err != nil {
+			return err
+		}
 		if err := r.doTask(ctx, task); err != nil {
 			return err
 		}
@@ -66,50 +69,48 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 	reindexProperties, err := task.GetPropertiesToReindex(ctx, r.shard.store,
 		r.shard.index.Config, r.shard.index.invertedIndexConfig, r.logger)
 	if err != nil {
-		r.logger.
-			WithField("action", "inverted reindex").
-			WithError(err).
-			Error("failed getting reindex properties")
+		r.logError(err, "failed getting reindex properties")
 		return errors.Wrapf(err, "failed getting reindex properties")
 	}
 	if len(reindexProperties) == 0 {
 		r.logger.
 			WithField("action", "inverted reindex").
+			WithField("shard", r.shard.name).
 			Debug("no properties to reindex")
 		return nil
 	}
 
+	if err := r.checkContextExpired(ctx, "pausing store stopped due to context canceled"); err != nil {
+		return err
+	}
+
 	if err := r.pauseStoreActivity(ctx); err != nil {
-		r.logger.
-			WithField("action", "inverted reindex").
-			WithError(err).
-			Error("failed pausing store activity")
+		r.logError(err, "failed pausing store activity")
 		return err
 	}
 
 	bucketsToReindex := make([]string, len(reindexProperties))
 	for i, reindexProperty := range reindexProperties {
+		if err := r.checkContextExpired(ctx, "creating temp buckets stopped due to context canceled"); err != nil {
+			return err
+		}
+
 		if !IsIndexTypeSupportedByStrategy(reindexProperty.IndexType, reindexProperty.DesiredStrategy) {
 			err := fmt.Errorf("strategy '%s' is not supported for given index type '%d",
 				reindexProperty.DesiredStrategy, reindexProperty.IndexType)
-			r.logger.
-				WithField("action", "inverted reindex").
-				WithError(err).
-				Error("invalid strategy")
+			r.logError(err, "invalid strategy")
 			return err
 		}
 
 		bucketsToReindex[i] = r.bucketName(reindexProperty.PropertyName, reindexProperty.IndexType)
 		if err := r.createTempBucket(ctx, bucketsToReindex[i], reindexProperty.DesiredStrategy,
 			reindexProperty.BucketOptions...); err != nil {
-			r.logger.
-				WithField("action", "inverted reindex").
-				WithError(err).
-				Error("failed creating temporary bucket")
+			r.logError(err, "failed creating temporary bucket")
 			return err
 		}
 		r.logger.
 			WithField("action", "inverted reindex").
+			WithField("shard", r.shard.name).
 			WithField("property", reindexProperty.PropertyName).
 			WithField("strategy", reindexProperty.DesiredStrategy).
 			WithField("index_type", reindexProperty.IndexType).
@@ -117,38 +118,37 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 	}
 
 	if err := r.reindexProperties(ctx, reindexProperties); err != nil {
-		r.logger.
-			WithField("action", "inverted reindex").
-			WithError(err).
-			Errorf("failed reindexing properties on shard '%s'", r.shard.name)
+		r.logError(err, "failed reindexing properties")
 		return errors.Wrapf(err, "failed reindexing properties on shard '%s'", r.shard.name)
 	}
 
 	for i := range bucketsToReindex {
+		if err := r.checkContextExpired(ctx, "replacing buckets stopped due to context canceled"); err != nil {
+			return err
+		}
 		tempBucketName := helpers.TempBucketFromBucketName(bucketsToReindex[i])
 		tempBucket := r.shard.store.Bucket(tempBucketName)
 		tempBucket.FlushMemtable(ctx)
 		tempBucket.UpdateStatus(storagestate.StatusReadOnly)
 
 		if err := r.shard.store.ReplaceBuckets(ctx, bucketsToReindex[i], tempBucketName); err != nil {
-			r.logger.
-				WithField("action", "inverted reindex").
-				WithError(err).
-				Error("failed replacing buckets")
+			r.logError(err, "failed replacing buckets")
 			return err
 		}
 		r.logger.
 			WithField("action", "inverted reindex").
+			WithField("shard", r.shard.name).
 			WithField("bucket", bucketsToReindex[i]).
 			WithField("temp_bucket", tempBucketName).
 			Debug("replaced buckets")
 	}
 
+	if err := r.checkContextExpired(ctx, "resuming store stopped due to context canceled"); err != nil {
+		return err
+	}
+
 	if err := r.resumeStoreActivity(ctx); err != nil {
-		r.logger.
-			WithField("action", "inverted reindex").
-			WithError(err).
-			Error("failed resuming store activity")
+		r.logError(err, "failed resuming store activity")
 		return err
 	}
 
@@ -209,9 +209,21 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 
 	r.logger.
 		WithField("action", "inverted reindex").
+		WithField("shard", r.shard.name).
 		Debug("starting populating indexes")
 
-	return objectsBucket.IterateObjects(ctx, func(object *storobj.Object) error {
+	i := 0
+	if err := objectsBucket.IterateObjects(ctx, func(object *storobj.Object) error {
+		// check context expired every 100k objects
+		if i%100_000 == 0 && i != 0 {
+			if err := r.checkContextExpired(ctx, "iterating through objects stopped due to context canceled"); err != nil {
+				return err
+			}
+			r.logger.
+				WithField("action", "inverted reindex").
+				WithField("shard", r.shard.name).
+				Debugf("iterating through objects: %d done", i)
+		}
 		docID := object.DocID()
 		properties, nilProperties, err := r.shard.analyzeObject(object)
 		if err != nil {
@@ -228,8 +240,19 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 				return errors.Wrapf(err, "failed reindexing property '%s' of object '%d'", nilProperty.Name, docID)
 			}
 		}
+
+		i++
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	r.logger.
+		WithField("action", "inverted reindex").
+		WithField("shard", r.shard.name).
+		Debugf("iterating through objects: %d done", i)
+
+	return nil
 }
 
 func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *reindexablePropertyChecker,
@@ -427,4 +450,20 @@ func (r *ShardInvertedReindexer) bucketName(propName string, indexType PropertyI
 func (r *ShardInvertedReindexer) tempBucket(propName string, indexType PropertyIndexType) *lsmkv.Bucket {
 	tempBucketName := helpers.TempBucketFromBucketName(r.bucketName(propName, indexType))
 	return r.shard.store.Bucket(tempBucketName)
+}
+
+func (r *ShardInvertedReindexer) checkContextExpired(ctx context.Context, msg string) error {
+	if ctx.Err() != nil {
+		r.logError(ctx.Err(), msg)
+		return errors.Wrapf(ctx.Err(), msg)
+	}
+	return nil
+}
+
+func (r *ShardInvertedReindexer) logError(err error, msg string, args ...interface{}) {
+	r.logger.
+		WithField("action", "inverted reindex").
+		WithField("shard", r.shard.name).
+		WithError(err).
+		Errorf(msg, args...)
 }
