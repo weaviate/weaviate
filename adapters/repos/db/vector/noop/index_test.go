@@ -26,7 +26,7 @@ func Test_UpdateConfig(t *testing.T) {
 		ind := NewIndex()
 		err := ind.UpdateUserConfig(hnsw.UserConfig{
 			Skip: true,
-		})
+		}, func() {})
 
 		assert.Nil(t, err)
 	})
@@ -35,7 +35,7 @@ func Test_UpdateConfig(t *testing.T) {
 		ind := NewIndex()
 		err := ind.UpdateUserConfig(hnsw.UserConfig{
 			Skip: false,
-		})
+		}, func() {})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "Delete and re-create")
@@ -43,7 +43,7 @@ func Test_UpdateConfig(t *testing.T) {
 
 	t.Run("with unrecognized vector index config", func(t *testing.T) {
 		ind := NewIndex()
-		err := ind.UpdateUserConfig(nil)
+		err := ind.UpdateUserConfig(nil, func() {})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unrecognized vector index config")

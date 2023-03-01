@@ -80,3 +80,23 @@ func TestCosineDistancer(t *testing.T) {
 		assert.InDelta(t, expectedDistance, dist, 0.01)
 	})
 }
+
+func TestCosineDistancerStepbyStep(t *testing.T) {
+	t.Run("step by step equals SingleDist", func(t *testing.T) {
+		vec1 := Normalize([]float32{3, 4, 5})
+		vec2 := Normalize([]float32{-3, -4, -5})
+
+		expectedDistance, ok, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		distanceProvider := NewCosineDistanceProvider()
+		sum := float32(0.0)
+		for i := range vec1 {
+			sum += distanceProvider.Step([]float32{vec1[i]}, []float32{vec2[i]})
+		}
+		control := distanceProvider.Wrap(sum)
+
+		assert.Equal(t, control, expectedDistance)
+	})
+}
