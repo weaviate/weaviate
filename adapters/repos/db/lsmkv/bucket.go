@@ -707,7 +707,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 }
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
-	b.flushLock.Lock()
+	b.flushLock.RLock()
 
 	// to check the current size of the WAL to
 	// see if the threshold has been reached
@@ -734,12 +734,12 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 			WithField("path", b.dir).
 			Warn("flush halted due to shard READONLY status")
 
-		b.flushLock.Unlock()
+		b.flushLock.RUnlock()
 		time.Sleep(time.Second)
 		return
 	}
 
-	b.flushLock.Unlock()
+	b.flushLock.RUnlock()
 	if shouldSwitch {
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
