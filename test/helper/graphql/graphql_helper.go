@@ -14,6 +14,7 @@ package graphqlhelper
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/runtime"
@@ -103,4 +104,12 @@ func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
 // Cast the result to a slice
 func (g *GraphQLResult) AsSlice() []interface{} {
 	return g.Result.([]interface{})
+}
+
+func Vec2String(v []float32) (s string) {
+	for _, n := range v {
+		s = fmt.Sprintf("%s, %f", s, n)
+	}
+	s = strings.TrimLeft(s, ", ")
+	return fmt.Sprintf("[%s]", s)
 }
