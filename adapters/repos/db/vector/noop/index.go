@@ -32,7 +32,7 @@ func (i *Index) Add(id uint64, vector []float32) error {
 	return nil
 }
 
-func (i *Index) Delete(id uint64) error {
+func (i *Index) Delete(id ...uint64) error {
 	// silently ignore
 	return nil
 }
