@@ -13,6 +13,7 @@ package modstggcs
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -131,14 +132,35 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte
 	return contents, nil
 }
 
+// PutFile creates an object with contents from file at filePath.
 func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	srcPath = path.Join(g.dataPath, srcPath)
-	contents, err := os.ReadFile(srcPath)
+	bucket, err := g.findBucket(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "read file '%s'", srcPath)
+		return fmt.Errorf("find bucket: %w", err)
 	}
 
-	return g.PutObject(ctx, backupID, key, contents)
+	filePath := path.Join(g.dataPath, srcPath)
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("os.Open %s: %v", filePath, err)
+	}
+	defer file.Close()
+
+	writer := bucket.Object(g.makeObjectName(backupID, key)).NewWriter(ctx)
+	writer.ContentType = "application/octet-stream"
+	writer.Metadata = map[string]string{"backup-id": backupID}
+	nBytes, err := io.Copy(writer, file)
+	if err != nil {
+		return fmt.Errorf("io.Copy %s: %v", filePath, err)
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("Writer.Close %s: %v", filePath, err)
+	}
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
+	if err == nil {
+		metric.Add(float64(nBytes))
+	}
+	return nil
 }
 
 func (g *gcsClient) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
