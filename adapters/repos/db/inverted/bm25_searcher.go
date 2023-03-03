@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
@@ -196,41 +197,72 @@ func (b *BM25Searcher) wand(
 	averagePropLength = averagePropLength / float64(len(properties))
 
 	// preallocate the results (+1 is for full query)
-	results := make(terms, 0, len(queryTextTerms)+len(queryStringTerms)+1)
-	indices := make([]map[uint64]int, 0, len(queryTextTerms)+len(queryStringTerms)+1)
-
+	fullQueryLength := 0
+	if len(propertyNamesFullQuery) > 0 {
+		fullQueryLength = 1
+	}
+	stringLength := 0
+	if len(propertyNamesString) > 0 {
+		stringLength = len(queryStringTerms)
+	}
+	textLength := 0
 	if len(propertyNamesText) > 0 {
-		for i, queryTerm := range queryTextTerms {
-			termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[i])
-			if err != nil {
-				return nil, nil, err
-			}
-			results = append(results, termResult)
-			indices = append(indices, docIndices)
+		textLength = len(queryTextTerms)
+	}
+	lengthAllResults := textLength + stringLength + fullQueryLength
+	results := make(terms, lengthAllResults)
+	indices := make([]map[uint64]int, lengthAllResults)
+
+	var eg errgroup.Group
+	if len(propertyNamesText) > 0 {
+		for i := range queryTextTerms {
+			queryTerm := queryTextTerms[i]
+			j := i
+			eg.Go(func() error {
+				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j])
+				if err != nil {
+					return err
+				}
+				results[j] = termResult
+				indices[j] = docIndices
+				return nil
+			})
 		}
 	}
 
 	if len(propertyNamesString) > 0 {
-		for i, queryTerm := range queryStringTerms {
-			termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[i])
-			if err != nil {
-				return nil, nil, err
-			}
-			results = append(results, termResult)
-			indices = append(indices, docIndices)
+		for i := range queryStringTerms {
+			queryTerm := queryStringTerms[i]
+			j := i + textLength
 
+			eg.Go(func() error {
+				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[j])
+				if err != nil {
+					return err
+				}
+				results[j] = termResult
+				indices[j] = docIndices
+				return nil
+			})
 		}
 	}
 
 	if len(propertyNamesFullQuery) > 0 {
-		termResult, docIndices, err := b.createTerm(N, filterDocIds, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
-		if err != nil {
-			return nil, nil, err
-		}
-		indices = append(indices, docIndices)
-		results = append(results, termResult)
+		lengthPreviousResults := stringLength + textLength
+		eg.Go(func() error {
+			termResult, docIndices, err := b.createTerm(N, filterDocIds, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
+			if err != nil {
+				return err
+			}
+			results[lengthPreviousResults] = termResult
+			indices[lengthPreviousResults] = docIndices
+			return nil
+		})
 	}
 
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, ind := range indices {
