@@ -79,6 +79,10 @@ func (d *DockerCompose) GetGCS() *DockerContainer {
 	return d.getContainerByName(GCS)
 }
 
+func (d *DockerCompose) GetAzurite() *DockerContainer {
+	return d.getContainerByName(Azurite)
+}
+
 func (d *DockerCompose) GetWeaviate() *DockerContainer {
 	return d.getContainerByName(Weaviate)
 }
