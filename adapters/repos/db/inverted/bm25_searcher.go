@@ -233,10 +233,11 @@ func (b *BM25Searcher) wand(
 	if len(propertyNamesString) > 0 {
 		for i := range queryStringTerms {
 			queryTerm := queryStringTerms[i]
-			j := i + textLength
+			ind := i
+			j := ind + textLength
 
 			eg.Go(func() error {
-				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[j])
+				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind])
 				if err != nil {
 					return err
 				}
