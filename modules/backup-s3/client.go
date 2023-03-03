@@ -14,6 +14,7 @@ package modstgs3
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -161,27 +162,20 @@ func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
 
+// WriteFile downloads contents of an object to a local file destPath
 func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
-	// TODO use s.client.FGetObject() because it is more efficient than GetObject
-	obj, err := s.GetObject(ctx, backupID, key)
+	object := s.makeObjectName(backupID, key)
+	err := s.client.FGetObject(ctx, s.config.Bucket, object, destPath, minio.GetObjectOptions{})
 	if err != nil {
-		return errors.Wrapf(err, "get object '%s'", key)
+		return fmt.Errorf("s3.FGetObject %q %q: %w", destPath, object, err)
 	}
 
-	dir := path.Dir(destPath)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "make dir '%s'", dir)
+	if st, err := os.Stat(destPath); err == nil {
+		metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
+		if err == nil {
+			metric.Add(float64(st.Size()))
+		}
 	}
-
-	if err := os.WriteFile(destPath, obj, os.ModePerm); err != nil {
-		return errors.Wrapf(err, "write file '%s'", destPath)
-	}
-
-	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
-	if err == nil {
-		metric.Add(float64(len(obj)))
-	}
-
 	return nil
 }
 
