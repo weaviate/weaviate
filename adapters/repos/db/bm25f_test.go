@@ -85,6 +85,12 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				IndexInverted: truePointer(),
 			},
 			{
+				Name:          "stringFieldWord",
+				DataType:      []string{string(schema.DataTypeString)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
 				Name:          "relatedToGolf",
 				DataType:      []string{string(schema.DataTypeBoolean)},
 				IndexInverted: truePointer(),
