@@ -19,9 +19,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
@@ -209,56 +209,60 @@ func (b *BM25Searcher) wand(
 	if len(propertyNamesText) > 0 {
 		textLength = len(queryTextTerms)
 	}
-	results := make(terms, textLength+stringLength+fullQueryLength)
-	indices := make([]map[uint64]int, textLength+stringLength+fullQueryLength)
-	createErrors := make([]error, textLength+stringLength+fullQueryLength)
+	lengthAllResults := textLength + stringLength + fullQueryLength
+	results := make(terms, lengthAllResults)
+	indices := make([]map[uint64]int, lengthAllResults)
 
-	var wg sync.WaitGroup
-
+	var eg errgroup.Group
 	if len(propertyNamesText) > 0 {
-		wg.Add(len(queryTextTerms))
-		for i, queryTerm := range queryTextTerms {
-			go func(j int, queryTerm string) {
+		for i := range queryTextTerms {
+			queryTerm := queryTextTerms[i]
+			j := i
+			eg.Go(func() error {
 				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j])
-				createErrors[j] = err
+				if err != nil {
+					return err
+				}
 				results[j] = termResult
 				indices[j] = docIndices
-				wg.Done()
-			}(i, queryTerm)
+				return nil
+			})
 		}
 	}
 
 	if len(propertyNamesString) > 0 {
-		wg.Add(len(queryStringTerms))
-		for i, queryTerm := range queryStringTerms {
-			go func(j int, queryTerm string) {
+		for i := range queryStringTerms {
+			queryTerm := queryStringTerms[i]
+			j := i + textLength
+
+			eg.Go(func() error {
 				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[j])
-				createErrors[j] = err
+				if err != nil {
+					return err
+				}
 				results[j] = termResult
 				indices[j] = docIndices
-				wg.Done()
-			}(i+textLength, queryTerm)
+				return nil
+			})
 		}
 	}
 
 	if len(propertyNamesFullQuery) > 0 {
-		wg.Add(1)
-		go func() {
+		lengthPreviousResults := stringLength + textLength
+		eg.Go(func() error {
 			termResult, docIndices, err := b.createTerm(N, filterDocIds, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
-			createErrors[stringLength+textLength] = err
-			results[stringLength+textLength] = termResult
-			indices[stringLength+textLength] = docIndices
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-
-	for _, err := range createErrors {
-		if err != nil {
-			return nil, nil, err
-		}
+			if err != nil {
+				return err
+			}
+			results[lengthPreviousResults] = termResult
+			indices[lengthPreviousResults] = docIndices
+			return nil
+		})
 	}
 
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, ind := range indices {
