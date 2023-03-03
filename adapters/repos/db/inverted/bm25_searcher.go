@@ -332,13 +332,13 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 		if obj.AdditionalProperties() == nil {
 			obj.Object.Additional = make(map[string]interface{})
 		}
-		for j, result := range results {
-			if termIndice, ok := indices[j][res.ID]; ok {
-				queryTerm := result.queryTerm
-				obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
-				obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
-			}
-		}
+		//for j, result := range results {
+		//	if termIndice, ok := indices[j][res.ID]; ok {
+		//		queryTerm := result.queryTerm
+		//		obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
+		//		obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
+		//	}
+		//}
 		objects = append(objects, obj)
 	}
 	return objects, scores, nil
@@ -435,7 +435,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 							propLength: math.Float32frombits(propLenBits),
 						})
-					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+					if propName != propertyNames[len(propertyNames)-1] {
+						docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+					}
 				}
 			}
 		}
