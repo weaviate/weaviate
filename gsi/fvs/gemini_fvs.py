@@ -177,7 +177,7 @@ def run_benchmark(args):
         raise Exception("Invalid ground truth array shape->" + str(gt.shape))
     if gt.shape[0] != inds.shape[0]:
         raise Exception("Invalid ground truth array shape->" + str(gt.shape))
-    gt = gt[:, 0:args.neighbors] # we only care about the firt 'neighbors'
+    gt = gt[:, 0:args.neighbors] # we only care about the first 'neighbors'
 
     # Compute recall...
     recall, intersection = compute_recall( gt, inds )
