@@ -126,8 +126,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	if hnswUserConfig.Skip {
+		//GW
+        	fmt.Println("NOOP NEW INDEX adapters/repos/db/shard.go!")
+        	//GW
 		s.vectorIndex = noop.NewIndex()
 	} else {
+		//GW
+        	fmt.Println("INIT VECTOR INDEX adapters/repos/db/shard.go!")
+        	//GW
+
 		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
 			return nil, fmt.Errorf("init vector index: %w", err)
 		}
@@ -162,6 +169,10 @@ func (s *Shard) initVectorIndex(
 		return errors.Errorf("unrecognized distance metric %q,"+
 			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
 	}
+
+	//GW
+        fmt.Println("BEFORE HNSW NEW  adapters/repos/db/shard.go!")
+        //GW
 
 	vi, err := hnsw.New(hnsw.Config{
 		Logger:            s.index.logger,

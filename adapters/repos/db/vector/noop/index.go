@@ -13,6 +13,9 @@ package noop
 
 import (
 	"context"
+	//
+	"fmt"
+	//
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -22,10 +25,15 @@ import (
 type Index struct{}
 
 func NewIndex() *Index {
+
 	return &Index{}
 }
 
 func (i *Index) Add(id uint64, vector []float32) error {
+	//GW
+        fmt.Println("NOOP Add!")
+        //GW
+
 	// silently ignore
 	return nil
 }
@@ -36,14 +44,24 @@ func (i *Index) Delete(id uint64) error {
 }
 
 func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	//GW
+        fmt.Println("NOOP SearchByVector!")
+        //GW
+
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
 func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	//GW
+        fmt.Println("NOOP SearchByVectorDistance!")
+        //GW
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
 func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
+	//GW
+        fmt.Println("NOOP UpdateUserConfig!")
+	//GW
 	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
 }
 
@@ -77,6 +95,9 @@ func (i *Index) ResumeMaintenance(context.Context) error {
 }
 
 func (i *Index) ValidateBeforeInsert(vector []float32) error {
+	//GW
+        fmt.Println("NOOP ValidateBeforeInsert")
+	//GW
 	return nil
 }
 

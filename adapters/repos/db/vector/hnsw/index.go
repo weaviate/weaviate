@@ -184,6 +184,11 @@ type (
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
 func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
+
+	//GW
+	fmt.Println("HNSW New!")
+	//GW
+
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}

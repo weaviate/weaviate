@@ -92,8 +92,17 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		return nil, errors.Wrap(err, "failed to create new index")
 	}
 
+	//GW
+        fmt.Println("NEWINDEX Inside adapters/repos/db/index.go!")
+        //GW
+
 	repl := replica.NewReplicator(config.ClassName.String(),
 		sg, nodeResolver, replicaClient)
+
+
+	//GW
+        fmt.Println("INSTANTIATE INDEX adapters/repos/db/index.go!")
+	//GW
 
 	index := &Index{
 		Config:                config,
@@ -120,6 +129,10 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			// do not create non-local shards
 			continue
 		}
+
+		//GW
+        	fmt.Println("BEFORE NEW SHARD adapters/repos/db/index.go!")
+        	//GW
 
 		shard, err := NewShard(ctx, promMetrics, shardName, index, class)
 		if err != nil {
