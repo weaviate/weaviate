@@ -437,8 +437,7 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		prov := modules.NewProvider()
-		err := prov.SetClassDefaults(class)
-		require.Nil(t, err)
+		prov.SetClassDefaults(class)
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
@@ -471,8 +470,7 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		prov := modules.NewProvider()
-		err := prov.SetClassDefaults(class)
-		require.Nil(t, err)
+		prov.SetClassDefaults(class)
 
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()

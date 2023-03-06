@@ -45,10 +45,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	}
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
-	err = m.setNewPropDefaults(class, prop)
-	if err != nil {
-		return err
-	}
+	m.setNewPropDefaults(class, prop)
 
 	existingPropertyNames := map[string]bool{}
 	for _, existingProperty := range class.Properties {
@@ -87,10 +84,9 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	return m.addClassPropertyApplyChanges(ctx, className, prop)
 }
 
-func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) error {
+func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) {
 	m.setPropertyDefaults(prop)
-	err := m.moduleConfig.SetSinglePropertyDefaults(class, prop)
-	return err
+	m.moduleConfig.SetSinglePropertyDefaults(class, prop)
 }
 
 func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
