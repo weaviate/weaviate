@@ -420,7 +420,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 				docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
 			}
 		} else {
-			for k, val := range m {
+			for _, val := range m {
 				key := binary.BigEndian.Uint64(val.Key)
 				ind, ok := docMapPairsIndices[key]
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
@@ -435,7 +435,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 							propLength: math.Float32frombits(propLenBits),
 						})
-					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
 				}
 			}
 		}
