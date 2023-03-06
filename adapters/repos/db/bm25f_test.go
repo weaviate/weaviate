@@ -79,6 +79,12 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				IndexInverted: truePointer(),
 			},
 			{
+				Name:          "review",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
 				Name:          "stringField",
 				DataType:      []string{string(schema.DataTypeString)},
 				Tokenization:  "field",
@@ -110,7 +116,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
-	testData = append(testData, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F"})
+	testData = append(testData, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F", "review": "none none none"})
 	testData = append(testData, map[string]interface{}{"title": "Why I dont like journey", "description": "This is about how we get somewhere"})
 	testData = append(testData, map[string]interface{}{"title": "My journeys in Journey", "description": "A journey story about journeying"})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Actually all about journey"})
@@ -118,7 +124,8 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey"})
 	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY"})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(Offtopic!!!!"})
-	testData = append(testData, map[string]interface{}{"title": "none", "description": "none", "stringField": "YELLING IS FUN"})
+	testData = append(testData, map[string]interface{}{"title": "none", "description": "other", "stringField": "YELLING IS FUN"})
+	testData = append(testData, map[string]interface{}{"title": "something", "description": "none none", "review": "none none none none none none"})
 
 	for i, data := range testData {
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
@@ -180,7 +187,6 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 }
 
 func TestBM25FJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -351,6 +357,17 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(2), res[4].DocID())
 		require.Len(t, res, 5) // four results have one of the terms
 	})
+
+	t.Run("Results from three properties", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "none"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
+
+		require.Equal(t, uint64(9), res[0].DocID())
+		require.Equal(t, uint64(0), res[1].DocID())
+		require.Equal(t, uint64(8), res[2].DocID())
+		require.Len(t, res, 3)
+	})
 }
 
 func TestBM25FSingleProp(t *testing.T) {
@@ -384,8 +401,8 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Equal(t, uint64(4), res[3].DocID())
 
 	// Check scores
-	EqualFloats(t, float32(0.38539), res[0].Score(), 5)
-	EqualFloats(t, float32(0.04250), res[1].Score(), 5)
+	EqualFloats(t, float32(0.1236), res[0].Score(), 5)
+	EqualFloats(t, float32(0.0362), res[1].Score(), 5)
 }
 
 func TestBM25FWithFilters(t *testing.T) {
@@ -505,7 +522,6 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -550,8 +566,8 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.05929), res[0].Score(), 6)
-	EqualFloats(t, float32(0.04244), res[1].Score(), 6)
+	EqualFloats(t, float32(0.06011), res[0].Score(), 6)
+	EqualFloats(t, float32(0.04228), res[1].Score(), 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
