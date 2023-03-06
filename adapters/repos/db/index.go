@@ -880,7 +880,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	} else if keywordRanking != nil {
 		outObjects, outScores = i.sortKeywordRanking(outObjects, outScores)
-	} else if len(shardNames) > 1 {
+	} else if len(shardNames) > 1 && !additional.ReferenceQuery {
+		// sort only for multiple shards (already sorted for single)
+		// and for not reference nested query (sort is applied for root query)
 		outObjects, outScores = i.sortByID(outObjects, outScores)
 	}
 
