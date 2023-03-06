@@ -14,7 +14,7 @@ package common_filters
 import "github.com/weaviate/weaviate/entities/searchparams"
 
 // ExtractBM25
-func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {
+func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.KeywordRanking {
 	var args searchparams.KeywordRanking
 
 	p, ok := source["properties"]
@@ -31,9 +31,8 @@ func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {
 		args.Query = query.(string)
 	}
 
-	addExplanations, ok := source["additionalExplanations"]
-	if ok {
-		args.AdditionalExplanations = addExplanations.(bool)
+	if explainScore {
+		args.AdditionalExplanations = explainScore
 	} else {
 		args.AdditionalExplanations = false
 	}
