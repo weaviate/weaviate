@@ -52,15 +52,21 @@ func replica(id strfmt.UUID, lastTime int64, deleted bool) objects.Replica {
 
 func TestFinderReplicaNotFound(t *testing.T) {
 	var (
-		factory = newFakeFactory("C1", "S", []string{})
-		ctx     = context.Background()
-		f       = factory.newFinder()
+		f      = newFakeFactory("C1", "S", []string{})
+		ctx    = context.Background()
+		finder = f.newFinder()
 	)
-	_, err := f.GetOne(ctx, "ONE", "S", "id", nil, additional.Properties{})
-	assert.ErrorIs(t, err, errNoReplicaFound)
+	_, err := finder.GetOne(ctx, "ONE", "S", "id", nil, additional.Properties{})
+	assert.ErrorIs(t, err, errReplicas)
+	f.assertLogErrorContains(t, errNoReplicaFound.Error())
 
-	_, err = f.Exists(ctx, "ONE", "S", "id")
-	assert.ErrorIs(t, err, errNoReplicaFound)
+	_, err = finder.Exists(ctx, "ONE", "S", "id")
+	assert.ErrorIs(t, err, errReplicas)
+	f.assertLogErrorContains(t, errNoReplicaFound.Error())
+
+	_, err = finder.GetAll(ctx, "ONE", "S", []strfmt.UUID{"uuid1"})
+	assert.ErrorIs(t, err, errReplicas)
+	f.assertLogErrorContains(t, errNoReplicaFound.Error())
 }
 
 func TestFinderNodeObject(t *testing.T) {
@@ -120,7 +126,10 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, nil)
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
-		assert.ErrorIs(t, err, errAny)
+
+		assert.ErrorIs(t, err, errRead)
+		f.assertLogErrorContains(t, errAny.Error())
+
 		assert.Equal(t, nilObject, got)
 	})
 
@@ -207,10 +216,9 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "A:3")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
-		assert.Contains(t, err.Error(), "conflict")
+		assert.ErrorIs(t, err, errRepair)
+		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
+		f.assertLogErrorContains(t, "conflict")
 	})
 
 	t.Run("RepairGetContentFromIndirectRead", func(t *testing.T) {
@@ -264,11 +272,9 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "A:3")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
+		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
 	})
 
 	t.Run("RepairCannotGetMostRecentObject", func(t *testing.T) {
@@ -287,12 +293,10 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "A:1")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
+		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
 	})
 	t.Run("RepairMostRecentObjectChanged", func(t *testing.T) {
 		var (
@@ -312,11 +316,10 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errConflictObjectChanged)
+		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
-		assert.Contains(t, err.Error(), "A:1")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
+		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
+		f.assertLogErrorContains(t, errConflictObjectChanged.Error())
 	})
 
 	t.Run("RepairCreateMissingObject", func(t *testing.T) {
@@ -358,8 +361,8 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errConflictExistOrDeleted)
 		assert.Equal(t, nilObject, got)
+		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
 	})
 }
 
@@ -389,7 +392,8 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, errAny)
 
 		got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errRead)
+		f.assertLogErrorContains(t, errAny.Error())
 		assert.Equal(t, nilObject, got)
 	})
 
@@ -441,7 +445,7 @@ func TestFinderGetOneWithConsistencyLevelOne(t *testing.T) {
 		emptyItem = objects.Replica{}
 	)
 
-	t.Run("AllButOne", func(t *testing.T) {
+	t.Run("None", func(t *testing.T) {
 		var (
 			f      = newFakeFactory("C1", shard, nodes)
 			finder = f.newFinder()
@@ -452,7 +456,8 @@ func TestFinderGetOneWithConsistencyLevelOne(t *testing.T) {
 		}
 
 		got, err := finder.GetOne(ctx, One, shard, id, proj, adds)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errRead)
+		f.assertLogErrorContains(t, errAny.Error())
 		assert.Equal(t, nilObject, got)
 	})
 
@@ -511,9 +516,10 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR, nil)
 
 		got, err := finder.GetAll(ctx, All, shard, ids)
+		assert.ErrorIs(t, err, errRead)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorContains(t, err, nodes[1])
-		assert.ErrorIs(t, err, errAny)
+		f.assertLogContains(t, "replica", nodes[1])
+		f.assertLogErrorContains(t, errAny.Error())
 		assert.Nil(t, got)
 	})
 
@@ -977,10 +983,10 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 		}
 
 		got, err := finder.GetAll(ctx, All, shard, ids)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, nilObjects, got)
-		assert.Contains(t, err.Error(), "conflict")
-		assert.Contains(t, err.Error(), nodes[1])
+		f.assertLogErrorContains(t, nodes[1], "conflict")
 	})
 
 	t.Run("RepairOverwriteError", func(t *testing.T) {
@@ -1053,10 +1059,10 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 			Once()
 
 		got, err := finder.GetAll(ctx, All, shard, ids)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errAny)
+		f.assertLogErrorContains(t, nodes[1], errAny.Error())
 		assert.Equal(t, []*storobj.Object(nil), got)
-		assert.ErrorContains(t, err, nodes[1])
 	})
 
 	t.Run("RepairFetchMostRecentObjectsError", func(t *testing.T) {
@@ -1096,8 +1102,9 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 		f.RClient.On("FetchObjects", anyVal, nodes[2], cls, shard, anyVal).Return(directR3, errAny)
 
 		got, err := finder.GetAll(ctx, All, shard, ids)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errAny)
+		f.assertLogErrorContains(t, errAny.Error())
 		assert.Equal(t, []*storobj.Object(nil), got)
 	})
 
@@ -1136,6 +1143,7 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 		f.RClient.On("FetchObjects", anyVal, nodes[2], cls, shard, anyVal).Return(directR3, nil)
 
 		got, err := finder.GetAll(ctx, All, shard, ids)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, []*storobj.Object(nil), got)
 	})
@@ -1177,6 +1185,7 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 		f.RClient.On("FetchObjects", anyVal, nodes[2], cls, shard, anyVal).Return(directR3, nil)
 
 		got, err := finder.GetAll(ctx, All, shard, ids)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, []*storobj.Object(nil), got)
 	})
@@ -1374,8 +1383,9 @@ func TestFinderGetAllWithConsistencyLevelAll(t *testing.T) {
 		}
 
 		got, err := finder.GetAll(ctx, All, shard, ids)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errConflictExistOrDeleted)
+		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
 		assert.Equal(t, nilObjects, got)
 	})
 }
@@ -1409,8 +1419,9 @@ func TestFinderGetAllWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, ids).Return(digestR, errAny)
 
 		got, err := finder.GetAll(ctx, Quorum, shard, ids)
+		assert.ErrorIs(t, err, errRead)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errAny)
+		f.assertLogErrorContains(t, errAny.Error())
 		assert.Nil(t, got)
 	})
 
@@ -1522,7 +1533,7 @@ func TestFinderGetAllWithConsistencyLevelOne(t *testing.T) {
 		nilItems = []objects.Replica(nil)
 	)
 
-	t.Run("AllButOne", func(t *testing.T) {
+	t.Run("All", func(t *testing.T) {
 		var (
 			f      = newFakeFactory("C1", shard, nodes)
 			finder = f.newFinder()
@@ -1533,7 +1544,7 @@ func TestFinderGetAllWithConsistencyLevelOne(t *testing.T) {
 
 		got, err := finder.GetAll(ctx, One, shard, ids)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errRead)
 		assert.Nil(t, got)
 	})
 
@@ -1596,7 +1607,8 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, nil)
 
 		got, err := finder.Exists(ctx, All, shard, id)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errRead)
+		f.assertLogErrorContains(t, errAny.Error())
 		assert.Equal(t, false, got)
 	})
 
@@ -1662,12 +1674,12 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 		}
 
 		got, err := finder.Exists(ctx, All, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:3")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
-		assert.Contains(t, err.Error(), "conflict")
+
+		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
+		f.assertLogErrorContains(t, "conflict")
 	})
 
 	t.Run("Repair", func(t *testing.T) {
@@ -1726,12 +1738,12 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 		got, err := finder.Exists(ctx, All, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:3")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
-		assert.ErrorIs(t, err, errAny)
+
+		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
+		f.assertLogErrorContains(t, errAny.Error())
 	})
 
 	t.Run("RepairCannotGetMostRecentObject", func(t *testing.T) {
@@ -1751,12 +1763,12 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.Exists(ctx, All, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:1")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
-		assert.ErrorIs(t, err, errAny)
+
+		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
+		f.assertLogErrorContains(t, errAny.Error())
 	})
 	t.Run("RepairMostRecentObjectChanged", func(t *testing.T) {
 		var (
@@ -1776,12 +1788,11 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(item1, nil)
 
 		got, err := finder.Exists(ctx, All, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errConflictObjectChanged)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:1")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "C:3")
+		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
+		f.assertLogErrorContains(t, errConflictObjectChanged.Error())
 	})
 
 	t.Run("RepairCreateMissingObject", func(t *testing.T) {
@@ -1828,9 +1839,10 @@ func TestFinderExistsWithConsistencyLevelALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
 		got, err := finder.Exists(ctx, All, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errConflictExistOrDeleted)
 		assert.Equal(t, false, got)
+		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
 	})
 }
 
@@ -1859,7 +1871,8 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, errAny)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
-		assert.ErrorIs(t, err, errAny)
+		assert.ErrorIs(t, err, errRead)
+		f.assertLogErrorContains(t, errAny.Error())
 		assert.Equal(t, false, got)
 	})
 
@@ -1926,9 +1939,8 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:3")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.Contains(t, err.Error(), "conflict")
+		f.assertLogContains(t, "msg", "A:3", "B:2")
+		f.assertLogErrorContains(t, "conflict")
 	})
 
 	t.Run("Repair", func(t *testing.T) {
@@ -1983,11 +1995,11 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:3")
-		assert.Contains(t, err.Error(), "B:2")
-		assert.ErrorIs(t, err, errAny)
+		f.assertLogContains(t, "msg", "A:3", "B:2")
+		f.assertLogErrorContains(t, errAny.Error())
 	})
 
 	t.Run("RepairCannotGetMostRecentObject", func(t *testing.T) {
@@ -2007,11 +2019,11 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:1")
-		assert.Contains(t, err.Error(), "C:3")
-		assert.ErrorIs(t, err, errAny)
+		f.assertLogContains(t, "msg", "A:1", "C:3")
+		f.assertLogErrorContains(t, errAny.Error())
 	})
 	t.Run("RepairMostRecentObjectChanged", func(t *testing.T) {
 		var (
@@ -2029,11 +2041,12 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[1], cls, shard, id, proj, adds).Return(item1, nil)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errConflictObjectChanged)
 		assert.Equal(t, false, got)
-		assert.Contains(t, err.Error(), "A:1")
-		assert.Contains(t, err.Error(), "B:3")
+
+		f.assertLogContains(t, "msg", "A:1", "B:3")
+		f.assertLogErrorContains(t, errConflictObjectChanged.Error())
 	})
 
 	t.Run("RepairCreateMissingObject", func(t *testing.T) {
@@ -2076,8 +2089,9 @@ func TestFinderExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorIs(t, err, errConflictExistOrDeleted)
+		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
 		assert.Equal(t, false, got)
 	})
 }

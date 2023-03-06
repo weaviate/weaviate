@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -38,6 +39,10 @@ var (
 
 	// errConflictObjectChanged object changed since last time and cannot be repaired
 	errConflictObjectChanged = errors.New("source object changed during repair")
+
+	errReplicas = errors.New("cannot find enough replicas")
+	errRepair   = errors.New("read repair error")
+	errRead     = errors.New("read error")
 )
 
 type (
@@ -58,26 +63,28 @@ type (
 
 // Finder finds replicated objects
 type Finder struct {
-	RClient            // needed to commit and abort operation
-	resolver *resolver // host names of replicas
+	client   finderClient // needed to commit and abort operation
+	resolver *resolver    // host names of replicas
 	class    string
 	// TODO LOGGER
 	// Don't leak host nodes to end user but log it
+	log logrus.FieldLogger
 }
 
 // NewFinder constructs a new finder instance
 func NewFinder(className string,
 	stateGetter shardingState, nodeResolver nodeResolver,
-	client RClient,
+	client RClient, l logrus.FieldLogger,
 ) *Finder {
 	return &Finder{
-		class: className,
+		client: finderClient{client},
 		resolver: &resolver{
 			schema:       stateGetter,
 			nodeResolver: nodeResolver,
 			class:        className,
 		},
-		RClient: client,
+		class: className,
+		log:   l,
 	}
 }
 
@@ -89,16 +96,13 @@ func (f *Finder) GetOne(ctx context.Context,
 	c := newReadCoordinator[findOneReply](f, shard)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
-			r, err := f.FetchObject(ctx, host, f.class, shard, id, props, adds)
+			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
-			xs, err := f.DigestObjects(ctx, host, f.class, shard, []strfmt.UUID{id})
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
 			var x RepairResponse
 			if len(xs) == 1 {
 				x = xs[0]
-			}
-			if err == nil && len(xs) != 1 {
-				err = fmt.Errorf("digest read request: empty result")
 			}
 			r := objects.Replica{ID: id, Deleted: x.Deleted}
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
@@ -106,7 +110,8 @@ func (f *Finder) GetOne(ctx context.Context,
 	}
 	replyCh, state, err := c.Pull(ctx, l, op)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		f.log.WithField("op", "pull.one").Error(err)
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readOne(ctx, shard, id, replyCh, state)
 	if err = result.err; err != nil {
@@ -116,14 +121,14 @@ func (f *Finder) GetOne(ctx context.Context,
 }
 
 // batchReply represents the data returned by sender
-// The returned data may result from a direct or digest read request
+// The returned data may result from a full or digest read request
 type batchReply struct {
 	// Sender hostname of the sender
 	Sender string
 	// IsDigest is this reply from a digest read?
 	IsDigest bool
-	// DirectData returned from a direct read request
-	DirectData []objects.Replica
+	// FullData returned from a full read request
+	FullData []objects.Replica
 	// DigestData returned from a digest read request
 	DigestData []RepairResponse
 }
@@ -133,25 +138,19 @@ func (f *Finder) GetAll(ctx context.Context, l ConsistencyLevel, shard string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
 	c := newReadCoordinator[batchReply](f, shard)
-	n := len(ids)
 	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
 		if fullRead {
-			xs, err := f.RClient.FetchObjects(ctx, host, f.class, shard, ids)
-			if m := len(xs); err == nil && n != m {
-				err = fmt.Errorf("direct read expected %d got %d items", n, m)
-			}
-			return batchReply{Sender: host, IsDigest: false, DirectData: xs}, err
+			xs, err := f.client.FullReads(ctx, host, f.class, shard, ids)
+			return batchReply{Sender: host, IsDigest: false, FullData: xs}, err
 		} else {
-			xs, err := f.DigestObjects(ctx, host, f.class, shard, ids)
-			if m := len(xs); err == nil && n != m {
-				err = fmt.Errorf("direct read expected %d got %d items", n, m)
-			}
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids)
 			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 	replyCh, state, err := c.Pull(ctx, l, op)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		f.log.WithField("op", "pull.all").Error(err)
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readAll(ctx, shard, ids, replyCh, state)
 	if err = result.err; err != nil {
@@ -165,19 +164,17 @@ func (f *Finder) GetAll(ctx context.Context, l ConsistencyLevel, shard string,
 func (f *Finder) Exists(ctx context.Context, l ConsistencyLevel, shard string, id strfmt.UUID) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
-		xs, err := f.DigestObjects(ctx, host, f.class, shard, []strfmt.UUID{id})
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
 		var x RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]
-		}
-		if err == nil && len(xs) != 1 {
-			err = fmt.Errorf("malformed digest read response: expected one result, got %d", len(xs))
 		}
 		return existReply{host, x}, err
 	}
 	replyCh, state, err := c.Pull(ctx, l, op)
 	if err != nil {
-		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		f.log.WithField("op", "pull.exist").Error(err)
+		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.err; err != nil {
@@ -196,7 +193,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	r, err := f.RClient.FetchObject(ctx, host, f.class, shard, id, props, adds)
+	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
 	return r.Object, err
 }
 
@@ -219,7 +216,9 @@ func (f *Finder) readOne(ctx context.Context,
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Response
 			if r.Err != nil { // a least one node is not responding
-				resultCh <- result[*storobj.Object]{nil, fmt.Errorf("source %s: %w", resp.sender, r.Err)}
+				f.log.WithField("op", "get").WithField("replica", resp.sender).
+					WithField("class", f.class).WithField("shard", shard).WithField("uuid", id).Error(r.Err)
+				resultCh <- result[*storobj.Object]{nil, errRead}
 				return
 			}
 			if !resp.DigestRead {
@@ -245,7 +244,8 @@ func (f *Finder) readOne(ctx context.Context,
 			resultCh <- result[*storobj.Object]{obj, nil}
 			return
 		}
-		// TODO: log message
+
+		resultCh <- result[*storobj.Object]{nil, errRepair}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
@@ -253,7 +253,7 @@ func (f *Finder) readOne(ctx context.Context,
 			}
 			fmt.Fprintf(&sb, "%s:%d", c.sender, c.UTime)
 		}
-		resultCh <- result[*storobj.Object]{nil, fmt.Errorf("%q: %w", sb.String(), err)}
+		f.log.WithField("op", "repair_one").WithField("class", f.class).WithField("shard", shard).WithField("uuid", id).WithField("msg", sb.String()).Error(err)
 	}()
 	return resultCh
 }
@@ -263,6 +263,7 @@ func (f *Finder) repairOne(ctx context.Context, shard string, id strfmt.UUID, vo
 	var (
 		lastUTime int64
 		winnerIdx int
+		cl        = f.client
 	)
 	for i, x := range votes {
 		if x.o.Deleted {
@@ -277,7 +278,7 @@ func (f *Finder) repairOne(ctx context.Context, shard string, id strfmt.UUID, vo
 	updates := votes[contentIdx].o
 	winner := votes[winnerIdx]
 	if updates.UpdateTime() != lastUTime {
-		updates, err = f.RClient.FetchObject(ctx, winner.sender, f.class, shard, id,
+		updates, err = cl.FullRead(ctx, winner.sender, f.class, shard, id,
 			search.SelectProperties{}, additional.Properties{})
 		if err != nil {
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
@@ -298,7 +299,7 @@ func (f *Finder) repairOne(ctx context.Context, shard string, id strfmt.UUID, vo
 				LatestObject:    &updates.Object.Object,
 				StaleUpdateTime: vote.UTime,
 			}}
-			resp, err := f.RClient.OverwriteObjects(ctx, vote.sender, f.class, shard, ups)
+			resp, err := cl.Overwrite(ctx, vote.sender, f.class, shard, ups)
 			if err != nil {
 				return fmt.Errorf("node %q could not repair object: %w", vote.sender, err)
 			}
@@ -322,7 +323,7 @@ func (r batchReply) UpdateTimeAt(idx int) int64 {
 	if len(r.DigestData) != 0 {
 		return r.DigestData[idx].UpdateTime
 	}
-	return r.DirectData[idx].UpdateTime()
+	return r.FullData[idx].UpdateTime()
 }
 
 type _Results result[[]*storobj.Object]
@@ -336,13 +337,15 @@ func (f *Finder) readAll(ctx context.Context, shard string, ids []strfmt.UUID, c
 			N = len(ids) // number of requested objects
 			// votes counts number of votes per object for each node
 			votes      = make([]vote, 0, len(st.Hosts))
-			contentIdx = -1 // index of direct read reply
+			contentIdx = -1 // index of full read reply
 		)
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Response
 			if r.Err != nil { // a least one node is not responding
-				resultCh <- _Results{nil, fmt.Errorf("source %s: %w", r.Response.Sender, r.Err)}
+				f.log.WithField("op", "get").WithField("replica", r.Response.Sender).
+					WithField("class", f.class).WithField("shard", shard).Error(r.Err)
+				resultCh <- _Results{nil, errRead}
 				return
 			}
 			if !resp.IsDigest {
@@ -369,15 +372,17 @@ func (f *Finder) readAll(ctx context.Context, shard string, ids []strfmt.UUID, c
 			}
 
 			if M == N {
-				resultCh <- _Results{fromReplicas(votes[contentIdx].DirectData), nil}
+				resultCh <- _Results{fromReplicas(votes[contentIdx].FullData), nil}
 				return
 			}
 		}
 		res, err := f.repairAll(ctx, shard, ids, votes, st, contentIdx)
-		if err != nil {
-			res = nil
+		if err == nil {
+			resultCh <- _Results{res, nil}
 		}
-		resultCh <- _Results{res, err}
+		resultCh <- _Results{nil, errRepair}
+		f.log.WithField("op", "repair_all").WithField("class", f.class).
+			WithField("shard", shard).WithField("uuids", ids).Error(err)
 	}()
 
 	return resultCh
@@ -395,9 +400,10 @@ func (f *Finder) repairAll(ctx context.Context,
 		lastTimes  = make([]iTuple, len(ids))          // most recent times
 		ms         = make([]iTuple, 0, len(ids))       // mismatches
 		nDeletions = 0
+		cl         = f.client
 	)
 	// find most recent objects
-	for i, x := range votes[contentIdx].DirectData {
+	for i, x := range votes[contentIdx].FullData {
 		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
 	}
 	for i, vote := range votes {
@@ -412,7 +418,7 @@ func (f *Finder) repairAll(ctx context.Context,
 		}
 	}
 	// find missing content (diff)
-	for i, p := range votes[contentIdx].DirectData {
+	for i, p := range votes[contentIdx].FullData {
 		if lastTimes[i].Deleted { // conflict
 			nDeletions++
 			result[i] = nil
@@ -447,15 +453,11 @@ func (f *Finder) repairAll(ctx context.Context,
 			}
 			start := start
 			gr.Go(func() error {
-				resp, err := f.RClient.FetchObjects(ctx, receiver, f.class, shard, query)
+				resp, err := cl.FullReads(ctx, receiver, f.class, shard, query)
 				if err != nil {
 					return err
 				}
-				n := len(query)
-				if m := len(resp); n != m {
-					return fmt.Errorf("try to fetch %d objects from %s but got %d", m, receiver, n)
-				}
-				for i := 0; i < n; i++ {
+				for i, n := 0, len(query); i < n; i++ {
 					idx := ms[start-n+i].O
 					if lastTimes[idx].T != resp[i].UpdateTime() {
 						return fmt.Errorf("object %s changed on %s", ids[idx], receiver)
@@ -484,7 +486,7 @@ func (f *Finder) repairAll(ctx context.Context,
 		}
 		receiver := vote.Sender
 		gr.Go(func() error {
-			rs, err := f.RClient.OverwriteObjects(ctx, receiver, f.class, shard, query)
+			rs, err := cl.Overwrite(ctx, receiver, f.class, shard, query)
 			if err != nil {
 				return fmt.Errorf("node %q could not repair objects: %w", receiver, err)
 			}
@@ -529,7 +531,10 @@ func (f *Finder) readExistence(ctx context.Context,
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Response
 			if r.Err != nil { // a least one node is not responding
-				resultCh <- result[bool]{false, fmt.Errorf("source %s: %w", resp.Sender, r.Err)}
+				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
+					WithField("class", f.class).WithField("shard", shard).
+					WithField("uuid", id).Error(r.Err)
+				resultCh <- result[bool]{false, errRead}
 				return
 			}
 
@@ -554,7 +559,8 @@ func (f *Finder) readExistence(ctx context.Context,
 			resultCh <- result[bool]{obj, nil}
 			return
 		}
-		// TODO: log message
+		resultCh <- result[bool]{false, errRepair}
+
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
@@ -562,7 +568,9 @@ func (f *Finder) readExistence(ctx context.Context,
 			}
 			fmt.Fprintf(&sb, "%s:%d", c.sender, c.UTime)
 		}
-		resultCh <- result[bool]{false, fmt.Errorf("%q: %w", sb.String(), err)}
+		f.log.WithField("op", "repair_exist").WithField("class", f.class).
+			WithField("shard", shard).WithField("uuid", id).
+			WithField("msg", sb.String()).Error(err)
 	}()
 	return resultCh
 }
@@ -571,6 +579,7 @@ func (f *Finder) repairExist(ctx context.Context, shard string, id strfmt.UUID, 
 	var (
 		lastUTime int64
 		winnerIdx int
+		cl        = f.client
 	)
 	for i, x := range votes {
 		if x.o.Deleted {
@@ -583,7 +592,7 @@ func (f *Finder) repairExist(ctx context.Context, shard string, id strfmt.UUID, 
 	}
 	// fetch most recent object
 	winner := votes[winnerIdx]
-	resp, err := f.RClient.FetchObject(ctx, winner.sender, f.class, shard, id, search.SelectProperties{}, additional.Properties{})
+	resp, err := cl.FullRead(ctx, winner.sender, f.class, shard, id, search.SelectProperties{}, additional.Properties{})
 	if err != nil {
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 	}
@@ -601,7 +610,7 @@ func (f *Finder) repairExist(ctx context.Context, shard string, id strfmt.UUID, 
 				LatestObject:    &resp.Object.Object,
 				StaleUpdateTime: vote.UTime,
 			}}
-			resp, err := f.RClient.OverwriteObjects(ctx, vote.sender, f.class, shard, ups)
+			resp, err := cl.Overwrite(ctx, vote.sender, f.class, shard, ups)
 			if err != nil {
 				return fmt.Errorf("node %q could not repair object: %w", vote.sender, err)
 			}
