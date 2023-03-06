@@ -46,10 +46,10 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	}
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
-	err = m.setNewPropDefaults(class, prop)
-	if err != nil {
+	if err := m.setNewPropDefaults(class, prop); err != nil {
 		return err
 	}
+
 	existingPropertyNames := map[string]bool{}
 	for _, existingProperty := range class.Properties {
 		existingPropertyNames[strings.ToLower(existingProperty.Name)] = true
@@ -97,7 +97,9 @@ func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property)
 }
 
 func validateUserProp(class *models.Class, prop *models.Property) error {
-	if prop.ModuleConfig != nil {
+	if prop.ModuleConfig == nil {
+		return nil
+	} else {
 		modconfig, ok := prop.ModuleConfig.(map[string]interface{})
 		if !ok {
 			return fmt.Errorf("%v property config invalid", prop.Name)
@@ -108,7 +110,7 @@ func validateUserProp(class *models.Class, prop *models.Property) error {
 		}
 		_, ok = vectorizerConfig.(map[string]interface{})
 		if !ok {
-			return errors.New("invalid module config")
+			return fmt.Errorf("vectorizer config for vectorizer %v, not of type map[string]interface{}", class.Vectorizer)
 		}
 	}
 	return nil
