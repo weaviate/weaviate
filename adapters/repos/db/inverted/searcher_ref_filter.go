@@ -14,21 +14,23 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // a helper tool to extract the uuid beacon for any matching reference
 type refFilterExtractor struct {
+	logger        logrus.FieldLogger
 	filter        *filters.Clause
 	className     schema.ClassName
 	classSearcher ClassSearcher
@@ -42,11 +44,12 @@ type ClassSearcher interface {
 	GetQueryMaximumResults() int
 }
 
-func newRefFilterExtractor(classSearcher ClassSearcher,
-	filter *filters.Clause, className schema.ClassName,
-	schema schema.Schema,
+func newRefFilterExtractor(logger logrus.FieldLogger,
+	classSearcher ClassSearcher, filter *filters.Clause,
+	className schema.ClassName, schema schema.Schema,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
+		logger:        logger,
 		filter:        filter,
 		className:     className,
 		classSearcher: classSearcher,
@@ -64,6 +67,14 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 		return nil, errors.Wrap(err, "nested request to fetch matching IDs")
 	}
 
+	if len(ids) > r.classSearcher.GetQueryMaximumResults() {
+		r.logger.
+			WithField("nested_reference_results", len(ids)).
+			WithField("query_maximum_results", r.classSearcher.GetQueryMaximumResults()).
+			Warnf("Number of found nested reference results exceeds configured QUERY_MAXIMUM_RESULTS. " +
+				"This may result in search performance degradation or even out of memory errors.")
+	}
+
 	return r.resultsToPropValuePairs(ids)
 }
 
@@ -76,7 +87,12 @@ func (r *refFilterExtractor) paramsForNestedRequest() (traverser.GetParams, erro
 			// implementation, so using a 10x as high value should be safe. However,
 			// we might come back to reduce this number in case this leads to
 			// unexpected performance issues
-			Limit: int(config.DefaultQueryMaximumResults),
+			// Limit: int(config.DefaultQueryMaximumResults),
+
+			// due to reported issue https://github.com/weaviate/weaviate/issues/2537
+			// ref search is temporarily (until better solution) effectively unlimited
+			Offset: 0,
+			Limit:  math.MaxInt,
 		},
 		// set this to indicate that this is a sub-query, so we do not need
 		// to perform the same search limits cutoff check that we do with
