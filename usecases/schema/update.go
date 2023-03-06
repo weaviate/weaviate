@@ -41,10 +41,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
-	err = m.setClassDefaults(updated)
-	if err != nil {
-		return err
-	}
+	m.setClassDefaults(updated)
 
 	if err := m.validateImmutableFields(initial, updated); err != nil {
 		return err

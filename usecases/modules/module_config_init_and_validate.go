@@ -13,7 +13,6 @@ package modules
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,43 +22,43 @@ import (
 
 // SetClassDefaults sets the module-specific defaults for the class itself, but
 // also for each prop
-func (p *Provider) SetClassDefaults(class *models.Class) error {
+func (p *Provider) SetClassDefaults(class *models.Class) {
 	if class.Vectorizer == "none" {
 		// the class does not use a vectorizer, nothing to do for us
-		return nil
+		return
 	}
 
 	mod := p.GetByName(class.Vectorizer)
 	cc, ok := mod.(modulecapabilities.ClassConfigurator)
 	if !ok {
 		// the module exists, but is not a class configurator, nothing to do for us
-		return nil
+		return
 	}
 
 	cfg := NewClassBasedModuleConfig(class, class.Vectorizer)
 
 	p.setPerClassConfigDefaults(class, cfg, cc)
-	return p.setPerPropertyConfigDefaults(class, cfg, cc)
+	p.setPerPropertyConfigDefaults(class, cfg, cc)
 }
 
 // SetSinglePropertyDefaults can be used when a property is added later, e.g.
 // as part of merging in a ref prop after a class has already been created
 func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
 	prop *models.Property,
-) error {
+) {
 	if class.Vectorizer == "none" {
 		// the class does not use a vectorizer, nothing to do for us
-		return nil
+		return
 	}
 
 	mod := p.GetByName(class.Vectorizer)
 	cc, ok := mod.(modulecapabilities.ClassConfigurator)
 	if !ok {
 		// the module exists, but is not a class configurator, nothing to do for us
-		return nil
+		return
 	}
 
-	return p.setSinglePropertyConfigDefaults(class, prop, cc)
+	p.setSinglePropertyConfigDefaults(class, prop, cc)
 }
 
 func (p *Provider) setPerClassConfigDefaults(class *models.Class,
@@ -85,37 +84,22 @@ func (p *Provider) setPerClassConfigDefaults(class *models.Class,
 
 func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
 	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator,
-) error {
+) {
 	for _, prop := range class.Properties {
-		err := p.setSinglePropertyConfigDefaults(class, prop, cc)
-		if err != nil {
-			return err
-		}
+		p.setSinglePropertyConfigDefaults(class, prop, cc)
 	}
-	return nil
 }
 
 func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
 	prop *models.Property, cc modulecapabilities.ClassConfigurator,
-) error {
+) {
 	dt, _ := schema.GetValueDataTypeFromString(prop.DataType[0])
 	modDefaults := cc.PropertyConfigDefaults(dt)
 	mergedConfig := map[string]interface{}{}
 	userSpecified := make(map[string]interface{})
 
 	if prop.ModuleConfig != nil {
-		modconfig, ok := prop.ModuleConfig.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("%v property config invalid", prop.Name)
-		}
-		vectorizerConfig, ok := modconfig[class.Vectorizer]
-		if !ok {
-			return fmt.Errorf("%v vectorizer module not part of the property", class.Vectorizer)
-		}
-		userSpecified, ok = vectorizerConfig.(map[string]interface{})
-		if !ok {
-			return errors.New("invalid module config")
-		}
+		userSpecified = prop.ModuleConfig.(map[string]interface{})[class.Vectorizer].(map[string]interface{})
 	}
 
 	for key, value := range modDefaults {
@@ -130,7 +114,6 @@ func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
 	}
 
 	prop.ModuleConfig.(map[string]interface{})[class.Vectorizer] = mergedConfig
-	return nil
 }
 
 func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error {
