@@ -288,9 +288,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		err = i.replicator.PutObject(ctx, shardName, object, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
@@ -462,9 +460,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			var errs []error
 			if i.replicationEnabled() {
 				if replProps == nil {
-					replProps = &additional.ReplicationProperties{
-						ConsistencyLevel: string(replica.All),
-					}
+					replProps = defaultConsistency()
 				}
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -554,9 +550,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		var errs []error
 		if i.replicationEnabled() {
 			if replProps == nil {
-				replProps = &additional.ReplicationProperties{
-					ConsistencyLevel: string(replica.All),
-				}
+				replProps = defaultConsistency()
 			}
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -602,9 +596,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		if replProps.NodeName != "" {
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
@@ -746,9 +738,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	var exists bool
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		exists, err = i.replicator.Exists(ctx,
 			replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id)
@@ -1032,9 +1022,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		err = i.replicator.DeleteObject(ctx, shardName, id,
 			replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -1090,9 +1078,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
@@ -1349,9 +1335,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
 				if replProps == nil {
-					replProps = &additional.ReplicationProperties{
-						ConsistencyLevel: string(replica.All),
-					}
+					replProps = defaultConsistency()
 				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -1389,4 +1373,10 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
+}
+
+func defaultConsistency() *additional.ReplicationProperties {
+	return &additional.ReplicationProperties{
+		ConsistencyLevel: string(replica.Quorum),
+	}
 }
