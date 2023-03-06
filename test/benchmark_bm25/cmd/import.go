@@ -80,7 +80,7 @@ var importCmd = &cobra.Command{
 				props[key] = value
 			}
 
-			batch.WithObject(&models.Object{
+			batch.WithObjects(&models.Object{
 				ID:         strfmt.UUID(id),
 				Class:      lib.ClassNameFromDatasetID(datasets.Datasets[0].ID),
 				Properties: props,
