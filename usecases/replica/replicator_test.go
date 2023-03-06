@@ -32,10 +32,64 @@ var (
 )
 
 func TestReplicatorReplicaNotFound(t *testing.T) {
-	f := newFakeFactory("C1", "S", []string{})
-	rep := f.newReplicator()
-	err := rep.PutObject(context.Background(), "S", nil, All)
-	assert.ErrorIs(t, err, errNoReplicaFound)
+	ctx := context.Background()
+
+	t.Run("PutObject", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		err := rep.PutObject(ctx, "S", nil, All)
+		assert.ErrorIs(t, err, errReplicas)
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("MergeObject", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		err := rep.MergeObject(ctx, "S", nil, All)
+		assert.ErrorIs(t, err, errReplicas)
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("DeleteObject", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		err := rep.DeleteObject(ctx, "S", "id", All)
+		assert.ErrorIs(t, err, errReplicas)
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("PutObjects", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		errs := rep.PutObjects(ctx, "S", []*storobj.Object{{}, {}}, All)
+		assert.Equal(t, 2, len(errs))
+		for _, err := range errs {
+			assert.ErrorIs(t, err, errReplicas)
+		}
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("DeleteObjects", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		xs := rep.DeleteObjects(ctx, "S", []uint64{1, 2, 3}, false, All)
+		assert.Equal(t, 3, len(xs))
+		for _, x := range xs {
+			assert.ErrorIs(t, x.Err, errReplicas)
+		}
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
+
+	t.Run("AddReferences", func(t *testing.T) {
+		f := newFakeFactory("C1", "S", []string{})
+		rep := f.newReplicator()
+		errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, All)
+		assert.Equal(t, 2, len(errs))
+		for _, err := range errs {
+			assert.ErrorIs(t, err, errReplicas)
+		}
+		f.assertLogErrorContains(t, errNoReplicaFound.Error())
+	})
 }
 
 func TestReplicatorPutObject(t *testing.T) {
@@ -659,5 +713,47 @@ func (f fakeFactory) newReplicator() *Replicator {
 func (f fakeFactory) newFinder() *Finder {
 	nodeResolver := newFakeNodeResolver(f.Nodes)
 	shardingState := newFakeShardingState(f.Shard2replicas, nodeResolver)
-	return NewFinder(f.CLS, shardingState, nodeResolver, f.RClient)
+	return NewFinder(f.CLS, shardingState, nodeResolver, f.RClient, f.log)
+}
+
+func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {
+	t.Helper()
+	// logging might happen after returning to the caller
+	// Therefore, we need to make sure that the goroutine
+	// running in the background is writing to the log
+	entry := f.hook.LastEntry()
+	for i := 0; entry == nil && i < 20; i++ {
+		<-time.After(time.Millisecond * 10)
+		entry = f.hook.LastEntry()
+	}
+	data := ""
+	if entry != nil {
+		data, _ = entry.Data[key].(string)
+	} else {
+		t.Errorf("log entry is empty")
+		return
+	}
+	for _, x := range xs {
+		assert.Contains(t, data, x)
+	}
+}
+
+func (f fakeFactory) assertLogErrorContains(t *testing.T, xs ...string) {
+	t.Helper()
+	// logging might happen after returning to the caller
+	// Therefore, we need to make sure that the goroutine
+	// running in the background is writing to the log
+	entry := f.hook.LastEntry()
+	for i := 0; entry == nil && i < 20; i++ {
+		<-time.After(time.Millisecond * 10)
+		entry = f.hook.LastEntry()
+	}
+
+	if entry == nil {
+		t.Errorf("log entry is empty")
+		return
+	}
+	for _, x := range xs {
+		assert.Contains(t, entry.Message, x)
+	}
 }
