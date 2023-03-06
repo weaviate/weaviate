@@ -39,9 +39,5 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: "The properties to search in",
 			Type:        graphql.NewList(graphql.String),
 		},
-		"additionalExplanations": &graphql.InputObjectFieldConfig{
-			Description: "Return additional explanations for the BM25 results. False by default",
-			Type:        graphql.Boolean,
-		},
 	}
 }
