@@ -858,7 +858,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 						delete(oo.Object.Additional, k)
 					}
 				}
-				oo.Object.Additional["explainScore"] = explainScore
+				if len(explainScore) > 0 {
+					oo.Object.Additional["explainScore"] = explainScore
+				}
 			}
 		}
 	}

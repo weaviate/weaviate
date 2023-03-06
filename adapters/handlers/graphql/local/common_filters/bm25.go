@@ -31,6 +31,13 @@ func ExtractBM25(source map[string]interface{}) searchparams.KeywordRanking {
 		args.Query = query.(string)
 	}
 
+	addExplanations, ok := source["additionalExplanations"]
+	if ok {
+		args.AdditionalExplanations = addExplanations.(bool)
+	} else {
+		args.AdditionalExplanations = false
+	}
+
 	args.Type = "bm25"
 
 	return args
