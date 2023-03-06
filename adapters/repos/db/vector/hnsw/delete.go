@@ -36,7 +36,7 @@ func (h *hnsw) Delete(ids ...uint64) error {
 	before := time.Now()
 	defer h.metrics.TrackDelete(before, "total")
 
-	if err := h.addTombstones(ids); err != nil {
+	if err := h.addTombstone(ids...); err != nil {
 		return err
 	}
 
@@ -531,16 +531,7 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 	return ok
 }
 
-func (h *hnsw) addTombstone(id uint64) error {
-	h.metrics.AddTombstone()
-	h.tombstoneLock.Lock()
-	h.tombstones[id] = struct{}{}
-	h.tombstoneLock.Unlock()
-	return h.commitLog.AddTombstone(id)
-}
-
-// same as addTombstones, but for a list. Obtains all locks just once
-func (h *hnsw) addTombstones(ids []uint64) error {
+func (h *hnsw) addTombstone(ids ...uint64) error {
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
