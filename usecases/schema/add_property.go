@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -45,7 +46,9 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	}
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
-	m.setNewPropDefaults(class, prop)
+	if err := m.setNewPropDefaults(class, prop); err != nil {
+		return err
+	}
 
 	existingPropertyNames := map[string]bool{}
 	for _, existingProperty := range class.Properties {
@@ -84,9 +87,33 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	return m.addClassPropertyApplyChanges(ctx, className, prop)
 }
 
-func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) {
+func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property) error {
 	m.setPropertyDefaults(prop)
+	if err := validateUserProp(class, prop); err != nil {
+		return err
+	}
 	m.moduleConfig.SetSinglePropertyDefaults(class, prop)
+	return nil
+}
+
+func validateUserProp(class *models.Class, prop *models.Property) error {
+	if prop.ModuleConfig == nil {
+		return nil
+	} else {
+		modconfig, ok := prop.ModuleConfig.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("%v property config invalid", prop.Name)
+		}
+		vectorizerConfig, ok := modconfig[class.Vectorizer]
+		if !ok {
+			return fmt.Errorf("%v vectorizer module not part of the property", class.Vectorizer)
+		}
+		_, ok = vectorizerConfig.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("vectorizer config for vectorizer %v, not of type map[string]interface{}", class.Vectorizer)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) addClassPropertyApplyChanges(ctx context.Context,
