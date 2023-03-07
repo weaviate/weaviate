@@ -22,6 +22,10 @@ import (
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
+	//GW
+        fmt.Println("HNSW Validate!")
+        //GW
+
 	if h.isEmpty() {
 		return nil
 	}
@@ -40,6 +44,9 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
+	//GW
+        fmt.Println("HNSW Add!")
+        //GW
 	before := time.Now()
 	if len(vector) == 0 {
 		return errors.Errorf("insert called with nil-vector")
@@ -92,6 +99,10 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
+	//GW
+	fmt.Println("HNSW insert!")
+        //GW
+
 	h.deleteVsInsertLock.RLock()
 	defer h.deleteVsInsertLock.RUnlock()
 

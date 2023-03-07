@@ -32,6 +32,10 @@ func (d *DB) init(ctx context.Context) error {
 		return errors.Wrapf(err, "create root path directory at %s", d.config.RootPath)
 	}
 
+	//GW
+        fmt.Println("DB INIT!")
+        //GW
+
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
 		for _, class := range objects.Classes {
@@ -53,6 +57,11 @@ func (d *DB) init(ctx context.Context) error {
 			if err := replica.ValidateConfig(class); err != nil {
 				return fmt.Errorf("replication config: %w", err)
 			}
+
+			//GW
+        		fmt.Println("RIGHT Before New Index! adapters/repos/db/init.go")
+        		//GW
+
 
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),

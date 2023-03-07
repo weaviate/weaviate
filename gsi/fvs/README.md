@@ -9,9 +9,9 @@ This directory provides profiling, debugging, and benchmark utilities and script
 
 ## Benchmarks
 
-### 1M of Deep1B
+### Deep1B
 
-![Deep1M of Deep1B](results/gemini_fvs.png)
+![Subsets of Deep1B](results/gemini_fvs_deep1B.png)
 
 To reproduce the benchmarks shown above, do the following:
 * login to a system with Gemini FVS installed
@@ -19,6 +19,7 @@ To reproduce the benchmarks shown above, do the following:
 * configure the top of these scripts and run them:
   * [run_benchmarks_deep1M_q10.sh](run_benchmarks_deep1M_q10.sh)
   * [run_benchmarks_deep1M_q1000.sh](run_benchmarks_deep1M_q1000.sh)
+  * [run_benchmarks_deep2M_q1000.sh](run_benchmarks_deep2M_q1000.sh)
 * to plot your data, use the following [notebook](benchmarks_analysis.ipynb)
 
 Notes:

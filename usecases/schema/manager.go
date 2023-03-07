@@ -114,6 +114,11 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, scaleoutManager scaleOut,
 ) (*Manager, error) {
+
+	//GW
+        fmt.Println("NEWMANAGER usecases/schema/manager.go !")
+        //GW
+
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
 		config:                  config,
@@ -190,6 +195,11 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 }
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
+
+	//GW
+        fmt.Println("SCHEMA loadOrInitializeSchema Inside usecases/scheman/manager.go!")
+        //GW
+
 	schema, err := m.repo.LoadSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)

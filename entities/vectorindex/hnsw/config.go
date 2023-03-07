@@ -38,7 +38,9 @@ const (
 	DefaultDynamicEFMax           = 500
 	DefaultDynamicEFFactor        = 8
 	DefaultVectorCacheMaxObjects  = 1e12
-	DefaultSkip                   = false
+	//GW DefaultSkip                   = false
+	DefaultSkip                   = true
+	//GW
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine
 )
@@ -85,9 +87,17 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 
+	//GW
+        fmt.Println("HNSW Parse User Config 1!")
+        //GW
+
 	if input == nil {
 		return uc, nil
 	}
+
+	//GW
+        fmt.Println("HNSW Parse User Config 2!")
+        //GW
 
 	asMap, ok := input.(map[string]interface{})
 	if !ok || asMap == nil {
@@ -147,6 +157,10 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	}); err != nil {
 		return uc, err
 	}
+
+	//GW
+        fmt.Println("SKIP BEFORE entities/vectorindex/hnsw/config.go !")
+        //GW
 
 	if err := optionalBoolFromMap(asMap, "skip", func(v bool) {
 		uc.Skip = v

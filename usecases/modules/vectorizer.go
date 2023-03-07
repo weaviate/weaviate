@@ -84,6 +84,10 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
+	//GW
+        fmt.Println("UpdateVector usecases/modules/vectorizer.go !")
+        //GW
+
 	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
 	if !ok {
 		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
