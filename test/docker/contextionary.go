@@ -22,7 +22,7 @@ import (
 const Text2VecContextionary = "text2vec-contextionary"
 
 func startT2VContextionary(ctx context.Context, networkName, contextionaryImage string) (*DockerContainer, error) {
-	image := "semitechnologies/contextionary:en0.16.0-v1.1.0"
+	image := "semitechnologies/contextionary:en0.16.0-v1.2.0"
 	if len(contextionaryImage) > 0 {
 		image = contextionaryImage
 	}

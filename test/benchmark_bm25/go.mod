@@ -6,7 +6,7 @@ require (
 	github.com/go-openapi/strfmt v0.21.3
 	github.com/google/uuid v1.3.0
 	github.com/spf13/cobra v1.6.1
-	github.com/weaviate/weaviate v1.17.2-0.20230118094121-abf30eac8656
+	github.com/weaviate/weaviate v1.18.0
 	github.com/weaviate/weaviate-go-client/v4 v4.5.2
 	gopkg.in/yaml.v3 v3.0.1
 )
