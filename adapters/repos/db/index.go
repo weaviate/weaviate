@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -123,6 +125,23 @@ func NewIndex(ctx context.Context, config IndexConfig,
 
 		shard, err := NewShard(ctx, promMetrics, shardName, index, class)
 		if err != nil {
+			// replace combined error message with one more user friendly in case it refers
+			// to unsupported newly introduced RoaringSet bucket's strategy
+			var errns lsmkv.ErrorNotSupported
+			if errors.As(err, &errns) && errns.Strategy() == lsmkv.SegmentStrategyRoaringSet {
+				r := regexp.MustCompile("creating bucket '(?P<bucketName>.*?)'")
+				matches := r.FindStringSubmatch(err.Error())
+
+				bucketName := "unknown"
+				if len(matches) > 0 {
+					bucketName = matches[r.SubexpIndex("bucketName")]
+				}
+
+				err = fmt.Errorf("Bucket '%s' uses strategy RoaringSet which was introduced in v1.18. "+
+					"You are running v1.17, which cannot interpret new strategy type. "+
+					"Please upgrade to newer version.", bucketName)
+			}
+
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
 		}
 

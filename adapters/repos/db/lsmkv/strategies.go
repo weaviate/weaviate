@@ -11,6 +11,8 @@
 
 package lsmkv
 
+import "fmt"
+
 const (
 	// StrategyReplace allows for idem-potent PUT where the latest takes presence
 	StrategyReplace       = "replace"
@@ -24,6 +26,7 @@ const (
 	SegmentStrategyReplace SegmentStrategy = iota
 	SegmentStrategySetCollection
 	SegmentStrategyMapCollection
+	SegmentStrategyRoaringSet
 )
 
 func SegmentStrategyFromString(in string) SegmentStrategy {
@@ -37,4 +40,20 @@ func SegmentStrategyFromString(in string) SegmentStrategy {
 	default:
 		panic("unsupported strategy")
 	}
+}
+
+type ErrorNotSupported struct {
+	strategy SegmentStrategy
+}
+
+func NewErrorNotSupported(strategy SegmentStrategy) ErrorNotSupported {
+	return ErrorNotSupported{strategy}
+}
+
+func (e ErrorNotSupported) Error() string {
+	return fmt.Sprintf("unsupported strategy '%d'", e.strategy)
+}
+
+func (e ErrorNotSupported) Strategy() SegmentStrategy {
+	return e.strategy
 }
