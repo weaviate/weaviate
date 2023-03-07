@@ -616,7 +616,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				}
 
 				t.Run("can import", func(t *testing.T) {
-					batchRes, err := repo.BatchPutObjects(context.Background(), batch)
+					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
 					require.Nil(t, err)
 
 					assert.Nil(t, batchRes[0].Err)
