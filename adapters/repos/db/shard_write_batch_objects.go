@@ -134,6 +134,7 @@ func (b *objectsBatcher) Objects(ctx context.Context,
 
 	b.init(objects)
 	b.storeInObjectStore(ctx)
+	b.markDeletedInVectorStorage(ctx)
 	b.storeAdditionalStorageWithWorkers(ctx)
 	b.flushWALs(ctx)
 	return b.errs
@@ -231,6 +232,28 @@ func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUI
 	b.statuses[id] = status
 }
 
+func (b *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
+	var docIDsToDelete []uint64
+	var positions []int
+	for pos, object := range b.objects {
+		status := b.statuses[object.ID()]
+		if status.docIDChanged {
+			docIDsToDelete = append(docIDsToDelete, status.oldDocID)
+			positions = append(positions, pos)
+		}
+	}
+
+	if len(docIDsToDelete) == 0 {
+		return
+	}
+
+	if err := b.shard.vectorIndex.Delete(docIDsToDelete...); err != nil {
+		for _, pos := range positions {
+			b.setErrorAtIndex(err, pos)
+		}
+	}
+}
+
 // storeAdditionalStorageWithWorkers stores the object in all non-key-value
 // stores, such as the main vector index as well as the property-specific
 // indices, such as the geo-index.
@@ -287,9 +310,26 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 	}
 
 	if object.Vector != nil {
-		// vector is now optional as of
-		// https://github.com/weaviate/weaviate/issues/1800
-		if err := b.shard.updateVectorIndex(object.Vector, status); err != nil {
+		// By this time all required deletes (e.g. because of DocID changes) have
+		// already been grouped and performed in bulk. Only the insertions are
+		// left. The motivation for this change is explained in
+		// https://github.com/weaviate/weaviate/pull/2697.
+		//
+		// Before this change, two identical batches in sequence would lead to
+		// massive lock contention in the hnsw index, as each individual delete
+		// requires a costly RW.Lock() operation which first drains all "readers"
+		// which represent the regular imports. See "deleteVsInsertLock" inside the
+		// hnsw store.
+		//
+		// With the improved logic, we group all batches up front in a single call,
+		// so this highly concurrent method no longer needs to compete for those
+		// expensive locks.
+		//
+		// Since this behavior is exclusive to batching, we can no longer call
+		// shard.updateVectorIndex which would also handle the delete as required
+		// for a non-batch update. Instead a new method has been introduced that
+		// ignores deletes.
+		if err := b.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
 			b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 			return
 		}
