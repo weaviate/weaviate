@@ -3,7 +3,7 @@
 # THIS IS NOT INTENDED FOR USERS !!
 #
 # To get a docker-compose file to run Weaviate, please follow the instructions at
-# https://www.semi.technology/developers/weaviate/current/getting-started/installation.html#customize-your-weaviate-setup
+# https://weaviate.io/developers/weaviate/installation/docker-compose
 ##
 version: '3.4'
 services:
