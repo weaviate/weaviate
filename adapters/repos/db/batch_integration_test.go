@@ -584,6 +584,55 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			})
 		})
 
+		t.Run("upserting the same objects over and over again", func(t *testing.T) {
+			for i := 0; i < 20; i++ {
+				batch := objects.BatchObjects{
+					objects.BatchObject{
+						OriginalIndex: 0,
+						Err:           nil,
+						Object: &models.Object{
+							Class: "ThingForBatching",
+							Properties: map[string]interface{}{
+								"stringProp": "first element",
+							},
+							ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+						},
+						UUID:   "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+						Vector: []float32{1, 2, 3},
+					},
+					objects.BatchObject{
+						OriginalIndex: 1,
+						Err:           nil,
+						Object: &models.Object{
+							Class: "ThingForBatching",
+							Properties: map[string]interface{}{
+								"stringProp": "third element",
+							},
+							ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+						},
+						UUID:   "90ade18e-2b99-4903-aa34-1d5d648c932d",
+						Vector: []float32{1, 1, -3},
+					},
+				}
+
+				t.Run("can import", func(t *testing.T) {
+					batchRes, err := repo.BatchPutObjects(context.Background(), batch)
+					require.Nil(t, err)
+
+					assert.Nil(t, batchRes[0].Err)
+					assert.Nil(t, batchRes[1].Err)
+				})
+
+				t.Run("a vector search returns the correct number of elements", func(t *testing.T) {
+					res, err := repo.ClassVectorSearch(context.Background(), "ThingForBatching",
+						[]float32{1, 2, 3}, 0, 100, nil)
+					require.Nil(t, err)
+					assert.Len(t, res, 2)
+				})
+
+			}
+		})
+
 		t.Run("with a duplicate UUID", func(t *testing.T) {
 			// it should ignore the first one as the second one would overwrite the
 			// first one anyway
