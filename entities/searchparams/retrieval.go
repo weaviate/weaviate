@@ -19,9 +19,10 @@ type NearVector struct {
 }
 
 type KeywordRanking struct {
-	Type       string   `json:"type"`
-	Properties []string `json:"properties"`
-	Query      string   `json:"query"`
+	Type                   string   `json:"type"`
+	Properties             []string `json:"properties"`
+	Query                  string   `json:"query"`
+	AdditionalExplanations bool     `json:"additionalExplanations"`
 }
 
 type WeightedSearchResult struct {

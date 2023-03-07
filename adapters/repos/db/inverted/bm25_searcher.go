@@ -94,7 +94,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		return nil, nil, err
 	}
 
-	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking.Query, keywordRanking.Properties, limit)
+	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
@@ -124,14 +124,15 @@ func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowLi
 	indexed := p.IndexInverted
 
 	if indexed == nil || *indexed {
-		return b.wand(ctx, filterDocIds, class, keywordRanking.Query, keywordRanking.Properties[:1], limit)
+		keywordRanking.Properties = keywordRanking.Properties[:1]
+		return b.wand(ctx, filterDocIds, class, keywordRanking, limit)
 	} else {
 		return []*storobj.Object{}, []float32{}, nil
 	}
 }
 
 func (b *BM25Searcher) wand(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, fullQuery string, properties []string, limit int,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params *searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
@@ -149,18 +150,18 @@ func (b *BM25Searcher) wand(
 	// Text, string and field.
 	// For the first two the query is tokenized accordingly and for the last one the full query is used. The respective
 	// properties are then searched for the search terms and the results at the end are combined using WAND
-	queryTextTerms, duplicateTextBoost := helpers.TokenizeTextAndCountDuplicates(fullQuery)
+	queryTextTerms, duplicateTextBoost := helpers.TokenizeTextAndCountDuplicates(params.Query)
 	queryTextTerms, duplicateTextBoost = b.removeStopwordsFromQueryTerms(queryTextTerms, duplicateTextBoost, stopWordDetector)
 	// No stopword filtering for strings as they should retain the value as is
-	queryStringTerms, duplicateStringBoost := helpers.TokenizeStringAndCountDuplicates(fullQuery)
+	queryStringTerms, duplicateStringBoost := helpers.TokenizeStringAndCountDuplicates(params.Query)
 
 	propertyNamesFullQuery := make([]string, 0)
 	propertyNamesText := make([]string, 0)
 	propertyNamesString := make([]string, 0)
-	propertyBoosts := make(map[string]float32, len(properties))
+	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	averagePropLength := 0.
-	for _, propertyWithBoost := range properties {
+	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
 		propBoost := 1
 		if strings.Contains(propertyWithBoost, "^") {
@@ -194,7 +195,7 @@ func (b *BM25Searcher) wand(
 		}
 	}
 
-	averagePropLength = averagePropLength / float64(len(properties))
+	averagePropLength = averagePropLength / float64(len(params.Properties))
 
 	// preallocate the results (+1 is for full query)
 	fullQueryLength := 0
@@ -219,7 +220,7 @@ func (b *BM25Searcher) wand(
 			queryTerm := queryTextTerms[i]
 			j := i
 			eg.Go(func() error {
-				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j])
+				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j], params.AdditionalExplanations)
 				if err != nil {
 					return err
 				}
@@ -237,7 +238,7 @@ func (b *BM25Searcher) wand(
 			j := ind + textLength
 
 			eg.Go(func() error {
-				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind])
+				termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind], params.AdditionalExplanations)
 				if err != nil {
 					return err
 				}
@@ -251,7 +252,7 @@ func (b *BM25Searcher) wand(
 	if len(propertyNamesFullQuery) > 0 {
 		lengthPreviousResults := stringLength + textLength
 		eg.Go(func() error {
-			termResult, docIndices, err := b.createTerm(N, filterDocIds, fullQuery, propertyNamesFullQuery, propertyBoosts, 1)
+			termResult, docIndices, err := b.createTerm(N, filterDocIds, params.Query, propertyNamesFullQuery, propertyBoosts, 1, params.AdditionalExplanations)
 			if err != nil {
 				return err
 			}
@@ -276,7 +277,7 @@ func (b *BM25Searcher) wand(
 	copy(resultsOriginalOrder, results)
 
 	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
-	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices)
+	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string, duplicateBoost []int, detector *stopwords.Detector) ([]string, []int) {
@@ -304,7 +305,7 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []map[uint64]int) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []map[uint64]int, additionalExplanations bool) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return nil, nil, errors.Errorf("objects bucket not found")
@@ -328,15 +329,17 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 			return nil, nil, err
 		}
 
-		// add score explanation
-		if obj.AdditionalProperties() == nil {
-			obj.Object.Additional = make(map[string]interface{})
-		}
-		for j, result := range results {
-			if termIndice, ok := indices[j][res.ID]; ok {
-				queryTerm := result.queryTerm
-				obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
-				obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
+		if additionalExplanations {
+			// add score explanation
+			if obj.AdditionalProperties() == nil {
+				obj.Object.Additional = make(map[string]interface{})
+			}
+			for j, result := range results {
+				if termIndice, ok := indices[j][res.ID]; ok {
+					queryTerm := result.queryTerm
+					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
+					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
+				}
 			}
 		}
 		objects = append(objects, obj)
@@ -369,7 +372,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 	}
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int) (term, map[uint64]int, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (term, map[uint64]int, error) {
 	var docMapPairs []docPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}
@@ -404,6 +407,18 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			continue
 		}
 
+		// The indices are needed for two things:
+		// a) combining the results of different properties
+		// b) Retrieve additional information that helps to understand the results when debugging. The retrieval is done
+		//    in a later step, after it is clear which objects are the most relevant
+		//
+		// When b) is not needed the results from the last property do not need to be added to the index-map as there
+		// won't be any follow-up combinations.
+		includeIndicesForLastElement := false
+		if additionalExplanations || propName != propertyNames[len(propertyNames)-1] {
+			includeIndicesForLastElement = true
+		}
+
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
 			docMapPairs = make([]docPointerWithScore, 0, len(m))
@@ -417,7 +432,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 						frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 						propLength: math.Float32frombits(propLenBits),
 					})
-				docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+				if includeIndicesForLastElement {
+					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+				}
 			}
 		} else {
 			for _, val := range m {
@@ -435,7 +452,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 							propLength: math.Float32frombits(propLenBits),
 						})
-					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
+					if includeIndicesForLastElement {
+						docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
+					}
 				}
 			}
 		}

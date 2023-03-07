@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func ExtractHybridSearch(source map[string]interface{}) (*searchparams.HybridSearch, error) {
+func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, error) {
 	var subsearches []interface{}
 	operands_i := source["operands"]
 	if operands_i != nil {
@@ -36,7 +36,7 @@ func ExtractHybridSearch(source map[string]interface{}) (*searchparams.HybridSea
 		switch {
 		case subsearch["sparseSearch"] != nil:
 			bm25 := subsearch["sparseSearch"].(map[string]interface{})
-			arguments := ExtractBM25(bm25)
+			arguments := ExtractBM25(bm25, explainScore)
 
 			weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
 				SearchParams: arguments,
