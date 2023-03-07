@@ -12,6 +12,12 @@ ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
 COPY go.mod .
 COPY go.sum .
+#GW
+RUN pwd
+RUN ls -als
+RUN go mod edit -replace example.com/gemini=/go/src/github.com/weaviate/weaviate/gsi/gemini
+RUN go mod tidy
+#GW
 RUN go mod download
 
 ###############################################################################
