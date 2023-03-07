@@ -86,37 +86,37 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 					{
 						Name:              "view complete schema",
 						Href:              fmt.Sprintf("%s/v1/schema", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/schema.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/schema",
 					},
 					{
 						Name:              "CRUD schema",
 						Href:              fmt.Sprintf("%s/v1/schema{/:className}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/schema.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/schema",
 					},
 					{
 						Name:              "CRUD objects",
 						Href:              fmt.Sprintf("%s/v1/objects{/:id}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/objects.html",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/objects",
 					},
 					{
 						Name:              "trigger and view status of classifications",
 						Href:              fmt.Sprintf("%s/v1/classifications{/:id}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/modules/text2vec-contextionary.html#contextual-classification,https://weaviate.io/developers/weaviate/current/restful-api-references/classification.html#knn-classification",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/classification,https://weaviate.io/developers/weaviate/api/rest/classification#knn-classification",
 					},
 					{
 						Name:              "check if Weaviate is live (returns 200 on GET when live)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/live", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#liveness",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/well-known#liveness",
 					},
 					{
 						Name:              "check if Weaviate is ready (returns 200 on GET when ready)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/ready", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#readiness",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/well-known#readiness",
 					},
 					{
 						Name:              "view link to openid configuration (returns 404 on GET if no openid is configured)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/openid-configuration", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/current/restful-api-references/well-known.html#openid-configuration",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/well-known#openid-configuration",
 					},
 				},
 			}
