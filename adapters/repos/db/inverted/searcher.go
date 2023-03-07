@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -34,6 +35,7 @@ import (
 )
 
 type Searcher struct {
+	logger        logrus.FieldLogger
 	store         *lsmkv.Store
 	schema        schema.Schema
 	rowCache      cacher
@@ -53,12 +55,14 @@ type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
-func NewSearcher(store *lsmkv.Store, schema schema.Schema,
-	rowCache cacher, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	stopwords stopwords.StopwordDetector, shardVersion uint16,
+func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
+	schema schema.Schema, rowCache cacher,
+	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
+	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
+	shardVersion uint16,
 ) *Searcher {
 	return &Searcher{
+		logger:        logger,
 		store:         store,
 		schema:        schema,
 		rowCache:      rowCache,
@@ -276,7 +280,8 @@ func (s *Searcher) extractReferenceFilter(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
 	ctx := context.TODO()
-	return newRefFilterExtractor(s.classSearcher, filter, className, s.schema).Do(ctx)
+	return newRefFilterExtractor(s.logger, s.classSearcher, filter, className, s.schema).
+		Do(ctx)
 }
 
 func (s *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,

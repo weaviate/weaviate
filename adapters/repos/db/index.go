@@ -801,8 +801,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
-	outObjects := make([]*storobj.Object, 0, len(shardNames)*limit)
-	outScores := make([]float32, 0, len(shardNames)*limit)
+	perShardLimit := config.DefaultQueryMaximumResults
+	if perShardLimit > int64(limit) {
+		perShardLimit = int64(limit)
+	}
+	cap := perShardLimit * int64(len(shardNames))
+
+	outObjects := make([]*storobj.Object, 0, cap)
+	outScores := make([]float32, 0, cap)
+
 	for _, shardName := range shardNames {
 		local := i.getSchema.
 			ShardingState(i.Config.ClassName.String()).
@@ -866,7 +873,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	} else if keywordRanking != nil {
 		outObjects, outScores = i.sortKeywordRanking(outObjects, outScores)
-	} else if len(shardNames) > 1 {
+	} else if len(shardNames) > 1 && !additional.ReferenceQuery {
+		// sort only for multiple shards (already sorted for single)
+		// and for not reference nested query (sort is applied for root query)
 		outObjects, outScores = i.sortByID(outObjects, outScores)
 	}
 
