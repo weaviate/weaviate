@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
@@ -572,6 +573,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstggcs.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modstgazure.Name]; ok {
+		appState.Modules.Register(modstgazure.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modstgazure.Name).
 			Debug("enabled module")
 	}
 
