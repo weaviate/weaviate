@@ -83,8 +83,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResource: "objects/foo",
 		},
 		{
-			methodName:       "MergeObject",
-			additionalArgs:   []interface{}{&models.Object{Class: "class", ID: "foo"}},
+			methodName: "MergeObject",
+			additionalArgs: []interface{}{
+				&models.Object{Class: "class", ID: "foo"},
+				(*additional.ReplicationProperties)(nil),
+			},
 			expectedVerb:     "update",
 			expectedResource: "objects/class/foo",
 		},
@@ -205,22 +208,34 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		// },
 
 		{
-			methodName:       "AddObjects",
-			additionalArgs:   []interface{}{[]*models.Object{}, []*string{}},
+			methodName: "AddObjects",
+			additionalArgs: []interface{}{
+				[]*models.Object{},
+				[]*string{},
+				&additional.ReplicationProperties{},
+			},
 			expectedVerb:     "create",
 			expectedResource: "batch/objects",
 		},
 
 		{
-			methodName:       "AddReferences",
-			additionalArgs:   []interface{}{[]*models.BatchReference{}},
+			methodName: "AddReferences",
+			additionalArgs: []interface{}{
+				[]*models.BatchReference{},
+				&additional.ReplicationProperties{},
+			},
 			expectedVerb:     "update",
 			expectedResource: "batch/*",
 		},
 
 		{
-			methodName:       "DeleteObjects",
-			additionalArgs:   []interface{}{&models.BatchDeleteMatch{}, (*bool)(nil), (*string)(nil)},
+			methodName: "DeleteObjects",
+			additionalArgs: []interface{}{
+				&models.BatchDeleteMatch{},
+				(*bool)(nil),
+				(*string)(nil),
+				&additional.ReplicationProperties{},
+			},
 			expectedVerb:     "delete",
 			expectedResource: "batch/objects",
 		},

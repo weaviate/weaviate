@@ -69,6 +69,51 @@ func (o *BatchObjectsDeleteOK) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// BatchObjectsDeleteBadRequestCode is the HTTP code returned for type BatchObjectsDeleteBadRequest
+const BatchObjectsDeleteBadRequestCode int = 400
+
+/*
+BatchObjectsDeleteBadRequest Malformed request.
+
+swagger:response batchObjectsDeleteBadRequest
+*/
+type BatchObjectsDeleteBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewBatchObjectsDeleteBadRequest creates BatchObjectsDeleteBadRequest with default headers values
+func NewBatchObjectsDeleteBadRequest() *BatchObjectsDeleteBadRequest {
+
+	return &BatchObjectsDeleteBadRequest{}
+}
+
+// WithPayload adds the payload to the batch objects delete bad request response
+func (o *BatchObjectsDeleteBadRequest) WithPayload(payload *models.ErrorResponse) *BatchObjectsDeleteBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the batch objects delete bad request response
+func (o *BatchObjectsDeleteBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *BatchObjectsDeleteBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // BatchObjectsDeleteUnauthorizedCode is the HTTP code returned for type BatchObjectsDeleteUnauthorized
 const BatchObjectsDeleteUnauthorizedCode int = 401
 

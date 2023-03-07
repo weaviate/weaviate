@@ -99,10 +99,6 @@ func stringArrayTokenize(tokenization string, in []string) []string {
 func (a *Analyzer) countParts(parts []string) []Countable {
 	terms := map[string]uint64{}
 	for _, word := range parts {
-		if a.stopwords.IsStopword(word) {
-			continue
-		}
-
 		count, ok := terms[word]
 		if !ok {
 			terms[word] = 0

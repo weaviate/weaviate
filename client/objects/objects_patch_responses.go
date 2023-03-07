@@ -76,9 +76,8 @@ func (o *ObjectsPatchReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -88,14 +87,48 @@ func NewObjectsPatchNoContent() *ObjectsPatchNoContent {
 }
 
 /*
-ObjectsPatchNoContent handles this case with default header values.
+ObjectsPatchNoContent describes a response with status code 204, with default header values.
 
 Successfully applied. No content provided.
 */
 type ObjectsPatchNoContent struct {
 }
 
+// IsSuccess returns true when this objects patch no content response has a 2xx status code
+func (o *ObjectsPatchNoContent) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects patch no content response has a 3xx status code
+func (o *ObjectsPatchNoContent) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch no content response has a 4xx status code
+func (o *ObjectsPatchNoContent) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects patch no content response has a 5xx status code
+func (o *ObjectsPatchNoContent) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects patch no content response a status code equal to that given
+func (o *ObjectsPatchNoContent) IsCode(code int) bool {
+	return code == 204
+}
+
+// Code gets the status code for the objects patch no content response
+func (o *ObjectsPatchNoContent) Code() int {
+	return 204
+}
+
 func (o *ObjectsPatchNoContent) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent ", 204)
+}
+
+func (o *ObjectsPatchNoContent) String() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNoContent ", 204)
 }
 
@@ -110,14 +143,48 @@ func NewObjectsPatchBadRequest() *ObjectsPatchBadRequest {
 }
 
 /*
-ObjectsPatchBadRequest handles this case with default header values.
+ObjectsPatchBadRequest describes a response with status code 400, with default header values.
 
 The patch-JSON is malformed.
 */
 type ObjectsPatchBadRequest struct {
 }
 
+// IsSuccess returns true when this objects patch bad request response has a 2xx status code
+func (o *ObjectsPatchBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects patch bad request response has a 3xx status code
+func (o *ObjectsPatchBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch bad request response has a 4xx status code
+func (o *ObjectsPatchBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects patch bad request response has a 5xx status code
+func (o *ObjectsPatchBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects patch bad request response a status code equal to that given
+func (o *ObjectsPatchBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the objects patch bad request response
+func (o *ObjectsPatchBadRequest) Code() int {
+	return 400
+}
+
 func (o *ObjectsPatchBadRequest) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest ", 400)
+}
+
+func (o *ObjectsPatchBadRequest) String() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchBadRequest ", 400)
 }
 
@@ -132,14 +199,48 @@ func NewObjectsPatchUnauthorized() *ObjectsPatchUnauthorized {
 }
 
 /*
-ObjectsPatchUnauthorized handles this case with default header values.
+ObjectsPatchUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsPatchUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects patch unauthorized response has a 2xx status code
+func (o *ObjectsPatchUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects patch unauthorized response has a 3xx status code
+func (o *ObjectsPatchUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch unauthorized response has a 4xx status code
+func (o *ObjectsPatchUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects patch unauthorized response has a 5xx status code
+func (o *ObjectsPatchUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects patch unauthorized response a status code equal to that given
+func (o *ObjectsPatchUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects patch unauthorized response
+func (o *ObjectsPatchUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsPatchUnauthorized) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized ", 401)
+}
+
+func (o *ObjectsPatchUnauthorized) String() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnauthorized ", 401)
 }
 
@@ -154,7 +255,7 @@ func NewObjectsPatchForbidden() *ObjectsPatchForbidden {
 }
 
 /*
-ObjectsPatchForbidden handles this case with default header values.
+ObjectsPatchForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -162,7 +263,41 @@ type ObjectsPatchForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects patch forbidden response has a 2xx status code
+func (o *ObjectsPatchForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects patch forbidden response has a 3xx status code
+func (o *ObjectsPatchForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch forbidden response has a 4xx status code
+func (o *ObjectsPatchForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects patch forbidden response has a 5xx status code
+func (o *ObjectsPatchForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects patch forbidden response a status code equal to that given
+func (o *ObjectsPatchForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects patch forbidden response
+func (o *ObjectsPatchForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsPatchForbidden) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsPatchForbidden) String() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchForbidden  %+v", 403, o.Payload)
 }
 
@@ -188,14 +323,48 @@ func NewObjectsPatchNotFound() *ObjectsPatchNotFound {
 }
 
 /*
-ObjectsPatchNotFound handles this case with default header values.
+ObjectsPatchNotFound describes a response with status code 404, with default header values.
 
 Successful query result but no resource was found.
 */
 type ObjectsPatchNotFound struct {
 }
 
+// IsSuccess returns true when this objects patch not found response has a 2xx status code
+func (o *ObjectsPatchNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects patch not found response has a 3xx status code
+func (o *ObjectsPatchNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch not found response has a 4xx status code
+func (o *ObjectsPatchNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects patch not found response has a 5xx status code
+func (o *ObjectsPatchNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects patch not found response a status code equal to that given
+func (o *ObjectsPatchNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the objects patch not found response
+func (o *ObjectsPatchNotFound) Code() int {
+	return 404
+}
+
 func (o *ObjectsPatchNotFound) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound ", 404)
+}
+
+func (o *ObjectsPatchNotFound) String() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchNotFound ", 404)
 }
 
@@ -210,7 +379,7 @@ func NewObjectsPatchUnprocessableEntity() *ObjectsPatchUnprocessableEntity {
 }
 
 /*
-ObjectsPatchUnprocessableEntity handles this case with default header values.
+ObjectsPatchUnprocessableEntity describes a response with status code 422, with default header values.
 
 The patch-JSON is valid but unprocessable.
 */
@@ -218,7 +387,41 @@ type ObjectsPatchUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects patch unprocessable entity response has a 2xx status code
+func (o *ObjectsPatchUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects patch unprocessable entity response has a 3xx status code
+func (o *ObjectsPatchUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch unprocessable entity response has a 4xx status code
+func (o *ObjectsPatchUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects patch unprocessable entity response has a 5xx status code
+func (o *ObjectsPatchUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects patch unprocessable entity response a status code equal to that given
+func (o *ObjectsPatchUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the objects patch unprocessable entity response
+func (o *ObjectsPatchUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *ObjectsPatchUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsPatchUnprocessableEntity) String() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -244,7 +447,7 @@ func NewObjectsPatchInternalServerError() *ObjectsPatchInternalServerError {
 }
 
 /*
-ObjectsPatchInternalServerError handles this case with default header values.
+ObjectsPatchInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -252,7 +455,41 @@ type ObjectsPatchInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects patch internal server error response has a 2xx status code
+func (o *ObjectsPatchInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects patch internal server error response has a 3xx status code
+func (o *ObjectsPatchInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch internal server error response has a 4xx status code
+func (o *ObjectsPatchInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects patch internal server error response has a 5xx status code
+func (o *ObjectsPatchInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects patch internal server error response a status code equal to that given
+func (o *ObjectsPatchInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects patch internal server error response
+func (o *ObjectsPatchInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsPatchInternalServerError) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsPatchInternalServerError) String() string {
 	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchInternalServerError  %+v", 500, o.Payload)
 }
 

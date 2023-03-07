@@ -98,20 +98,19 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
-	RootPath                         string
-	QueryLimit                       int64
-	QueryMaximumResults              int64
-	ResourceUsage                    config.ResourceUsage
-	MaxImportGoroutinesFactor        float64
-	MemtablesFlushIdleAfter          int
-	MemtablesInitialSizeMB           int
-	MemtablesMaxSizeMB               int
-	MemtablesMinActiveSeconds        int
-	MemtablesMaxActiveSeconds        int
-	TrackVectorDimensions            bool
-	ReindexVectorDimensionsAtStartup bool
-	ServerVersion                    string
-	GitHash                          string
+	RootPath                  string
+	QueryLimit                int64
+	QueryMaximumResults       int64
+	ResourceUsage             config.ResourceUsage
+	MaxImportGoroutinesFactor float64
+	MemtablesFlushIdleAfter   int
+	MemtablesInitialSizeMB    int
+	MemtablesMaxSizeMB        int
+	MemtablesMinActiveSeconds int
+	MemtablesMaxActiveSeconds int
+	TrackVectorDimensions     bool
+	ServerVersion             string
+	GitHash                   string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

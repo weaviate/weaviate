@@ -30,6 +30,8 @@ type ObjectsClassHeadURL struct {
 	ClassName string
 	ID        strfmt.UUID
 
+	ConsistencyLevel *string
+
 	_basePath string
 	// avoid unkeyed usage
 	_ struct{}
@@ -75,6 +77,18 @@ func (o *ObjectsClassHeadURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var consistencyLevelQ string
+	if o.ConsistencyLevel != nil {
+		consistencyLevelQ = *o.ConsistencyLevel
+	}
+	if consistencyLevelQ != "" {
+		qs.Set("consistency_level", consistencyLevelQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

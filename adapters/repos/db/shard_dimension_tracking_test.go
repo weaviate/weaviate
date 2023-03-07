@@ -42,11 +42,10 @@ func Benchmark_Migration(b *testing.B) {
 			logger := logrus.New()
 			schemaGetter := &fakeSchemaGetter{shardState: shardState}
 			repo := New(logger, Config{
-				RootPath:                         dirName,
-				QueryMaximumResults:              1000,
-				MaxImportGoroutinesFactor:        1,
-				TrackVectorDimensions:            true,
-				ReindexVectorDimensionsAtStartup: false,
+				RootPath:                  dirName,
+				QueryMaximumResults:       1000,
+				MaxImportGoroutinesFactor: 1,
+				TrackVectorDimensions:     true,
 			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 			repo.SetSchemaGetter(schemaGetter)
 			err := repo.WaitForStartup(testCtx())
@@ -81,7 +80,7 @@ func Benchmark_Migration(b *testing.B) {
 
 				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 				obj := &models.Object{Class: "Test", ID: id}
-				err := repo.PutObject(context.Background(), obj, vec)
+				err := repo.PutObject(context.Background(), obj, vec, nil)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -89,7 +88,6 @@ func Benchmark_Migration(b *testing.B) {
 
 			fmt.Printf("Added vectors, now migrating\n")
 
-			repo.config.ReindexVectorDimensionsAtStartup = true
 			repo.config.TrackVectorDimensions = true
 			migrator.RecalculateVectorDimensions(context.TODO())
 			fmt.Printf("Benchmark complete")
@@ -106,11 +104,10 @@ func Test_Migration(t *testing.T) {
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: shardState}
 	repo := New(logger, Config{
-		RootPath:                         dirName,
-		QueryMaximumResults:              1000,
-		MaxImportGoroutinesFactor:        1,
-		TrackVectorDimensions:            true,
-		ReindexVectorDimensionsAtStartup: false,
+		RootPath:                  dirName,
+		QueryMaximumResults:       1000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(testCtx())
@@ -149,7 +146,7 @@ func Test_Migration(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec)
+			err := repo.PutObject(context.Background(), obj, vec, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -158,7 +155,6 @@ func Test_Migration(t *testing.T) {
 
 	dimBefore := GetDimensionsFromRepo(repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
-	repo.config.ReindexVectorDimensionsAtStartup = true
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
 	dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -213,7 +209,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec)
+			err := repo.PutObject(context.Background(), obj, vec, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -225,7 +221,7 @@ func Test_DimensionTracking(t *testing.T) {
 		for i := 100; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -242,7 +238,7 @@ func Test_DimensionTracking(t *testing.T) {
 		dimBefore := GetDimensionsFromRepo(repo, "Test")
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			err := repo.DeleteObject(context.Background(), "Test", id)
+			err := repo.DeleteObject(context.Background(), "Test", id, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -268,7 +264,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec)
+			err := repo.PutObject(context.Background(), obj, vec, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -282,7 +278,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -309,7 +305,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec)
+			err := repo.PutObject(context.Background(), obj, vec, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -323,7 +319,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")

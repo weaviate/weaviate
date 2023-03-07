@@ -14,13 +14,13 @@ package get
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 // Resolver is a local abstraction of the required UC resolvers
 type Resolver interface {
-	GetClass(ctx context.Context, principal *models.Principal, info traverser.GetParams) (interface{}, error)
+	GetClass(ctx context.Context, principal *models.Principal, info dto.GetParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be

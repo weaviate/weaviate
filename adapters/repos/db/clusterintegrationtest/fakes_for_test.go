@@ -156,6 +156,11 @@ func (f *fakeSchemaManager) ClusterHealthScore() int {
 	return 0
 }
 
+func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
+) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
 type nodeResolver struct {
 	nodes *[]*node
 	local string

@@ -24,11 +24,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func TestRestartJourney(t *testing.T) {
@@ -81,8 +81,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "the band is just fantastic that is really what I think",
 			},
-		},
-			[]float32{0.1, 0.2, 0.3})
+		}, []float32{0.1, 0.2, 0.3}, nil)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -91,8 +90,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "oh by the way, which one's pink?",
 			},
-		},
-			[]float32{-0.1, 0.2, -0.3})
+		}, []float32{-0.1, 0.2, -0.3}, nil)
 		require.Nil(t, err)
 	})
 
@@ -150,7 +148,7 @@ func TestRestartJourney(t *testing.T) {
 
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := repo.VectorClassSearch(context.Background(),
-				traverser.GetParams{
+				dto.GetParams{
 					ClassName:    "Class",
 					SearchVector: []float32{0.05, 0.1, 0.15},
 					Pagination: &filters.Pagination{
@@ -234,7 +232,7 @@ func TestRestartJourney(t *testing.T) {
 
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := newRepo.VectorClassSearch(context.Background(),
-				traverser.GetParams{
+				dto.GetParams{
 					ClassName:    "Class",
 					SearchVector: []float32{0.05, 0.1, 0.15},
 					Pagination: &filters.Pagination{

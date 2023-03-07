@@ -32,6 +32,10 @@ weaviate-wikipedia-*
 # the local path when extracting the wiki dataset
 var/weaviate/
 
+# IDE files
+.idea
+.vscode/
+
 # ignore archives, they are most likely part of some debugging and never part of actual code
 *.tar.gz
 

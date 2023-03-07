@@ -58,6 +58,11 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 	return 0
 }
 
+func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
+) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
 func singleShardState() *sharding.State {
 	config, err := sharding.ParseConfig(nil, 1)
 	if err != nil {
@@ -119,9 +124,7 @@ func (f fakeNodes) LocalName() string {
 
 type fakeRemoteClient struct{}
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName,
-	shardName string, obj []*storobj.Object,
-) []error {
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
 	return nil
 }
 
@@ -132,13 +135,6 @@ func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
-) (*storobj.Object, error) {
-	return nil, nil
-}
-
-func (f *fakeRemoteClient) FindObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
@@ -172,7 +168,7 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties,
+	cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -275,4 +271,35 @@ func (f *fakeReplicationClient) Commit(ctx context.Context, host, index, shard, 
 
 func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
+}
+
+func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID,
+) (bool, error) {
+	return false, nil
+}
+
+func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
+	shardName string, id strfmt.UUID, props search.SelectProperties,
+	additional additional.Properties,
+) (objects.Replica, error) {
+	return objects.Replica{}, nil
+}
+
+func (*fakeReplicationClient) DigestObjects(ctx context.Context,
+	hostName, indexName, shardName string, ids []strfmt.UUID,
+) (result []replica.RepairResponse, err error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
+	index, shard string, ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
+	host, index, shard string, objects []*objects.VObject,
+) ([]replica.RepairResponse, error) {
+	return nil, nil
 }

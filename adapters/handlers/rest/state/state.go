@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -37,6 +38,7 @@ import (
 type State struct {
 	OIDC                  *oidc.Client
 	AnonymousAccess       *anonymous.Client
+	APIKey                *apikey.Client
 	Authorizer            authorization.Authorizer
 	ServerConfig          *config.WeaviateConfig
 	Locks                 locks.ConnectorSchemaLock

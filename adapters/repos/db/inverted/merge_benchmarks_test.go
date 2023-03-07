@@ -16,99 +16,97 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
-
-	"github.com/weaviate/weaviate/entities/filters"
 )
 
-func BenchmarkAnd10k1m_Old(b *testing.B) {
-	b.StopTimer()
+// func BenchmarkAnd10k1m_Old(b *testing.B) {
+// 	b.StopTimer()
 
-	list1 := propValuePair{
-		docIDs: docPointers{
-			docIDs:   randomIDs(1e4),
-			checksum: []byte{0x01},
-		},
-		operator: filters.OperatorEqual,
-	}
+// 	list1 := propValuePair{
+// 		docIDs: docPointers{
+// 			docIDs:   randomIDs(1e4),
+// 			checksum: []byte{0x01},
+// 		},
+// 		operator: filters.OperatorEqual,
+// 	}
 
-	list2 := propValuePair{
-		docIDs: docPointers{
-			docIDs:   randomIDs(1e6),
-			checksum: []byte{0x02},
-		},
-		operator: filters.OperatorEqual,
-	}
+// 	list2 := propValuePair{
+// 		docIDs: docPointers{
+// 			docIDs:   randomIDs(1e6),
+// 			checksum: []byte{0x02},
+// 		},
+// 		operator: filters.OperatorEqual,
+// 	}
 
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		mergeAnd([]*propValuePair{&list1, &list2}, false)
-	}
-}
+// 	b.StartTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		mergeAnd([]*propValuePair{&list1, &list2}, false)
+// 	}
+// }
 
-func BenchmarkAnd10k1m_Optimized(b *testing.B) {
-	b.StopTimer()
+// func BenchmarkAnd10k1m_Optimized(b *testing.B) {
+// 	b.StopTimer()
 
-	list1 := propValuePair{
-		docIDs: docPointers{
-			docIDs:   randomIDs(1e4),
-			checksum: []byte{0x01},
-		},
-		operator: filters.OperatorEqual,
-	}
+// 	list1 := propValuePair{
+// 		docIDs: docPointers{
+// 			docIDs:   randomIDs(1e4),
+// 			checksum: []byte{0x01},
+// 		},
+// 		operator: filters.OperatorEqual,
+// 	}
 
-	list2 := propValuePair{
-		docIDs: docPointers{
-			docIDs:   randomIDs(1e6),
-			checksum: []byte{0x02},
-		},
-		operator: filters.OperatorEqual,
-	}
+// 	list2 := propValuePair{
+// 		docIDs: docPointers{
+// 			docIDs:   randomIDs(1e6),
+// 			checksum: []byte{0x02},
+// 		},
+// 		operator: filters.OperatorEqual,
+// 	}
 
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		mergeAndOptimized([]*propValuePair{&list1, &list2}, false)
-	}
-}
+// 	b.StartTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		mergeAndOptimized([]*propValuePair{&list1, &list2}, false)
+// 	}
+// }
 
-func BenchmarkMultipleListsOf20k_Old(b *testing.B) {
-	b.StopTimer()
+// func BenchmarkMultipleListsOf20k_Old(b *testing.B) {
+// 	b.StopTimer()
 
-	lists := make([]*propValuePair, 10)
-	for i := range lists {
-		lists[i] = &propValuePair{
-			docIDs: docPointers{
-				docIDs:   randomIDs(2e4),
-				checksum: []byte{uint8(i)},
-			},
-			operator: filters.OperatorEqual,
-		}
-	}
+// 	lists := make([]*propValuePair, 10)
+// 	for i := range lists {
+// 		lists[i] = &propValuePair{
+// 			docIDs: docPointers{
+// 				docIDs:   randomIDs(2e4),
+// 				checksum: []byte{uint8(i)},
+// 			},
+// 			operator: filters.OperatorEqual,
+// 		}
+// 	}
 
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		mergeAnd(lists, false)
-	}
-}
+// 	b.StartTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		mergeAnd(lists, false)
+// 	}
+// }
 
-func BenchmarkMultipleListsOf20k_Optimized(b *testing.B) {
-	b.StopTimer()
+// func BenchmarkMultipleListsOf20k_Optimized(b *testing.B) {
+// 	b.StopTimer()
 
-	lists := make([]*propValuePair, 10)
-	for i := range lists {
-		lists[i] = &propValuePair{
-			docIDs: docPointers{
-				docIDs:   randomIDs(2e4),
-				checksum: []byte{uint8(i)},
-			},
-			operator: filters.OperatorEqual,
-		}
-	}
+// 	lists := make([]*propValuePair, 10)
+// 	for i := range lists {
+// 		lists[i] = &propValuePair{
+// 			docIDs: docPointers{
+// 				docIDs:   randomIDs(2e4),
+// 				checksum: []byte{uint8(i)},
+// 			},
+// 			operator: filters.OperatorEqual,
+// 		}
+// 	}
 
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		mergeAndOptimized(lists, false)
-	}
-}
+// 	b.StartTimer()
+// 	for i := 0; i < b.N; i++ {
+// 		mergeAndOptimized(lists, false)
+// 	}
+// }
 
 func BenchmarkSort10k(b *testing.B) {
 	for i := 0; i < b.N; i++ {

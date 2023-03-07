@@ -39,7 +39,7 @@ func Test_S3Backend_Backup(t *testing.T) {
 		t.Fatal(errors.Wrapf(err, "cannot start"))
 	}
 
-	require.Nil(t, os.Setenv(envMinioEndpoint, compose.GetMinIO().URI()))
+	t.Setenv(envMinioEndpoint, compose.GetMinIO().URI())
 
 	t.Run("store backup meta", moduleLevelStoreBackupMeta)
 	t.Run("copy objects", moduleLevelCopyObjects)
@@ -62,18 +62,16 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	endpoint := os.Getenv(envMinioEndpoint)
 	metadataFilename := "backup.json"
 
-	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envAwsRegion, region))
-		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
-		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
-		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
-
-		createBucket(testCtx, t, endpoint, region, bucketName)
-	})
+	t.Log("setup env")
+	t.Setenv(envAwsRegion, region)
+	t.Setenv(envS3AccessKey, "aws_access_key")
+	t.Setenv(envS3SecretKey, "aws_secret_key")
+	t.Setenv(envS3Bucket, bucketName)
+	createBucket(testCtx, t, endpoint, region, bucketName)
 
 	t.Run("store backup meta in s3", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envS3UseSSL, "false"))
-		require.Nil(t, os.Setenv(envS3Endpoint, endpoint))
+		t.Setenv(envS3UseSSL, "false")
+		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
 		err := s3.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
@@ -143,17 +141,16 @@ func moduleLevelCopyObjects(t *testing.T) {
 	region := "eu-west-1"
 	endpoint := os.Getenv(envMinioEndpoint)
 
-	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envAwsRegion, region))
-		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
-		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
-		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
-
-		createBucket(testCtx, t, endpoint, region, bucketName)
-	})
+	t.Log("setup env")
+	t.Setenv(envAwsRegion, region)
+	t.Setenv(envS3AccessKey, "aws_access_key")
+	t.Setenv(envS3SecretKey, "aws_secret_key")
+	t.Setenv(envS3Bucket, bucketName)
+	createBucket(testCtx, t, endpoint, region, bucketName)
 
 	t.Run("copy objects", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envS3Endpoint, endpoint))
+		t.Setenv(envS3UseSSL, "false")
+		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
 		err := s3.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
@@ -182,14 +179,12 @@ func moduleLevelCopyFiles(t *testing.T) {
 	region := "eu-west-1"
 	endpoint := os.Getenv(envMinioEndpoint)
 
-	t.Run("setup env", func(t *testing.T) {
-		require.Nil(t, os.Setenv(envAwsRegion, region))
-		require.Nil(t, os.Setenv(envS3AccessKey, "aws_access_key"))
-		require.Nil(t, os.Setenv(envS3SecretKey, "aws_secret_key"))
-		require.Nil(t, os.Setenv(envS3Bucket, bucketName))
-
-		createBucket(testCtx, t, endpoint, region, bucketName)
-	})
+	t.Log("setup env")
+	t.Setenv(envAwsRegion, region)
+	t.Setenv(envS3AccessKey, "aws_access_key")
+	t.Setenv(envS3SecretKey, "aws_secret_key")
+	t.Setenv(envS3Bucket, bucketName)
+	createBucket(testCtx, t, endpoint, region, bucketName)
 
 	t.Run("copy files", func(t *testing.T) {
 		fpaths := moduleshelper.CreateTestFiles(t, dataDir)
@@ -198,7 +193,8 @@ func moduleLevelCopyFiles(t *testing.T) {
 		require.Nil(t, err)
 		require.NotNil(t, expectedContents)
 
-		require.Nil(t, os.Setenv(envS3Endpoint, endpoint))
+		t.Setenv(envS3UseSSL, "false")
+		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
 		err = s3.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)

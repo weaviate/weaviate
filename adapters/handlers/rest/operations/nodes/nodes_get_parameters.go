@@ -24,7 +24,8 @@ import (
 )
 
 // NewNodesGetParams creates a new NodesGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewNodesGetParams() NodesGetParams {
 
 	return NodesGetParams{}

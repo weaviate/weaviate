@@ -27,48 +27,24 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 	docID uint64,
 ) error {
 	for _, prop := range props {
-		b := s.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-		if b == nil {
-			return errors.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
-
-		hashBucket := s.store.Bucket(helpers.HashBucketFromPropNameLSM(prop.Name))
-		if hashBucket == nil {
-			return errors.Errorf("no hash bucket for prop '%s' found", prop.Name)
-		}
-
-		if prop.HasFrequency {
-			for _, item := range prop.Items {
-				if err := s.extendInvertedIndexItemWithFrequencyLSM(b, hashBucket, item,
-					docID, item.TermFrequency, float32(len(prop.Items))); err != nil {
-					return errors.Wrapf(err, "extend index with item '%s'",
-						string(item.Data))
-				}
-			}
-		} else {
-			for _, item := range prop.Items {
-				if err := s.extendInvertedIndexItemLSM(b, hashBucket, item, docID); err != nil {
-					return errors.Wrapf(err, "extend index with item '%s'",
-						string(item.Data))
-				}
-			}
+		if err := s.addToPropertyValueIndex(docID, prop); err != nil {
+			return err
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if (len(prop.Name) > 12 && prop.Name[len(prop.Name)-12:] == "__meta_count") ||
-			prop.Name[0] == '_' {
+		if isMetaCountProperty(prop) || isInternalProperty(prop) {
 			continue
 		}
 
 		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
 		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
-			if err := s.addIndexedPropertyLengthToProps(docID, prop.Name, prop.Length); err != nil {
+			if err := s.addToPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
 
 		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addIndexedNullStateToProps(docID, prop.Name, prop.Length == 0); err != nil {
+			if err := s.addToPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
 				return errors.Wrap(err, "add indexed null state")
 			}
 		}
@@ -76,108 +52,108 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []n
 
 	// add nil properties to the nullstate and property length inverted index
 	for _, nilProperty := range nilProps {
-		if s.index.invertedIndexConfig.IndexNullState {
-			if err := s.addIndexedNullStateToProps(docID, nilProperty.Name, true); err != nil {
-				return errors.Wrap(err, "add indexed null state")
-			}
-		}
-
 		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-			if err := s.addIndexedPropertyLengthToProps(docID, nilProperty.Name, 0); err != nil {
+			if err := s.addToPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
 				return errors.Wrap(err, "add indexed property length")
 			}
 		}
 
+		if s.index.invertedIndexConfig.IndexNullState {
+			if err := s.addToPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
+				return errors.Wrap(err, "add indexed null state")
+			}
+		}
 	}
 
 	return nil
 }
 
-func (s *Shard) addIndexedPropertyLengthToProps(docID uint64, propName string, length int) error {
-	bLength := s.store.Bucket(helpers.BucketFromPropNameLSM(propName + filters.InternalPropertyLength))
-	if bLength == nil {
-		return errors.Errorf("no bucket prop '%s' found", propName+filters.InternalPropertyLength)
+func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
+	bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
+	if bucketValue == nil {
+		return errors.Errorf("no bucket for prop '%s' found", property.Name)
 	}
 
-	if bLength.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	hashBucketValue := s.store.Bucket(helpers.HashBucketFromPropNameLSM(property.Name))
+	if hashBucketValue == nil {
+		return errors.Errorf("no hash bucket for prop '%s' found", property.Name)
 	}
 
-	hashBucketPropertyLength := s.store.Bucket(helpers.HashBucketFromPropNameLSM(propName + filters.InternalPropertyLength))
-	if hashBucketPropertyLength == nil {
-		return errors.Errorf("no hash bucket for prop '%s' found", propName+filters.InternalPropertyLength)
-	}
-
-	hash, err := s.generateRowHash()
-	if err != nil {
-		return err
-	}
-
-	key, err := inverted.LexicographicallySortableInt64(int64(length))
-	if err != nil {
-		return err
-	}
-
-	if err := hashBucketPropertyLength.Put(key, hash); err != nil {
-		return err
-	}
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-
-	return bLength.SetAdd(key, [][]byte{docIDBytes})
-}
-
-func (s *Shard) addIndexedNullStateToProps(docID uint64, propName string, isNil bool) error {
-	bNullState := s.store.Bucket(helpers.BucketFromPropNameLSM(propName + filters.InternalNullIndex))
-	if bNullState == nil {
-		return errors.Errorf("no bucket for nil prop '%s' found", propName+filters.InternalNullIndex)
-	}
-
-	hashBucketNullState := s.store.Bucket(helpers.HashBucketFromPropNameLSM(propName + filters.InternalNullIndex))
-	if hashBucketNullState == nil {
-		return errors.Errorf("no nil-hash bucket for prop '%s' found", propName+filters.InternalNullIndex)
-	}
-
-	if bNullState.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
-	}
-
-	hash, err := s.generateRowHash()
-	if err != nil {
-		return err
-	}
-
-	var key uint8
-	if isNil {
-		key = uint8(filters.InternalNullState)
+	if property.HasFrequency {
+		propLen := float32(len(property.Items))
+		for _, item := range property.Items {
+			key := item.Data
+			if err := s.addToPropertyHashBucket(hashBucketValue, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
+			}
+			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+			if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			}
+		}
 	} else {
-		key = uint8(filters.InternalNotNullState)
+		for _, item := range property.Items {
+			key := item.Data
+			if err := s.addToPropertyHashBucket(hashBucketValue, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value hash bucket", property.Name)
+			}
+			if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			}
+		}
 	}
-	if err := hashBucketNullState.Put([]byte{key}, hash); err != nil {
-		return err
-	}
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-
-	return bNullState.SetAdd([]byte{key}, [][]byte{docIDBytes})
+	return nil
 }
 
-func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64, frequency float32, propLen float32,
-) error {
-	if b.Strategy() != lsmkv.StrategyMapCollection {
-		panic("prop has frequency, but bucket does not have 'Map' strategy")
+func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
+	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
+	if bucketLength == nil {
+		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
 
-	hash, err := s.generateRowHash()
+	hashBucketLength := s.store.Bucket(helpers.HashBucketFromPropNameLengthLSM(propName))
+	if hashBucketLength == nil {
+		return errors.Errorf("no hash bucket for prop '%s' length found", propName)
+	}
+
+	key, err := s.keyPropertyLength(length)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
+	}
+	if err := s.addToPropertyHashBucket(hashBucketLength, key); err != nil {
+		return errors.Wrapf(err, "failed adding to prop '%s' length hash bucket", propName)
+	}
+	if err := s.addToPropertySetBucket(bucketLength, docID, key); err != nil {
+		return errors.Wrapf(err, "failed adding to prop '%s' length bucket", propName)
+	}
+	return nil
+}
+
+func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
+	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
+	if bucketNull == nil {
+		return errors.Errorf("no bucket for prop '%s' null found", propName)
 	}
 
-	if err := hashBucket.Put(item.Data, hash); err != nil {
-		return err
+	hashBucketNull := s.store.Bucket(helpers.HashBucketFromPropNameNullLSM(propName))
+	if hashBucketNull == nil {
+		return errors.Errorf("no hash bucket for prop '%s' null found", propName)
 	}
 
+	key, err := s.keyPropertyNull(isNull)
+	if err != nil {
+		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
+	}
+	if err := s.addToPropertyHashBucket(hashBucketNull, key); err != nil {
+		return errors.Wrapf(err, "failed adding to prop '%s' null hash bucket", propName)
+	}
+	if err := s.addToPropertySetBucket(bucketNull, docID, key); err != nil {
+		return errors.Wrapf(err, "failed adding to prop '%s' null bucket", propName)
+	}
+	return nil
+}
+
+func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
 	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
 	buf := make([]byte, 16)
 
@@ -188,44 +164,65 @@ func (s *Shard) extendInvertedIndexItemWithFrequencyLSM(b, hashBucket *lsmkv.Buc
 	} else {
 		binary.BigEndian.PutUint64(buf[0:8], docID)
 	}
-	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(item.TermFrequency))
+	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(freq))
 	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(propLen))
 
-	pair := lsmkv.MapPair{
+	return lsmkv.MapPair{
 		Key:   buf[:8],
 		Value: buf[8:],
 	}
-
-	return b.MapSet(item.Data, pair)
 }
 
-func (s *Shard) extendInvertedIndexItemLSM(b, hashBucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64,
-) error {
-	if b.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+func (s *Shard) keyPropertyLength(length int) ([]byte, error) {
+	return inverted.LexicographicallySortableInt64(int64(length))
+}
+
+func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
+	if isNull {
+		return []byte{uint8(filters.InternalNullState)}, nil
 	}
+	return []byte{uint8(filters.InternalNotNullState)}, nil
+}
+
+func (s *Shard) addToPropertyHashBucket(hashBucket *lsmkv.Bucket, key []byte) error {
+	lsmkv.CheckExpectedStrategy(hashBucket.Strategy(), lsmkv.StrategyReplace)
 
 	hash, err := s.generateRowHash()
 	if err != nil {
 		return err
 	}
 
-	if err := hashBucket.Put(item.Data, hash); err != nil {
+	if err := hashBucket.Put(key, hash); err != nil {
 		return err
 	}
 
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	return nil
+}
 
-	return b.SetAdd(item.Data, [][]byte{docIDBytes})
+func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+
+	return bucket.MapSet(key, pair)
+}
+
+func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+
+	if bucket.Strategy() == lsmkv.StrategySetCollection {
+		docIDBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+		return bucket.SetAdd(key, [][]byte{docIDBytes})
+	}
+
+	return bucket.RoaringSetAddOne(key, docID)
 }
 
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv.Bucket,
 	item inverted.MergeItem,
 ) error {
-	if b.Strategy() != lsmkv.StrategySetCollection {
-		panic("prop has no frequency, but bucket does not have 'Set' strategy")
+	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {
+		panic("prop has no frequency, but bucket does not have 'Set' nor 'RoaringSet' strategy")
 	}
 
 	hash, err := s.generateRowHash()
@@ -235,6 +232,14 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b, hashBucket *lsmkv
 
 	if err := hashBucket.Put(item.Data, hash); err != nil {
 		return err
+	}
+
+	if b.Strategy() == lsmkv.StrategyRoaringSet {
+		docIDs := make([]uint64, len(item.DocIDs))
+		for i, idTuple := range item.DocIDs {
+			docIDs[i] = idTuple.DocID
+		}
+		return b.RoaringSetAddList(item.Data, docIDs)
 	}
 
 	docIDs := make([][]byte, len(item.DocIDs))
@@ -319,4 +324,12 @@ func (s *Shard) removeDimensionsLSM(
 	}
 
 	return b.MapSet(buf[0:4], pair)
+}
+
+func isMetaCountProperty(property inverted.Property) bool {
+	return len(property.Name) > 12 && property.Name[len(property.Name)-12:] == "__meta_count"
+}
+
+func isInternalProperty(property inverted.Property) bool {
+	return property.Name[0] == '_'
 }

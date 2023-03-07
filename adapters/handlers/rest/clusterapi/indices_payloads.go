@@ -37,6 +37,7 @@ type indicesPayloads struct {
 	SingleObject              singleObjectPayload
 	MergeDoc                  mergeDocPayload
 	ObjectList                objectListPayload
+	VersionedObjectList       versionedObjectListPayload
 	SearchResults             searchResultsPayload
 	SearchParams              searchParamsPayload
 	ReferenceList             referenceListPayload
@@ -225,6 +226,86 @@ func (p objectListPayload) Unmarshal(in []byte) ([]*storobj.Object, error) {
 	return out, nil
 }
 
+type versionedObjectListPayload struct{}
+
+func (p versionedObjectListPayload) MIME() string {
+	return "application/vnd.weaviate.vobject.list+octet-stream"
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p versionedObjectListPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p versionedObjectListPayload) Marshal(in []*objects.VObject) ([]byte, error) {
+	// NOTE: This implementation is not optimized for allocation efficiency,
+	// reserve 1024 byte per object which is rather arbitrary
+	out := make([]byte, 0, 1024*len(in))
+
+	reusableLengthBuf := make([]byte, 8)
+	for _, ind := range in {
+		objBytes, err := ind.MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		length := uint64(len(objBytes))
+		binary.LittleEndian.PutUint64(reusableLengthBuf, length)
+
+		out = append(out, reusableLengthBuf...)
+		out = append(out, objBytes...)
+	}
+
+	return out, nil
+}
+
+func (p versionedObjectListPayload) Unmarshal(in []byte) ([]*objects.VObject, error) {
+	var out []*objects.VObject
+
+	reusableLengthBuf := make([]byte, 8)
+	r := bytes.NewReader(in)
+
+	for {
+		_, err := r.Read(reusableLengthBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		ln := binary.LittleEndian.Uint64(reusableLengthBuf)
+		payloadBytes := make([]byte, ln)
+		_, err = r.Read(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		var vobj objects.VObject
+		err = vobj.UnmarshalBinary(payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, &vobj)
+	}
+
+	return out, nil
+}
+
 type mergeDocPayload struct{}
 
 func (p mergeDocPayload) MIME() string {
@@ -261,7 +342,7 @@ type searchParamsPayload struct{}
 
 func (p searchParamsPayload) Marshal(vector []float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, addP additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, addP additional.Properties,
 ) ([]byte, error) {
 	type params struct {
 		SearchVector   []float32                    `json:"searchVector"`
@@ -269,15 +350,17 @@ func (p searchParamsPayload) Marshal(vector []float32, limit int,
 		Filters        *filters.LocalFilter         `json:"filters"`
 		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
 		Sort           []filters.Sort               `json:"sort"`
+		Cursor         *filters.Cursor              `json:"cursor"`
 		Additional     additional.Properties        `json:"additional"`
 	}
 
-	par := params{vector, limit, filter, keywordRanking, sort, addP}
+	par := params{vector, limit, filter, keywordRanking, sort, cursor, addP}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
-	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort, additional.Properties, error,
+	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
+	*filters.Cursor, additional.Properties, error,
 ) {
 	type searchParametersPayload struct {
 		SearchVector   []float32                    `json:"searchVector"`
@@ -286,12 +369,13 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
 		Filters        *filters.LocalFilter         `json:"filters"`
 		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
 		Sort           []filters.Sort               `json:"sort"`
+		Cursor         *filters.Cursor              `json:"cursor"`
 		Additional     additional.Properties        `json:"additional"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
 	return par.SearchVector, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Additional, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.Additional, err
 }
 
 func (p searchParamsPayload) MIME() string {

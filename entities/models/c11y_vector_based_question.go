@@ -17,6 +17,7 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/go-openapi/errors"
@@ -43,6 +44,33 @@ func (m C11yVectorBasedQuestion) Validate(formats strfmt.Registry) error {
 			if err := m[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName(strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+// ContextValidate validate this c11y vector based question based on the context it is used
+func (m C11yVectorBasedQuestion) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	for i := 0; i < len(m); i++ {
+
+		if m[i] != nil {
+			if err := m[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName(strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName(strconv.Itoa(i))
 				}
 				return err
 			}
@@ -91,7 +119,6 @@ func (m *C11yVectorBasedQuestionItems0) Validate(formats strfmt.Registry) error 
 }
 
 func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ClassProps) { // not required
 		return nil
 	}
@@ -115,6 +142,8 @@ func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Regist
 			if err := m.ClassProps[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("classProps" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("classProps" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -126,7 +155,6 @@ func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Regist
 }
 
 func (m *C11yVectorBasedQuestionItems0) validateClassVectors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ClassVectors) { // not required
 		return nil
 	}
@@ -139,6 +167,40 @@ func (m *C11yVectorBasedQuestionItems0) validateClassVectors(formats strfmt.Regi
 
 	if err := validate.MaxItems("classVectors", "body", iClassVectorsSize, 300); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this c11y vector based question items0 based on the context it is used
+func (m *C11yVectorBasedQuestionItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateClassProps(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *C11yVectorBasedQuestionItems0) contextValidateClassProps(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.ClassProps); i++ {
+
+		if m.ClassProps[i] != nil {
+			if err := m.ClassProps[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("classProps" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("classProps" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil
@@ -176,6 +238,11 @@ type C11yVectorBasedQuestionItems0ClassPropsItems0 struct {
 
 // Validate validates this c11y vector based question items0 class props items0
 func (m *C11yVectorBasedQuestionItems0ClassPropsItems0) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this c11y vector based question items0 class props items0 based on context it is used
+func (m *C11yVectorBasedQuestionItems0ClassPropsItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

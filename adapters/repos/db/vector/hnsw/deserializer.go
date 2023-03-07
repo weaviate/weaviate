@@ -15,9 +15,11 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 type Deserializer struct {
@@ -32,6 +34,8 @@ type DeserializationResult struct {
 	Level             uint16
 	Tombstones        map[uint64]struct{}
 	EntrypointChanged bool
+	PQData            ssdhelpers.PQData
+	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
 	// assume that all links were appended and prior state must exist
@@ -136,6 +140,9 @@ func (c *Deserializer) Do(fd *bufio.Reader,
 			out.Entrypoint = 0
 			out.Level = 0
 			out.Nodes = make([]*vertex, initialSize)
+		case AddPQ:
+			err = c.ReadPQ(fd, out)
+			readThisRound = 9
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -441,6 +448,120 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
+func (c *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
+	bins, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	mean, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	stdDev, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	size, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	s1, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	s2, err := c.readFloat64(r)
+	if err != nil {
+		return nil, err
+	}
+	segment, err := c.readUint16(r)
+	if err != nil {
+		return nil, err
+	}
+	encDistribution, err := c.readByte(r)
+	if err != nil {
+		return nil, err
+	}
+	return ssdhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
+}
+
+func (c *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
+	ds := int(res.PQData.Dimensions / res.PQData.M)
+	centers := make([][]float32, 0, res.PQData.Ks)
+	for k := uint16(0); k < res.PQData.Ks; k++ {
+		center := make([]float32, 0, ds)
+		for d := 0; d < ds; d++ {
+			c, err := c.readFloat32(r)
+			if err != nil {
+				return nil, err
+			}
+			center = append(center, c)
+		}
+		centers = append(centers, center)
+	}
+	kms := ssdhelpers.NewKMeansWithCenters(
+		int(res.PQData.Ks),
+		ds,
+		int(i),
+		centers,
+	)
+	return kms, nil
+}
+
+func (c *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
+	dims, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+	enc, err := c.readByte(r)
+	if err != nil {
+		return err
+	}
+	ks, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+	m, err := c.readUint16(r)
+	if err != nil {
+		return err
+	}
+	dist, err := c.readByte(r)
+	if err != nil {
+		return err
+	}
+	useBitsEncoding, err := c.readByte(r)
+	if err != nil {
+		return err
+	}
+	encoder := ssdhelpers.Encoder(enc)
+	res.PQData = ssdhelpers.PQData{
+		Dimensions:          dims,
+		EncoderType:         encoder,
+		Ks:                  ks,
+		M:                   m,
+		EncoderDistribution: byte(dist),
+		UseBitsEncoding:     useBitsEncoding != 0,
+	}
+	var encoderReader func(io.Reader, *DeserializationResult, uint16) (ssdhelpers.PQEncoder, error)
+	switch encoder {
+	case ssdhelpers.UseTileEncoder:
+		encoderReader = c.ReadTileEncoder
+	case ssdhelpers.UseKMeansEncoder:
+		encoderReader = c.ReadKMeansEncoder
+	default:
+		return errors.New("Unsuported encoder type")
+	}
+	for i := uint16(0); i < m; i++ {
+		encoder, err := encoderReader(r, res, i)
+		if err != nil {
+			return err
+		}
+		res.PQData.Encoders = append(res.PQData.Encoders, encoder)
+	}
+	res.Compressed = true
+
+	return nil
+}
+
 func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	c.resetResusableBuffer(8)
@@ -450,6 +571,34 @@ func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	}
 
 	value = binary.LittleEndian.Uint64(c.reusableBuffer)
+
+	return value, nil
+}
+
+func (c *Deserializer) readFloat64(r io.Reader) (float64, error) {
+	var value float64
+	c.resetResusableBuffer(8)
+	_, err := io.ReadFull(r, c.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read float64")
+	}
+
+	bits := binary.LittleEndian.Uint64(c.reusableBuffer)
+	value = math.Float64frombits(bits)
+
+	return value, nil
+}
+
+func (c *Deserializer) readFloat32(r io.Reader) (float32, error) {
+	var value float32
+	c.resetResusableBuffer(4)
+	_, err := io.ReadFull(r, c.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read float32")
+	}
+
+	bits := binary.LittleEndian.Uint32(c.reusableBuffer)
+	value = math.Float32frombits(bits)
 
 	return value, nil
 }
@@ -465,6 +614,16 @@ func (c *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	value = binary.LittleEndian.Uint16(c.reusableBuffer)
 
 	return value, nil
+}
+
+func (c *Deserializer) readByte(r io.Reader) (byte, error) {
+	c.resetResusableBuffer(1)
+	_, err := io.ReadFull(r, c.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read byte")
+	}
+
+	return c.reusableBuffer[0], nil
 }
 
 func (c *Deserializer) ReadCommitType(r io.Reader) (HnswCommitType, error) {

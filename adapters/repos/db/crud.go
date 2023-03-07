@@ -30,7 +30,7 @@ import (
 )
 
 func (d *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32,
+	vector []float32, repl *additional.ReplicationProperties,
 ) error {
 	object := storobj.FromObject(obj, vector)
 	idx := d.GetIndex(object.Class())
@@ -38,7 +38,7 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
 
-	if err := idx.putObject(ctx, object); err != nil {
+	if err := idx.putObject(ctx, object, repl); err != nil {
 		return errors.Wrapf(err, "import into index %s", idx.ID())
 	}
 
@@ -46,15 +46,17 @@ func (d *DB) PutObject(ctx context.Context, obj *models.Object,
 }
 
 // DeleteObject from of a specific class giving its ID
-func (d *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID) error {
+func (d *DB) DeleteObject(ctx context.Context, class string,
+	id strfmt.UUID, repl *additional.ReplicationProperties,
+) error {
 	idx := d.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
-	err := idx.deleteObject(ctx, id)
+	err := idx.deleteObject(ctx, id, repl)
 	if err != nil {
-		return errors.Wrapf(err, "delete from index %s", idx.ID())
+		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}
 
 	return nil
@@ -188,25 +190,29 @@ func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	return &res[0], nil
 }
 
-func (d *DB) Exists(ctx context.Context, class string, id strfmt.UUID) (bool, error) {
+func (d *DB) Exists(ctx context.Context, class string,
+	id strfmt.UUID, repl *additional.ReplicationProperties,
+) (bool, error) {
 	if class == "" {
-		return d.anyExists(ctx, id)
+		return d.anyExists(ctx, id, repl)
 	}
 	index := d.GetIndex(schema.ClassName(class))
 	if index == nil {
 		return false, nil
 	}
-	return index.exists(ctx, id)
+	return index.exists(ctx, id, repl)
 }
 
-func (d *DB) anyExists(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (d *DB) anyExists(ctx context.Context, id strfmt.UUID,
+	repl *additional.ReplicationProperties,
+) (bool, error) {
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	d.indexLock.RLock()
 	defer d.indexLock.RUnlock()
 
 	for _, index := range d.indices {
-		ok, err := index.exists(ctx, id)
+		ok, err := index.exists(ctx, id, repl)
 		if err != nil {
 			return false, errors.Wrapf(err, "search index %s", index.ID())
 		}
@@ -220,7 +226,7 @@ func (d *DB) anyExists(ctx context.Context, id strfmt.UUID) (bool, error) {
 
 func (d *DB) AddReference(ctx context.Context,
 	className string, source strfmt.UUID, propName string,
-	ref *models.SingleRef,
+	ref *models.SingleRef, repl *additional.ReplicationProperties,
 ) error {
 	target, err := crossref.ParseSingleRef(ref)
 	if err != nil {
@@ -238,16 +244,18 @@ func (d *DB) AddReference(ctx context.Context,
 				To: target,
 			},
 		},
-	})
+	}, repl)
 }
 
-func (d *DB) Merge(ctx context.Context, merge objects.MergeDocument) error {
+func (d *DB) Merge(ctx context.Context, merge objects.MergeDocument,
+	repl *additional.ReplicationProperties,
+) error {
 	idx := d.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s", merge.Class)
 	}
 
-	err := idx.mergeObject(ctx, merge)
+	err := idx.mergeObject(ctx, merge, repl)
 	if err != nil {
 		return errors.Wrapf(err, "merge into index %s", idx.ID())
 	}
