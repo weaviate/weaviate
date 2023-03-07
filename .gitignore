@@ -69,7 +69,8 @@ node_modules
 .!
 
 # IDE files
-.idea
+.idea/
+.vscode/
 
 # Local files
 _local
@@ -77,8 +78,6 @@ _local
 # Remove weave files
 weave-current.json
 weave-current-discovery.json
-.vscode/
-
 
 # local nodes folders
 graphqlapi/prototype/node_modules/

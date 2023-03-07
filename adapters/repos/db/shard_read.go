@@ -192,9 +192,10 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		objs, err := s.objectList(ctx, limit, sort, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
-	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
-		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+	objs, err := inverted.NewSearcher(s.index.logger, s.store,
+		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.index.stopwords, s.versioner.Version()).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
@@ -343,9 +344,10 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,
 	addl additional.Properties,
 ) (helpers.AllowList, error) {
-	list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
-		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+	list, err := inverted.NewSearcher(s.index.logger, s.store,
+		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.index.stopwords, s.versioner.Version()).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")

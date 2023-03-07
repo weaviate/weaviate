@@ -782,8 +782,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
-	outObjects := make([]*storobj.Object, 0, len(shardNames)*limit)
-	outScores := make([]float32, 0, len(shardNames)*limit)
+	perShardLimit := config.DefaultQueryMaximumResults
+	if perShardLimit > int64(limit) {
+		perShardLimit = int64(limit)
+	}
+	cap := perShardLimit * int64(len(shardNames))
+
+	outObjects := make([]*storobj.Object, 0, cap)
+	outScores := make([]float32, 0, cap)
+
 	for _, shardName := range shardNames {
 		local := i.getSchema.
 			ShardingState(i.Config.ClassName.String()).
