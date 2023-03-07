@@ -115,7 +115,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics, opts...)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "creating bucket '%s'", bucketName)
 	}
 
 	s.setBucket(bucketName, b)
