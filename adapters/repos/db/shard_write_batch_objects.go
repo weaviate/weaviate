@@ -310,7 +310,25 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 	}
 
 	if object.Vector != nil {
-		// TODO: explain ignore delete
+		// By this time all required deletes (e.g. because of DocID changes) have
+		// already been grouped and performed in bulk. Only the insertions are
+		// left. The motivation for this change is explained in
+		// https://github.com/weaviate/weaviate/pull/2697.
+		//
+		// Before this change, two identical batches in sequence would lead to
+		// massive lock contention in the hnsw index, as each individual delete
+		// requires a costly RW.Lock() operation which first drains all "readers"
+		// which represent the regular imports. See "deleteVsInsertLock" inside the
+		// hnsw store.
+		//
+		// With the improved logic, we group all batches up front in a single call,
+		// so this highly concurrent method no longer needs to compete for those
+		// expensive locks.
+		//
+		// Since this behavior is exclusive to batching, we can no longer call
+		// shard.updateVectorIndex which would also handle the delete as required
+		// for a non-batch update. Instead a new method has been introduced that
+		// ignores deletes.
 		if err := b.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
 			b.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 			return
