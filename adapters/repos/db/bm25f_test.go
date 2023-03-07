@@ -225,8 +225,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(4), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
 
-		// Check explainScore
-		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25F")
+		// Without additionalExplanations no explainScore entry should be present
+		require.Contains(t, res[0].Object.Additional, "score")
+		require.NotContains(t, res[0].Object.Additional, "explainScore")
 	})
 
 	// Check non-alpha search on string field
@@ -246,9 +247,6 @@ func TestBM25FJourney(t *testing.T) {
 
 		// Check results in correct order
 		require.Equal(t, uint64(7), resStringField[0].DocID())
-
-		// Check explainScore
-		require.Contains(t, resStringField[0].Object.Additional["explainScore"], "BM25F")
 	})
 
 	// String and text fields are indexed differently, so this checks the string indexing and searching.  In particular,
@@ -367,6 +365,17 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(0), res[1].DocID())
 		require.Equal(t, uint64(8), res[2].DocID())
 		require.Len(t, res, 3)
+	})
+
+	t.Run("Include additional explanations", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey", AdditionalExplanations: true}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
+
+		// With additionalExplanations explainScore entry should be present
+		require.Contains(t, res[0].Object.Additional, "score")
+		require.Contains(t, res[0].Object.Additional, "explainScore")
+		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25")
 	})
 }
 
