@@ -43,7 +43,7 @@ func NewObjectsGet(ctx *middleware.Context, handler ObjectsGetHandler) *ObjectsG
 }
 
 /*
-ObjectsGet swagger:route GET /objects/{id} objects objectsGet
+	ObjectsGet swagger:route GET /objects/{id} objects objectsGet
 
 Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.
 
@@ -57,17 +57,16 @@ type ObjectsGet struct {
 func (o *ObjectsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewObjectsGetParams()
-
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -80,7 +79,6 @@ func (o *ObjectsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }

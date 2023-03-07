@@ -43,9 +43,8 @@ func (o *WeaviateWellknownReadinessReader) ReadResponse(response runtime.ClientR
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -55,14 +54,48 @@ func NewWeaviateWellknownReadinessOK() *WeaviateWellknownReadinessOK {
 }
 
 /*
-WeaviateWellknownReadinessOK handles this case with default header values.
+WeaviateWellknownReadinessOK describes a response with status code 200, with default header values.
 
 The application has completed its start-up routine and is ready to accept traffic.
 */
 type WeaviateWellknownReadinessOK struct {
 }
 
+// IsSuccess returns true when this weaviate wellknown readiness o k response has a 2xx status code
+func (o *WeaviateWellknownReadinessOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this weaviate wellknown readiness o k response has a 3xx status code
+func (o *WeaviateWellknownReadinessOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this weaviate wellknown readiness o k response has a 4xx status code
+func (o *WeaviateWellknownReadinessOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this weaviate wellknown readiness o k response has a 5xx status code
+func (o *WeaviateWellknownReadinessOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this weaviate wellknown readiness o k response a status code equal to that given
+func (o *WeaviateWellknownReadinessOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the weaviate wellknown readiness o k response
+func (o *WeaviateWellknownReadinessOK) Code() int {
+	return 200
+}
+
 func (o *WeaviateWellknownReadinessOK) Error() string {
+	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
+}
+
+func (o *WeaviateWellknownReadinessOK) String() string {
 	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
 }
 
@@ -77,14 +110,48 @@ func NewWeaviateWellknownReadinessServiceUnavailable() *WeaviateWellknownReadine
 }
 
 /*
-WeaviateWellknownReadinessServiceUnavailable handles this case with default header values.
+WeaviateWellknownReadinessServiceUnavailable describes a response with status code 503, with default header values.
 
 The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead.
 */
 type WeaviateWellknownReadinessServiceUnavailable struct {
 }
 
+// IsSuccess returns true when this weaviate wellknown readiness service unavailable response has a 2xx status code
+func (o *WeaviateWellknownReadinessServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this weaviate wellknown readiness service unavailable response has a 3xx status code
+func (o *WeaviateWellknownReadinessServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this weaviate wellknown readiness service unavailable response has a 4xx status code
+func (o *WeaviateWellknownReadinessServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this weaviate wellknown readiness service unavailable response has a 5xx status code
+func (o *WeaviateWellknownReadinessServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this weaviate wellknown readiness service unavailable response a status code equal to that given
+func (o *WeaviateWellknownReadinessServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the weaviate wellknown readiness service unavailable response
+func (o *WeaviateWellknownReadinessServiceUnavailable) Code() int {
+	return 503
+}
+
 func (o *WeaviateWellknownReadinessServiceUnavailable) Error() string {
+	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
+}
+
+func (o *WeaviateWellknownReadinessServiceUnavailable) String() string {
 	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessServiceUnavailable ", 503)
 }
 

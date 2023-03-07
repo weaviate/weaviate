@@ -17,6 +17,7 @@ package well_known
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -53,9 +54,8 @@ func (o *GetWellKnownOpenidConfigurationReader) ReadResponse(response runtime.Cl
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -65,7 +65,7 @@ func NewGetWellKnownOpenidConfigurationOK() *GetWellKnownOpenidConfigurationOK {
 }
 
 /*
-GetWellKnownOpenidConfigurationOK handles this case with default header values.
+GetWellKnownOpenidConfigurationOK describes a response with status code 200, with default header values.
 
 Successful response, inspect body
 */
@@ -73,7 +73,41 @@ type GetWellKnownOpenidConfigurationOK struct {
 	Payload *GetWellKnownOpenidConfigurationOKBody
 }
 
+// IsSuccess returns true when this get well known openid configuration o k response has a 2xx status code
+func (o *GetWellKnownOpenidConfigurationOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this get well known openid configuration o k response has a 3xx status code
+func (o *GetWellKnownOpenidConfigurationOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get well known openid configuration o k response has a 4xx status code
+func (o *GetWellKnownOpenidConfigurationOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this get well known openid configuration o k response has a 5xx status code
+func (o *GetWellKnownOpenidConfigurationOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get well known openid configuration o k response a status code equal to that given
+func (o *GetWellKnownOpenidConfigurationOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the get well known openid configuration o k response
+func (o *GetWellKnownOpenidConfigurationOK) Code() int {
+	return 200
+}
+
 func (o *GetWellKnownOpenidConfigurationOK) Error() string {
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationOK  %+v", 200, o.Payload)
+}
+
+func (o *GetWellKnownOpenidConfigurationOK) String() string {
 	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationOK  %+v", 200, o.Payload)
 }
 
@@ -99,14 +133,48 @@ func NewGetWellKnownOpenidConfigurationNotFound() *GetWellKnownOpenidConfigurati
 }
 
 /*
-GetWellKnownOpenidConfigurationNotFound handles this case with default header values.
+GetWellKnownOpenidConfigurationNotFound describes a response with status code 404, with default header values.
 
 Not found, no oidc provider present
 */
 type GetWellKnownOpenidConfigurationNotFound struct {
 }
 
+// IsSuccess returns true when this get well known openid configuration not found response has a 2xx status code
+func (o *GetWellKnownOpenidConfigurationNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get well known openid configuration not found response has a 3xx status code
+func (o *GetWellKnownOpenidConfigurationNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get well known openid configuration not found response has a 4xx status code
+func (o *GetWellKnownOpenidConfigurationNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this get well known openid configuration not found response has a 5xx status code
+func (o *GetWellKnownOpenidConfigurationNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get well known openid configuration not found response a status code equal to that given
+func (o *GetWellKnownOpenidConfigurationNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the get well known openid configuration not found response
+func (o *GetWellKnownOpenidConfigurationNotFound) Code() int {
+	return 404
+}
+
 func (o *GetWellKnownOpenidConfigurationNotFound) Error() string {
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationNotFound ", 404)
+}
+
+func (o *GetWellKnownOpenidConfigurationNotFound) String() string {
 	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationNotFound ", 404)
 }
 
@@ -121,7 +189,7 @@ func NewGetWellKnownOpenidConfigurationInternalServerError() *GetWellKnownOpenid
 }
 
 /*
-GetWellKnownOpenidConfigurationInternalServerError handles this case with default header values.
+GetWellKnownOpenidConfigurationInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -129,7 +197,41 @@ type GetWellKnownOpenidConfigurationInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this get well known openid configuration internal server error response has a 2xx status code
+func (o *GetWellKnownOpenidConfigurationInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get well known openid configuration internal server error response has a 3xx status code
+func (o *GetWellKnownOpenidConfigurationInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get well known openid configuration internal server error response has a 4xx status code
+func (o *GetWellKnownOpenidConfigurationInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this get well known openid configuration internal server error response has a 5xx status code
+func (o *GetWellKnownOpenidConfigurationInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this get well known openid configuration internal server error response a status code equal to that given
+func (o *GetWellKnownOpenidConfigurationInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the get well known openid configuration internal server error response
+func (o *GetWellKnownOpenidConfigurationInternalServerError) Code() int {
+	return 500
+}
+
 func (o *GetWellKnownOpenidConfigurationInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *GetWellKnownOpenidConfigurationInternalServerError) String() string {
 	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationInternalServerError  %+v", 500, o.Payload)
 }
 
@@ -167,6 +269,11 @@ type GetWellKnownOpenidConfigurationOKBody struct {
 
 // Validate validates this get well known openid configuration o k body
 func (o *GetWellKnownOpenidConfigurationOKBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this get well known openid configuration o k body based on context it is used
+func (o *GetWellKnownOpenidConfigurationOKBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

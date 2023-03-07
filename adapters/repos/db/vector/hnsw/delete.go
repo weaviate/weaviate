@@ -27,6 +27,9 @@ type breakCleanUpTombstonedNodesFunc func() bool
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
 func (h *hnsw) Delete(id uint64) error {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
 	h.deleteVsInsertLock.Lock()
 	defer h.deleteVsInsertLock.Unlock()
 
@@ -116,7 +119,7 @@ func (h *hnsw) resetUnsecured() error {
 }
 
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
-	deleteList := helpers.AllowList{}
+	deleteList := helpers.NewAllowList()
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
@@ -150,7 +153,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
-	deleteList = helpers.AllowList{}
+	deleteList = helpers.NewAllowList()
 	for id := range h.tombstones {
 		if lenOfNodes <= id {
 			// we're trying to delete an id outside the possible range, nothing to do
@@ -160,7 +163,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 		deleteList.Insert(id)
 	}
 
-	if len(deleteList) == 0 {
+	if deleteList.IsEmpty() {
 		return false, nil
 	}
 
@@ -219,7 +222,8 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 		return false, nil
 	}
 
-	for id := range deleteList {
+	it := deleteList.Iterator()
+	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if h.getEntrypoint() == id {
 			// this a special case because:
 			//
@@ -273,7 +277,16 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		return true, nil
 	}
 
-	neighborVec, err := h.vectorForID(context.Background(), neighbor)
+	var neighborVec []float32
+	if h.compressed.Load() {
+		vec, err := h.compressedVectorsCache.get(context.Background(), neighbor)
+		if err == nil {
+			neighborVec = h.pq.Decode(vec)
+		}
+	} else {
+		neighborVec, err = h.cache.get(context.Background(), neighbor)
+	}
+
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -537,7 +550,8 @@ func (h *hnsw) addTombstone(id uint64) error {
 }
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
-	for id := range deleteList {
+	it := deleteList.Iterator()
+	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
 		delete(h.tombstones, id)

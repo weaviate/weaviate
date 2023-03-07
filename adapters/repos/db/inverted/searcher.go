@@ -12,7 +12,6 @@
 package inverted
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -84,51 +84,31 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, err
 	}
 
-	// we assume that when retrieving objects, we can not tolerate duplicates as
-	// they would have a direct impact on the user
-	if err := pv.fetchDocIDs(s, limit, false); err != nil {
+	if err := pv.fetchDocIDs(s, limit); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs(false)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
+	allowList := helpers.NewAllowListFromBitmap(dbm.docIDs)
+	var it docIDsIterator
 	if len(sort) > 0 {
-		return s.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
+		docIDs, err := s.sort(ctx, limit, sort, allowList, additional, className)
+		if err != nil {
+			return nil, errors.Wrap(err, "sort doc ids")
+		}
+		it = newSliceDocIDsIterator(docIDs)
+	} else {
+		it = allowList.LimitedIterator(limit)
 	}
 
-	return s.allObjectsByDocID(pointers.IDs(), limit, additional)
+	return s.objectsByDocID(it, additional)
 }
 
-func (s *Searcher) allObjectsByDocID(ids []uint64, limit int,
-	additional additional.Properties,
-) ([]*storobj.Object, error) {
-	// cutoff if required, e.g. after merging unlimted filters
-	docIDs := ids
-	if len(docIDs) > limit {
-		docIDs = docIDs[:limit]
-	}
-
-	res, err := s.objectsByDocID(docIDs, additional)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve doc ids to objects")
-	}
-	return res, nil
-}
-
-func (s *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
-	additional additional.Properties, className schema.ClassName,
-) ([]*storobj.Object, error) {
-	docIDs, err := s.sort(ctx, limit, sort, ids, additional, className)
-	if err != nil {
-		return nil, errors.Wrap(err, "sort doc ids")
-	}
-	return s.objectsByDocID(docIDs, additional)
-}
-
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,
 	additional additional.Properties, className schema.ClassName,
 ) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
@@ -138,22 +118,20 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(ids []uint64,
+func (s *Searcher) objectsByDocID(it docIDsIterator,
 	additional additional.Properties,
 ) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, len(ids))
-
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
 	}
 
-	i := 0
+	out := make([]*storobj.Object, it.Len())
+	docIDBytes := make([]byte, 8)
 
-	for _, id := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
+	i := 0
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		res, err := bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
 			return nil, err
@@ -217,33 +195,25 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
 		}
 
-		res, ok := s.rowCache.Load(pv.docIDs.checksum)
-		if ok && res.Type == CacheTypeAllowList {
+		if res, ok := s.rowCache.Load(pv.docIDs.checksum); ok {
 			return res.AllowList, nil
 		}
 	}
 
-	// when building an allow list (which is a set anyway) we can skip the costly
-	// deduplication, as it doesn't matter
-	if err := pv.fetchDocIDs(s, -1, true); err != nil {
+	if err := pv.fetchDocIDs(s, 0); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs(true)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	out := make(helpers.AllowList, len(pointers.docIDs))
-	for _, p := range pointers.docIDs {
-		out.Insert(p)
-	}
+	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
 
 	if cacheable && allowCaching {
 		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
-			Type:      CacheTypeAllowList,
 			AllowList: out,
-			Partial:   pv.docIDs,
 			Hash:      pv.docIDs.checksum,
 		})
 	}
@@ -254,7 +224,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
-	var out propValuePair
+	out := newPropValuePair()
 	if filter.Operands != nil {
 		// nested filter
 		out.children = make([]*propValuePair, len(filter.Operands))
@@ -549,54 +519,74 @@ func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	}
 }
 
-type docPointers struct {
-	count    uint64
-	docIDs   []uint64
-	checksum []byte // helps us judge if a cached read is still fresh
+type docIDsIterator interface {
+	Next() (uint64, bool)
+	Len() int
 }
 
-type docPointersWithScore struct {
-	count    uint64
-	docIDs   []docPointerWithScore
-	checksum []byte // helps us judge if a cached read is still fresh
+type sliceDocIDsIterator struct {
+	docIDs []uint64
+	pos    int
+}
+
+func newSliceDocIDsIterator(docIDs []uint64) docIDsIterator {
+	return &sliceDocIDsIterator{docIDs: docIDs, pos: 0}
+}
+
+func (it *sliceDocIDsIterator) Next() (uint64, bool) {
+	if it.pos >= len(it.docIDs) {
+		return 0, false
+	}
+	pos := it.pos
+	it.pos++
+	return it.docIDs[pos], true
+}
+
+func (it *sliceDocIDsIterator) Len() int {
+	return len(it.docIDs)
+}
+
+type docBitmap struct {
+	docIDs   *sroar.Bitmap
+	checksum []byte
+}
+
+func newDocBitmap() docBitmap {
+	return docBitmap{docIDs: sroar.NewBitmap()}
+}
+
+func (dbm *docBitmap) count() int {
+	if dbm.docIDs == nil {
+		return 0
+	}
+	return dbm.docIDs.GetCardinality()
+}
+
+func (dbm *docBitmap) IDs() []uint64 {
+	if dbm.docIDs == nil {
+		return []uint64{}
+	}
+	return dbm.docIDs.ToArray()
+}
+
+func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
+	card := dbm.docIDs.GetCardinality()
+	if limit >= card {
+		return dbm.IDs()
+	}
+
+	out := make([]uint64, limit)
+	for i := range out {
+		// safe to ignore error, it can only error if the index is >= cardinality
+		// which we have already ruled out
+		out[i], _ = dbm.docIDs.Select(uint64(i))
+	}
+
+	return out
 }
 
 type docPointerWithScore struct {
 	id         uint64
-	frequency  float64
-	propLength float64
-	score      float64
-	Additional map[string]interface{}
-}
-
-func (d docPointers) IDs() []uint64 {
-	return d.docIDs
-}
-
-func (d docPointersWithScore) IDs() []uint64 {
-	out := make([]uint64, len(d.docIDs))
-	for i, elem := range d.docIDs {
-		out[i] = elem.id
-	}
-	return out
-}
-
-func (d *docPointers) removeDuplicates() {
-	counts := make(map[uint64]uint16, len(d.docIDs))
-	for _, id := range d.docIDs {
-		counts[id]++
-	}
-
-	updated := make([]uint64, len(d.docIDs))
-	i := 0
-	for _, id := range d.docIDs {
-		if counts[id] == 1 {
-			updated[i] = id
-			i++
-		}
-
-		counts[id]--
-	}
-
-	d.docIDs = updated[:i]
+	frequency  float32
+	propLength float32
 }

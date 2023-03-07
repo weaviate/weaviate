@@ -22,13 +22,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/traverser"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -102,7 +103,7 @@ type VectorRepo interface {
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		class string, properties []string, k int,
 		filter *libfilters.LocalFilter) ([]NeighborRef, error)
-	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
+	VectorClassSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	ZeroShotSearch(ctx context.Context, vector []float32,
 		class string, properties []string,
 		filter *libfilters.LocalFilter) ([]search.Result, error)
@@ -110,7 +111,8 @@ type VectorRepo interface {
 
 type vectorRepo interface {
 	VectorRepo
-	BatchPutObjects(ctx context.Context, things objects.BatchObjects) (objects.BatchObjects, error)
+	BatchPutObjects(ctx context.Context, things objects.BatchObjects,
+		repl *additional.ReplicationProperties) (objects.BatchObjects, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k

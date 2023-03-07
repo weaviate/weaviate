@@ -109,6 +109,7 @@ func TestDeserializer2ReadCommitType(t *testing.T) {
 		ClearLinks,
 		DeleteNode,
 		ResetIndex,
+		AddPQ,
 	}
 	for _, commitType := range commitTypes {
 		b := make([]byte, 1)

@@ -43,7 +43,7 @@ func NewSchemaObjectsDelete(ctx *middleware.Context, handler SchemaObjectsDelete
 }
 
 /*
-SchemaObjectsDelete swagger:route DELETE /schema/{className} schema schemaObjectsDelete
+	SchemaObjectsDelete swagger:route DELETE /schema/{className} schema schemaObjectsDelete
 
 Remove an Object class (and all data in the instances) from the schema.
 */
@@ -55,17 +55,16 @@ type SchemaObjectsDelete struct {
 func (o *SchemaObjectsDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewSchemaObjectsDeleteParams()
-
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -78,7 +77,6 @@ func (o *SchemaObjectsDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }

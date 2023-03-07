@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -59,6 +61,11 @@ type ReferenceMetaClassification struct {
 
 // Validate validates this reference meta classification
 func (m *ReferenceMetaClassification) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this reference meta classification based on context it is used
+func (m *ReferenceMetaClassification) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 // ErrInvalidChecksum indicates the the read file should not be trusted. For
@@ -41,7 +43,7 @@ func countNetPathFromSegmentPath(segPath string) string {
 }
 
 func (ind *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
-	if ind.strategy != SegmentStrategyReplace {
+	if ind.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
 	}

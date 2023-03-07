@@ -143,6 +143,14 @@ func (f *fakeClusterState) ClusterHealthScore() int {
 	return 0
 }
 
+func (f *fakeClusterState) ResolveParentNodes(string, string) ([]string, []string, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeClusterState) NodeHostname(nodeName string) (string, bool) {
+	return "", false
+}
+
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, class *models.Class,
@@ -200,5 +208,9 @@ func (n *NilMigrator) UpdateInvertedIndexConfig(ctx context.Context, className s
 }
 
 func (n *NilMigrator) RecalculateVectorDimensions(ctx context.Context) error {
+	return nil
+}
+
+func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	return nil
 }

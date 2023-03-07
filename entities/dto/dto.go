@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package traverser
+package dto
 
 import (
 	"github.com/weaviate/weaviate/entities/additional"
@@ -18,10 +18,16 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
+type GroupParams struct {
+	Strategy string
+	Force    float32
+}
+
 type GetParams struct {
 	Filters              *filters.LocalFilter
 	ClassName            string
 	Pagination           *filters.Pagination
+	Cursor               *filters.Cursor
 	Sort                 []filters.Sort
 	Properties           search.SelectProperties
 	NearVector           *searchparams.NearVector
@@ -32,9 +38,4 @@ type GetParams struct {
 	Group                *GroupParams
 	ModuleParams         map[string]interface{}
 	AdditionalProperties additional.Properties
-}
-
-type GroupParams struct {
-	Strategy string
-	Force    float32
 }

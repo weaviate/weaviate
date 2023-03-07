@@ -17,6 +17,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -35,6 +37,11 @@ type NodeStats struct {
 
 // Validate validates this node stats
 func (m *NodeStats) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this node stats based on context it is used
+func (m *NodeStats) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 

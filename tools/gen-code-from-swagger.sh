@@ -3,7 +3,7 @@
 set -eou pipefail
 
 # Version of go-swagger to use.
-version=v0.24.0
+version=v0.30.4
 
 # Always points to the directory of this script.
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -39,8 +39,5 @@ echo Now add the header to the generated code too.
 (cd $DIR/..; GO111MODULE=on go run ./tools/license_headers/main.go)
 
 (cd $DIR/..; goimports -w . )
-
-# echo Add licenses to file.
-# $DIR/create-license-dependency-file.sh
 
 echo Success

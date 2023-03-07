@@ -51,17 +51,18 @@ const (
 
 // UserConfig bundles all values settable by a user in the per-class settings
 type UserConfig struct {
-	Skip                   bool   `json:"skip"`
-	CleanupIntervalSeconds int    `json:"cleanupIntervalSeconds"`
-	MaxConnections         int    `json:"maxConnections"`
-	EFConstruction         int    `json:"efConstruction"`
-	EF                     int    `json:"ef"`
-	DynamicEFMin           int    `json:"dynamicEfMin"`
-	DynamicEFMax           int    `json:"dynamicEfMax"`
-	DynamicEFFactor        int    `json:"dynamicEfFactor"`
-	VectorCacheMaxObjects  int    `json:"vectorCacheMaxObjects"`
-	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
-	Distance               string `json:"distance"`
+	Skip                   bool     `json:"skip"`
+	CleanupIntervalSeconds int      `json:"cleanupIntervalSeconds"`
+	MaxConnections         int      `json:"maxConnections"`
+	EFConstruction         int      `json:"efConstruction"`
+	EF                     int      `json:"ef"`
+	DynamicEFMin           int      `json:"dynamicEfMin"`
+	DynamicEFMax           int      `json:"dynamicEfMax"`
+	DynamicEFFactor        int      `json:"dynamicEfFactor"`
+	VectorCacheMaxObjects  int      `json:"vectorCacheMaxObjects"`
+	FlatSearchCutoff       int      `json:"flatSearchCutoff"`
+	Distance               string   `json:"distance"`
+	PQ                     PQConfig `json:"pq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -83,6 +84,16 @@ func (c *UserConfig) SetDefaults() {
 	c.Skip = DefaultSkip
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
 	c.Distance = DefaultDistanceMetric
+	c.PQ = PQConfig{
+		Enabled:        DefaultPQEnabled,
+		BitCompression: DefaultPQBitCompression,
+		Segments:       DefaultPQSegments,
+		Centroids:      DefaultPQCentroids,
+		Encoder: PQEncoder{
+			Type:         DefaultPQEncoderType,
+			Distribution: DefaultPQEncoderDistribution,
+		},
+	}
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -163,6 +174,10 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 	if err := optionalStringFromMap(asMap, "distance", func(v string) {
 		uc.Distance = v
 	}); err != nil {
+		return uc, err
+	}
+
+	if err := parsePQMap(asMap, &uc.PQ); err != nil {
 		return uc, err
 	}
 

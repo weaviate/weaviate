@@ -24,7 +24,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -46,7 +48,14 @@ type Bucket struct {
 	memtableThreshold uint64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
-	secondaryIndices  uint16
+	// Strategy inverted index is supposed to be created with, but existing
+	// segment files were created with different one.
+	// It can happen when new strategy were introduced to weaviate, but
+	// files are already created using old implementation.
+	// Example: RoaringSet strategy replaces CollectionSet strategy.
+	// Field can be used for migration files of old strategy to newer one.
+	desiredStrategy  string
+	secondaryIndices uint16
 
 	// for backward compatibility
 	legacyMapSortingBeforeCompaction bool
@@ -112,6 +121,18 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, errors.Wrap(err, "init disk segments")
 	}
 
+	// Actual strategy is stored in segment files. In case it is SetCollection,
+	// while new implementation uses bitmaps and supposed to be RoaringSet,
+	// bucket and segmentgroup strategy is changed back to SetCollection
+	// (memtables will be created later on, with already modified strategy)
+	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
+	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
+		sg.segments[0].strategy == segmentindex.StrategySetCollection {
+		b.strategy = StrategySetCollection
+		b.desiredStrategy = StrategyRoaringSet
+		sg.strategy = StrategySetCollection
+	}
+
 	b.disk = sg
 
 	if err := b.setNewActiveMemtable(); err != nil {
@@ -140,7 +161,9 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
 		}
-		f(obj)
+		if err := f(obj); err != nil {
+			return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
+		}
 
 		i++
 	}
@@ -170,13 +193,13 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		// is replace
 		return v, nil
 	}
-	if err == Deleted {
+	if err == lsmkv.Deleted {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, nil
 	}
 
-	if err != NotFound {
+	if err != lsmkv.NotFound {
 		panic("unsupported error in bucket.Get")
 	}
 
@@ -187,13 +210,13 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 			// is replace
 			return v, nil
 		}
-		if err == Deleted {
+		if err == lsmkv.Deleted {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, nil
 		}
 
-		if err != NotFound {
+		if err != lsmkv.NotFound {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -222,13 +245,13 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 		// is replace
 		return v, nil
 	}
-	if err == Deleted {
+	if err == lsmkv.Deleted {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, nil
 	}
 
-	if err != NotFound {
+	if err != lsmkv.NotFound {
 		panic("unsupported error in bucket.Get")
 	}
 
@@ -239,13 +262,13 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 			// is replace
 			return v, nil
 		}
-		if err == Deleted {
+		if err == lsmkv.Deleted {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, nil
 		}
 
-		if err != NotFound {
+		if err != lsmkv.NotFound {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -265,7 +288,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err := b.disk.getCollection(key)
 	if err != nil {
-		if err != nil && err != NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}
@@ -274,7 +297,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
 		if err != nil {
-			if err != nil && err != NotFound {
+			if err != nil && err != lsmkv.NotFound {
 				return nil, err
 			}
 		}
@@ -284,7 +307,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err = b.active.getCollection(key)
 	if err != nil {
-		if err != nil && err != NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}
@@ -368,6 +391,52 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 	})
 }
 
+// WasDeleted determines if an object used to exist in the LSM store
+//
+// There are 3 different locations that we need to check for the key
+// in this order: active memtable, flushing memtable, and disk
+// segment
+func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	_, err := b.active.get(key)
+	switch err {
+	case nil:
+		return false, nil
+	case lsmkv.Deleted:
+		return true, nil
+	case lsmkv.NotFound:
+		// We can still check flushing and disk
+	default:
+		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	if b.flushing != nil {
+		_, err := b.flushing.get(key)
+		switch err {
+		case nil:
+			return false, nil
+		case lsmkv.Deleted:
+			return true, nil
+		case lsmkv.NotFound:
+			// We can still check disk
+		default:
+			return false, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+	}
+
+	_, err = b.disk.get(key)
+	switch err {
+	case nil, lsmkv.NotFound:
+		return false, nil
+	case lsmkv.Deleted:
+		return true, nil
+	default:
+		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+}
+
 type MapListOptionConfig struct {
 	acceptDuplicates           bool
 	legacyRequireManualSorting bool
@@ -407,7 +476,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
-		if err != nil && err != NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}
@@ -431,7 +500,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil {
-			if err != nil && err != NotFound {
+			if err != nil && err != lsmkv.NotFound {
 				return nil, err
 			}
 		}
@@ -442,7 +511,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil {
-		if err != nil && err != NotFound {
+		if err != nil && err != lsmkv.NotFound {
 			return nil, err
 		}
 	}
@@ -638,7 +707,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 }
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
-	b.flushLock.Lock()
+	b.flushLock.RLock()
 
 	// to check the current size of the WAL to
 	// see if the threshold has been reached
@@ -665,12 +734,12 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 			WithField("path", b.dir).
 			Warn("flush halted due to shard READONLY status")
 
-		b.flushLock.Unlock()
+		b.flushLock.RUnlock()
 		time.Sleep(time.Second)
 		return
 	}
 
-	b.flushLock.Unlock()
+	b.flushLock.RUnlock()
 	if shouldSwitch {
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
@@ -770,6 +839,10 @@ func (b *Bucket) atomicallySwitchMemtable() error {
 
 func (b *Bucket) Strategy() string {
 	return b.strategy
+}
+
+func (b *Bucket) DesiredStrategy() string {
+	return b.desiredStrategy
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

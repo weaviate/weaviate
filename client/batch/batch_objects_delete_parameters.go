@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewBatchObjectsDeleteParams creates a new BatchObjectsDeleteParams object
-// with the default values initialized.
+// NewBatchObjectsDeleteParams creates a new BatchObjectsDeleteParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewBatchObjectsDeleteParams() *BatchObjectsDeleteParams {
-	var ()
 	return &BatchObjectsDeleteParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewBatchObjectsDeleteParamsWithTimeout creates a new BatchObjectsDeleteParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewBatchObjectsDeleteParamsWithTimeout(timeout time.Duration) *BatchObjectsDeleteParams {
-	var ()
 	return &BatchObjectsDeleteParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewBatchObjectsDeleteParamsWithContext creates a new BatchObjectsDeleteParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewBatchObjectsDeleteParamsWithContext(ctx context.Context) *BatchObjectsDeleteParams {
-	var ()
 	return &BatchObjectsDeleteParams{
-
 		Context: ctx,
 	}
 }
 
 // NewBatchObjectsDeleteParamsWithHTTPClient creates a new BatchObjectsDeleteParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewBatchObjectsDeleteParamsWithHTTPClient(client *http.Client) *BatchObjectsDeleteParams {
-	var ()
 	return &BatchObjectsDeleteParams{
 		HTTPClient: client,
 	}
@@ -70,16 +67,40 @@ func NewBatchObjectsDeleteParamsWithHTTPClient(client *http.Client) *BatchObject
 
 /*
 BatchObjectsDeleteParams contains all the parameters to send to the API endpoint
-for the batch objects delete operation typically these are written to a http.Request
+
+	for the batch objects delete operation.
+
+	Typically these are written to a http.Request.
 */
 type BatchObjectsDeleteParams struct {
 
-	/*Body*/
+	// Body.
 	Body *models.BatchDelete
+
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
+	*/
+	ConsistencyLevel *string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the batch objects delete params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *BatchObjectsDeleteParams) WithDefaults() *BatchObjectsDeleteParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the batch objects delete params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *BatchObjectsDeleteParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the batch objects delete params
@@ -126,6 +147,17 @@ func (o *BatchObjectsDeleteParams) SetBody(body *models.BatchDelete) {
 	o.Body = body
 }
 
+// WithConsistencyLevel adds the consistencyLevel to the batch objects delete params
+func (o *BatchObjectsDeleteParams) WithConsistencyLevel(consistencyLevel *string) *BatchObjectsDeleteParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the batch objects delete params
+func (o *BatchObjectsDeleteParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *BatchObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -133,10 +165,26 @@ func (o *BatchObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg s
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
+		}
+	}
+
+	if o.ConsistencyLevel != nil {
+
+		// query param consistency_level
+		var qrConsistencyLevel string
+
+		if o.ConsistencyLevel != nil {
+			qrConsistencyLevel = *o.ConsistencyLevel
+		}
+		qConsistencyLevel := qrConsistencyLevel
+		if qConsistencyLevel != "" {
+
+			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
+				return err
+			}
 		}
 	}
 

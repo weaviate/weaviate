@@ -50,6 +50,10 @@ type ObjectsListParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*The starting ID of the result window.
+	  In: query
+	*/
+	After *string
 	/*Class parameter specifies the class from which to query objects
 	  In: query
 	*/
@@ -88,6 +92,11 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 
 	qs := runtime.Values(r.URL.Query())
 
+	qAfter, qhkAfter, _ := qs.GetOK("after")
+	if err := o.bindAfter(qAfter, qhkAfter, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	qClass, qhkClass, _ := qs.GetOK("class")
 	if err := o.bindClass(qClass, qhkClass, route.Formats); err != nil {
 		res = append(res, err)
@@ -117,10 +126,27 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 	if err := o.bindSort(qSort, qhkSort, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindAfter binds and validates parameter After from query.
+func (o *ObjectsListParams) bindAfter(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.After = &raw
+
 	return nil
 }
 
@@ -133,10 +159,10 @@ func (o *ObjectsListParams) bindClass(rawData []string, hasKey bool, formats str
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Class = &raw
 
 	return nil
@@ -151,10 +177,10 @@ func (o *ObjectsListParams) bindInclude(rawData []string, hasKey bool, formats s
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Include = &raw
 
 	return nil
@@ -169,6 +195,7 @@ func (o *ObjectsListParams) bindLimit(rawData []string, hasKey bool, formats str
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
@@ -191,6 +218,7 @@ func (o *ObjectsListParams) bindOffset(rawData []string, hasKey bool, formats st
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		// Default values have been previously initialized by NewObjectsListParams()
 		return nil
@@ -214,10 +242,10 @@ func (o *ObjectsListParams) bindOrder(rawData []string, hasKey bool, formats str
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Order = &raw
 
 	return nil
@@ -232,10 +260,10 @@ func (o *ObjectsListParams) bindSort(rawData []string, hasKey bool, formats strf
 
 	// Required: false
 	// AllowEmptyValue: false
+
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-
 	o.Sort = &raw
 
 	return nil

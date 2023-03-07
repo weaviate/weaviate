@@ -96,8 +96,8 @@ func Test_CachedFilters_String(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate func() helpers.AllowList
-		expectedListAfterUpdate  func() helpers.AllowList
+		expectedListBeforeUpdate helpers.AllowList
+		expectedListAfterUpdate  helpers.AllowList
 	}
 
 	tests := []test{
@@ -116,12 +116,8 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(7, 14)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(7, 14, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(7, 14),
+			expectedListAfterUpdate:  helpers.NewAllowList(7, 14, 21),
 		},
 		{
 			name: "like operator",
@@ -138,12 +134,8 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(10, 11, 12, 13, 14, 15, 16)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(10, 11, 12, 13, 14, 15, 16, 17)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(10, 11, 12, 13, 14, 15, 16),
+			expectedListAfterUpdate:  helpers.NewAllowList(10, 11, 12, 13, 14, 15, 16, 17),
 		},
 		{
 			name: "exact match - or filter",
@@ -176,12 +168,8 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(7, 8, 14, 16)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(7, 8, 14, 16, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(7, 8, 14, 16),
+			expectedListAfterUpdate:  helpers.NewAllowList(7, 8, 14, 16, 21),
 		},
 		{
 			name: "exact match - and filter",
@@ -214,12 +202,8 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(14)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(14)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(14),
+			expectedListAfterUpdate:  helpers.NewAllowList(14),
 		},
 		{
 			// This test prevents a regression on
@@ -276,12 +260,8 @@ func Test_CachedFilters_String(t *testing.T) {
 			// prior to the fix of gh-1770 the second AND operand was ignored due to
 			// a  missing hash in the merge and we would get results here, when we
 			// shouldn't
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList()
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList()
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(),
+			expectedListAfterUpdate:  helpers.NewAllowList(),
 		},
 	}
 
@@ -297,14 +277,14 @@ func Test_CachedFilters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate(), res)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should be filled now", func(t *testing.T) {
 				assert.Equal(t, 1, rowCacher.count)
 				require.NotNil(t, rowCacher.lastEntry)
-				assert.Equal(t, test.expectedListBeforeUpdate(),
-					rowCacher.lastEntry.AllowList)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(),
+					rowCacher.lastEntry.AllowList.Slice())
 				assert.Equal(t, 0, rowCacher.hitCount)
 			})
 
@@ -312,7 +292,7 @@ func Test_CachedFilters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate(), res)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have received a hit", func(t *testing.T) {
@@ -346,7 +326,7 @@ func Test_CachedFilters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate(), res)
+				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have not have received another hit", func(t *testing.T) {
@@ -357,7 +337,7 @@ func Test_CachedFilters_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate(), res)
+				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have received another hit", func(t *testing.T) {
@@ -442,8 +422,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate func() helpers.AllowList
-		expectedListAfterUpdate  func() helpers.AllowList
+		expectedListBeforeUpdate helpers.AllowList
+		expectedListAfterUpdate  helpers.AllowList
 	}
 
 	tests := []test{
@@ -462,12 +442,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(7, 14)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(7, 14, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(7, 14),
+			expectedListAfterUpdate:  helpers.NewAllowList(7, 14, 21),
 		},
 		{
 			name: "greater than",
@@ -484,12 +460,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15),
+			expectedListAfterUpdate:  helpers.NewAllowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15, 21),
 		},
 		{
 			name: "greater than equal",
@@ -506,12 +478,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15),
+			expectedListAfterUpdate:  helpers.NewAllowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15, 21),
 		},
 		{
 			name: "less than",
@@ -528,12 +496,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7),
+			expectedListAfterUpdate:  helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21),
 		},
 		{
 			name: "less than equal",
@@ -550,12 +514,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7),
+			expectedListAfterUpdate:  helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21),
 		},
 		{
 			name: "not equal",
@@ -572,12 +532,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16),
+			expectedListAfterUpdate:  helpers.NewAllowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21),
 		},
 		{
 			name: "exact match - or filter",
@@ -610,12 +566,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(7, 8, 14, 16)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(7, 8, 14, 16, 21)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(7, 8, 14, 16),
+			expectedListAfterUpdate:  helpers.NewAllowList(7, 8, 14, 16, 21),
 		},
 		{
 			name: "exact match - and filter",
@@ -648,12 +600,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(14)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(14)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(14),
+			expectedListAfterUpdate:  helpers.NewAllowList(14),
 		},
 	}
 
@@ -669,14 +617,14 @@ func Test_CachedFilters_Int(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate(), res)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should be filled now", func(t *testing.T) {
 				assert.Equal(t, 1, rowCacher.count)
 				require.NotNil(t, rowCacher.lastEntry)
-				assert.Equal(t, test.expectedListBeforeUpdate(),
-					rowCacher.lastEntry.AllowList)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(),
+					rowCacher.lastEntry.AllowList.Slice())
 				assert.Equal(t, 0, rowCacher.hitCount)
 			})
 
@@ -684,7 +632,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate(), res)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have received a hit", func(t *testing.T) {
@@ -705,7 +653,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate(), res)
+				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have not have received another hit", func(t *testing.T) {
@@ -716,7 +664,7 @@ func Test_CachedFilters_Int(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate(), res)
+				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have received another hit", func(t *testing.T) {
@@ -792,15 +740,6 @@ func (s *rowCacherSpy) reset() {
 	s.cacher = NewRowCacher(1e6)
 }
 
-func allowList(in ...uint64) helpers.AllowList {
-	list := helpers.AllowList{}
-	for _, elem := range in {
-		list.Insert(elem)
-	}
-
-	return list
-}
-
 // This prevents a regression on
 // https://github.com/weaviate/weaviate/issues/1772
 func Test_DuplicateEntriesInAnd_String(t *testing.T) {
@@ -851,8 +790,8 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	type test struct {
 		name                     string
 		filter                   *filters.LocalFilter
-		expectedListBeforeUpdate func() helpers.AllowList
-		expectedListAfterUpdate  func() helpers.AllowList
+		expectedListBeforeUpdate helpers.AllowList
+		expectedListAfterUpdate  helpers.AllowList
 	}
 
 	tests := []test{
@@ -887,12 +826,8 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: func() helpers.AllowList {
-				return allowList(1)
-			},
-			expectedListAfterUpdate: func() helpers.AllowList {
-				return allowList(1, 3)
-			},
+			expectedListBeforeUpdate: helpers.NewAllowList(1),
+			expectedListAfterUpdate:  helpers.NewAllowList(1, 3),
 		},
 	}
 
@@ -908,14 +843,14 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate(), res)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should be filled now", func(t *testing.T) {
 				assert.Equal(t, 1, rowCacher.count)
 				require.NotNil(t, rowCacher.lastEntry)
-				assert.Equal(t, test.expectedListBeforeUpdate(),
-					rowCacher.lastEntry.AllowList)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(),
+					rowCacher.lastEntry.AllowList.Slice())
 				assert.Equal(t, 0, rowCacher.hitCount)
 			})
 
@@ -923,7 +858,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListBeforeUpdate(), res)
+				assert.Equal(t, test.expectedListBeforeUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have received a hit", func(t *testing.T) {
@@ -956,7 +891,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate(), res)
+				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have not have received another hit", func(t *testing.T) {
@@ -967,7 +902,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 				res, err := searcher.DocIDs(context.Background(), test.filter,
 					additional.Properties{}, className)
 				assert.Nil(t, err)
-				assert.Equal(t, test.expectedListAfterUpdate(), res)
+				assert.Equal(t, test.expectedListAfterUpdate.Slice(), res.Slice())
 			})
 
 			t.Run("cache should have received another hit", func(t *testing.T) {

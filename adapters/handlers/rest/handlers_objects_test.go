@@ -1047,23 +1047,33 @@ type fakeManager struct {
 	deleteRefErr       *uco.Error
 }
 
-func (f *fakeManager) HeadObject(context.Context, *models.Principal, string, strfmt.UUID) (bool, *uco.Error) {
+func (f *fakeManager) HeadObject(context.Context, *models.Principal,
+	string, strfmt.UUID, *additional.ReplicationProperties,
+) (bool, *uco.Error) {
 	return f.headObjectReturn, f.headObjectErr
 }
 
-func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal, object *models.Object) (*models.Object, error) {
+func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
+	object *models.Object, _ *additional.ReplicationProperties,
+) (*models.Object, error) {
 	return object, nil
 }
 
-func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal, _ *models.Object) error {
+func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal,
+	_ *models.Object, _ *additional.ReplicationProperties,
+) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties) (*models.Object, error) {
+func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class string,
+	_ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties,
+) (*models.Object, error) {
 	return f.getObjectReturn, f.getObjectErr
 }
 
-func (f *fakeManager) GetObjectsClass(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Class, error) {
+func (f *fakeManager) GetObjectsClass(ctx context.Context,
+	principal *models.Principal, id strfmt.UUID,
+) (*models.Class, error) {
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,
 		Vectorizer: "text2vec-contextionary",
@@ -1071,34 +1081,46 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context, principal *models.Pri
 	return class, nil
 }
 
-func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, _ *string, _ *string, _ additional.Properties) ([]*models.Object, error) {
+func (f *fakeManager) GetObjects(_ context.Context, _ *models.Principal, _ *int64, _ *int64, after *string, _ *string, _ *string, _ additional.Properties) ([]*models.Object, error) {
 	return f.queryResult, nil
 }
 
-func (f *fakeManager) Query(_ context.Context, _ *models.Principal, _ *uco.QueryParams) ([]*models.Object, *uco.Error) {
+func (f *fakeManager) Query(_ context.Context,
+	_ *models.Principal, _ *uco.QueryParams,
+) ([]*models.Object, *uco.Error) {
 	return f.queryResult, f.queryErr
 }
 
-func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID, updates *models.Object) (*models.Object, error) {
+func (f *fakeManager) UpdateObject(_ context.Context, _ *models.Principal, _ string,
+	_ strfmt.UUID, updates *models.Object, _ *additional.ReplicationProperties,
+) (*models.Object, error) {
 	return updates, f.updateObjectErr
 }
 
-func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal, _ *models.Object) *uco.Error {
+func (f *fakeManager) MergeObject(_ context.Context, _ *models.Principal,
+	_ *models.Object, _ *additional.ReplicationProperties,
+) *uco.Error {
 	return f.patchObjectReturn
 }
 
-func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) error {
+func (f *fakeManager) DeleteObject(_ context.Context, _ *models.Principal,
+	class string, _ strfmt.UUID, _ *additional.ReplicationProperties,
+) error {
 	return f.deleteObjectReturn
 }
 
-func (f *fakeManager) AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput) *uco.Error {
+func (f *fakeManager) AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput, *additional.ReplicationProperties) *uco.Error {
 	return f.addRefErr
 }
 
-func (f *fakeManager) UpdateObjectReferences(context.Context, *models.Principal, *uco.PutReferenceInput) *uco.Error {
+func (f *fakeManager) UpdateObjectReferences(context.Context, *models.Principal,
+	*uco.PutReferenceInput, *additional.ReplicationProperties,
+) *uco.Error {
 	return f.putRefErr
 }
 
-func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal, *uco.DeleteReferenceInput) *uco.Error {
+func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal,
+	*uco.DeleteReferenceInput, *additional.ReplicationProperties,
+) *uco.Error {
 	return f.deleteRefErr
 }

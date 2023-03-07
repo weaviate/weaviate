@@ -43,15 +43,14 @@ func (p *commitloggerParser) doCollection() error {
 			return errors.Wrap(err, "read commit type")
 		}
 
-		switch commitType {
-		case CommitTypeReplace:
-			f.Close()
-			return errors.Errorf("found a replace commit on collection bucket")
-		case CommitTypeCollection:
+		if CommitTypeCollection.Is(commitType) {
 			if err := p.parseCollectionNode(); err != nil {
 				f.Close()
 				return errors.Wrap(err, "read collection node")
 			}
+		} else {
+			f.Close()
+			return errors.Errorf("found a %s commit on collection bucket", commitType.String())
 		}
 	}
 
