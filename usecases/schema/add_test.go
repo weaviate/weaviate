@@ -668,7 +668,7 @@ func TestAddClass(t *testing.T) {
 	})
 
 	// To prevent a regression on
-	// https://github.com/semi-technologies/weaviate/issues/2530
+	// https://github.com/weaviate/weaviate/issues/2530
 	t.Run("with two props that are identical when ignoring casing", func(t *testing.T) {
 		mgr := newSchemaManager()
 
