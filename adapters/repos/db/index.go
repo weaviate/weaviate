@@ -849,16 +849,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 					oo.Object.Additional = make(map[string]interface{})
 				}
 				oo.Object.Additional["score"] = os
-				// Collect all keys starting with "BM25F" and add them to the Additional
-				explainScore := ""
-				for k, v := range oo.Object.Additional {
-					if strings.HasPrefix(k, "BM25F") {
 
-						explainScore = fmt.Sprintf("%v, %v:%v", explainScore, k, v)
-						delete(oo.Object.Additional, k)
+				// Collect all keys starting with "BM25F" and add them to the Additional
+				if keywordRanking.AdditionalExplanations {
+					explainScore := ""
+					for k, v := range oo.Object.Additional {
+						if strings.HasPrefix(k, "BM25F") {
+
+							explainScore = fmt.Sprintf("%v, %v:%v", explainScore, k, v)
+							delete(oo.Object.Additional, k)
+						}
 					}
-				}
-				if len(explainScore) > 0 {
 					oo.Object.Additional["explainScore"] = explainScore
 				}
 			}
