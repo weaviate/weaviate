@@ -373,11 +373,10 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 }
 
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (term, map[uint64]int, error) {
-	var docMapPairs []docPointerWithScore = nil
-	var docMapPairsIndices map[uint64]int = nil
 	termResult := term{queryTerm: query}
 	uniqueDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
+	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
 		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
@@ -402,10 +401,28 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		} else {
 			m = preM
 		}
-
 		if len(m) == 0 {
 			continue
 		}
+
+		allMsAndProps = append(allMsAndProps, MapPairsAndPropName{MapPairs: m, propname: propName})
+	}
+
+	// sort ascending, this code has two effects
+	// 1) We can skip writing the indices from the last property to the map (see next comment). Therefore, having the
+	//    biggest property at the end will save us most writes on average
+	// 2) For the first property all entries are new, and we can create the map with the respective size. When choosing
+	//    the second-biggest entry as the first property we save additional allocations later
+	sort.Sort(allMsAndProps)
+	if len(allMsAndProps) > 2 {
+		allMsAndProps[len(allMsAndProps)-2], allMsAndProps[0] = allMsAndProps[0], allMsAndProps[len(allMsAndProps)-2]
+	}
+
+	var docMapPairs []docPointerWithScore = nil
+	var docMapPairsIndices map[uint64]int = nil
+	for i, mAndProps := range allMsAndProps {
+		m := mAndProps.MapPairs
+		propName := mAndProps.propname
 
 		// The indices are needed for two things:
 		// a) combining the results of different properties
@@ -415,7 +432,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		// When b) is not needed the results from the last property do not need to be added to the index-map as there
 		// won't be any follow-up combinations.
 		includeIndicesForLastElement := false
-		if additionalExplanations || propName != propertyNames[len(propertyNames)-1] {
+		if additionalExplanations || i < len(allMsAndProps)-1 {
 			includeIndicesForLastElement = true
 		}
 
@@ -593,4 +610,24 @@ func (t terms) Less(i, j int) bool {
 
 func (t terms) Swap(i, j int) {
 	t[i], t[j] = t[j], t[i]
+}
+
+type MapPairsAndPropName struct {
+	propname string
+	MapPairs []lsmkv.MapPair
+}
+
+type AllMapPairsAndPropName []MapPairsAndPropName
+
+// provide sort interface
+func (m AllMapPairsAndPropName) Len() int {
+	return len(m)
+}
+
+func (m AllMapPairsAndPropName) Less(i, j int) bool {
+	return len(m[i].MapPairs) < len(m[j].MapPairs)
+}
+
+func (m AllMapPairsAndPropName) Swap(i, j int) {
+	m[i], m[j] = m[j], m[i]
 }
