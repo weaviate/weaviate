@@ -36,7 +36,7 @@ type Manager struct {
 	state                   State
 	callbacks               []func(updatedSchema schema.Schema)
 	logger                  logrus.FieldLogger
-	authorizer              authorizer
+	Authorizer              authorizer
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -121,7 +121,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		repo:                    repo,
 		state:                   State{},
 		logger:                  logger,
-		authorizer:              authorizer,
+		Authorizer:              authorizer,
 		hnswConfigParser:        hnswConfigParser,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
