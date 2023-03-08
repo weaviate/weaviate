@@ -1,0 +1,25 @@
+version: '3.4'
+services:
+  weaviate-auth:
+    image: weaviate/test-server-auth
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: weaviate
+    restart: on-failure:0
+    ports:
+     - "8081:8080"
+     - "6061:6060"
+    environment:
+      LOG_LEVEL: "debug"
+      QUERY_DEFAULTS_LIMIT: 20
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'false'
+      PERSISTENCE_DATA_PATH: "./data2"
+      AUTHENTICATION_OIDC_ENABLED: 'true'
+      AUTHENTICATION_OIDC_CLIENT_ID: 'wcs'
+      AUTHENTICATION_OIDC_ISSUER: 'https://auth.wcs.api.semi.technology/auth/realms/SeMI'
+      AUTHENTICATION_OIDC_USERNAME_CLAIM: 'email'
+      AUTHENTICATION_OIDC_GROUPS_CLAIM: 'groups'
+      AUTHORIZATION_ADMINLIST_ENABLED: 'true'
+      AUTHORIZATION_ADMINLIST_USERS: 'ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net'
+
