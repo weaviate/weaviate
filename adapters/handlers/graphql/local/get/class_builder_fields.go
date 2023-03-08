@@ -128,6 +128,18 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.NewList(graphql.String), // String since no graphql date datatype exists
 		}
+	case schema.DataTypeUUIDArray:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.NewList(graphql.String), // Always return UUID as string representation to the user
+		}
+	case schema.DataTypeUUID:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.String, // Always return UUID as string representation to the user
+		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s; %s",
 			className, property.Name, propertyType.AsPrimitive()))
