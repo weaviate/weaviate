@@ -35,7 +35,7 @@ import (
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.String() == "/v1/.well-known/openid-configuration" {
+			if r.URL.String() == "/v1/.well-known/openid-configuration" || r.URL.String() == "/v1" {
 				handler.ServeHTTP(w, r)
 				return
 			}
