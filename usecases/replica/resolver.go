@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// ConsistencyLevel is an enum of all possible consistency level
 type ConsistencyLevel string
 
 const (
@@ -25,6 +26,7 @@ const (
 	All    ConsistencyLevel = "ALL"
 )
 
+// cLevel returns min number of replicas to fulfill the consistency level
 func cLevel(l ConsistencyLevel, n int) int {
 	switch l {
 	case All:
@@ -71,16 +73,17 @@ type rState struct {
 	nodes  []string // names which could not be resolved
 }
 
-// Len returns the number of replica
+// Len returns the number of replicas
 func (r *rState) Len() int {
 	return len(r.Hosts) + len(r.nodes)
 }
 
-// ConsistencyLevel returns consistency level when it is satisfied
+// ConsistencyLevel returns consistency level if it is satisfied
 func (r *rState) ConsistencyLevel(l ConsistencyLevel) (int, error) {
 	level := cLevel(l, r.Len())
 	if n := len(r.Hosts); level > n {
-		return 0, fmt.Errorf("consistency level (%d) > available replicas(%d): %w :%v", level, n, errUnresolvedName, r.nodes)
+		return 0, fmt.Errorf("consistency level (%d) > available replicas(%d): %w :%v",
+			level, n, errUnresolvedName, r.nodes)
 	}
 	return level, nil
 }
