@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -434,4 +435,69 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 	addedObject, err := manager.AddObject(ctx, nil, object, nil)
 	assert.Nil(t, err)
 	assert.NotNil(t, addedObject.Properties)
+}
+
+func Test_AddObjectWithUUIDProps(t *testing.T) {
+	var (
+		vectorRepo      *fakeVectorRepo
+		modulesProvider *fakeModulesProvider
+		manager         *Manager
+	)
+	schema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             "TestClass",
+					VectorIndexConfig: hnsw.UserConfig{},
+
+					Properties: []*models.Property{
+						{
+							Name:     "my_id",
+							DataType: []string{"uuid"},
+						},
+						{
+							Name:     "my_idz",
+							DataType: []string{"uuid[]"},
+						},
+					},
+				},
+			},
+		},
+	}
+	reset := func() {
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()
+		schemaManager := &fakeSchemaManager{
+			GetSchemaResponse: schema,
+		}
+		locks := &fakeLocks{}
+		cfg := &config.WeaviateConfig{}
+		authorizer := &fakeAuthorizer{}
+		logger, _ := test.NewNullLogger()
+		modulesProvider = getFakeModulesProvider()
+		metrics := &fakeMetrics{}
+		manager = NewManager(locks, schemaManager, cfg, logger,
+			authorizer, vectorRepo, modulesProvider, metrics)
+	}
+	reset()
+	ctx := context.Background()
+	object := &models.Object{
+		Class:  "TestClass",
+		Vector: []float32{9, 9, 9},
+		Properties: map[string]interface{}{
+			"my_id":  "28bafa1e-7956-4c58-8a02-4499a9d15253",
+			"my_idz": []any{"28bafa1e-7956-4c58-8a02-4499a9d15253"},
+		},
+	}
+	modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		Return(nil, nil)
+	addedObject, err := manager.AddObject(ctx, nil, object, nil)
+	require.Nil(t, err)
+	require.NotNil(t, addedObject.Properties)
+
+	expectedID := uuid.MustParse("28bafa1e-7956-4c58-8a02-4499a9d15253")
+	expectedIDz := []uuid.UUID{uuid.MustParse("28bafa1e-7956-4c58-8a02-4499a9d15253")}
+
+	assert.Equal(t, expectedID, addedObject.Properties.(map[string]interface{})["my_id"])
+	assert.Equal(t, expectedIDz, addedObject.Properties.(map[string]interface{})["my_idz"])
 }
