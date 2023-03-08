@@ -78,6 +78,20 @@ func TestIsArrayDataType(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "is not uuid array",
+			args: args{
+				dt: []string{"uuid"},
+			},
+			want: false,
+		},
+		{
+			name: "is uuid array",
+			args: args{
+				dt: []string{"uuid[]"},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

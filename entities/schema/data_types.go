@@ -53,9 +53,21 @@ const (
 	DataTypeBooleanArray DataType = "boolean[]"
 	// DataTypeDateArray The data type is a value of type date array
 	DataTypeDateArray DataType = "date[]"
+	// DataTypeUUID is a native UUID data type. It is stored in it's raw byte
+	// representation and therefore takes up less space than storing a UUID as a
+	// string
+	DataTypeUUID DataType = "uuid"
+	// DataTypeUUIDArray is the array version of DataTypeUUID
+	DataTypeUUIDArray DataType = "uuid[]"
 )
 
-var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeStringArray, DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray}
+var PrimitiveDataTypes []DataType = []DataType{
+	DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean,
+	DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob,
+	DataTypeStringArray, DataTypeTextArray, DataTypeIntArray,
+	DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray,
+	DataTypeUUID, DataTypeUUIDArray,
+}
 
 type PropertyKind int
 
@@ -103,6 +115,8 @@ func IsArrayType(dt DataType) (DataType, bool) {
 		return DataTypeBoolean, true
 	case DataTypeDateArray:
 		return DataTypeDate, true
+	case DataTypeUUIDArray:
+		return DataTypeUUID, true
 
 	default:
 		return "", false
@@ -187,6 +201,7 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 				string(DataTypePhoneNumber), string(DataTypeBlob),
 				string(DataTypeStringArray), string(DataTypeTextArray),
 				string(DataTypeIntArray), string(DataTypeNumberArray),
+				string(DataTypeUUIDArray), string(DataTypeUUID),
 				string(DataTypeBooleanArray), string(DataTypeDateArray):
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
