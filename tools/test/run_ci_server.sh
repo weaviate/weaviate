@@ -51,8 +51,5 @@ function echo_red() {
 
 build "$@" docker-compose-test.yml weaviate
 surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
-build "$@" docker-compose-test-auth.yml weaviate-auth
-surpress_on_success docker compose -f docker-compose-test-auth.yml up --force-recreate -d weaviate-auth
 
 wait "$@" docker-compose-test.yml
-wait "$@" docker-compose-test-auth.yml
