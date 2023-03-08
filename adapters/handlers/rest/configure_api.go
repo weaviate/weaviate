@@ -281,7 +281,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api, schemaManager)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupObjectBatchHandlers(api, batchObjectsManager)
-	setupGraphQLHandlers(api, appState)
+	setupGraphQLHandlers(api, appState, schemaManager)
 	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Modules)
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)

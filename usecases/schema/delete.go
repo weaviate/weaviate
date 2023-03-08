@@ -21,7 +21,7 @@ import (
 
 // DeleteClass from the schema
 func (m *Manager) DeleteClass(ctx context.Context, principal *models.Principal, class string, force bool) error {
-	err := m.authorizer.Authorize(principal, "delete", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "delete", "schema/objects")
 	if err != nil {
 		return err
 	}
