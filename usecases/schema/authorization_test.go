@@ -120,7 +120,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		}
 	})
 
-	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
+	t.Run("verify the tested methods require correct permissions from the Authorizer", func(t *testing.T) {
 		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
@@ -143,11 +143,11 @@ func Test_Schema_Authorization(t *testing.T) {
 				}
 				out, _ := callFuncByName(manager, test.methodName, args...)
 
-				require.Len(t, authorizer.calls, 1, "authorizer must be called")
+				require.Len(t, authorizer.calls, 1, "Authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
-					"execution must abort with authorizer error")
+					"execution must abort with Authorizer error")
 				assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-					authorizer.calls[0], "correct paramteres must have been used on authorizer")
+					authorizer.calls[0], "correct paramteres must have been used on Authorizer")
 			})
 		}
 	})
