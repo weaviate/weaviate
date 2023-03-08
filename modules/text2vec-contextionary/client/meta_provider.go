@@ -14,7 +14,7 @@ package client
 import (
 	"context"
 
-	pb "github.com/semi-technologies/contextionary/contextionary"
+	pb "github.com/weaviate/contextionary/contextionary"
 )
 
 func (c *Client) version(ctx context.Context) (string, error) {
