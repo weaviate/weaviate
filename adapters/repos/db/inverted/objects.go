@@ -18,14 +18,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
-func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property,
+func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 	uuid strfmt.UUID,
 ) ([]Property, error) {
 	propsMap := map[string]*models.Property{}
@@ -58,7 +60,7 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 }
 
 func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
-	input map[string]interface{},
+	input map[string]any,
 ) ([]Property, error) {
 	var out []Property
 	for key, prop := range propsMap {
@@ -108,7 +110,7 @@ func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 	}, nil
 }
 
-func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Property, error) {
+func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, error) {
 	createTime, createTimeOK := input[filters.InternalPropCreationTimeUnix]
 	updateTime, updateTimeOK := input[filters.InternalPropLastUpdateTimeUnix]
 
@@ -139,7 +141,7 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]interface{}) ([]Proper
 }
 
 func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string,
+	prop *models.Property, input map[string]any, propName string,
 ) error {
 	value, ok := input[propName]
 	if !ok {
@@ -153,7 +155,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 		return fmt.Errorf("extend properties with array type: %w", err)
 	}
 
-	values, ok := value.([]interface{})
+	values, ok := value.([]any)
 	if !ok {
 		// skip any primitive prop that's not set
 		return errors.New("analyze array prop: expected array prop")
@@ -161,7 +163,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 
 	property, err := a.analyzeArrayProp(prop, values)
 	if err != nil {
-		return errors.Wrap(err, "analyze primitive prop")
+		return errors.Wrap(err, "analyze array prop")
 	}
 	if property == nil {
 		return nil
@@ -174,7 +176,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 // extendPropertiesWithPrimitive mutates the passed in properties, by extending
 // it with an additional property - if applicable
 func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string,
+	prop *models.Property, input map[string]any, propName string,
 ) error {
 	var property *Property
 	var err error
@@ -205,7 +207,7 @@ func HasFrequency(dt schema.DataType) bool {
 	return false
 }
 
-func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{}) (*Property, error) {
+func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
 	var hasFrequency bool
 	var items []Countable
 	dt := schema.DataType(prop.DataType[0])
@@ -317,6 +319,17 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
+	case schema.DataTypeUUIDArray:
+		hasFrequency = false
+		parsed, err := validation.ParseUUIDArray(values)
+		if err != nil {
+			return nil, fmt.Errorf("parse uuid array: %w", err)
+		}
+
+		items, err = a.UUIDArray(parsed)
+		if err != nil {
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
+		}
 
 	default:
 		// ignore unsupported prop type
@@ -331,7 +344,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []interface{})
 	}, nil
 }
 
-func stringsFromValues(prop *models.Property, values []interface{}) ([]string, error) {
+func stringsFromValues(prop *models.Property, values []any) ([]string, error) {
 	in := make([]string, len(values))
 	for i, value := range values {
 		asString, ok := value.(string)
@@ -343,7 +356,7 @@ func stringsFromValues(prop *models.Property, values []interface{}) ([]string, e
 	return in, nil
 }
 
-func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
+func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Property, error) {
 	var hasFrequency bool
 	var items []Countable
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
@@ -431,6 +444,28 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
+	case schema.DataTypeUUID:
+		var err error
+		hasFrequency = false
+
+		if asString, ok := value.(string); ok {
+			// for example when patching the uuid may have been loaded as a string
+			value, err = uuid.Parse(asString)
+			if err != nil {
+				return nil, errors.Wrap(err, "parse stringified uuid")
+			}
+		}
+
+		asUUID, ok := value.(uuid.UUID)
+		if !ok {
+			return nil, fmt.Errorf("expected property %s to be uuid.UUID, but got %T", prop.Name, value)
+		}
+
+		items, err = a.UUID(asUUID)
+		if err != nil {
+			// TODO: use fmt.Errorf
+			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+		}
 	default:
 		// ignore unsupported prop type
 		return nil, nil
@@ -449,7 +484,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 // will be added. If the ref is set the ref-prop itself will also be added and
 // contain all references as values
 func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
-	prop *models.Property, input map[string]interface{}, propName string,
+	prop *models.Property, input map[string]any, propName string,
 ) error {
 	value, ok := input[propName]
 	if !ok {
@@ -461,11 +496,11 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 	asRefs, ok = value.(models.MultipleRef)
 	if !ok {
 		// due to the fix introduced in https://github.com/weaviate/weaviate/pull/2320,
-		// MultipleRef's can appear as empty []interface{} when no actual refs are provided for
+		// MultipleRef's can appear as empty []any when no actual refs are provided for
 		// an object's reference property.
 		//
-		// if we encounter []interface{}, assume it indicates an empty ref prop, and skip it.
-		_, ok := value.([]interface{})
+		// if we encounter []any, assume it indicates an empty ref prop, and skip it.
+		_, ok := value.([]any)
 		if !ok {
 			return fmt.Errorf("expected property %q to be of type models.MutlipleRef,"+
 				" but got %T", prop.Name, value)
@@ -524,9 +559,9 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 	}, nil
 }
 
-func typedSliceToUntyped(in interface{}) ([]interface{}, error) {
+func typedSliceToUntyped(in any) ([]any, error) {
 	switch typed := in.(type) {
-	case []interface{}:
+	case []any:
 		// nothing to do
 		return typed, nil
 	case []string:
@@ -539,13 +574,15 @@ func typedSliceToUntyped(in interface{}) ([]interface{}, error) {
 		return convertToUntyped[bool](typed), nil
 	case []float64:
 		return convertToUntyped[float64](typed), nil
+	case []uuid.UUID:
+		return convertToUntyped[uuid.UUID](typed), nil
 	default:
 		return nil, errors.Errorf("unsupported type %T", in)
 	}
 }
 
-func convertToUntyped[T comparable](in []T) []interface{} {
-	out := make([]interface{}, len(in))
+func convertToUntyped[T comparable](in []T) []any {
+	out := make([]any, len(in))
 	for i := range out {
 		out[i] = in[i]
 	}
