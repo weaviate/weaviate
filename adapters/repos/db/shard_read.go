@@ -279,7 +279,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 
 	// temp hard-coded params until we have an API
 	groupBy = &dto.GroupByParams{
-		Prop:            "modulo_30",
+		Prop:            "modulo_9",
 		ObjectsPerGroup: 5,
 		GroupsLimit:     5,
 	}
