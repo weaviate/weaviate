@@ -38,8 +38,14 @@ func startWeaviate(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+		getContextPath := func(path string) string {
+			if strings.Contains(path, "test/acceptance_with_go_client") {
+				return path[:strings.Index(path, "/test/acceptance_with_go_client")]
+			}
+			return path[:strings.Index(path, "/test/modules")]
+		}
 		// this must be an absolute path
-		contextPath := path[:strings.Index(path, "/test/modules")]
+		contextPath := getContextPath(path)
 		fromDockerFile = testcontainers.FromDockerfile{
 			Context:       contextPath,
 			Dockerfile:    "Dockerfile",
