@@ -922,8 +922,8 @@ github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae/go.mod h1:DD4vA1
 github.com/weaviate/contextionary v1.2.0/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
 github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d/go.mod h1:bJUcu8a/7XKOeaCWZtSjuBogUGReUiwJTyGSvcAjDzQ=
 github.com/weaviate/weaviate v1.18.1-0.20230307173515-39ef7cc0c9ff/go.mod h1:uCOsdblsybZcY7kNCXr1B0KCBfgvwuu/yKdXP3cPvEY=
-github.com/weaviate/weaviate v1.18.1-0.20230308164640-910ff774217e h1:e/K0vZKANycaFnbseWb75zbm55I6Q8HXW9/ZZBzE61w=
-github.com/weaviate/weaviate v1.18.1-0.20230308164640-910ff774217e/go.mod h1:uCOsdblsybZcY7kNCXr1B0KCBfgvwuu/yKdXP3cPvEY=
+github.com/weaviate/weaviate v1.18.1-0.20230309124031-c9e249998593 h1:kVVkOIe/2GGuM59s40nxri6AqnOBDhdOQTYHCoPQaTM=
+github.com/weaviate/weaviate v1.18.1-0.20230309124031-c9e249998593/go.mod h1:uCOsdblsybZcY7kNCXr1B0KCBfgvwuu/yKdXP3cPvEY=
 github.com/weaviate/weaviate-go-client/v4 v4.6.3-0.20230307175645-1e6af74af18b h1:z0SYcFPr9unrTDICox+eGRrferMRcf0kGxLtjgveLrk=
 github.com/weaviate/weaviate-go-client/v4 v4.6.3-0.20230307175645-1e6af74af18b/go.mod h1:ACWAFaKt1TNlMcr42Tlb2pPPKPWvUUOSx47F/uB9Eow=
 github.com/willf/bitset v1.1.10/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=

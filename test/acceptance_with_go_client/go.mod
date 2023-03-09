@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.0
-	github.com/weaviate/weaviate v1.18.1-0.20230308164640-910ff774217e
+	github.com/weaviate/weaviate v1.18.1-0.20230309124031-c9e249998593
 	github.com/weaviate/weaviate-go-client/v4 v4.6.3-0.20230307175645-1e6af74af18b
 )
 
