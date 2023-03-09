@@ -37,18 +37,18 @@ func (a *Analyzer) Object(input map[string]any, props []*models.Property,
 
 	properties, err := a.analyzeProps(propsMap, input)
 	if err != nil {
-		return nil, errors.Wrap(err, "analyze props")
+		return nil, fmt.Errorf("analyze props: %w", err)
 	}
 
 	idProp, err := a.analyzeIDProp(uuid)
 	if err != nil {
-		return nil, errors.Wrap(err, "analyze uuid prop")
+		return nil, fmt.Errorf("analyze uuid prop: %w", err)
 	}
 	properties = append(properties, *idProp)
 
 	tsProps, err := a.analyzeTimestampProps(input)
 	if err != nil {
-		return nil, errors.Wrap(err, "analyze timestamp props")
+		return nil, fmt.Errorf("analyze timestamp props: %w", err)
 	}
 	// tsProps will be nil here if weaviate is
 	// not setup to index by timestamps
@@ -97,7 +97,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
 	value, err := id.MarshalText()
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal id prop")
+		return nil, fmt.Errorf("marshal id prop: %w", err)
 	}
 	return &Property{
 		Name:         filters.InternalPropID,
@@ -118,7 +118,7 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 	if createTimeOK {
 		b, err := json.Marshal(createTime)
 		if err != nil {
-			return nil, errors.Wrap(err, "analyze create timestamp prop")
+			return nil, fmt.Errorf("analyze create timestamp prop: %w", err)
 		}
 		props = append(props, Property{
 			Name:  filters.InternalPropCreationTimeUnix,
@@ -129,7 +129,7 @@ func (a *Analyzer) analyzeTimestampProps(input map[string]any) ([]Property, erro
 	if updateTimeOK {
 		b, err := json.Marshal(updateTime)
 		if err != nil {
-			return nil, errors.Wrap(err, "analyze update timestamp prop")
+			return nil, fmt.Errorf("analyze update timestamp prop: %w", err)
 		}
 		props = append(props, Property{
 			Name:  filters.InternalPropLastUpdateTimeUnix,
@@ -163,7 +163,7 @@ func (a *Analyzer) extendPropertiesWithArrayType(properties *[]Property,
 
 	property, err := a.analyzeArrayProp(prop, values)
 	if err != nil {
-		return errors.Wrap(err, "analyze array prop")
+		return fmt.Errorf("analyze array prop: %w", err)
 	}
 	if property == nil {
 		return nil
@@ -188,7 +188,7 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 	}
 	property, err = a.analyzePrimitiveProp(prop, value)
 	if err != nil {
-		return errors.Wrap(err, "analyze primitive prop")
+		return fmt.Errorf("analyze primitive prop: %w", err)
 	}
 	if property == nil {
 		return nil
@@ -254,7 +254,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		var err error
 		items, err = a.IntArray(in)
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeNumberArray:
 		hasFrequency = HasFrequency(dt)
@@ -278,7 +278,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		var err error
 		items, err = a.FloatArray(in) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeBooleanArray:
 		hasFrequency = HasFrequency(dt)
@@ -294,7 +294,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		var err error
 		items, err = a.BoolArray(in) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeDateArray:
 		hasFrequency = HasFrequency(dt)
@@ -306,7 +306,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			} else if asString, okString := value.(string); okString {
 				parsedTime, err := time.Parse(time.RFC3339Nano, asString)
 				if err != nil {
-					return nil, errors.Wrapf(err, "Time parsing")
+					return nil, fmt.Errorf("parse time: %w", err)
 				}
 				in[i] = parsedTime.UnixNano()
 			} else {
@@ -317,7 +317,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		var err error
 		items, err = a.IntArray(in)
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeUUIDArray:
 		hasFrequency = false
@@ -399,7 +399,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		var err error
 		items, err = a.Int(asInt)
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeNumber:
 		hasFrequency = HasFrequency(dt)
@@ -411,7 +411,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		var err error
 		items, err = a.Float(asFloat) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeBoolean:
 		hasFrequency = HasFrequency(dt)
@@ -423,7 +423,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		var err error
 		items, err = a.Bool(asBool) // convert to int before analyzing
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeDate:
 		hasFrequency = HasFrequency(dt)
@@ -432,7 +432,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			// for example when patching the date may have been loaded as a string
 			value, err = time.Parse(time.RFC3339Nano, asString)
 			if err != nil {
-				return nil, errors.Wrap(err, "parse stringified timestamp")
+				return nil, fmt.Errorf("parse stringified timestamp: %w", err)
 			}
 		}
 		asTime, ok := value.(time.Time)
@@ -442,7 +442,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 
 		items, err = a.Int(asTime.UnixNano())
 		if err != nil {
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	case schema.DataTypeUUID:
 		var err error
@@ -452,7 +452,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			// for example when patching the uuid may have been loaded as a string
 			value, err = uuid.Parse(asString)
 			if err != nil {
-				return nil, errors.Wrap(err, "parse stringified uuid")
+				return nil, fmt.Errorf("parse stringified uuid: %w", err)
 			}
 		}
 
@@ -463,8 +463,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 
 		items, err = a.UUID(asUUID)
 		if err != nil {
-			// TODO: use fmt.Errorf
-			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+			return nil, fmt.Errorf("analyze property %s: %w", prop.Name, err)
 		}
 	default:
 		// ignore unsupported prop type
@@ -510,7 +509,7 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 
 	property, err := a.analyzeRefPropCount(prop, asRefs)
 	if err != nil {
-		return errors.Wrap(err, "ref count")
+		return fmt.Errorf("ref count: %w", err)
 	}
 
 	*properties = append(*properties, *property)
@@ -521,7 +520,7 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 
 	property, err = a.analyzeRefProp(prop, asRefs)
 	if err != nil {
-		return errors.Wrap(err, "refs")
+		return fmt.Errorf("refs: %w", err)
 	}
 
 	*properties = append(*properties, *property)
@@ -533,7 +532,7 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 ) (*Property, error) {
 	items, err := a.RefCount(value)
 	if err != nil {
-		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
+		return nil, fmt.Errorf("analyze ref-property %q: %w", prop.Name, err)
 	}
 
 	return &Property{
@@ -549,7 +548,7 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 ) (*Property, error) {
 	items, err := a.Ref(value)
 	if err != nil {
-		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
+		return nil, fmt.Errorf("analyze ref-property %q: %w", prop.Name, err)
 	}
 
 	return &Property{
