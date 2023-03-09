@@ -83,7 +83,7 @@ func (g *grouper) Do(ctx context.Context) error {
 	fmt.Printf("retrieve, partial parse, group objects took %s\n", time.Since(before))
 	spew.Dump(groups)
 
-	return fmt.Errorf("not implemented yet")
+	return fmt.Errorf("API not implemented, check the logs for a dump of the groups ;-)")
 }
 
 func mustExtractNumber(value []string) []float64 {
