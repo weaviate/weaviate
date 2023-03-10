@@ -104,6 +104,9 @@ jobs:
           go-version: 1.19
           cache: true
       - name: Acceptance tests (modules)
+        env:
+          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
+          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning]
