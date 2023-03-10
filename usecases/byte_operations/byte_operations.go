@@ -21,6 +21,7 @@ const (
 	uint32Len = 4
 	uint64Len = 8
 	uint16Len = 2
+	uint8Len  = 1
 )
 
 type ByteOperations struct {
@@ -41,6 +42,11 @@ func (bo *ByteOperations) ReadUint16() uint16 {
 func (bo *ByteOperations) ReadUint32() uint32 {
 	bo.Position += uint32Len
 	return binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
+}
+
+func (bo *ByteOperations) ReadUint8() uint8 {
+	bo.Position += uint8Len
+	return bo.Buffer[bo.Position-uint8Len]
 }
 
 func (bo *ByteOperations) CopyBytesFromBuffer(length uint64, out []byte) ([]byte, error) {
