@@ -224,63 +224,37 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 // no more class-less beacons exist. Most likely this will be the case with the
 // next breaking change, such as v2.0.0.
 func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propValuePair, error) {
+	// This makes it safe to access the first element later on without further
+	// checks
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
 	out := make([]*propValuePair, len(ids)*2)
 	before := time.Now()
-	buf := make([]byte, len(ids)*2*100)
-	_ = buf
 
-	offset := 0
-
-	prefix := []byte(fmt.Sprint("weaviate://localhost/"))
+	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, ids[0].class, 1.25)
 	for i, id := range ids {
-
-		offsetStart := offset
-
-		valLen := len(prefix) + len(id.class) + 1 + len(id.id)
-		if offsetStart+valLen >= len(buf) {
-			panic("buffer not big enough - we should now fall back to a more expensive, but safe way")
-		}
-
-		copy(buf[offset:], prefix)
-		offset += len(prefix)
-
-		classNameBuf := []byte(id.class)
-		copy(buf[offset:], classNameBuf)
-		offset += len(classNameBuf)
-
-		buf[offset] = '/'
-		offset += 1
-
-		for _, runeValue := range id.id {
-			buf[offset] = uint8(runeValue) // uuid characters are guaranteed ASCII, this is safe!
-			offset += 1
-		}
-
 		// future-proof way
-		pv, err := r.idToPropValuePairWithValue(buf[offsetStart:offset])
+		value, err := bb.ClassAndID(id.class, id.id)
+		if err != nil {
+			return nil, fmt.Errorf("bulk build id with class name: %w", err)
+		}
+
+		pv, err := r.idToPropValuePairWithValue(value)
 		if err != nil {
 			return nil, err
 		}
 
 		out[i*2] = pv
 
-		offsetStart = offset
-
-		valLen = len(prefix) + len(id.id)
-		if offsetStart+valLen >= len(buf) {
-			panic("buffer not big enough - we should now fall back to a more expensive, but safe way")
-		}
-
-		copy(buf[offset:], prefix)
-		offset += len(prefix)
-
-		for _, runeValue := range id.id {
-			buf[offset] = uint8(runeValue) // uuid characters are guaranteed ASCII, this is safe!
-			offset += 1
+		value, err = bb.LegacyIDOnly(id.id)
+		if err != nil {
+			return nil, fmt.Errorf("bulk build id without class name: %w", err)
 		}
 
 		// backward-compatible way
-		pv, err = r.idToPropValuePairWithValue(buf[offsetStart:offset])
+		pv, err = r.idToPropValuePairWithValue(value)
 		if err != nil {
 			return nil, err
 		}
