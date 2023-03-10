@@ -42,7 +42,6 @@ jobs:
           package: ./...
           fail-on-vuln: true
   Unit-Tests:
-    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -62,7 +61,6 @@ jobs:
           flags: unittests
           verbose: true
   Integration-Tests:
-    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -82,7 +80,6 @@ jobs:
           flags: integration
           verbose: true
   Modules-Acceptance-Tests:
-    needs: [Run-Swagger]
     runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v3
@@ -94,7 +91,6 @@ jobs:
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
-    needs: [Run-Swagger]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -103,13 +99,13 @@ jobs:
         with:
           go-version: 1.19
           cache: true
-      - name: Acceptance tests (modules)
+      - name: Acceptance tests
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
   Push-Docker:
-    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning]
+    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
     runs-on: ubuntu-latest-8-cores
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
