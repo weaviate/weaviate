@@ -79,27 +79,27 @@ func FromBinary(data []byte) (*Object, error) {
 func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 	ko := &Object{}
 
-	le := binary.LittleEndian
-	version := uint8(data[0])
+	byteOps := byte_operations.ByteOperations{Buffer: data}
+	version := byteOps.ReadUint8()
 	if version != 1 {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	ko.docID = le.Uint64(data[1:9])
-
-	uuid, err := uuid.FromBytes(data[10:26])
+	ko.docID = byteOps.ReadUint64()
+	byteOps.MoveBufferPositionForward(1) // ignore kind-byte
+	uuidObj, err := uuid.FromBytes(byteOps.ReadBytesFromBuffer(16))
 	if err != nil {
 		return nil, fmt.Errorf("parse uuid: %w", err)
 	}
+	ko.Object.ID = strfmt.UUID(uuidObj.String())
 
-	ko.Object.ID = strfmt.UUID(uuid.String())
+	byteOps.MoveBufferPositionForward(16)
 
-	vecLen := le.Uint16(data[42:44])
-	offset := 44 + vecLen*4
-	classNameLen := le.Uint16(data[offset : offset+2])
-	offset += 2
+	vecLen := byteOps.ReadUint16()
+	byteOps.MoveBufferPositionForward(uint64(vecLen * 4))
+	classNameLen := byteOps.ReadUint16()
 
-	ko.Object.Class = string(data[offset : offset+classNameLen])
+	ko.Object.Class = string(byteOps.ReadBytesFromBuffer(uint64(classNameLen)))
 
 	return ko, nil
 }
