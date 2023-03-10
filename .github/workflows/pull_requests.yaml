@@ -52,14 +52,11 @@ jobs:
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
-      - name: Codecov Unit
-        if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
-        uses: codecov/codecov-action@v3
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v3
         with:
-          fail_ci_if_error: true
-          files: ./coverage-unit.txt
-          flags: unittests
-          verbose: true
+          name: coverage-report-unit
+          path: coverage-unit.txt
   Integration-Tests:
     runs-on: ubuntu-latest
     steps:
@@ -71,14 +68,11 @@ jobs:
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
-      - name: Codecov Integration
-        if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
-        uses: codecov/codecov-action@v3
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v3
         with:
-          fail_ci_if_error: true
-          files: ./coverage-integration.txt
-          flags: integration
-          verbose: true
+          name: coverage-report-integration
+          path: coverage-integration.txt
   Modules-Acceptance-Tests:
     runs-on: ubuntu-latest-8-cores
     steps:
@@ -104,6 +98,34 @@ jobs:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
+  Codecov:
+    needs: [Unit-Tests, Integration-Tests]
+    runs-on: ubuntu-latest
+    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
+    steps:
+      - name: Download coverage artifacts integration
+        uses: actions/download-artifact@v3
+        with:
+          name: coverage-report-unit
+      - name: Download coverage unit
+        uses: actions/download-artifact@v3
+        with:
+          name: coverage-report-integration
+      - name: Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          fail_ci_if_error: true
+          files: ./coverage-integration.txt
+          flags: integration
+          verbose: true
+      - name: Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          fail_ci_if_error: true
+          files: ./coverage-unit.txt
+          flags: unittests
+          verbose: true
+
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
     runs-on: ubuntu-latest-8-cores
