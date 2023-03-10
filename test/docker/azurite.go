@@ -34,16 +34,16 @@ func startAzurite(ctx context.Context, networkName string) (*DockerContainer, er
 			NetworkAliases: map[string][]string{
 				networkName: {Azurite},
 			},
-			Cmd: []string{"azurite", "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0"},
+			Cmd: []string{Azurite, "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0"},
 			WaitingFor: wait.
 				ForAll(
 					wait.ForLog("Azurite Blob service is successfully listening at http://0.0.0.0:10000"),
 					wait.ForLog("Azurite Queue service is successfully listening at http://0.0.0.0:10001"),
 					wait.ForLog("Azurite Table service is successfully listening at http://0.0.0.0:10002"),
-					wait.ForListeningPort(nat.Port("10000/tcp")),
-					wait.ForListeningPort(nat.Port("10001/tcp")),
-					wait.ForListeningPort(nat.Port("10002/tcp")),
-				).WithStartupTimeout(60 * time.Second),
+					wait.ForListeningPort("10000/tcp"),
+					wait.ForListeningPort("10001/tcp"),
+					wait.ForListeningPort("10002/tcp"),
+				).WithDeadline(60 * time.Second),
 		},
 		Started: true,
 	})
