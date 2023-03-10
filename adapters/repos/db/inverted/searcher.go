@@ -141,7 +141,12 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 			continue
 		}
 
-		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
+		var unmarshalled *storobj.Object
+		if additional.ReferenceQuery {
+			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
+		} else {
+			unmarshalled, err = storobj.FromBinaryOptional(res, additional)
+		}
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
