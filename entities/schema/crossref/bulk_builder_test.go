@@ -98,10 +98,10 @@ func TestBulkBuilder(t *testing.T) {
 				id := uuid.New().String()
 				if tt.withClassName {
 					res := bb.ClassAndID(tt.className, strfmt.UUID(id))
-					assert.Equal(t, []byte(tt.expectedFn(id)), res)
+					assert.Equal(t, tt.expectedFn(id), string(res))
 				} else {
 					res := bb.LegacyIDOnly(strfmt.UUID(id))
-					assert.Equal(t, []byte(tt.expectedFn(id)), res)
+					assert.Equal(t, tt.expectedFn(id), string(res))
 				}
 			}
 		})

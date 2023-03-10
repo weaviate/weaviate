@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/usecases/byte_operations"
 )
 
 // BulkBuilder is a low-alloc tool to build many beacon strings (as []byte). It
@@ -26,9 +27,8 @@ import (
 // based on expected input params. If those requirements get exceeded, it will
 // still be safe to use, but will fallback to allocating dynamically.
 type BulkBuilder struct {
-	buf    []byte
+	byte_operations.ByteOperations
 	prefix []byte
-	offset int
 }
 
 func NewBulkBuilderWithEstimates(expectedCount int, exampleClassName string,
@@ -40,8 +40,11 @@ func NewBulkBuilderWithEstimates(expectedCount int, exampleClassName string,
 	predictedSize := expectedCount * (len(prefix) + 1 + lenOfTypicalClassName + 36)
 
 	bb := &BulkBuilder{
-		buf:    make([]byte, predictedSize),
 		prefix: prefix,
+		ByteOperations: byte_operations.ByteOperations{
+			Buffer:   make([]byte, predictedSize),
+			Position: 0,
+		},
 	}
 
 	return bb
@@ -50,61 +53,50 @@ func NewBulkBuilderWithEstimates(expectedCount int, exampleClassName string,
 func (bb *BulkBuilder) ClassAndID(className string,
 	id strfmt.UUID,
 ) []byte {
-	requiredSpace := len(bb.prefix) + len(className) + 1 + len(id)
-	if bb.offset+requiredSpace > len(bb.buf) {
+	requiredSpace := len(bb.prefix) + len(id)
+	if int(bb.Position)+requiredSpace >= len(bb.Buffer) {
 		return bb.fallbackWithClassName(className, id)
 	}
 
 	// copy the start pos, we will need this at the end to know what to return to
 	// the caller
-	start := bb.offset
-
-	bb.offset += copy(bb.buf[bb.offset:], bb.prefix)
+	start := bb.Position
+	bb.CopyBytesToBuffer(bb.prefix)
 
 	// This is a safe way, in case a class-name ever contains non-ASCII
 	// characters. If we could be 100% sure that a class is ASCII-only, we could
 	// remove this allocation and instead use the same copy-by-rune approach that
 	// we use later on for the ID.
-	classNameBuf := []byte(className)
-	bb.offset += copy(bb.buf[bb.offset:], classNameBuf)
-
-	// The separating slash between class and ID
-	bb.buf[bb.offset] = '/'
-	bb.offset += 1
-
+	bb.CopyBytesToBuffer([]byte(className))
+	bb.WriteByte('/') // The separating slash between class and ID
 	for _, runeValue := range id {
 		// We know that the UUID-string never contains non-ASCII characters. This
 		// means it safe to convert the uint32-rune into a uint8. This allows us to
 		// copy char by char without any additional allocs
-		bb.buf[bb.offset] = uint8(runeValue)
-		bb.offset += 1
+		bb.WriteByte(uint8(runeValue))
 	}
 
-	return bb.buf[start:bb.offset]
+	return bb.Buffer[start:bb.Position]
 }
 
 func (bb *BulkBuilder) LegacyIDOnly(id strfmt.UUID) []byte {
 	requiredSpace := len(bb.prefix) + len(id)
-	if bb.offset+requiredSpace >= len(bb.buf) {
+	if int(bb.Position)+requiredSpace >= len(bb.Buffer) {
 		return bb.fallbackWithoutClassName(id)
 	}
 
 	// copy the start pos, we will need this at the end to know what to return to
 	// the caller
-	start := bb.offset
-
-	copy(bb.buf[bb.offset:], bb.prefix)
-	bb.offset += len(bb.prefix)
-
+	start := bb.Position
+	bb.CopyBytesToBuffer(bb.prefix)
 	for _, runeValue := range id {
 		// We know that the UUID-string never contains non-ASCII characters. This
 		// means it safe to convert the uint32-rune into a uint8. This allows us to
 		// copy char by char without any additional allocs
-		bb.buf[bb.offset] = uint8(runeValue)
-		bb.offset += 1
+		bb.WriteByte(uint8(runeValue))
 	}
 
-	return bb.buf[start:bb.offset]
+	return bb.Buffer[start:bb.Position]
 }
 
 func (bb *BulkBuilder) fallbackWithClassName(
