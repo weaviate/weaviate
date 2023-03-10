@@ -33,7 +33,7 @@ import (
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) error {
-	err := m.authorizer.Authorize(principal, "create", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
 		return err
 	}

@@ -22,7 +22,7 @@ import (
 
 // GetSchema retrieves a locally cached copy of the schema
 func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := m.authorizer.Authorize(principal, "list", "schema/*")
+	err := m.Authorizer.Authorize(principal, "list", "schema/*")
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -69,7 +69,7 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(principal, "list", "schema/*")
+	err := m.Authorizer.Authorize(principal, "list", "schema/*")
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (m *Manager) ClusterHealthScore() int {
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
 	className string,
 ) (models.ShardStatusList, error) {
-	err := m.authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
+	err := m.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
 	if err != nil {
 		return nil, err
 	}
