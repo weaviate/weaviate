@@ -26,7 +26,7 @@ import (
 func (m *Manager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property,
 ) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
