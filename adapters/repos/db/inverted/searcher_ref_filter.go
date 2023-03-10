@@ -180,24 +180,6 @@ func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte) (*propValuePai
 	}, nil
 }
 
-func (r *refFilterExtractor) idToPropValuePairWithClass(p classUUIDPair) (*propValuePair, error) {
-	return &propValuePair{
-		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
-		hasFrequency: false,
-		value:        []byte(crossref.New("localhost", p.class, p.id).String()),
-		operator:     filters.OperatorEqual,
-	}, nil
-}
-
-func (r *refFilterExtractor) idToPropValuePairLegacyWithoutClass(p classUUIDPair) (*propValuePair, error) {
-	return &propValuePair{
-		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
-		hasFrequency: false,
-		value:        []byte(crossref.New("localhost", "", p.id).String()),
-		operator:     filters.OperatorEqual,
-	}, nil
-}
-
 // chain multiple alternatives using an OR operator
 func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*propValuePair, error) {
 	children, err := r.idsToPropValuePairs(ids)
