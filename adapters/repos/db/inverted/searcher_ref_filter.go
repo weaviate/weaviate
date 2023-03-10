@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -62,10 +63,12 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 		return nil, errors.Wrap(err, "invalid usage")
 	}
 
+	before := time.Now()
 	ids, err := r.fetchIDs(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "nested request to fetch matching IDs")
 	}
+	fmt.Printf("spent %s waiting to retrieve class/id pairs\n", time.Since(before))
 
 	if len(ids) > r.classSearcher.GetQueryMaximumResults() {
 		r.logger.
@@ -171,6 +174,15 @@ func (r *refFilterExtractor) backwardCompatibleIDToPropValuePair(p classUUIDPair
 	return r.chainedIDsToPropValuePair([]classUUIDPair{p})
 }
 
+func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte) (*propValuePair, error) {
+	return &propValuePair{
+		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
+		hasFrequency: false,
+		value:        v,
+		operator:     filters.OperatorEqual,
+	}, nil
+}
+
 func (r *refFilterExtractor) idToPropValuePairWithClass(p classUUIDPair) (*propValuePair, error) {
 	return &propValuePair{
 		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
@@ -213,23 +225,69 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 // next breaking change, such as v2.0.0.
 func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propValuePair, error) {
 	out := make([]*propValuePair, len(ids)*2)
+	before := time.Now()
+	buf := make([]byte, len(ids)*2*100)
+	_ = buf
+
+	offset := 0
+
+	prefix := []byte(fmt.Sprint("weaviate://localhost/"))
 	for i, id := range ids {
+
+		offsetStart := offset
+
+		valLen := len(prefix) + len(id.class) + 1 + len(id.id)
+		if offsetStart+valLen >= len(buf) {
+			panic("buffer not big enough - we should now fall back to a more expensive, but safe way")
+		}
+
+		copy(buf[offset:], prefix)
+		offset += len(prefix)
+
+		classNameBuf := []byte(id.class)
+		copy(buf[offset:], classNameBuf)
+		offset += len(classNameBuf)
+
+		buf[offset] = '/'
+		offset += 1
+
+		for _, runeValue := range id.id {
+			buf[offset] = uint8(runeValue) // uuid characters are guaranteed ASCII, this is safe!
+			offset += 1
+		}
+
 		// future-proof way
-		pv, err := r.idToPropValuePairWithClass(id)
+		pv, err := r.idToPropValuePairWithValue(buf[offsetStart:offset])
 		if err != nil {
 			return nil, err
 		}
 
 		out[i*2] = pv
 
+		offsetStart = offset
+
+		valLen = len(prefix) + len(id.id)
+		if offsetStart+valLen >= len(buf) {
+			panic("buffer not big enough - we should now fall back to a more expensive, but safe way")
+		}
+
+		copy(buf[offset:], prefix)
+		offset += len(prefix)
+
+		for _, runeValue := range id.id {
+			buf[offset] = uint8(runeValue) // uuid characters are guaranteed ASCII, this is safe!
+			offset += 1
+		}
+
 		// backward-compatible way
-		pv, err = r.idToPropValuePairLegacyWithoutClass(id)
+		pv, err = r.idToPropValuePairWithValue(buf[offsetStart:offset])
 		if err != nil {
 			return nil, err
 		}
 
 		out[(i*2)+1] = pv
 	}
+	fmt.Printf("spent %s converting ids to pv pairs\n", time.Since(before))
 
 	return out, nil
 }
