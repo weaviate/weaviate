@@ -58,6 +58,7 @@ type Compose struct {
 	withContextionary         bool
 	withQnATransformers       bool
 	withWeaviate              bool
+	withWeaviateAuth          bool
 	withWeaviateCluster       bool
 	withSUMTransformers       bool
 	withCentroid              bool
@@ -155,6 +156,12 @@ func (d *Compose) WithWeaviate() *Compose {
 func (d *Compose) WithWeaviateCluster() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateCluster = true
+	return d
+}
+
+func (d *Compose) WithWeaviateAuth() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateAuth = true
 	return d
 }
 
@@ -264,6 +271,15 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["CLUSTER_HOSTNAME"] = "node1"
 			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
+		}
+		if d.withWeaviateAuth {
+			envSettings["AUTHENTICATION_OIDC_ENABLED"] = "true"
+			envSettings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
+			envSettings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
+			envSettings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
+			envSettings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
+			envSettings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
+			envSettings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname)
