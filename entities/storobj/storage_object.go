@@ -76,6 +76,34 @@ func FromBinary(data []byte) (*Object, error) {
 	return ko, nil
 }
 
+func FromBinaryUUIDOnly(data []byte) (*Object, error) {
+	ko := &Object{}
+
+	byteOps := byte_operations.ByteOperations{Buffer: data}
+	version := byteOps.ReadUint8()
+	if version != 1 {
+		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
+	}
+
+	ko.docID = byteOps.ReadUint64()
+	byteOps.MoveBufferPositionForward(1) // ignore kind-byte
+	uuidObj, err := uuid.FromBytes(byteOps.ReadBytesFromBuffer(16))
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid: %w", err)
+	}
+	ko.Object.ID = strfmt.UUID(uuidObj.String())
+
+	byteOps.MoveBufferPositionForward(16)
+
+	vecLen := byteOps.ReadUint16()
+	byteOps.MoveBufferPositionForward(uint64(vecLen * 4))
+	classNameLen := byteOps.ReadUint16()
+
+	ko.Object.Class = string(byteOps.ReadBytesFromBuffer(uint64(classNameLen)))
+
+	return ko, nil
+}
+
 func FromBinaryOptional(data []byte,
 	addProp additional.Properties,
 ) (*Object, error) {
