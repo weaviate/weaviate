@@ -22,7 +22,7 @@ import (
 // considerably faster when generating 100s of thousand of beacons strings. The
 // main intended use case for this is building propValuePairs in ref-filters.
 //
-// The BulkBuilder makes some estimations for how much memory will be necesary
+// The BulkBuilder makes some estimations for how much memory will be necessary
 // based on expected input params. If those requirements get exceeded, it will
 // still be safe to use, but will fallback to allocating dynamically.
 type BulkBuilder struct {
