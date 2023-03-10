@@ -33,7 +33,6 @@ const (
 	azureBackupJourneyClassName          = "AzureBackup"
 	azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node"
 	azureBackupJourneyBackupIDCluster    = "azure-backup-cluster"
-	azureBackupJourneyProjectID          = "azure-backup-journey"
 	azureBackupJourneyContainerName      = "backups"
 )
 
