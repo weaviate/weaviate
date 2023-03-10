@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package crossref
 
 import (
@@ -38,28 +49,27 @@ func NewBulkBuilderWithEstimates(expectedCount int, exampleClassName string,
 
 func (bb *BulkBuilder) ClassAndID(className string,
 	id strfmt.UUID,
-) ([]byte, error) {
+) []byte {
 	requiredSpace := len(bb.prefix) + len(className) + 1 + len(id)
-	if bb.offset+requiredSpace >= len(bb.buf) {
-		return nil, fmt.Errorf("fallback not implemented yet, %d vs %d", bb.offset+requiredSpace, len(bb.buf))
+	if bb.offset+requiredSpace > len(bb.buf) {
+		return bb.fallbackWithClassName(className, id)
 	}
 
 	// copy the start pos, we will need this at the end to know what to return to
 	// the caller
 	start := bb.offset
 
-	copy(bb.buf[bb.offset:], bb.prefix)
-	bb.offset += len(bb.prefix)
+	bb.offset += copy(bb.buf[bb.offset:], bb.prefix)
 
 	// This is a safe way, in case a class-name ever contains non-ASCII
 	// characters. If we could be 100% sure that a class is ASCII-only, we could
 	// remove this allocation and instead use the same copy-by-rune approach that
 	// we use later on for the ID.
 	classNameBuf := []byte(className)
-	copy(bb.buf[bb.offset:], classNameBuf)
-	bb.offset += len(classNameBuf)
+	bb.offset += copy(bb.buf[bb.offset:], classNameBuf)
 
-	bb.buf[bb.offset] = '/' // The separating slash between class and ID
+	// The separating slash between class and ID
+	bb.buf[bb.offset] = '/'
 	bb.offset += 1
 
 	for _, runeValue := range id {
@@ -70,13 +80,13 @@ func (bb *BulkBuilder) ClassAndID(className string,
 		bb.offset += 1
 	}
 
-	return bb.buf[start:bb.offset], nil
+	return bb.buf[start:bb.offset]
 }
 
-func (bb *BulkBuilder) LegacyIDOnly(id strfmt.UUID) ([]byte, error) {
+func (bb *BulkBuilder) LegacyIDOnly(id strfmt.UUID) []byte {
 	requiredSpace := len(bb.prefix) + len(id)
 	if bb.offset+requiredSpace >= len(bb.buf) {
-		return nil, fmt.Errorf("fallback not implemented yet")
+		return bb.fallbackWithoutClassName(id)
 	}
 
 	// copy the start pos, we will need this at the end to know what to return to
@@ -94,5 +104,15 @@ func (bb *BulkBuilder) LegacyIDOnly(id strfmt.UUID) ([]byte, error) {
 		bb.offset += 1
 	}
 
-	return bb.buf[start:bb.offset], nil
+	return bb.buf[start:bb.offset]
+}
+
+func (bb *BulkBuilder) fallbackWithClassName(
+	className string, id strfmt.UUID,
+) []byte {
+	return []byte(fmt.Sprintf("%s%s/%s", bb.prefix, className, id))
+}
+
+func (bb *BulkBuilder) fallbackWithoutClassName(id strfmt.UUID) []byte {
+	return []byte(fmt.Sprintf("%s%s", bb.prefix, id))
 }

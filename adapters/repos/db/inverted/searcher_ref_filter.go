@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -63,12 +62,10 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 		return nil, errors.Wrap(err, "invalid usage")
 	}
 
-	before := time.Now()
 	ids, err := r.fetchIDs(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "nested request to fetch matching IDs")
 	}
-	fmt.Printf("spent %s waiting to retrieve class/id pairs\n", time.Since(before))
 
 	if len(ids) > r.classSearcher.GetQueryMaximumResults() {
 		r.logger.
@@ -231,37 +228,24 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propVa
 	}
 
 	out := make([]*propValuePair, len(ids)*2)
-	before := time.Now()
-
 	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, ids[0].class, 1.25)
 	for i, id := range ids {
 		// future-proof way
-		value, err := bb.ClassAndID(id.class, id.id)
-		if err != nil {
-			return nil, fmt.Errorf("bulk build id with class name: %w", err)
-		}
-
-		pv, err := r.idToPropValuePairWithValue(value)
+		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id))
 		if err != nil {
 			return nil, err
 		}
 
 		out[i*2] = pv
 
-		value, err = bb.LegacyIDOnly(id.id)
-		if err != nil {
-			return nil, fmt.Errorf("bulk build id without class name: %w", err)
-		}
-
 		// backward-compatible way
-		pv, err = r.idToPropValuePairWithValue(value)
+		pv, err = r.idToPropValuePairWithValue(bb.LegacyIDOnly(id.id))
 		if err != nil {
 			return nil, err
 		}
 
 		out[(i*2)+1] = pv
 	}
-	fmt.Printf("spent %s converting ids to pv pairs\n", time.Since(before))
 
 	return out, nil
 }
