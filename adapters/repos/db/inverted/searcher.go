@@ -180,6 +180,10 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
+	before := time.Now()
+	defer func() {
+		fmt.Printf("all of DocIDs took %s\n", time.Since(before))
+	}()
 	return s.docIDs(ctx, filter, additional, className, true)
 }
 
@@ -231,12 +235,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 
 	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
 
-	// if cacheable && allowCaching {
-	// 	s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
-	// 		AllowList: out,
-	// 		Hash:      pv.docIDs.checksum,
-	// 	})
-	// }
+	if cacheable && allowCaching {
+		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
+			AllowList: out,
+			Hash:      pv.docIDs.checksum,
+		})
+	}
 
 	return out, nil
 }
