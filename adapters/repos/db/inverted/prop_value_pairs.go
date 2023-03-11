@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
+	"golang.org/x/sync/errgroup"
 )
 
 type propValuePair struct {
@@ -97,15 +98,24 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		}
 		pv.docIDs = dbm
 	} else {
+		eg := errgroup.Group{}
 		for i, child := range pv.children {
-			// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
-			// otherwise we run into situations where each subfilter on their own
-			// runs into the limit, possibly yielding in "less than limit" results
-			// after merging.
-			err := child.fetchDocIDs(s, 0)
-			if err != nil {
-				return errors.Wrapf(err, "nested child %d", i)
-			}
+			i, child := i, child
+			eg.Go(func() error {
+				// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
+				// otherwise we run into situations where each subfilter on their own
+				// runs into the limit, possibly yielding in "less than limit" results
+				// after merging.
+				err := child.fetchDocIDs(s, 0)
+				if err != nil {
+					return errors.Wrapf(err, "nested child %d", i)
+				}
+
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return fmt.Errorf("nested query: %w", err)
 		}
 	}
 

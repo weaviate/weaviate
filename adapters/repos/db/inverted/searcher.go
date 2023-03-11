@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"golang.org/x/sync/errgroup"
 )
 
 type Searcher struct {
@@ -79,20 +80,27 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
+	beforeExtract := time.Now()
 	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("OBJECTS: extract (%d) took %s\n", pv.docIDs.count(), time.Since(beforeExtract))
 
+	beforeFetch := time.Now()
 	if err := pv.fetchDocIDs(s, limit); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
+	fmt.Printf("OBJECTS: fetch (%d) took %s\n", pv.docIDs.count(), time.Since(beforeFetch))
 
+	beforeMerge := time.Now()
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
+	fmt.Printf("OBJECTS: merge (%d) took %s\n", pv.docIDs.count(), time.Since(beforeMerge))
 
+	beforeAL := time.Now()
 	allowList := helpers.NewAllowListFromBitmap(dbm.docIDs)
 	var it docIDsIterator
 	if len(sort) > 0 {
@@ -104,6 +112,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	} else {
 		it = allowList.LimitedIterator(limit)
 	}
+	fmt.Printf("OBJECTS: build allow (%d) took %s\n", pv.docIDs.count(), time.Since(beforeAL))
 
 	return s.objectsByDocID(it, additional)
 }
@@ -189,10 +198,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 	allowCaching bool,
 ) (helpers.AllowList, error) {
+	beforeExtract := time.Now()
 	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("IDS: extract (%d) took %s\n", pv.docIDs.count(), time.Since(beforeExtract))
 
 	cacheable := pv.cacheable()
 	if cacheable && allowCaching {
@@ -205,23 +216,27 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		}
 	}
 
+	beforeFetch := time.Now()
 	if err := pv.fetchDocIDs(s, 0); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
+	fmt.Printf("IDS: fetch (%d) took %s\n", pv.docIDs.count(), time.Since(beforeFetch))
 
+	beforeMerge := time.Now()
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
+	fmt.Printf("IDS: merge (%d) took %s\n", pv.docIDs.count(), time.Since(beforeMerge))
 
 	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
 
-	if cacheable && allowCaching {
-		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
-			AllowList: out,
-			Hash:      pv.docIDs.checksum,
-		})
-	}
+	// if cacheable && allowCaching {
+	// 	s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
+	// 		AllowList: out,
+	// 		Hash:      pv.docIDs.checksum,
+	// 	})
+	// }
 
 	return out, nil
 }
@@ -234,12 +249,22 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		// nested filter
 		out.children = make([]*propValuePair, len(filter.Operands))
 
+		eg := errgroup.Group{}
+
 		for i, clause := range filter.Operands {
-			child, err := s.extractPropValuePair(&clause, className)
-			if err != nil {
-				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
-			}
-			out.children[i] = child
+			i, clause := i, clause
+			eg.Go(func() error {
+				child, err := s.extractPropValuePair(&clause, className)
+				if err != nil {
+					return errors.Wrapf(err, "nested clause at pos %d", i)
+				}
+				out.children[i] = child
+
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, fmt.Errorf("nested query: %w", err)
 		}
 		out.operator = filter.Operator
 		return &out, nil
