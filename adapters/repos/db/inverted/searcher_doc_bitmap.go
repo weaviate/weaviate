@@ -60,8 +60,14 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 
 	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
 	var hashes [][]byte
+	i := 0
 	var readFn RoaringSetReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
-		out.docIDs.Or(docIDs)
+		if i == 0 {
+			out.docIDs = docIDs
+		} else {
+			out.docIDs.Or(docIDs)
+		}
+		i++
 
 		currHash, err := hashBucket.Get(k)
 		if err != nil {
