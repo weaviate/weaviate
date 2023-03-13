@@ -142,6 +142,9 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	if err != nil {
 		return nil, err
 	}
+	if f, n := class.ReplicationConfig.Factor, int64(m.clusterState.NodeCount()); f > n {
+		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+	}
 
 	shardState, err := sharding.InitState(class.Class,
 		class.ShardingConfig.(sharding.Config),
