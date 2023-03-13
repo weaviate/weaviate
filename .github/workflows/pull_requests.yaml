@@ -112,23 +112,11 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: coverage-report-integration
-      - name: Fix files
-        run: |
-          sed -i 's:github.com/weaviate/weaviate/::g' coverage-integration.txt
-          sed -i 's:github.com/weaviate/weaviate/::g' coverage-unit.txt
       - name: Codecov
         uses: codecov/codecov-action@v3
         with:
           fail_ci_if_error: true
-          files: ./coverage-integration.txt
-          flags: integration
-          verbose: true
-      - name: Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          fail_ci_if_error: true
-          files: ./coverage-unit.txt
-          flags: unittests
+          files: ./coverage-integration.txt, ./coverage-unit.txt
           verbose: true
 
   Push-Docker:
