@@ -1,3 +1,6 @@
 codecov:
+    disable_default_path_fixes: true
     notify:
         after_n_builds: 2
+fixes:
+    - "github.com/weaviate/weaviate/::"
