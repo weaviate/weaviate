@@ -55,7 +55,6 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v3
         with:
-          name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
     runs-on: ubuntu-latest
@@ -71,7 +70,6 @@ jobs:
       - name: Archive code coverage results
         uses: actions/upload-artifact@v3
         with:
-          name: coverage-report-integration
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     runs-on: ubuntu-latest-8-cores
@@ -105,12 +103,6 @@ jobs:
     steps:
       - name: Download coverage artifacts integration
         uses: actions/download-artifact@v3
-        with:
-          name: coverage-report-unit
-      - name: Download coverage unit
-        uses: actions/download-artifact@v3
-        with:
-          name: coverage-report-integration
       - name: Fix files
         run: |
           sed -i 's:github.com/weaviate/weaviate/::g' coverage-integration.txt
