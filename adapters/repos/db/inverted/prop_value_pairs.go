@@ -43,7 +43,7 @@ func newPropValuePair() propValuePair {
 	return propValuePair{docIDs: newDocBitmap()}
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
+func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipCache bool) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
 		if pv.prop == filters.InternalPropBackwardsCompatID {
@@ -92,7 +92,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		}
 
 		ctx := context.TODO() // TODO: pass through instead of spawning new
-		dbm, err := s.docBitmap(ctx, b, limit, pv)
+		dbm, err := s.docBitmap(ctx, b, limit, pv, skipCache)
 		if err != nil {
 			return err
 		}
@@ -106,7 +106,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results
 				// after merging.
-				err := child.fetchDocIDs(s, 0)
+				err := child.fetchDocIDs(s, 0, skipCache)
 				if err != nil {
 					return errors.Wrapf(err, "nested child %d", i)
 				}
@@ -143,8 +143,8 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		dbms[i] = dbm
 	}
 
-	// all children are identical, no need to merge, simply return the first
-	if checksumsIdenticalBM(dbms) {
+	if pv.cacheable() && checksumsIdenticalBM(dbms) {
+		// all children are identical, no need to merge, simply return the first
 		return dbms[0], nil
 	}
 

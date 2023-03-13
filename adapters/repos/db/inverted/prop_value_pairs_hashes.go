@@ -31,8 +31,6 @@ func (pv *propValuePair) cacheable() bool {
 
 	switch pv.operator {
 	case filters.OperatorEqual, filters.OperatorAnd, filters.OperatorOr,
-		filters.OperatorGreaterThan, filters.OperatorGreaterThanEqual,
-		filters.OperatorLessThan, filters.OperatorLessThanEqual,
 		filters.OperatorNotEqual, filters.OperatorLike:
 		// do not cache nested queries with an extreme amount of operands, such as
 		// ref-filter queries. For those queries, just checking the large amount of

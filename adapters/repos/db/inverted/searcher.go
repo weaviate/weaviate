@@ -88,7 +88,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	fmt.Printf("OBJECTS: extract (%d) took %s\n", pv.docIDs.count(), time.Since(beforeExtract))
 
 	beforeFetch := time.Now()
-	if err := pv.fetchDocIDs(s, limit); err != nil {
+	if err := pv.fetchDocIDs(s, limit, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 	fmt.Printf("OBJECTS: fetch (%d) took %s\n", pv.docIDs.count(), time.Since(beforeFetch))
@@ -221,7 +221,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	beforeFetch := time.Now()
-	if err := pv.fetchDocIDs(s, 0); err != nil {
+	if err := pv.fetchDocIDs(s, 0, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 	fmt.Printf("IDS: fetch (%d) took %s\n", pv.docIDs.count(), time.Since(beforeFetch))
