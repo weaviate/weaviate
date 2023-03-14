@@ -16,6 +16,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -36,12 +37,13 @@ type Config struct {
 	IgnoreStartupSchemaSync bool   `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 }
 
-func Init(userConfig Config, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	state := State{
 		config: userConfig,
 		delegate: delegate{
+			dataPath:  dataPath,
 			DiskUsage: make(map[string]DiskSpace, 32),
 		},
 	}
@@ -171,10 +173,11 @@ func (s *State) DiskSpace(node string) (DiskSpace, bool) {
 }
 
 type DiskSpace struct {
-	Free uint64
-	Used uint64
+	Total     uint64
+	Available uint64
 }
 type delegate struct {
+	dataPath string
 	sync.Mutex
 	DiskUsage map[string]DiskSpace
 }
@@ -207,4 +210,23 @@ func (d *delegate) Set(node string, x DiskSpace) {
 	d.Lock()
 	defer d.Unlock()
 	d.DiskUsage[node] = x
+}
+
+func (d *delegate) Delete(node string) {
+	// TODO clean up entries for node leaving the cluster
+	d.Lock()
+	defer d.Unlock()
+	delete(d.DiskUsage, node)
+}
+
+func diskSpace(path string) (DiskSpace, error) {
+	fs := syscall.Statfs_t{}
+	err := syscall.Statfs(path, &fs)
+	if err != nil {
+		return DiskSpace{}, err
+	}
+	return DiskSpace{
+		Total:     fs.Blocks * uint64(fs.Bsize),
+		Available: fs.Bavail * uint64(fs.Bsize),
+	}, nil
 }
