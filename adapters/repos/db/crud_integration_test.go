@@ -1274,7 +1274,6 @@ func TestCRUD(t *testing.T) {
 			assert.Equal(t, expected, res)
 		})
 	})
-
 }
 
 func TestCRUD_Query(t *testing.T) {
@@ -1518,6 +1517,7 @@ func TestCRUD_Query(t *testing.T) {
 		}
 	})
 }
+
 func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	total := 100
 	individual := total / 4

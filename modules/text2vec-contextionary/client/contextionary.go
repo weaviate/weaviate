@@ -42,7 +42,6 @@ func NewClient(uri string, logger logrus.FieldLogger) (*Client, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
 	if err != nil {
-
 		return nil, fmt.Errorf("couldn't connect to remote contextionary gRPC server: %s", err)
 	}
 
