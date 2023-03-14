@@ -12,6 +12,8 @@
 package filters
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -62,6 +64,13 @@ func validateSortClause(sch schema.Schema, className schema.ClassName, sort Sort
 		if err != nil {
 			return err
 		}
+
+		if isUUIDType(prop.DataType[0]) {
+			return fmt.Errorf("prop %q is of type uuid/uuid[]: "+
+				"sorting by uuid is currently not supported - if you believe it should be, "+
+				"please open a feature request on github.com/weaviate/weaviate", prop.Name)
+		}
+
 		if schema.IsRefDataType(prop.DataType) {
 			return errors.Errorf("sorting by reference not supported, "+
 				"property %q is a ref prop to the class %q", propName, prop.DataType[0])

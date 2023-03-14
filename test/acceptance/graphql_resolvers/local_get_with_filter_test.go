@@ -208,6 +208,49 @@ func gettingObjectsWithFilters(t *testing.T) {
 		assert.Equal(t, expected, airport)
 	})
 
+	t.Run("with uuid filters applied", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Airport(where:{
+					operator:And
+					operands: [
+						{
+							operator: GreaterThan,
+							valueString: "00000000-0000-0000-0000-000000010000",
+							path:["airportId"]
+						},
+						{
+							operator: LessThan,
+							valueString: "00000000-0000-0000-0000-000000030000",
+							path:["airportId"]
+						},
+						{
+							operator: NotEqual,
+							valueString: "00000000-0000-0000-0000-000000040000",
+							path:["airportId"]
+						}
+					]
+				}){
+					code
+					airportId
+				}
+			}
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		airports := result.Get("Get", "Airport").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{
+				"code":      "20000",
+				"airportId": "00000000-0000-0000-0000-000000020000",
+			},
+		}
+
+		assert.ElementsMatch(t, expected, airports)
+	})
+
 	t.Run("filtering for ref counts", func(t *testing.T) {
 		// this is the journey test for gh-1101
 
