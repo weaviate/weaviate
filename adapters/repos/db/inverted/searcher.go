@@ -80,27 +80,20 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	beforeExtract := time.Now()
 	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("OBJECTS: extract (%d) took %s\n", pv.docIDs.count(), time.Since(beforeExtract))
 
-	beforeFetch := time.Now()
 	if err := pv.fetchDocIDs(s, limit, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
-	fmt.Printf("OBJECTS: fetch (%d) took %s\n", pv.docIDs.count(), time.Since(beforeFetch))
 
-	beforeMerge := time.Now()
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
-	fmt.Printf("OBJECTS: merge (%d) took %s\n", pv.docIDs.count(), time.Since(beforeMerge))
 
-	beforeAL := time.Now()
 	allowList := helpers.NewAllowListFromBitmap(dbm.docIDs)
 	var it docIDsIterator
 	if len(sort) > 0 {
@@ -112,7 +105,6 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	} else {
 		it = allowList.LimitedIterator(limit)
 	}
-	fmt.Printf("OBJECTS: build allow (%d) took %s\n", pv.docIDs.count(), time.Since(beforeAL))
 
 	return s.objectsByDocID(it, additional)
 }
@@ -180,10 +172,6 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	before := time.Now()
-	defer func() {
-		fmt.Printf("all of DocIDs took %s\n", time.Since(before))
-	}()
 	return s.docIDs(ctx, filter, additional, className, true)
 }
 
@@ -202,12 +190,10 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 	allowCaching bool,
 ) (helpers.AllowList, error) {
-	beforeExtract := time.Now()
 	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("IDS: extract (%d) took %s\n", pv.docIDs.count(), time.Since(beforeExtract))
 
 	cacheable := pv.cacheable()
 	if cacheable && allowCaching {
@@ -220,18 +206,14 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		}
 	}
 
-	beforeFetch := time.Now()
 	if err := pv.fetchDocIDs(s, 0, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
-	fmt.Printf("IDS: fetch (%d) took %s\n", pv.docIDs.count(), time.Since(beforeFetch))
 
-	beforeMerge := time.Now()
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
-	fmt.Printf("IDS: merge (%d) took %s\n", pv.docIDs.count(), time.Since(beforeMerge))
 
 	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
 
