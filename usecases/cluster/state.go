@@ -41,6 +41,7 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	state := State{
 		config: userConfig,
 		delegate: delegate{
+			Name:      userConfig.Hostname,
 			dataPath:  dataPath,
 			DiskUsage: make(map[string]DiskSpace, 32),
 		},

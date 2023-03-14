@@ -8,22 +8,22 @@ import (
 )
 
 type DiskSpace struct {
-	// Version   int16
 	Total     uint64
 	Available uint64
 }
 
-func (d *DiskSpace) MarshalBinary() (data []byte, err error) {
+func (d *DiskSpace) marshal() (data []byte, err error) {
 	buf := bytes.NewBuffer(make([]byte, 0, 16))
 	binary.Write(buf, binary.BigEndian, d)
 	return buf.Bytes(), err
 }
 
-func (d *DiskSpace) UnmarshalBinary(data []byte) error {
+func (d *DiskSpace) Unmarshal(data []byte) error {
 	return binary.Read(bytes.NewReader(data), binary.BigEndian, d)
 }
 
 type delegate struct {
+	Name     string
 	dataPath string
 	sync.Mutex
 	DiskUsage map[string]DiskSpace
@@ -34,10 +34,20 @@ func (*delegate) NodeMeta(limit int) (meta []byte) {
 }
 
 func (d *delegate) LocalState(join bool) []byte {
-	return nil
+	// TODO should we return if join == true
+	space, err := diskSpace(d.dataPath)
+	if err != nil {
+		return nil
+	}
+	bytes, err := space.marshal()
+	if err != nil {
+		return nil
+	}
+	return bytes
 }
 
 func (d *delegate) MergeRemoteState(buf []byte, join bool) {
+	// TODO should we return if join == true
 }
 
 func (d *delegate) NotifyMsg(data []byte) {}

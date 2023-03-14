@@ -12,10 +12,11 @@ func TestDiskSpace(t *testing.T) {
 		Total:     256,
 		Available: 3,
 	}
-	bytes, err := want.MarshalBinary()
+	bytes, err := want.marshal()
+	bytes = append(bytes, []byte("abcd")...)
 	assert.Nil(t, err)
 	got := DiskSpace{}
-	err = got.UnmarshalBinary(bytes)
+	err = got.Unmarshal(bytes)
 	assert.Nil(t, err)
 	assert.Equal(t, want, got)
 }
