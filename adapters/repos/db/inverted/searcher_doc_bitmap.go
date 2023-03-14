@@ -14,7 +14,6 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
@@ -53,10 +52,15 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair, skipCache bool,
 ) (docBitmap, error) {
-	out := newDocBitmap()
-	hashBucket, err := s.getHashBucket(pv)
-	if err != nil {
-		return out, err
+	out := newUnitializedDocBitmap()
+	var hashBucket *lsmkv.Bucket
+	var err error
+
+	if !skipCache {
+		hashBucket, err = s.getHashBucket(pv)
+		if err != nil {
+			return out, err
+		}
 	}
 
 	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
@@ -71,7 +75,6 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		i++
 
 		if !skipCache {
-			fmt.Printf("key %s is considered cachable\n", k)
 			currHash, err := hashBucket.Get(k)
 			if err != nil {
 				return false, errors.Wrap(err, "get hash")
@@ -88,11 +91,17 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
 			return false, nil
 		}
+
 		return true, nil
 	}
 
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, errors.Wrap(err, "read row")
+	}
+
+	if i == 0 {
+		// no rows were read, initially an empty bitmap
+		out = newDocBitmap()
 	}
 
 	if !skipCache {

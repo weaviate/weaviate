@@ -585,6 +585,12 @@ type docBitmap struct {
 	checksum []byte
 }
 
+// newUnitializedDocBitmap can be used whenever we can be sure that the first
+// user of the docBitmap will set or replace the bitmap, such as a row reader
+func newUnitializedDocBitmap() docBitmap {
+	return docBitmap{docIDs: nil}
+}
+
 func newDocBitmap() docBitmap {
 	return docBitmap{docIDs: sroar.NewBitmap()}
 }
