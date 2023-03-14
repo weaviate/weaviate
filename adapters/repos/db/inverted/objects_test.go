@@ -65,24 +65,20 @@ func TestAnalyzeObject(t *testing.T) {
 				Tokenization: "field",
 			},
 			{
-				Name:         "id1",
-				DataType:     []string{"uuid"},
-				Tokenization: "field",
+				Name:     "id1",
+				DataType: []string{"uuid"},
 			},
 			{
-				Name:         "id2",
-				DataType:     []string{"uuid"},
-				Tokenization: "field",
+				Name:     "id2",
+				DataType: []string{"uuid"},
 			},
 			{
-				Name:         "idArray1",
-				DataType:     []string{"uuid[]"},
-				Tokenization: "field",
+				Name:     "idArray1",
+				DataType: []string{"uuid[]"},
 			},
 			{
-				Name:         "idArray2",
-				DataType:     []string{"uuid[]"},
-				Tokenization: "field",
+				Name:     "idArray2",
+				DataType: []string{"uuid[]"},
 			},
 		}
 		res, err := a.Object(schema, props, strfmt.UUID(uuid))

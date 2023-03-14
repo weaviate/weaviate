@@ -748,14 +748,12 @@ var carClass = &models.Class{
 			Tokenization: "field",
 		},
 		{
-			DataType:     []string{string(schema.DataTypeUUID)},
-			Name:         "manufacturerId",
-			Tokenization: "field",
+			DataType: []string{string(schema.DataTypeUUID)},
+			Name:     "manufacturerId",
 		},
 		{
-			DataType:     []string{string(schema.DataTypeUUIDArray)},
-			Name:         "availableAtDealerships",
-			Tokenization: "field",
+			DataType: []string{string(schema.DataTypeUUIDArray)},
+			Name:     "availableAtDealerships",
 		},
 	},
 }
