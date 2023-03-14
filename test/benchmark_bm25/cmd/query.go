@@ -18,6 +18,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
+
 	"github.com/spf13/cobra"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/test/benchmark_bm25/lib"
@@ -27,6 +29,7 @@ func init() {
 	rootCmd.AddCommand(queryCmd)
 	queryCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
 	queryCmd.PersistentFlags().IntVarP(&QueriesCount, "count", "c", DefaultQueriesCount, "run only the specified amount of queries, negative numbers mean unlimited")
+	queryCmd.PersistentFlags().BoolVarP(&FilterProperties, "filter", "f", DefaultFilterProperties, "filter results")
 }
 
 var queryCmd = &cobra.Command{
@@ -74,8 +77,18 @@ var queryCmd = &cobra.Command{
 			bm25 := &graphql.BM25ArgumentBuilder{}
 			bm25.WithQuery(query.Query)
 
-			result, err := client.GraphQL().Get().WithClassName(lib.ClassNameFromDatasetID(ds.ID)).
-				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId}).Do(context.Background())
+			bm25Query := client.GraphQL().Get().WithClassName(lib.ClassNameFromDatasetID(ds.ID)).
+				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId})
+
+			if FilterProperties {
+				filter := filters.Where()
+				filter.WithPath([]string{"modulo_10"})
+				filter.WithOperator(filters.NotEqual)
+				filter.WithValueInt(0)
+				bm25Query = bm25Query.WithWhere(filter)
+			}
+
+			result, err := bm25Query.Do(context.Background())
 			if err != nil {
 				return err
 			}

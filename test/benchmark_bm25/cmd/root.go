@@ -24,6 +24,7 @@ var (
 	BatchSize          int
 	QueriesCount       int
 	MultiplyProperties int
+	FilterProperties   bool
 )
 
 const (
@@ -32,6 +33,7 @@ const (
 	DefaultBatchSize          = 100
 	DefaultQueriesCount       = -1
 	DefaultMultiplyProperties = 1
+	DefaultFilterProperties   = false
 )
 
 var rootCmd = &cobra.Command{
