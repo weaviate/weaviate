@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -22,8 +23,9 @@ import (
 )
 
 type State struct {
-	config Config
-	list   *memberlist.Memberlist
+	config   Config
+	list     *memberlist.Memberlist
+	delegate delegate
 }
 
 type Config struct {
@@ -34,10 +36,16 @@ type Config struct {
 	IgnoreStartupSchemaSync bool   `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 }
 
-func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
+func Init(userConfig Config, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
-
+	state := State{
+		config: userConfig,
+		delegate: delegate{
+			DiskUsage: make(map[string]DiskSpace, 32),
+		},
+	}
+	cfg.Delegate = &state.delegate
 	if userConfig.Hostname != "" {
 		cfg.Name = userConfig.Hostname
 	}
@@ -46,8 +54,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
 
-	list, err := memberlist.Create(cfg)
-	if err != nil {
+	if state.list, err = memberlist.Create(cfg); err != nil {
 		logger.WithField("action", "memberlist_init").
 			WithField("hostname", userConfig.Hostname).
 			WithField("bind_port", userConfig.GossipBindPort).
@@ -71,7 +78,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 				Warn("specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := list.Join(joinAddr)
+			_, err := state.list.Join(joinAddr)
 			if err != nil {
 				logger.WithField("action", "memberlist_init").
 					WithField("remote_hostname", joinAddr).
@@ -81,8 +88,7 @@ func Init(userConfig Config, logger logrus.FieldLogger) (*State, error) {
 			}
 		}
 	}
-
-	return &State{list: list, config: userConfig}, nil
+	return &state, nil
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
@@ -158,4 +164,47 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 
 func (s *State) SchemaSyncIgnored() bool {
 	return s.config.IgnoreStartupSchemaSync
+}
+
+func (s *State) DiskSpace(node string) (DiskSpace, bool) {
+	return s.delegate.Get(node)
+}
+
+type DiskSpace struct {
+	Free uint64
+	Used uint64
+}
+type delegate struct {
+	sync.Mutex
+	DiskUsage map[string]DiskSpace
+}
+
+func (*delegate) NodeMeta(limit int) (meta []byte) {
+	return nil
+}
+
+func (d *delegate) LocalState(join bool) []byte {
+	return nil
+}
+
+func (d *delegate) MergeRemoteState(buf []byte, join bool) {
+}
+
+func (d *delegate) NotifyMsg(data []byte) {}
+
+func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
+	return nil
+}
+
+func (d *delegate) Get(node string) (DiskSpace, bool) {
+	d.Lock()
+	defer d.Unlock()
+	x, ok := d.DiskUsage[node]
+	return x, ok
+}
+
+func (d *delegate) Set(node string, x DiskSpace) {
+	d.Lock()
+	defer d.Unlock()
+	d.DiskUsage[node] = x
 }
