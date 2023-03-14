@@ -13,8 +13,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"math"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -65,21 +68,57 @@ var queryCmd = &cobra.Command{
 
 		log.Print("start querying")
 
+		nDCG := 0.
+		hitsAt1 := 0
+		hitsAt5 := 0
+		propNameWithId := lib.SanitizePropName(ds.Queries.PropertyWithId)
 		for i, query := range q {
+			// query.Query = strings.Replace(query.Query, `"`, `\"`)
 			before := time.Now()
 			bm25 := &graphql.BM25ArgumentBuilder{}
-			bm25.WithQuery(query)
+			bm25.WithQuery(query.Query)
 
-			_, err := client.GraphQL().Get().WithClassName(lib.ClassNameFromDatasetID(ds.ID)).
-				WithLimit(10).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}).Do(context.Background())
+			result, err := client.GraphQL().Get().WithClassName(lib.ClassNameFromDatasetID(ds.ID)).
+				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId}).Do(context.Background())
 			if err != nil {
 				return err
 			}
-
+			if result.Errors != nil {
+				return errors.New(result.Errors[0].Message)
+			}
 			times = append(times, time.Since(before))
 
-			if i%1000 == 0 {
-				log.Printf("completed %d/%d queries", i, len(q))
+			resultIds := result.Data["Get"].(map[string]interface{})["Fiqa"].([]interface{})
+			fmt.Print()
+
+			IDCG := 0.
+			for j := 0; j < len(query.MatchingIds); j++ {
+				IDCG += 1. / math.Log(float64(j+2.))
+			}
+
+			DCG := 0.
+			for rank, resultId := range resultIds {
+				id, err := strconv.Atoi(resultId.(map[string]interface{})[propNameWithId].(string))
+				for _, matchigId := range query.MatchingIds {
+					if err != nil {
+						return err
+					}
+					if id == matchigId {
+						if rank == 0 {
+							hitsAt1 += 1
+						}
+						if rank < 5 {
+							hitsAt5 += 1
+						}
+						DCG += 1 / math.Log(float64(rank+2))
+
+					}
+				}
+			}
+			nDCG += DCG / IDCG
+
+			if i%1000 == 0 && i > 0 {
+				log.Printf("completed %d/%d queries. nDCG score: %v", i, len(q), nDCG/float64(i))
 			}
 		}
 
@@ -95,6 +134,8 @@ var queryCmd = &cobra.Command{
 		fmt.Printf("\nObjects imported: %d\n", objCount)
 		stat := lib.AnalyzeLatencies(times)
 		stat.PrettyPrint()
+		log.Printf("nDCG score: %v, hits at 1: %v, hits at 5: %v", nDCG/float64(len(q)), hitsAt1, hitsAt5)
+
 		return nil
 	},
 }
