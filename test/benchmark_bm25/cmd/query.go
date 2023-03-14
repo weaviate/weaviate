@@ -102,7 +102,7 @@ var queryCmd = &cobra.Command{
 				return err
 			}
 			if i%1000 == 0 && i > 0 {
-				log.Printf("completed %d/%d queries. nDCG score: %v", i, len(q), scores.CurrentNDCG())
+				log.Printf("completed %d/%d queries. nDCG score: %.04f", i, len(q), scores.CurrentNDCG())
 			}
 		}
 
