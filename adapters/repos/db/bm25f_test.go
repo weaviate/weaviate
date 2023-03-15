@@ -101,6 +101,18 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				DataType:      []string{string(schema.DataTypeBoolean)},
 				IndexInverted: truePointer(),
 			},
+			{
+				Name:          "multiTitles",
+				DataType:      []string{string(schema.DataTypeTextArray)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "multiStringFieldWord",
+				DataType:      []string{string(schema.DataTypeStringArray)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
 		},
 	}
 
@@ -116,13 +128,13 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
-	testData = append(testData, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F", "review": "none none none"})
-	testData = append(testData, map[string]interface{}{"title": "Why I dont like journey", "description": "This is about how we get somewhere"})
+	testData = append(testData, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F", "review": "none none none", "multiTitles": []string{"breakfast", "dinner"}})
+	testData = append(testData, map[string]interface{}{"title": "Why I dont like journey", "description": "This is about how we get somewhere", "multiTitles": []string{"going to a restaurant for dinner", "sandwiches and desert are a great lunch"}})
 	testData = append(testData, map[string]interface{}{"title": "My journeys in Journey", "description": "A journey story about journeying"})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Actually all about journey"})
 	testData = append(testData, map[string]interface{}{"title": "journey journey", "description": "journey journey journey"})
-	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey"})
-	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY"})
+	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey", "multiStringFieldWord": []string{"totally irrelevant:)", "we all MuuultiYell! together"}})
+	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY", "multiStringFieldWord": []string{"MuuultiYell!", "is fun"}})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(Offtopic!!!!"})
 	testData = append(testData, map[string]interface{}{"title": "none", "description": "other", "stringField": "YELLING IS FUN"})
 	testData = append(testData, map[string]interface{}{"title": "something", "description": "none none", "review": "none none none none none none"})
@@ -376,6 +388,30 @@ func TestBM25FJourney(t *testing.T) {
 		require.Contains(t, res[0].Object.Additional, "score")
 		require.Contains(t, res[0].Object.Additional, "explainScore")
 		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25")
+	})
+
+	t.Run("Array fields text", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTitles"}, Query: "dinner"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
+
+		// With additionalExplanations explainScore entry should be present
+		require.Contains(t, res[0].Object.Additional, "score")
+		require.Len(t, res, 2)
+		require.Equal(t, uint64(0), res[0].DocID())
+		require.Equal(t, uint64(1), res[1].DocID())
+	})
+
+	t.Run("Array fields string", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiStringFieldWord"}, Query: "MuuultiYell!"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
+
+		// With additionalExplanations explainScore entry should be present
+		require.Contains(t, res[0].Object.Additional, "score")
+		require.Len(t, res, 2)
+		require.Equal(t, uint64(6), res[0].DocID())
+		require.Equal(t, uint64(5), res[1].DocID())
 	})
 }
 
