@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var exampleConns = []uint64{
@@ -16,10 +17,23 @@ var exampleConns = []uint64{
 }
 
 func TestConnections(t *testing.T) {
-	// TODO: grow dynamically
-	c := Connections{data: make([]byte, 100000)}
-	c.ReplaceLayer(0, exampleConns)
+	// c.ReplaceLayer(0, exampleConns)
 
-	res := c.GetLayer(0)
-	assert.ElementsMatch(t, exampleConns, res)
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	// Initially all layers should have length==0 and return no results
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+	assert.Equal(t, 0, c.LenAtLayer(2))
+	assert.Len(t, c.GetLayer(2), 0)
+
+	// replace layer 0, it should return the correct results, all others should
+	// still be empty
+	c.ReplaceLayer(0, exampleConns)
+	assert.ElementsMatch(t, exampleConns, c.GetLayer(0))
+	assert.Len(t, c.GetLayer(1), 0)
+	assert.Len(t, c.GetLayer(2), 0)
 }
