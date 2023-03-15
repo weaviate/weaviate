@@ -366,6 +366,9 @@ func (ko *Object) SearchResult(additional additional.Properties) *search.Result 
 		if additional.Classification {
 			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
 		}
+		if additional.Group {
+			additionalProperties["group"] = ko.AdditionalProperties()["group"]
+		}
 	}
 	if ko.ExplainScore() != "" {
 		additionalProperties["explainScore"] = ko.ExplainScore()
