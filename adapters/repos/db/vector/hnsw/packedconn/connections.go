@@ -36,10 +36,6 @@ func NewWithMaxLayer(maxLayer uint8) (Connections, error) {
 }
 
 func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
-	if layer != 0 {
-		panic("only changing layer zero supported atm")
-	}
-
 	// create a temporary buffer that is guaranteed to fit everything. The
 	// over-allocation does not matter, this buffer won't stick around, so the
 	// only real downside is the overhead on GC. If this because noticeable this
@@ -86,15 +82,6 @@ func (c Connections) GetLayer(layer uint8) []uint64 {
 	}
 
 	return conns
-}
-
-func (c *Connections) growLayerBy(layer uint8, delta uint16) {
-	if layer != 0 {
-		panic("only layer 0 can be resized right now")
-	}
-
-	// TODO: check cap and grow backing array if required
-	c.data = c.data[:len(c.data)+int(delta)]
 }
 
 func (c *Connections) initLayers(maxLayer uint8) {
@@ -163,6 +150,50 @@ func (c *Connections) initialLayerOffset() uint16 {
 	return uint16(1 + c.layers()*3)
 }
 
+func (c *Connections) growLayerBy(layer uint8, delta uint16) {
+	// TODO: check cap and grow backing array if required
+	c.data = c.data[:len(c.data)+int(delta)]
+
+	if layer > 0 {
+		// the backing array has the correct size now, next up we need to adapt the
+		// offsets. Since layers are in reverse order, higher layers are not
+		// affected, but any lower layer needs to be shifted right by the delta
+		c.shiftRightBy(c.layerOffset(layer-1), delta)
+	}
+
+	for l := uint8(0); l < layer; l++ {
+		c.setLayerOffset(l, c.layerOffset(l)+delta)
+	}
+}
+
+func (c *Connections) shrinkLayerBy(layer uint8, delta uint16) {
+	// TODO: check cap and shrink backing array if required
+
+	// shrinking needs to happen in the reverse order of growing, we need to
+	// first fix the offsets, otherwise our start position (the copy target) is
+	// too high. We would only copy into the where the next layer previously
+	// began instead of where it will begin in the future
+	for l := uint8(0); l < layer; l++ {
+		c.setLayerOffset(l, c.layerOffset(l)-delta)
+	}
+
+	if layer > 0 {
+		// the backing array has the correct size now, next up we need to adapt the
+		// offsets. Since layers are in reverse order, higher layers are not
+		// affected, but any lower layer needs to be shifted left by the delta
+		c.shiftLeftBy(c.layerOffset(layer-1), delta)
+	}
+	c.data = c.data[:len(c.data)-int(delta)]
+}
+
+func (c *Connections) shiftRightBy(startPos, delta uint16) {
+	copy(c.data[startPos+delta:], c.data[startPos:])
+}
+
+func (c *Connections) shiftLeftBy(startPos, delta uint16) {
+	copy(c.data[startPos:], c.data[startPos+delta:])
+}
+
 func (c *Connections) replaceLayer(layer uint8, contents []byte,
 	length uint8,
 ) {
@@ -171,8 +202,7 @@ func (c *Connections) replaceLayer(layer uint8, contents []byte,
 	newLayerSize := uint16(len(contents))
 
 	if oldLayerSize > newLayerSize {
-		// TODO
-		panic("shrinking not supported yet")
+		c.shrinkLayerBy(layer, oldLayerSize-newLayerSize)
 	} else if newLayerSize > oldLayerSize {
 		c.growLayerBy(layer, newLayerSize-oldLayerSize)
 	}
