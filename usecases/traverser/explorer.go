@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -82,7 +83,8 @@ type vectorClassSearch interface {
 	ObjectsByID(ctx context.Context, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties) (search.Results, error)
 	ResolveReferences(ctx context.Context, objs search.Results,
-		props search.SelectProperties, additional additional.Properties,
+		props search.SelectProperties, groupBy *searchparams.GroupBy,
+		additional additional.Properties,
 	) (search.Results, error)
 }
 
@@ -256,7 +258,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	postProcess := func(results hybrid.Results) ([]search.Result, error) {
 		res, err := e.search.ResolveReferences(ctx, results.SearchResults(),
-			params.Properties, params.AdditionalProperties)
+			params.Properties, nil, params.AdditionalProperties)
 		if err != nil {
 			return nil, err
 		}
@@ -416,6 +418,9 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 		}
 
 		if len(additionalProperties) > 0 {
+			if additionalProperties["group"] != nil {
+				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.Properties)
+			}
 			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
 		}
 
@@ -425,6 +430,30 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	}
 
 	return output, nil
+}
+
+func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(
+	additionalGroup interface{},
+	params search.SelectProperties,
+) {
+	if group, ok := additionalGroup.(additional.Group); ok {
+		if len(group.Hits) > 0 {
+			var groupSelectProperties search.SelectProperties
+			for _, selectProp := range params {
+				if strings.HasPrefix(selectProp.Name, "_additional:group:hits:") {
+					groupSelectProperties = append(groupSelectProperties, search.SelectProperty{
+						Name:            strings.Replace(selectProp.Name, "_additional:group:hits:", "", 1),
+						IsPrimitive:     selectProp.IsPrimitive,
+						IncludeTypeName: selectProp.IncludeTypeName,
+						Refs:            selectProp.Refs,
+					})
+				}
+			}
+			for _, hit := range group.Hits {
+				e.extractAdditionalPropertiesFromRefs(hit, groupSelectProperties)
+			}
+		}
+	}
 }
 
 func (e *Explorer) extractAdditionalPropertiesFromRefs(propertySchema interface{}, params search.SelectProperties) {

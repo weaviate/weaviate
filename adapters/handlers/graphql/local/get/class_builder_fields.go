@@ -225,6 +225,7 @@ func buildGetClassField(classObject *graphql.Object,
 			"nearObject": nearObjectArgument(class.Class),
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
+			"groupBy":    groupByArgument(class.Class),
 		},
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
@@ -407,6 +408,12 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		group := extractGroup(p.Args)
 
+		var groupByParams *searchparams.GroupBy
+		if groupBy, ok := p.Args["groupBy"]; ok {
+			p := common_filters.ExtractGroupBy(groupBy.(map[string]interface{}))
+			groupByParams = &p
+		}
+
 		params := dto.GetParams{
 			Filters:               filters,
 			ClassName:             className,
@@ -422,6 +429,7 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			KeywordRanking:        keywordRankingParams,
 			HybridSearch:          hybridParams,
 			ReplicationProperties: replProps,
+			GroupBy:               groupByParams,
 		}
 
 		// need to perform vector search by distance
@@ -526,7 +534,8 @@ func (ac *additionalCheck) isAdditional(name string) bool {
 	if name == "classification" || name == "certainty" ||
 		name == "distance" || name == "id" || name == "vector" ||
 		name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
-		name == "score" || name == "explainScore" || name == "isConsistent" {
+		name == "score" || name == "explainScore" || name == "isConsistent" ||
+		name == "group" {
 		return true
 	}
 	if ac.isModuleAdditional(name) {
@@ -595,12 +604,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 							additionalProps.Certainty = true
 							continue
 						}
-
 						if additionalProperty == "distance" {
 							additionalProps.Distance = true
 							continue
 						}
-
 						if additionalProperty == "id" {
 							additionalProps.ID = true
 							continue
@@ -627,6 +634,15 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "isConsistent" {
 							additionalProps.IsConsistent = true
+							continue
+						}
+						if additionalProperty == "group" {
+							additionalProps.Group = true
+							additionalGroupHitProperties, err := extractGroupHitProperties(className, additionalProps, subSelection, fragments, modulesProvider)
+							if err != nil {
+								return nil, additionalProps, err
+							}
+							properties = append(properties, additionalGroupHitProperties...)
 							continue
 						}
 						if modulesProvider != nil {
@@ -670,6 +686,47 @@ func extractProperties(className string, selections *ast.SelectionSet,
 	}
 
 	return properties, additionalProps, nil
+}
+
+func extractGroupHitProperties(
+	className string,
+	additionalProps additional.Properties,
+	subSelection ast.Selection,
+	fragments map[string]ast.Definition,
+	modulesProvider ModulesProvider,
+) ([]search.SelectProperty, error) {
+	additionalGroupProperties := []search.SelectProperty{}
+	if subSelection != nil {
+		if selectionSet := subSelection.GetSelectionSet(); selectionSet != nil {
+			for _, groupSubSelection := range selectionSet.Selections {
+				if groupSubSelection != nil {
+					if groupSubSelectionField, ok := groupSubSelection.(*ast.Field); ok {
+						if groupSubSelectionField.Name.Value == "hits" && groupSubSelectionField.SelectionSet != nil {
+							for _, groupHitsSubSelection := range groupSubSelectionField.SelectionSet.Selections {
+								if hf, ok := groupHitsSubSelection.(*ast.Field); ok {
+									if hf.SelectionSet != nil {
+										for _, ss := range hf.SelectionSet.Selections {
+											if inlineFrag, ok := ss.(*ast.InlineFragment); ok {
+												ref, err := extractInlineFragment(className, inlineFrag, fragments, modulesProvider)
+												if err != nil {
+													return nil, err
+												}
+
+												additionalGroupHitProp := search.SelectProperty{Name: fmt.Sprintf("_additional:group:hits:%v", hf.Name.Value)}
+												additionalGroupHitProp.Refs = append(additionalGroupHitProp.Refs, ref)
+												additionalGroupProperties = append(additionalGroupProperties, additionalGroupHitProp)
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return additionalGroupProperties, nil
 }
 
 func getModuleParams(moduleParams map[string]interface{}) map[string]interface{} {
