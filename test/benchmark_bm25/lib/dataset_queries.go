@@ -64,7 +64,7 @@ func ParseQueries(ds Dataset, limit int) (Queries, error) {
 			}
 			matchingIds = make([]int, len(matchingIdsInterface))
 			for i, val := range matchingIdsInterface {
-				// docIds can be provided as strings
+				// docIds can be provided as strings or float arrays
 				valStr, ok := val.(string)
 				if ok {
 					valInt, err := strconv.Atoi(valStr)
