@@ -71,13 +71,13 @@ var queryCmd = &cobra.Command{
 
 		scores := lib.Scores{}
 		propNameWithId := lib.SanitizePropName(ds.Queries.PropertyWithId)
+		className := lib.ClassNameFromDatasetID(ds.ID)
 		for i, query := range q {
-			// query.Query = strings.Replace(query.Query, `"`, `\"`)
 			before := time.Now()
 			bm25 := &graphql.BM25ArgumentBuilder{}
 			bm25.WithQuery(query.Query)
 
-			bm25Query := client.GraphQL().Get().WithClassName(lib.ClassNameFromDatasetID(ds.ID)).
+			bm25Query := client.GraphQL().Get().WithClassName(className).
 				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId})
 
 			if FilterObjectPercentage > 0 {
@@ -97,12 +97,17 @@ var queryCmd = &cobra.Command{
 			}
 			times = append(times, time.Since(before))
 
-			resultIds := result.Data["Get"].(map[string]interface{})["Fiqa"].([]interface{})
-			if err := scores.AddResult(query.MatchingIds, resultIds, propNameWithId); err != nil {
-				return err
+			logMsg := fmt.Sprintf("completed %d/%d queries.", i, len(q))
+
+			if len(query.MatchingIds) > 0 && len(ds.Queries.PropertyWithId) > 0 {
+				resultIds := result.Data["Get"].(map[string]interface{})[className].([]interface{})
+				if err := scores.AddResult(query.MatchingIds, resultIds, propNameWithId); err != nil {
+					return err
+				}
+				logMsg += fmt.Sprintf("nDCG score: %.04f", scores.CurrentNDCG())
 			}
 			if i%1000 == 0 && i > 0 {
-				log.Printf("completed %d/%d queries. nDCG score: %.04f", i, len(q), scores.CurrentNDCG())
+				log.Printf(logMsg)
 			}
 		}
 
