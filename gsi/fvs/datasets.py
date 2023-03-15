@@ -92,7 +92,6 @@ def ivecs_read(fname):
     return a.reshape(-1, d + 1)[:, 1:].copy()
 
 def xbin_mmap(fname, dtype, maxn=-1):
-    print("FNAME", fname)
     """ mmap the competition file format for a given type of items """
     n, d = map(int, np.fromfile(fname, dtype="uint32", count=2))
 
@@ -118,9 +117,8 @@ def range_result_read(fname):
     return nres, I, D
 
 def knn_result_read(fname):
-    print("knn result read",fname)
+    print("Trying to open knn_result file at", fname)
     n, d = map(int, np.fromfile(fname, dtype="uint32", count=2))
-    print("knn result read", n, d)
     assert os.stat(fname).st_size == 8 + n * d * (4 + 4)
     f = open(fname, "rb")
     f.seek(4+4)
@@ -254,10 +252,10 @@ class DatasetCompetitionFormat(Dataset):
         if not os.path.exists(self.basedir):
             os.makedirs(self.basedir)
 
-        if False:
-            print("Your problem could be here...")
+        if True:
+            #print("Your problem could be here...")
             # start with the small ones...
-            print("public", self.qs_fn, self.gt_fn)
+            #print("public", self.qs_fn, self.gt_fn)
             for fn in [self.qs_fn, self.gt_fn]:
                 if fn is None:
                     continue
@@ -271,7 +269,12 @@ class DatasetCompetitionFormat(Dataset):
                     print("file %s already exists" % outfile)
                     continue
                 print("download", sourceurl)
-                download(sourceurl, outfile)
+                try:
+                    download(sourceurl, outfile)
+                except:
+                    print("Warning: Problem downloading->%s to %s" % (sourceurl, outfile) )
+        else:
+                print("Warning: Did NOT download public query at gt datasets.")
 
         # private qs url
         if self.private_qs_url:
@@ -338,16 +341,16 @@ class DatasetCompetitionFormat(Dataset):
         return "knn"
 
     def get_groundtruth(self, k=None):
-        print("get groundtruth", self.gt_fn)
+        #print("get groundtruth", self.gt_fn)
         assert self.gt_fn is not None
         fn = self.gt_fn.split("/")[-1]   # in case it's a URL
-        print("FN",fn)
+        #print("FN",fn)
         assert self.search_type() == "knn"
 
-        print("local file", os.path.join(self.basedir, fn))
+        #print("local file", os.path.join(self.basedir, fn))
 
         I, D = knn_result_read(os.path.join(self.basedir, fn))
-        print("knn result read result", type(I), type(D), I.shape, D.shape)
+        #print("knn result read result", type(I), type(D), I.shape, D.shape)
         assert I.shape[0] == self.nq
         if k is not None:
             assert k <= 100
@@ -360,15 +363,15 @@ class DatasetCompetitionFormat(Dataset):
         return sanitize(next(self.get_dataset_iterator(bs=self.nb)))
 
     def get_queries(self):
-        print("QSFN", self.qs_fn)
+        #print("QSFN", self.qs_fn)
         filename = os.path.join(self.basedir, self.qs_fn)
-        print("FNAME", filename)
+        #print("FNAME", filename)
         x = xbin_mmap(filename, dtype=self.dtype)
         assert x.shape == (self.nq, self.d)
         return sanitize(x)
 
     def get_private_queries(self):
-        print("gpq", self.private_qs_url)
+        ##print("gpq", self.private_qs_url)
         assert self.private_qs_url is not None
         fn = self.private_qs_url.split("/")[-1]   # in case it's a URL
         filename = os.path.join(self.basedir, fn)
@@ -377,7 +380,7 @@ class DatasetCompetitionFormat(Dataset):
         return sanitize(x)
     
     def get_private_groundtruth(self, k=None):
-        print("gpg", self.private_gt_url)
+        #print("gpg", self.private_gt_url)
         assert self.private_gt_url is not None
         fn = self.private_gt_url.split("/")[-1]   # in case it's a URL
         assert self.search_type() == "knn"
@@ -473,10 +476,11 @@ class Deep1BDataset(DatasetCompetitionFormat):
         self.dtype = "float32"
         self.ds_fn = "base.1B.fbin"
         self.qs_fn = "query.public.10K.fbin"
-        print("D!B", self.qs_fn)
+        #print("D!B", self.qs_fn)
         self.gt_fn = (
             "https://storage.yandexcloud.net/yandex-research/ann-datasets/deep_new_groundtruth.public.10K.bin" if self.nb_M == 1000 else
             subset_url + "GT_100M/deep-100M" if self.nb_M == 100 else
+            subset_url + "GT_10M/deep-50M" if self.nb_M == 50 else
             subset_url + "GT_10M/deep-20M" if self.nb_M == 20 else
             subset_url + "GT_10M/deep-10M" if self.nb_M == 10 else
             subset_url + "GT_10M/deep-5M" if self.nb_M == 5 else
@@ -728,6 +732,7 @@ DATASETS = {
 
     'deep-1B': lambda : Deep1BDataset(),
     'deep-100M': lambda : Deep1BDataset(100),
+    'deep-50M': lambda : Deep1BDataset(50),
     'deep-20M': lambda : Deep1BDataset(20),
     'deep-10M': lambda : Deep1BDataset(10),
     'deep-5M': lambda : Deep1BDataset(5),
