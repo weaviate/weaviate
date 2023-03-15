@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"golang.org/x/sync/errgroup"
 )
 
 type Searcher struct {
@@ -84,7 +85,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, err
 	}
 
-	if err := pv.fetchDocIDs(s, limit); err != nil {
+	if err := pv.fetchDocIDs(s, limit, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
@@ -205,7 +206,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		}
 	}
 
-	if err := pv.fetchDocIDs(s, 0); err != nil {
+	if err := pv.fetchDocIDs(s, 0, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
@@ -234,12 +235,22 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		// nested filter
 		out.children = make([]*propValuePair, len(filter.Operands))
 
+		eg := errgroup.Group{}
+
 		for i, clause := range filter.Operands {
-			child, err := s.extractPropValuePair(&clause, className)
-			if err != nil {
-				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
-			}
-			out.children[i] = child
+			i, clause := i, clause
+			eg.Go(func() error {
+				child, err := s.extractPropValuePair(&clause, className)
+				if err != nil {
+					return errors.Wrapf(err, "nested clause at pos %d", i)
+				}
+				out.children[i] = child
+
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, fmt.Errorf("nested query: %w", err)
 		}
 		out.operator = filter.Operator
 		return &out, nil
@@ -554,6 +565,12 @@ func (it *sliceDocIDsIterator) Len() int {
 type docBitmap struct {
 	docIDs   *sroar.Bitmap
 	checksum []byte
+}
+
+// newUnitializedDocBitmap can be used whenever we can be sure that the first
+// user of the docBitmap will set or replace the bitmap, such as a row reader
+func newUnitializedDocBitmap() docBitmap {
+	return docBitmap{docIDs: nil}
 }
 
 func newDocBitmap() docBitmap {
