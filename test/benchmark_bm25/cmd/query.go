@@ -29,7 +29,7 @@ func init() {
 	rootCmd.AddCommand(queryCmd)
 	queryCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
 	queryCmd.PersistentFlags().IntVarP(&QueriesCount, "count", "c", DefaultQueriesCount, "run only the specified amount of queries, negative numbers mean unlimited")
-	queryCmd.PersistentFlags().BoolVarP(&FilterProperties, "filter", "f", DefaultFilterProperties, "filter results")
+	queryCmd.PersistentFlags().IntVarP(&FilterObjectPercentage, "filter", "f", DefaultFilterObjectPercentage, "The given percentage of objects are filtered out. Off by default, use <=0 to disable")
 }
 
 var queryCmd = &cobra.Command{
@@ -80,11 +80,11 @@ var queryCmd = &cobra.Command{
 			bm25Query := client.GraphQL().Get().WithClassName(lib.ClassNameFromDatasetID(ds.ID)).
 				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId})
 
-			if FilterProperties {
+			if FilterObjectPercentage > 0 {
 				filter := filters.Where()
-				filter.WithPath([]string{"modulo_10"})
-				filter.WithOperator(filters.NotEqual)
-				filter.WithValueInt(0)
+				filter.WithPath([]string{"modulo_100"})
+				filter.WithOperator(filters.GreaterThan)
+				filter.WithValueInt(int64(FilterObjectPercentage))
 				bm25Query = bm25Query.WithWhere(filter)
 			}
 
