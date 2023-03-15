@@ -93,6 +93,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("vector cache holds half the original vectors", func(t *testing.T) {
+		vectorIndex.CleanUpTombstonedNodes(neverStop)
 		assert.Equal(t, len(vectors)/2, int(vectorIndex.cache.countVectors()))
 	})
 
