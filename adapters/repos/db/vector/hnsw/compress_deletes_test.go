@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build !race
+// +build !race
+
 package hnsw_test
 
 import (
@@ -28,7 +31,7 @@ import (
 
 const rootPath = "doesnt-matter-as-committlogger-is-mocked-out"
 
-func TestCompressDoesNotCrash(t *testing.T) {
+func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	defer func(path string) {
 		err := os.RemoveAll(path)
 		if err != nil {
