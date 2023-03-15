@@ -28,10 +28,6 @@ import (
 
 const rootPath = "doesnt-matter-as-committlogger-is-mocked-out"
 
-func neverStop() bool {
-	return false
-}
-
 func TestCompressDoesNotCrash(t *testing.T) {
 	defer func(path string) {
 		err := os.RemoveAll(path)
