@@ -8,17 +8,21 @@ import (
 )
 
 func TestDiskSpace(t *testing.T) {
-	want := DiskSpace{
-		Total:     256,
-		Available: 3,
+	for _, name := range []string{"", "host-12:1", "2", "00", "-jhd"} {
+		want := nodeSpace{
+			name,
+			DiskSpace{
+				Total:     256,
+				Available: 3,
+			},
+		}
+		bytes, err := want.marshal()
+		assert.Nil(t, err)
+		got := nodeSpace{}
+		err = got.Unmarshal(bytes)
+		assert.Nil(t, err)
+		assert.Equal(t, want, got)
 	}
-	bytes, err := want.marshal()
-	bytes = append(bytes, []byte("abcd")...)
-	assert.Nil(t, err)
-	got := DiskSpace{}
-	err = got.Unmarshal(bytes)
-	assert.Nil(t, err)
-	assert.Equal(t, want, got)
 }
 
 func TestDelegate(t *testing.T) {

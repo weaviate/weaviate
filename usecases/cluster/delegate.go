@@ -7,19 +7,32 @@ import (
 	"syscall"
 )
 
+type nodeSpace struct {
+	Name string
+	DiskSpace
+}
 type DiskSpace struct {
 	Total     uint64
 	Available uint64
 }
 
-func (d *DiskSpace) marshal() (data []byte, err error) {
-	buf := bytes.NewBuffer(make([]byte, 0, 16))
-	binary.Write(buf, binary.BigEndian, d)
+func (d *nodeSpace) marshal() (data []byte, err error) {
+	buf := bytes.NewBuffer(make([]byte, 0, 16+len(d.Name)))
+	if err := binary.Write(buf, binary.BigEndian, d.DiskSpace); err != nil {
+		return nil, err
+	}
+	_, err = buf.Write([]byte(d.Name))
 	return buf.Bytes(), err
 }
 
-func (d *DiskSpace) Unmarshal(data []byte) error {
-	return binary.Read(bytes.NewReader(data), binary.BigEndian, d)
+func (d *nodeSpace) Unmarshal(data []byte) error {
+	rd := bytes.NewReader(data)
+	if err := binary.Read(rd, binary.BigEndian, &d.DiskSpace); err != nil {
+		return err
+	}
+	// fmt.Println(rd.Size(), rd.Len(), len(data), string(data))
+	d.Name = string(data[len(data)-rd.Len():])
+	return nil
 }
 
 type delegate struct {
@@ -39,7 +52,8 @@ func (d *delegate) LocalState(join bool) []byte {
 	if err != nil {
 		return nil
 	}
-	bytes, err := space.marshal()
+	x := nodeSpace{d.Name, space}
+	bytes, err := x.marshal()
 	if err != nil {
 		return nil
 	}
