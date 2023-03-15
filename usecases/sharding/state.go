@@ -17,7 +17,6 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/pkg/errors"
 	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -78,21 +77,33 @@ func (p Physical) BelongsToNode() string {
 // some kind of node bias while scaling in the future, it would probably go
 // here.
 func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
+	if count < 0 {
+		return fmt.Errorf("negative replication factor: %d", count)
+	}
 	if count < len(p.BelongsToNodes) {
-		if count < 0 {
-			return errors.Errorf("cannot scale below 0, got %d", count)
-		}
 		p.BelongsToNodes = p.BelongsToNodes[:count]
 		return nil
 	}
-	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
-	if err != nil {
-		return err
+
+	names := nodes.AllNames()
+	if count > len(names) {
+		return fmt.Errorf("not enough replicas: found %d want %d", len(names), count)
 	}
 
-	it.SetStartNode(p.BelongsToNodes[len(p.BelongsToNodes)-1])
-	for len(p.BelongsToNodes) < count {
-		p.BelongsToNodes = append(p.BelongsToNodes, it.Next())
+	available := make(map[string]bool)
+	for _, n := range p.BelongsToNodes {
+		available[n] = true
+	}
+	count -= len(available)
+	for _, n := range names {
+		if !available[n] {
+			p.BelongsToNodes = append(p.BelongsToNodes, n)
+			available[n] = true
+			count--
+		}
+		if count == 0 {
+			break
+		}
 	}
 
 	return nil
@@ -105,18 +116,15 @@ type nodes interface {
 
 func InitState(id string, config Config, nodes nodes, replFactor int64) (*State, error) {
 	out := &State{Config: config, IndexID: id, localNodeName: nodes.LocalName()}
-
-	if err := out.initPhysical(nodes, replFactor); err != nil {
+	names := nodes.AllNames()
+	if f, n := replFactor, len(names); f > int64(n) {
+		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+	}
+	if err := out.initPhysical(names, replFactor); err != nil {
 		return nil, err
 	}
-
-	if err := out.initVirtual(); err != nil {
-		return nil, err
-	}
-
-	if err := out.distributeVirtualAmongPhysical(); err != nil {
-		return nil, err
-	}
+	out.initVirtual()
+	out.distributeVirtualAmongPhysical()
 
 	return out, nil
 }
@@ -209,8 +217,8 @@ func (s *State) IsShardLocal(name string) bool {
 // Shard 1: Node7, Node8, Node9, Node10, Node 11
 // Shard 2: Node8, Node9, Node10, Node 11, Node 12
 // Shard 3: Node9, Node10, Node11, Node 12, Node 1
-func (s *State) initPhysical(nodes nodes, replFactor int64) error {
-	it, err := cluster.NewNodeIterator(nodes, cluster.StartRandom)
+func (s *State) initPhysical(names []string, replFactor int64) error {
+	it, err := cluster.NewNodeIterator(names, cluster.StartRandom)
 	if err != nil {
 		return err
 	}
@@ -226,7 +234,7 @@ func (s *State) initPhysical(nodes nodes, replFactor int64) error {
 			// create a second node iterator and start after the already assigned
 			// one, this way we can identify our next n right neighbors without
 			// affecting the root iterator which will determine the next shard
-			replicationIter, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
+			replicationIter, err := cluster.NewNodeIterator(names, cluster.StartAfter)
 			if err != nil {
 				return fmt.Errorf("assign replication nodes: %w", err)
 			}
@@ -245,7 +253,7 @@ func (s *State) initPhysical(nodes nodes, replFactor int64) error {
 	return nil
 }
 
-func (s *State) initVirtual() error {
+func (s *State) initVirtual() {
 	count := s.Config.DesiredVirtualCount
 	s.Virtual = make([]Virtual, count)
 
@@ -270,14 +278,12 @@ func (s *State) initVirtual() error {
 		s.Virtual[i].OwnsPercentage = float64(tokenCount) / float64(math.MaxUint64)
 
 	}
-
-	return nil
 }
 
 // this is a primitive distribution that only works for initializing. Once we
 // want to support dynamic sharding, we need to come up with something better
 // than this
-func (s *State) distributeVirtualAmongPhysical() error {
+func (s *State) distributeVirtualAmongPhysical() {
 	ids := make([]string, len(s.Virtual))
 	for i, v := range s.Virtual {
 		ids[i] = v.Name
@@ -302,8 +308,6 @@ func (s *State) distributeVirtualAmongPhysical() error {
 		physical.OwnsPercentage += virtual.OwnsPercentage
 		s.Physical[pickedPhysical] = physical
 	}
-
-	return nil
 }
 
 // uses linear search, but should only be used during shard init and udpate
