@@ -171,20 +171,11 @@ func (r *refFilterExtractor) backwardCompatibleIDToPropValuePair(p classUUIDPair
 	return r.chainedIDsToPropValuePair([]classUUIDPair{p})
 }
 
-func (r *refFilterExtractor) idToPropValuePairWithClass(p classUUIDPair) (*propValuePair, error) {
+func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte) (*propValuePair, error) {
 	return &propValuePair{
 		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
 		hasFrequency: false,
-		value:        []byte(crossref.New("localhost", p.class, p.id).String()),
-		operator:     filters.OperatorEqual,
-	}, nil
-}
-
-func (r *refFilterExtractor) idToPropValuePairLegacyWithoutClass(p classUUIDPair) (*propValuePair, error) {
-	return &propValuePair{
-		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
-		hasFrequency: false,
-		value:        []byte(crossref.New("localhost", "", p.id).String()),
+		value:        v,
 		operator:     filters.OperatorEqual,
 	}, nil
 }
@@ -212,10 +203,17 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 // no more class-less beacons exist. Most likely this will be the case with the
 // next breaking change, such as v2.0.0.
 func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propValuePair, error) {
+	// This makes it safe to access the first element later on without further
+	// checks
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
 	out := make([]*propValuePair, len(ids)*2)
+	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, ids[0].class, 1.25)
 	for i, id := range ids {
 		// future-proof way
-		pv, err := r.idToPropValuePairWithClass(id)
+		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id))
 		if err != nil {
 			return nil, err
 		}
@@ -223,7 +221,7 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propVa
 		out[i*2] = pv
 
 		// backward-compatible way
-		pv, err = r.idToPropValuePairLegacyWithoutClass(id)
+		pv, err = r.idToPropValuePairWithValue(bb.LegacyIDOnly(id.id))
 		if err != nil {
 			return nil, err
 		}
