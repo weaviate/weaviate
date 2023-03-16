@@ -7,7 +7,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/spf13/cobra v1.6.1
 	github.com/weaviate/weaviate v1.18.1-0.20230307173515-39ef7cc0c9ff
-	github.com/weaviate/weaviate-go-client/v4 v4.6.3-0.20230307175645-1e6af74af18b
+	github.com/weaviate/weaviate-go-client/v4 v4.6.3
 	gopkg.in/yaml.v3 v3.0.1
 )
 
