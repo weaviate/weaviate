@@ -8,7 +8,11 @@ import (
 	"syscall"
 )
 
-// TODO: add version and opcode
+// TODO:
+// add version and opcode
+// truncate total and available space to MB
+// add TTL to send disk info
+// cache disk space 
 
 type nodeSpace struct {
 	Name string
