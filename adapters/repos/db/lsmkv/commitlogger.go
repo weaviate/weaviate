@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"os"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -23,6 +24,7 @@ import (
 type commitLogger struct {
 	file   *os.File
 	writer *bufio.Writer
+	n      atomic.Int64
 	path   string
 
 	// e.g. when recovering from an existing log, we do not want to write into a
@@ -83,10 +85,15 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeReplace); err != nil {
 		return err
 	}
+	n := 1
 
-	if _, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
+	if ki, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
 		return err
+	} else {
+		n += ki.ValueEnd - ki.ValueStart
 	}
+
+	cl.n.Add(int64(n))
 
 	return nil
 }
@@ -100,10 +107,15 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeCollection); err != nil {
 		return err
 	}
+	n := 1
 
-	if _, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
+	if ki, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
 		return err
+	} else {
+		n += ki.ValueEnd - ki.ValueStart
 	}
+
+	cl.n.Add(int64(n))
 
 	return nil
 }
@@ -116,12 +128,24 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeRoaringSet); err != nil {
 		return err
 	}
+	n := 1
 
-	if _, err := node.KeyIndexAndWriteTo(cl.writer, 0); err != nil {
+	if ki, err := node.KeyIndexAndWriteTo(cl.writer, 0); err != nil {
 		return err
+	} else {
+		n += ki.ValueEnd - ki.ValueStart
 	}
 
+	cl.n.Add(int64(n))
+
 	return nil
+}
+
+// Size returns the amount of data that has been written since the commit
+// logger was initialized. After a flush a new logger is initialized which
+// automatically resets the logger.
+func (cl *commitLogger) Size() int64 {
+	return cl.n.Load()
 }
 
 func (cl *commitLogger) close() error {
