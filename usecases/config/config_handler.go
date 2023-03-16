@@ -262,8 +262,6 @@ func (f *WeaviateConfig) GetHostAddress() string {
 }
 
 // LoadConfig from config locations
-//
-// Deprecated: usage of the config file is deprecated and will be removed in the future.
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger logrus.FieldLogger) error {
 	// Get command line flags
 	configFileName := flags.Options.(*Flags).ConfigFile
