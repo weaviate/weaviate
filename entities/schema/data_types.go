@@ -22,8 +22,6 @@ type DataType string
 const (
 	// DataTypeCRef The data type is a cross-reference, it is starting with a capital letter
 	DataTypeCRef DataType = "cref"
-	// DataTypeString The data type is a value of type string
-	DataTypeString DataType = "string"
 	// DataTypeText The data type is a value of type string
 	DataTypeText DataType = "text"
 	// DataTypeInt The data type is a value of type int
@@ -41,8 +39,6 @@ const (
 	DataTypePhoneNumber DataType = "phoneNumber"
 	// DataTypeBlob represents a base64 encoded data
 	DataTypeBlob DataType = "blob"
-	// DataTypeArrayString The data type is a value of type string array
-	DataTypeStringArray DataType = "string[]"
 	// DataTypeTextArray The data type is a value of type string array
 	DataTypeTextArray DataType = "text[]"
 	// DataTypeIntArray The data type is a value of type int array
@@ -59,14 +55,22 @@ const (
 	DataTypeUUID DataType = "uuid"
 	// DataTypeUUIDArray is the array version of DataTypeUUID
 	DataTypeUUIDArray DataType = "uuid[]"
+
+	// deprecated as of v1.19, replaced by DataTypeText + relevant tokenization setting
+	// DataTypeString The data type is a value of type string
+	DataTypeString DataType = "string"
+	// deprecated as of v1.19, replaced by DataTypeTextArray + relevant tokenization setting
+	// DataTypeArrayString The data type is a value of type string array
+	DataTypeStringArray DataType = "string[]"
 )
 
 var PrimitiveDataTypes []DataType = []DataType{
-	DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean,
-	DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob,
-	DataTypeStringArray, DataTypeTextArray, DataTypeIntArray,
-	DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray,
+	DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate,
+	DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeTextArray,
+	DataTypeIntArray, DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray,
 	DataTypeUUID, DataTypeUUIDArray,
+	// deprecated as of v1.19
+	DataTypeString, DataTypeStringArray,
 }
 
 type PropertyKind int
@@ -240,4 +244,15 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 		kind:    PropertyKindRef,
 		classes: classes,
 	}, nil
+}
+
+func AsPrimitive(dataType []string) (DataType, bool) {
+	if (len(dataType)) == 1 {
+		for _, dt := range PrimitiveDataTypes {
+			if dataType[0] == string(dt) {
+				return DataType(dataType[0]), true
+			}
+		}
+	}
+	return "", false
 }
