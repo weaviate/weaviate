@@ -60,8 +60,13 @@ func (d *delegate) LocalState(join bool) []byte {
 	return bytes
 }
 
-func (d *delegate) MergeRemoteState(buf []byte, join bool) {
+func (d *delegate) MergeRemoteState(data []byte, join bool) {
 	// TODO should we return if join == true
+	var x nodeSpace
+	if err := x.Unmarshal(data); err != nil || x.Name == "" {
+		return
+	}
+	d.Set(x.Name, x.DiskSpace)
 }
 
 func (d *delegate) NotifyMsg(data []byte) {}
