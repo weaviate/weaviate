@@ -183,9 +183,9 @@ func (b *BM25Searcher) wand(
 		}
 
 		if prop.Tokenization == "word" {
-			if prop.DataType[0] == "text" {
+			if prop.DataType[0] == "text" || prop.DataType[0] == "text[]" {
 				propertyNamesText = append(propertyNamesText, property)
-			} else if prop.DataType[0] == "string" {
+			} else if prop.DataType[0] == "string" || prop.DataType[0] == "string[]" {
 				propertyNamesString = append(propertyNamesString, property)
 			} else {
 				return nil, nil, fmt.Errorf("cannot handle datatype %v", prop.DataType[0])
@@ -374,7 +374,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (term, map[uint64]int, error) {
 	termResult := term{queryTerm: query}
-	uniqueDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
@@ -393,9 +393,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			m = make([]lsmkv.MapPair, 0, len(preM))
 			for _, val := range preM {
 				docID := binary.BigEndian.Uint64(val.Key)
-				uniqueDocIDs.Set(docID)
 				if filterDocIds.Contains(docID) {
 					m = append(m, val)
+				} else {
+					filteredDocIDs.Set(docID)
 				}
 			}
 		} else {
@@ -482,13 +483,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 	termResult.data = docMapPairs
 
-	var n float64
+	n := float64(len(docMapPairs))
 	if filterDocIds != nil {
-		n = float64(uniqueDocIDs.GetCardinality())
-	} else {
-		n = float64(len(docMapPairs))
+		n += float64(filteredDocIDs.GetCardinality())
 	}
-
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
 
 	termResult.posPointer = 0

@@ -66,7 +66,8 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
-	metrics *Metrics
+	metrics         *Metrics
+	centralJobQueue chan job
 }
 
 func (i *Index) ID() string {
@@ -85,7 +86,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -107,7 +108,8 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		replicator:            repl,
 		remote: sharding.NewRemoteIndex(config.ClassName.String(), sg,
 			nodeResolver, remoteClient),
-		metrics: NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
+		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
+		centralJobQueue: jobQueueCh,
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -121,7 +123,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, class)
+		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
 		}
@@ -245,7 +247,6 @@ type IndexConfig struct {
 	ClassName                 schema.ClassName
 	QueryMaximumResults       int64
 	ResourceUsage             config.ResourceUsage
-	MaxImportGoroutinesFactor float64
 	MemtablesFlushIdleAfter   int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int

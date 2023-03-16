@@ -250,15 +250,15 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	logger, _ := test.NewNullLogger()
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	db := New(logger, Config{
+	db, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	db.SetSchemaGetter(schemaGetter)
-	err := db.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	db.SetSchemaGetter(schemaGetter)
+	require.Nil(t, db.WaitForStartup(testCtx()))
 	migrator := NewMigrator(db, logger)
 
 	for _, class := range classes {

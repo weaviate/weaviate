@@ -269,8 +269,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Set default if not given
 	if configFileName == "" {
 		configFileName = DefaultConfigFile
-		logger.WithField("action", "config_load").WithField("config_file_path", DefaultConfigFile).
-			Info("no config file specified, using default or environment based")
 	}
 
 	// Read config file
