@@ -16,8 +16,6 @@ package hnsw_test
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,12 +30,6 @@ import (
 const rootPath = "doesnt-matter-as-committlogger-is-mocked-out"
 
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			fmt.Println(err)
-		}
-	}(rootPath)
 	efConstruction := 64
 	ef := 32
 	maxNeighbors := 32
@@ -62,7 +54,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 
 	index, _ := hnsw.New(
 		hnsw.Config{
-			RootPath:              rootPath,
+			RootPath:              t.TempDir(),
 			ID:                    "recallbenchmark",
 			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
 			DistanceProvider:      distancer,
