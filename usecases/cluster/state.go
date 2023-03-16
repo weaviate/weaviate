@@ -138,6 +138,12 @@ func (s *State) AllNames() []string {
 	return out
 }
 
+// Candidates returns list of nodes (names) sorted by the
+// free amount of disk space in descending order
+func (s *State) Candidates() []string {
+	return s.delegate.sortCandidates(s.AllNames())
+}
+
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
 	return s.list.NumMembers()

@@ -3,9 +3,12 @@ package cluster
 import (
 	"bytes"
 	"encoding/binary"
+	"sort"
 	"sync"
 	"syscall"
 )
+
+// TODO: add version and opcode
 
 type nodeSpace struct {
 	Name string
@@ -52,6 +55,7 @@ func (d *delegate) LocalState(join bool) []byte {
 	if err != nil {
 		return nil
 	}
+	d.Set(d.Name, space) // store internally
 	x := nodeSpace{d.Name, space}
 	bytes, err := x.marshal()
 	if err != nil {
@@ -105,4 +109,14 @@ func diskSpace(path string) (DiskSpace, error) {
 		Total:     fs.Blocks * uint64(fs.Bsize),
 		Available: fs.Bavail * uint64(fs.Bsize),
 	}, nil
+}
+
+func (d *delegate) sortCandidates(names []string) []string {
+	d.Lock()
+	defer d.Unlock()
+	m := d.DiskUsage
+	sort.Slice(names, func(i, j int) bool {
+		return m[names[j]].Available < m[names[i]].Available
+	})
+	return names
 }

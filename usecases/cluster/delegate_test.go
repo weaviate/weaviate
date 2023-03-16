@@ -25,7 +25,7 @@ func TestDiskSpace(t *testing.T) {
 	}
 }
 
-func TestDelegate(t *testing.T) {
+func TestDelegateGetSet(t *testing.T) {
 	st := State{
 		delegate: delegate{
 			Name:      "ABC",
@@ -79,4 +79,19 @@ func TestDelegate(t *testing.T) {
 	space, ok := st.DiskSpace(st.delegate.Name)
 	assert.True(t, ok)
 	assert.Greater(t, space.Total, space.Available)
+}
+
+func TestDelegateSort(t *testing.T) {
+	GB := uint64(1) << 30
+	delegate := delegate{
+		Name:      "ABC",
+		dataPath:  ".",
+		DiskUsage: make(map[string]DiskSpace, 32),
+	}
+	delegate.Set("N1", DiskSpace{Available: GB})
+	delegate.Set("N2", DiskSpace{Available: 3 * GB})
+	delegate.Set("N3", DiskSpace{Available: 2 * GB})
+	delegate.Set("N4", DiskSpace{Available: 4 * GB})
+	got := delegate.sortCandidates([]string{"N1", "N0", "N2", "N4", "N3"})
+	assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)
 }
