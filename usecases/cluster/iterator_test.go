@@ -19,7 +19,7 @@ import (
 )
 
 func TestNodeIteration(t *testing.T) {
-	source := fakeNodeSource{[]string{"node1", "node2", "node3", "node4"}}
+	source := []string{"node1", "node2", "node3", "node4"}
 	it, err := NewNodeIterator(source, StartRandom)
 	require.Nil(t, err)
 
@@ -38,7 +38,7 @@ func TestNodeIteration(t *testing.T) {
 }
 
 func TestNodeIterationStartAfter(t *testing.T) {
-	source := fakeNodeSource{[]string{"node1", "node2", "node3", "node4"}}
+	source := []string{"node1", "node2", "node3", "node4"}
 	it, err := NewNodeIterator(source, StartAfter)
 	it.SetStartNode("node2")
 	require.Nil(t, err)
@@ -52,12 +52,4 @@ func TestNodeIterationStartAfter(t *testing.T) {
 
 	expected := []string{"node3", "node4", "node1"}
 	assert.Equal(t, expected, found)
-}
-
-type fakeNodeSource struct {
-	hostnames []string
-}
-
-func (f fakeNodeSource) AllNames() []string {
-	return f.hostnames
 }
