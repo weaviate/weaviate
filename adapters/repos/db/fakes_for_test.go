@@ -169,8 +169,8 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, additional additional.Properties,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
+) ([]*objects.SearchObject, error) {
+	return nil, nil
 }
 
 func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
@@ -301,5 +301,13 @@ func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
 func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) SearchObjects(_ context.Context, host,
+	index, shard string, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
+	cursor *filters.Cursor, addlProps additional.Properties,
+) ([]*objects.SearchObject, error) {
 	return nil, nil
 }

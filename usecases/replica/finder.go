@@ -151,7 +151,30 @@ func (f *Finder) Search(ctx context.Context,
 	sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	return []*storobj.Object{}, []float32{}, nil
+	c := newReadCoordinator[searchReply](f, shard)
+	op := func(ctx context.Context, host string, fullRead bool) (searchReply, error) {
+		xs, err := f.client.cl.SearchObjects(ctx, host, f.class, shard, limit, filters, keywordRanking, sort, cursor, addlProps)
+		return searchReply{Sender: host, Data: xs}, err
+	}
+	replyCh, state, err := c.Pull(ctx, l, op)
+	if err != nil {
+		f.log.WithField("op", "pull.all").Error(err)
+		return nil, nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+	}
+	result := <-f.readSearch(ctx, shard, replyCh, state)
+	if err = result.Err; err != nil {
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+	}
+
+	objs := make([]*storobj.Object, len(replyCh))
+	scores := make([]float32, len(replyCh))
+
+	for i := range result.Value {
+		objs[i] = result.Value[i].Object
+		scores[i] = result.Value[i].Score
+	}
+
+	return objs, scores, nil
 }
 
 // Exists checks if an object exists which satisfies the giving consistency

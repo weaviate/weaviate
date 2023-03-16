@@ -820,22 +820,19 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		var scores []float32
 		var err error
 
-		// TODO: uncomment when replicator.Search is implemented
-		//if i.replicationEnabled() {
-		//	if replProps == nil {
-		//		replProps = defaultConsistency()
-		//	}
-		//	objs, scores, err = i.replicator.Search(ctx,
-		//		replica.ConsistencyLevel(replProps.ConsistencyLevel),
-		//		shardName, limit, filters, keywordRanking, sort, cursor,
-		//		addlProps)
-		//	if err != nil {
-		//		return nil, nil, fmt.Errorf(
-		//			"failed to relay object search across replicas: %w", err)
-		//	}
-		//} else
-
-		if i.isLocalShard(shardName) {
+		if i.replicationEnabled() {
+			if replProps == nil {
+				replProps = defaultConsistency()
+			}
+			objs, scores, err = i.replicator.Search(ctx,
+				replica.ConsistencyLevel(replProps.ConsistencyLevel),
+				shardName, limit, filters, keywordRanking, sort, cursor,
+				addlProps)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"failed to relay object search across replicas: %w", err)
+			}
+		} else if i.isLocalShard(shardName) {
 			shard := i.Shards[shardName]
 			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 			if err != nil {

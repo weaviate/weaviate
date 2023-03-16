@@ -27,7 +27,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -113,6 +115,14 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
 	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
+}
+
+func (c *replicationClient) SearchObjects(_ context.Context, host,
+	index, shard string, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
+	cursor *filters.Cursor, addlProps additional.Properties,
+) ([]*objects.SearchObject, error) {
+	return nil, nil
 }
 
 func (c *replicationClient) PutObject(ctx context.Context, host, index,

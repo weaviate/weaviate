@@ -17,7 +17,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -202,6 +204,12 @@ type rClient interface {
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
 		ids []strfmt.UUID) ([]RepairResponse, error)
+
+	// SearchObjects searches for objects with a given set of params
+	SearchObjects(_ context.Context, host, index, shard string, limit int,
+		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+		sort []filters.Sort, cursor *filters.Cursor, addlProps additional.Properties,
+	) ([]*objects.SearchObject, error)
 }
 
 // finderClient extends RClient with consistency checks

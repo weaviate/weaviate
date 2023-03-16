@@ -184,6 +184,17 @@ func (f *finderStream) readAll(ctx context.Context,
 	return resultCh
 }
 
+type searchResult _Result[[]*objects.SearchObject]
+
+// readAll reads in replicated objects specified by their ids
+func (f *finderStream) readSearch(ctx context.Context,
+	shard string,
+	ch <-chan _Result[searchReply], st rState,
+) <-chan searchResult {
+	resultCh := make(chan searchResult, 1)
+	return resultCh
+}
+
 type boolTuple tuple[RepairResponse]
 
 // readExistence checks if replicated object exists
@@ -267,4 +278,13 @@ func (r batchReply) UpdateTimeAt(idx int) int64 {
 		return r.DigestData[idx].UpdateTime
 	}
 	return r.FullData[idx].UpdateTime()
+}
+
+// searchReply holds search results from each replica
+// This includes the scores as well as the objects
+type searchReply struct {
+	// Sender hostname of the sender
+	Sender string
+	// Data search results from the replica
+	Data []*objects.SearchObject
 }
