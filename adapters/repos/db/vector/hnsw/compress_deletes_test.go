@@ -27,8 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
-const rootPath = "doesnt-matter-as-committlogger-is-mocked-out"
-
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	efConstruction := 64
 	ef := 32
