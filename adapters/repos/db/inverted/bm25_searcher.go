@@ -183,9 +183,9 @@ func (b *BM25Searcher) wand(
 		}
 
 		if prop.Tokenization == "word" {
-			if prop.DataType[0] == "text" {
+			if prop.DataType[0] == "text" || prop.DataType[0] == "text[]" {
 				propertyNamesText = append(propertyNamesText, property)
-			} else if prop.DataType[0] == "string" {
+			} else if prop.DataType[0] == "string" || prop.DataType[0] == "string[]" {
 				propertyNamesString = append(propertyNamesString, property)
 			} else {
 				return nil, nil, fmt.Errorf("cannot handle datatype %v", prop.DataType[0])
