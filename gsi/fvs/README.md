@@ -25,3 +25,8 @@ To reproduce the benchmarks shown above, do the following:
 Notes:
 * we tested with python 3.8 so recommend you use that version
 * make sure no other intensive workloads are running when you benchmark (leverage 'who' and 'htop' to get this information )
+
+## Datasets
+
+To create the various benchmark datasets used in these benchmarks, edit and run the 'make_datasets.py' python script in this directory.
+

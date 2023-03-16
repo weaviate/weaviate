@@ -99,7 +99,7 @@ func Append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) {
     if os.IsNotExist(err) {
         fexists = false
     }
-    fmt.Println("exists =", fexists)
+    //fmt.Println("exists =", fexists)
 
     // Get file descriptor
     var f *os.File = nil
@@ -199,7 +199,7 @@ func Append_float32_array(fname string, arr [][]float32, dim int64, count int64)
     if os.IsNotExist(err) {
         fexists = false
     }
-    fmt.Println("exists =", fexists)
+    //fmt.Println("exists =", fexists)
 
     // Get file descriptor
     var f *os.File = nil
@@ -228,15 +228,16 @@ func Append_float32_array(fname string, arr [][]float32, dim int64, count int64)
     if err != nil {
         log.Fatalf("error get file stats: %v", err)
     }
-    file_size := int64( fi.Size() )
+    prev_file_size := int64( fi.Size() )
 
     // Get row count
-    data_size := file_size - 128
+    data_size := prev_file_size - 128
     row_count := data_size / (dim *4)
     new_row_count := row_count + count
 
     // Resize file
-    new_size := file_size + dim*4*count
+    new_size := prev_file_size + dim*4*count
+    //fmt.Printf("Truncate sizes %d %d\n", prev_file_size, new_size)
     err = f.Truncate(int64(new_size))
     if err != nil {
         log.Fatalf("error resizing file: %v",  err)
@@ -267,11 +268,17 @@ func Append_float32_array(fname string, arr [][]float32, dim int64, count int64)
     }
     mem[127] = fin[0]
 
+    // fast-forward memmap index to the insert point
+    idx = int(prev_file_size)
+    //fmt.Printf("insert idx %d\n", idx)
+
     // append the arrays
-    idx = int(128 + data_size)
     for j := 0; j< int(count); j++ {
         for i := 0; i< len(arr[j]); i++ {
             bt :=[]byte{0,0,0,0}
+            //if j==0 {
+            //    fmt.Printf("%d,%d:%f ", j,i, arr[j][i])
+            //}
             tmp_uint32 := math.Float32bits(arr[j][i])
             binary.LittleEndian.PutUint32(bt, tmp_uint32)
             mem[idx] = bt[0]
@@ -280,6 +287,9 @@ func Append_float32_array(fname string, arr [][]float32, dim int64, count int64)
             mem[idx+3] = bt[3]
             idx += 4
         }
+        //if (j==0) {
+        //    fmt.Println("") 
+        //}
     }
 
     mem.Flush()

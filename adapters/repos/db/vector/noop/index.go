@@ -17,6 +17,10 @@ import (
 	"fmt"
 	//
 
+    //GW
+    "example.com/gemini"
+    //GW
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -31,11 +35,24 @@ func NewIndex() *Index {
 
 func (i *Index) Add(id uint64, vector []float32) error {
 	//GW
-        fmt.Println("NOOP Add!")
-        //GW
+    fmt.Println("NOOP Add!")
+    //GW
 
-	// silently ignore
-	return nil
+    farr := make([][]float32, 1)
+    dim := int64( len(vector) )
+    fmt.Println("Add Dim", dim)
+    //farr[0] := make([]float32, dim)
+
+    for i := 0; i< 1; i++ {
+        farr[i] = vector
+    }
+    //gemini.Read_float32_array( f, farr, dim, 0, 1000, 128 )
+
+    gemini.Append_float32_array( "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/gsi/tests/dbase.npy", farr, dim, 1 )
+
+    return nil
+	//GW // silently ignore
+	//GW return nil
 }
 
 func (i *Index) Delete(id uint64) error {
