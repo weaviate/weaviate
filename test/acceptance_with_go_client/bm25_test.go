@@ -45,6 +45,7 @@ func TestBm25(t *testing.T) {
 					{Name: "num", DataType: []string{"int"}},
 				},
 				InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}},
+				Vectorizer:          "none",
 			}
 			require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 			defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
