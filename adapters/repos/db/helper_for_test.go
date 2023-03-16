@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -202,6 +204,13 @@ func testCtx() context.Context {
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
 	rand.Seed(time.Now().UnixNano())
 	tmpDir := t.TempDir()
+	repo, err := New(logrus.New(), Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  t.TempDir(),
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	require.Nil(t, err)
 
 	shardState := singleShardState()
 	class := models.Class{Class: className}
@@ -211,14 +220,15 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
-
+	queue := make(chan job, 100000)
 	idx := &Index{
-		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className), MaxImportGoroutinesFactor: 1.5},
+		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className)},
 		invertedIndexConfig:   schema.InvertedIndexConfig{},
 		vectorIndexUserConfig: enthnsw.UserConfig{Skip: true},
 		logger:                logrus.New(),
 		getSchema:             schemaGetter,
 		Shards:                map[string]*Shard{},
+		centralJobQueue:       queue,
 	}
 
 	for _, opt := range indexOpts {
@@ -227,7 +237,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx, &class)
+	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh)
 	if err != nil {
 		panic(err)
 	}

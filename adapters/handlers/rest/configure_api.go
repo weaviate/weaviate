@@ -165,7 +165,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
 	replicationClient := clients.NewReplicationClient(clusterHttpClient)
-	repo := db.New(appState.Logger, db.Config{
+	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:             config.ServerVersion,
 		GitHash:                   config.GitHash,
 		MemtablesFlushIdleAfter:   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
@@ -180,6 +180,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("invalid new DB")
+	}
+
 	appState.DB = repo
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
