@@ -1,7 +1,7 @@
 import weaviate, os, time
 
 # get docs from each subdir
-DATADIR = "./data/20news-18828/"
+DATADIR = "/mnt/nas1/news20/"
 def absoluteFilePaths(directory):
     for dirpath,_,filenames in os.walk(directory):
         for f in filenames:
