@@ -43,69 +43,13 @@ func (s *Shard) putBatch(ctx context.Context,
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 	// When the last batch finishes, all workers receive a shutdown signal and exit
-	s.startBatch()
 	batcher := newObjectsBatcher(s)
 	err := batcher.Objects(ctx, objects)
 
 	// block until all objects of batch have been added
 	batcher.wg.Wait()
-	s.endBatch()
 
 	return err
-}
-
-func (s *Shard) startBatch() {
-	s.activeBatchesLock.Lock()
-	s.numActiveBatches += 1
-
-	// start workers in go routines that can be used by all batches
-	if s.numActiveBatches == 1 {
-		s.shutDownWg.Wait() // wait until any shutdown job is completed
-		if s.promMetrics != nil {
-			metric, err := s.promMetrics.GoroutinesCount.GetMetricWithLabelValues("object batcher", "")
-			if err == nil {
-				metric.Add(float64(s.maxNumberGoroutines))
-			}
-		}
-		for i := 0; i < s.maxNumberGoroutines; i++ {
-			go s.worker()
-		}
-		s.shutDownWg.Add(s.maxNumberGoroutines)
-	}
-	s.activeBatchesLock.Unlock()
-}
-
-func (s *Shard) endBatch() {
-	s.activeBatchesLock.Lock()
-	s.numActiveBatches -= 1
-
-	// send abort jobs and wait for all workers to end (and finish all jobs before)
-	if s.numActiveBatches == 0 {
-		for i := 0; i < s.maxNumberGoroutines; i++ {
-			s.jobQueueCh <- job{
-				index: -1,
-			}
-		}
-		if s.promMetrics != nil {
-			metric, err := s.promMetrics.GoroutinesCount.GetMetricWithLabelValues("object batcher", "")
-			if err == nil {
-				metric.Sub(float64(s.maxNumberGoroutines))
-			}
-		}
-	}
-
-	s.activeBatchesLock.Unlock()
-}
-
-func (s *Shard) worker() {
-	for job := range s.jobQueueCh {
-		if job.index < 0 {
-			s.shutDownWg.Done()
-			return
-		}
-		job.batcher.storeSingleObjectInAdditionalStorage(job.ctx, job.object, job.status, job.index)
-		job.batcher.wg.Done()
-	}
 }
 
 // objectsBatcher is a helper type wrapping around an underlying shard that can
@@ -273,7 +217,7 @@ func (b *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context) 
 
 		b.wg.Add(1)
 		status := b.statuses[object.ID()]
-		b.shard.jobQueueCh <- job{
+		b.shard.centralJobQueue <- job{
 			object:  object,
 			status:  status,
 			index:   i,
