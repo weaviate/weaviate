@@ -43,16 +43,16 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -74,16 +74,16 @@ func TestBatchPutObjects(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -100,16 +100,16 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -132,15 +132,15 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -157,16 +157,16 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   1,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
@@ -233,16 +233,16 @@ func TestBatchDeleteObjects(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -260,16 +260,16 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	queryMaximumResults := int64(200)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -296,15 +296,15 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	queryMaximumResults := int64(20)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 

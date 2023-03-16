@@ -253,7 +253,7 @@ func (i *Index) IncomingCreateShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, nil)
+	s, err := NewShard(ctx, nil, shardName, i, nil, i.centralJobQueue)
 	if err != nil {
 		return err
 	}
