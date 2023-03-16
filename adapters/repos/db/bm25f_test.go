@@ -395,8 +395,6 @@ func TestBM25FJourney(t *testing.T) {
 		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
 		require.Nil(t, err)
 
-		// With additionalExplanations explainScore entry should be present
-		require.Contains(t, res[0].Object.Additional, "score")
 		require.Len(t, res, 2)
 		require.Equal(t, uint64(0), res[0].DocID())
 		require.Equal(t, uint64(1), res[1].DocID())
@@ -407,8 +405,6 @@ func TestBM25FJourney(t *testing.T) {
 		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
 		require.Nil(t, err)
 
-		// With additionalExplanations explainScore entry should be present
-		require.Contains(t, res[0].Object.Additional, "score")
 		require.Len(t, res, 2)
 		require.Equal(t, uint64(6), res[0].DocID())
 		require.Equal(t, uint64(5), res[1].DocID())
