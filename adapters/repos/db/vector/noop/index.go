@@ -18,7 +18,7 @@ import (
 	//
 
     //GW
-    "example.com/gemini"
+    //"example.com/gemini"
     //GW
 
 	"github.com/pkg/errors"
@@ -48,7 +48,7 @@ func (i *Index) Add(id uint64, vector []float32) error {
     }
     //gemini.Read_float32_array( f, farr, dim, 0, 1000, 128 )
 
-    gemini.Append_float32_array( "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/gsi/tests/dbase.npy", farr, dim, 1 )
+    //gemini.Append_float32_array( "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/gsi/tests/dbase.npy", farr, dim, 1 )
 
     return nil
 	//GW // silently ignore
