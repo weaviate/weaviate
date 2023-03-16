@@ -260,7 +260,7 @@ func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMa
 	overrides := overridesFromMap(overridesMap)
 	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi, Overrides: overrides})
 	if err != nil {
-		if strings.Contains(fmt.Sprintf("%v", err), "") {
+		if strings.Contains(fmt.Sprintf("%v", err), "connect: connection refused") {
 			c.logger.WithError(err).WithField("module", "contextionary").Warnf("module uncontactable")
 		}
 		st, ok := status.FromError(err)
