@@ -3907,10 +3907,12 @@ func init() {
           "type": "string"
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
           "enum": [
             "word",
+            "lowercase",
+            "whitespace",
             "field"
           ]
         }
@@ -4174,13 +4176,13 @@ func init() {
           "example": 3.14
         },
         "valueString": {
-          "description": "value as string",
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
         "valueText": {
-          "description": "value as text (on text props)",
+          "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
@@ -8444,10 +8446,12 @@ func init() {
           "type": "string"
         },
         "tokenization": {
-          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to string, string[], text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default) and ` + "`" + `field` + "`" + ` for string and string[], ` + "`" + `word` + "`" + ` (default) for text and text[]. Not supported for remaining data types",
+          "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
           "enum": [
             "word",
+            "lowercase",
+            "whitespace",
             "field"
           ]
         }
@@ -8711,13 +8715,13 @@ func init() {
           "example": 3.14
         },
         "valueString": {
-          "description": "value as string",
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
         "valueText": {
-          "description": "value as text (on text props)",
+          "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
