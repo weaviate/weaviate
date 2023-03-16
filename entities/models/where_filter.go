@@ -63,11 +63,11 @@ type WhereFilter struct {
 	// Example: 3.14
 	ValueNumber *float64 `json:"valueNumber,omitempty"`
 
-	// value as string
+	// value as text (deprecated as of v1.19; alias for valueText)
 	// Example: my search term
 	ValueString *string `json:"valueString,omitempty"`
 
-	// value as text (on text props)
+	// value as text
 	// Example: my search term
 	ValueText *string `json:"valueText,omitempty"`
 }
