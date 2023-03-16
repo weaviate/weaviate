@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+const DefaultTokenization = models.PropertyTokenizationWord
+
 // AddClass to the schema
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
@@ -224,18 +226,36 @@ func (m *Manager) setPropertyDefaults(prop *models.Property) {
 }
 
 func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
-	// already set, no default needed
-	if prop.Tokenization != "" {
-		return
-	}
-
-	// set only for tokenization supporting data types
-	if len(prop.DataType) == 1 {
-		switch prop.DataType[0] {
-		case string(schema.DataTypeString), string(schema.DataTypeStringArray),
-			string(schema.DataTypeText), string(schema.DataTypeTextArray):
-			prop.Tokenization = models.PropertyTokenizationWord
+	// as of v1.19 DataTypeString and DataTypeStringArray are deprecated
+	// here both are changed to Text/TextArray
+	// and proper, backward compatible tokenization
+	if dataType, ok := schema.AsPrimitive(prop.DataType); ok {
+		switch dataType {
+		case schema.DataTypeText, schema.DataTypeTextArray:
+			if prop.Tokenization == "" {
+				prop.Tokenization = DefaultTokenization
+			}
+		case schema.DataTypeString:
+			switch prop.Tokenization {
+			case "":
+				prop.Tokenization = DefaultTokenization
+			case models.PropertyTokenizationWord:
+				prop.Tokenization = models.PropertyTokenizationWhitespace
+			}
+			prop.DataType = []string{string(schema.DataTypeText)}
+		case schema.DataTypeStringArray:
+			switch prop.Tokenization {
+			case "":
+				prop.Tokenization = DefaultTokenization
+			case models.PropertyTokenizationWord:
+				prop.Tokenization = models.PropertyTokenizationWhitespace
+			}
+			prop.DataType = []string{string(schema.DataTypeTextArray)}
+		default:
+			prop.Tokenization = ""
 		}
+	} else {
+		prop.Tokenization = ""
 	}
 }
 
