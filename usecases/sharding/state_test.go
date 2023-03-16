@@ -185,50 +185,47 @@ func TestAdjustReplicas(t *testing.T) {
 	t.Run("1->3", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
 		shard := Physical{BelongsToNodes: []string{"N1"}}
-		expected := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
 	t.Run("2->3", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
 		shard := Physical{BelongsToNodes: []string{"N2", "N3"}}
-		expected := Physical{BelongsToNodes: []string{"N2", "N3", "N1"}}
-
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
 	t.Run("3->3", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-		expected := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
 	t.Run("3->2", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-		expected := Physical{BelongsToNodes: []string{"N1", "N2"}}
-
 		require.Nil(t, shard.AdjustReplicas(2, nodes))
-		assert.Equal(t, expected, shard)
+		assert.ElementsMatch(t, []string{"N1", "N2"}, shard.BelongsToNodes)
 	})
 
 	t.Run("Min", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-
 		require.NotNil(t, shard.AdjustReplicas(-1, nodes))
 	})
 	t.Run("Max", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
-
 		require.NotNil(t, shard.AdjustReplicas(4, nodes))
+	})
+	t.Run("Bug", func(t *testing.T) {
+		names := []string{"N1", "N2", "N3", "N4"}
+		nodes := fakeNodes{nodes: names} // bug
+		shard := Physical{BelongsToNodes: []string{"N1", "N1", "N1", "N2", "N2"}}
+		require.Nil(t, shard.AdjustReplicas(4, nodes)) // correct
+		require.ElementsMatch(t, names, shard.BelongsToNodes)
 	})
 }
 

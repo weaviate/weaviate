@@ -70,17 +70,26 @@ func (p Physical) BelongsToNode() string {
 	return p.BelongsToNodes[0]
 }
 
-// Adjust Replicas uses a NodeIterator to add new nodes (scale out) or remove
-// existing nodes (scale in) from the "BelongsToNodes" mappings. This is used
-// as part of dynamically changing the replication factor. This method
-// basically controls where a shard will land in the cluster. If we want to add
-// some kind of node bias while scaling in the future, it would probably go
-// here.
+// AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
 func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 	if count < 0 {
 		return fmt.Errorf("negative replication factor: %d", count)
 	}
-	if count < len(p.BelongsToNodes) {
+	// let's be defensive here and make sure available replicas are unique.
+	available := make(map[string]bool)
+	for _, n := range p.BelongsToNodes {
+		available[n] = true
+	}
+	// a == b should be always true except in case of bug
+	if b, a := len(p.BelongsToNodes), len(available); b > a {
+		p.BelongsToNodes = p.BelongsToNodes[:a]
+		i := 0
+		for n := range available {
+			p.BelongsToNodes[i] = n
+			i++
+		}
+	}
+	if count < len(p.BelongsToNodes) { // less replicas wanted
 		p.BelongsToNodes = p.BelongsToNodes[:count]
 		return nil
 	}
@@ -90,18 +99,13 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 		return fmt.Errorf("not enough replicas: found %d want %d", len(names), count)
 	}
 
-	available := make(map[string]bool)
-	for _, n := range p.BelongsToNodes {
-		available[n] = true
-	}
-	count -= len(available)
+	// make sure included nodes are unique
 	for _, n := range names {
 		if !available[n] {
 			p.BelongsToNodes = append(p.BelongsToNodes, n)
 			available[n] = true
-			count--
 		}
-		if count == 0 {
+		if len(available) == count {
 			break
 		}
 	}
