@@ -262,6 +262,8 @@ func (f *WeaviateConfig) GetHostAddress() string {
 }
 
 // LoadConfig from config locations
+//
+// Deprecated: usage of the config file is deprecated and will be removed in the futures.
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger logrus.FieldLogger) error {
 	// Get command line flags
 	configFileName := flags.Options.(*Flags).ConfigFile
@@ -276,6 +278,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	_ = err // explicitly ignore
 
 	if len(file) > 0 {
+		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
+			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the futures. Please use environment variables.")
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
 			return configErr(err)
