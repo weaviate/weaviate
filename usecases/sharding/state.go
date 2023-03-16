@@ -94,7 +94,7 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 		return nil
 	}
 
-	names := nodes.AllNames()
+	names := nodes.Candidates()
 	if count > len(names) {
 		return fmt.Errorf("not enough replicas: found %d want %d", len(names), count)
 	}
@@ -114,13 +114,13 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 }
 
 type nodes interface {
-	AllNames() []string
+	Candidates() []string
 	LocalName() string
 }
 
 func InitState(id string, config Config, nodes nodes, replFactor int64) (*State, error) {
 	out := &State{Config: config, IndexID: id, localNodeName: nodes.LocalName()}
-	names := nodes.AllNames()
+	names := nodes.Candidates()
 	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
 	}
