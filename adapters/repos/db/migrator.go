@@ -46,7 +46,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			RootPath:                  m.db.config.RootPath,
 			ResourceUsage:             m.db.config.ResourceUsage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
-			MaxImportGoroutinesFactor: m.db.config.MaxImportGoroutinesFactor,
 			MemtablesFlushIdleAfter:   m.db.config.MemtablesFlushIdleAfter,
 			MemtablesInitialSizeMB:    m.db.config.MemtablesInitialSizeMB,
 			MemtablesMaxSizeMB:        m.db.config.MemtablesMaxSizeMB,
@@ -61,7 +60,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class)
+		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}

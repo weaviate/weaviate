@@ -44,15 +44,15 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	shardState := singleShardState()
 	sg := &fakeSchemaGetter{shardState: shardState}
 
-	vrepo := db.New(logger, db.Config{
+	vrepo, err := db.New(logger, db.Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	vrepo.SetSchemaGetter(sg)
-	err := vrepo.WaitForStartup(context.Background())
 	require.Nil(t, err)
+	vrepo.SetSchemaGetter(sg)
+	require.Nil(t, vrepo.WaitForStartup(context.Background()))
 	migrator := db.NewMigrator(vrepo, logger)
 
 	// so we can reuse it for follow up requests, such as checking the status
@@ -185,14 +185,14 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 
 	sg := &fakeSchemaGetter{shardState: singleShardState()}
 
-	vrepo := db.New(logger, db.Config{
+	vrepo, err := db.New(logger, db.Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	vrepo.SetSchemaGetter(sg)
-	err := vrepo.WaitForStartup(context.Background())
 	require.Nil(t, err)
+	vrepo.SetSchemaGetter(sg)
+	require.Nil(t, vrepo.WaitForStartup(context.Background()))
 	migrator := db.NewMigrator(vrepo, logger)
 
 	t.Run("preparations", func(t *testing.T) {
