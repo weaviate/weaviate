@@ -45,6 +45,9 @@ const (
 )
 
 func (m *Provider) ValidateVectorizer(moduleName string) error {
+//GW
+        fmt.Println("ValidateVectorizer usecases/modules/vectorizer.go %s", moduleName)
+        //GW
 	mod := m.GetByName(moduleName)
 	if mod == nil {
 		return errors.Errorf("no module with name %q present", moduleName)

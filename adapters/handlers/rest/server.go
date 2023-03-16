@@ -54,6 +54,10 @@ func init() {
 
 // NewServer creates a new api weaviate server but does not configure it
 func NewServer(api *operations.WeaviateAPI) *Server {
+
+//GW
+        fmt.Println("NewServer adapters/handlers/rest/server.go !")
+        //GW
 	s := new(Server)
 
 	s.shutdown = make(chan struct{})
@@ -64,6 +68,9 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 
 // ConfigureAPI configures the API and handlers.
 func (s *Server) ConfigureAPI() {
+//GW
+        fmt.Println("inside ConfigureAPI adapters/handlers/rest/server.go !")
+        //GW
 	if s.api != nil {
 		s.handler = configureAPI(s.api)
 	}
@@ -222,6 +229,9 @@ func (s *Server) Serve() (err error) {
 
 		httpServer.Handler = s.handler
 
+//GW
+        fmt.Println("before configureServer adapters/handlers/rest/server.go !")
+        //GW
 		configureServer(httpServer, "http", s.httpServerL.Addr().String())
 
 		servers = append(servers, httpServer)

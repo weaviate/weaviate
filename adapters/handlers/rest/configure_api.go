@@ -102,12 +102,20 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
+
+//GW
+        fmt.Println("configureAPI adapters/handlers/rest/configure_api.go !")
+        //GW
+
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 
+    //GW
+    goruntime.Breakpoint()
+    //GW
 	appState := startupRoutine(ctx)
 	setupGoProfiling(appState.ServerConfig.Config)
 
@@ -119,6 +127,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			http.ListenAndServe(":2112", mux)
 		}()
 	}
+
+//GW
+        fmt.Println("before registerModules adapters/handlers/rest/configure_api.go !")
+        //GW
+
+    //GW
+    goruntime.Breakpoint()
+    //GW
 
 	err := registerModules(appState)
 	if err != nil {
@@ -330,7 +346,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context) *state.State {
+
+//GW
+        fmt.Println("startupRoutine adapters/handlers/rest/configure_api.go !")
+        //GW
+
 	appState := &state.State{}
+
+    //GW 
+    goruntime.Breakpoint()
+    //GW
 
 	logger := logger()
 	appState.Logger = logger
@@ -340,12 +365,23 @@ func startupRoutine(ctx context.Context) *state.State {
 
 	// Load the config using the flags
 	serverConfig := &config.WeaviateConfig{}
+
+    //GW 
+    goruntime.Breakpoint()
+    //GW
+
 	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
+
+    //GW
+    //if appState.ServerConfig.ModulesPath == "" {
+    //    appState.ServerConfig.ModulesPath = "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate"
+    //}
+
 
 	logger.WithFields(logrus.Fields{
 		"action":                    "startup",
@@ -425,6 +461,10 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
+
+//GW
+        fmt.Println("registerModules FUNC adapters/handlers/rest/configure_api.go !")
+        //GW
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("start registering modules")
@@ -437,7 +477,14 @@ func registerModules(appState *state.State) error {
 		for _, module := range modules {
 			enabledModules[strings.TrimSpace(module)] = true
 		}
-	}
+        //GW
+        fmt.Println("registeredModules OK>0 adapters/handlers/rest/configure_api.go !")
+        //GW
+	} else {
+        //GW
+        fmt.Println("registeredModules NONE>0 adapters/handlers/rest/configure_api.go !")
+        //GW
+    }
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
@@ -503,13 +550,25 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+//GW
+        fmt.Println("before enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !")
+        //GW
+    //GW
+    goruntime.Breakpoint()
+    //GW
+
 	if _, ok := enabledModules["text2vec-openai"]; ok {
 		appState.Modules.Register(modopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "text2vec-openai").
 			Debug("enabled module")
-	}
+        fmt.Println("after else  ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
+	} else {
+//GW
+        fmt.Println("after else not ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
+        //GW
+    }
 
 	if _, ok := enabledModules["qna-openai"]; ok {
 		appState.Modules.Register(modqnaopenai.New())

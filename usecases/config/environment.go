@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+    goruntime "runtime"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -162,9 +163,16 @@ func FromEnv(config *Config) error {
 		config.DefaultVectorDistanceMetric = v
 	}
 
+    //GW
+    goruntime.Breakpoint()
+    //GW
+
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
-	}
+//GW
+        config.ModulesPath = "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
+//GW
+    }
 
 	config.AutoSchema.Enabled = true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {

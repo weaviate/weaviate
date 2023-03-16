@@ -33,11 +33,18 @@ func NewRepo(baseDir string, logger logrus.FieldLogger) (*Repo, error) {
 		logger:  logger,
 	}
 
+//GW
+        fmt.Println("NewRepo before call to init adapters/repos/modules/module.go !")
+        //GW
+
 	err := r.init()
 	return r, err
 }
 
 func (r *Repo) DBPath() string {
+//GW
+        fmt.Println("DBPATH adapters/repos/modules/module.go !")
+        //GW
 	return fmt.Sprintf("%s/modules.db", r.baseDir)
 }
 
@@ -71,11 +78,19 @@ func (r *Repo) Storage(bucketName string) (moduletools.Storage, error) {
 		repo:      r,
 	}
 
+//GW
+        fmt.Println("Storage before call to init adapters/repos/modules/module.go !")
+        //GW
+
 	err := storage.init()
 	return storage, err
 }
 
 func (s *storageBucket) init() error {
+//GW
+        fmt.Println("init before call to db.Update adapters/repos/modules/module.go !")
+        //GW
+
 	return s.repo.db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(s.bucketKey); err != nil {
 			return errors.Wrapf(err, "create module storage bucket '%s'",

@@ -208,6 +208,9 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	if schema == nil {
 		schema = newSchema()
 	}
+	//GW
+        fmt.Println("SCHEMA beforeParseConfigs Inside usecases/scheman/manager.go!")
+        //GW
 
 	if err := m.parseConfigs(ctx, schema); err != nil {
 		return errors.Wrap(err, "load schema")
@@ -230,6 +233,10 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
+	
+    //GW
+        fmt.Println("SCHEMA beforeStartupClusterSync Inside usecases/scheman/manager.go!")
+        //GW
 
 	if err := m.startupClusterSync(ctx, schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")

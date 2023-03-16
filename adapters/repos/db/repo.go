@@ -15,6 +15,9 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+    //GW
+    "fmt"
+    //GW
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -66,6 +69,10 @@ func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 }
 
 func (d *DB) WaitForStartup(ctx context.Context) error {
+
+//GW
+        fmt.Println("WaitForStartup before call to init adapters/repos/db/repo.go !")
+        //GW
 	err := d.init(ctx)
 	if err != nil {
 		return err
