@@ -774,7 +774,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties,
 ) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
@@ -782,7 +782,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// If the request is a BM25F with no properties selected, use all possible properties
 	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 
-		cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
+		cl, err := schema.GetClassByName(
+			i.getSchema.GetSchemaSkipAuth().Objects,
+			i.Config.ClassName.String())
 		if err != nil {
 			return nil, nil, err
 		}
@@ -790,14 +792,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		propHash := cl.Properties
 		// Get keys of hash
 		for _, v := range propHash {
-			if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
+			if (v.DataType[0] == "text" || v.DataType[0] == "string") &&
+				schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects,
+					i.Config.ClassName.String(), v.Name) { // Also the array types?
 				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 			}
 		}
 
 		// WEAVIATE-471 - error if we can't find a property to search
 		if len(keywordRanking.Properties) == 0 {
-			return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
+			return nil, []float32{}, errors.New(
+				"No properties provided, and no indexed properties found in class")
 		}
 	}
 
@@ -811,25 +816,38 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	outScores := make([]float32, 0, cap)
 
 	for _, shardName := range shardNames {
-		local := i.getSchema.
-			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
-
 		var objs []*storobj.Object
 		var scores []float32
 		var err error
 
-		if local {
+		// TODO: uncomment when replicator.Search is implemented
+		//if i.replicationEnabled() {
+		//	if replProps == nil {
+		//		replProps = defaultConsistency()
+		//	}
+		//	objs, scores, err = i.replicator.Search(ctx,
+		//		replica.ConsistencyLevel(replProps.ConsistencyLevel),
+		//		shardName, limit, filters, keywordRanking, sort, cursor,
+		//		addlProps)
+		//	if err != nil {
+		//		return nil, nil, fmt.Errorf(
+		//			"failed to relay object search across replicas: %w", err)
+		//	}
+		//} else
+
+		if i.isLocalShard(shardName) {
 			shard := i.Shards[shardName]
-			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
+				return nil, nil, fmt.Errorf(
+					"local shard object serach %s: %w", shard.ID(), err)
 			}
 		} else {
 			objs, scores, err = i.remote.SearchShard(
-				ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, additional)
+				ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, addlProps)
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
+				return nil, nil, fmt.Errorf(
+					"remote shard object serach %s: %w", shardName, err)
 			}
 		}
 		outObjects = append(outObjects, objs...)
@@ -873,7 +891,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	} else if keywordRanking != nil {
 		outObjects, outScores = i.sortKeywordRanking(outObjects, outScores)
-	} else if len(shardNames) > 1 && !additional.ReferenceQuery {
+	} else if len(shardNames) > 1 && !addlProps.ReferenceQuery {
 		// sort only for multiple shards (already sorted for single)
 		// and for not reference nested query (sort is applied for root query)
 		outObjects, outScores = i.sortByID(outObjects, outScores)
@@ -888,7 +906,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// the `And` to return no results where results would
 	// be expected. we won't know that unless we search
 	// and return all referenced object properties.
-	if !additional.ReferenceQuery && len(outObjects) > limit {
+	if !addlProps.ReferenceQuery && len(outObjects) > limit {
 		if len(outObjects) == len(outScores) {
 			outScores = outScores[:limit]
 		}

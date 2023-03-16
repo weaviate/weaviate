@@ -68,8 +68,9 @@ func (db *DB) ClassObjectSearch(ctx context.Context,
 		return nil, nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	res, dist, err := idx.objectSearch(ctx, totalLimit, params.Filters,
-		params.KeywordRanking, params.Sort, params.Cursor, params.AdditionalProperties)
+	res, dist, err := idx.objectSearch(ctx, totalLimit,
+		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
+		params.AdditionalProperties, params.ReplicationProperties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -119,8 +120,9 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties,
-			db.getDists(dists, params.Pagination)), params.Properties, params.AdditionalProperties)
+		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
+			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
+		params.Properties, params.AdditionalProperties)
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {
@@ -262,7 +264,7 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 			return nil, &objects.Error{Msg: "cursor api: invalid 'after' parameter", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
-	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Cursor, q.Additional)
+	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Cursor, q.Additional, nil)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
@@ -294,7 +296,8 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	d.indexLock.RLock()
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, nil, additional)
+		res, _, err := index.objectSearch(ctx, totalLimit,
+			filters, nil, sort, nil, additional, nil)
 		if err != nil {
 			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())

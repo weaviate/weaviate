@@ -19,7 +19,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -140,6 +142,16 @@ func (f *Finder) GetAll(ctx context.Context,
 	}
 
 	return result.Value, err
+}
+
+func (f *Finder) Search(ctx context.Context,
+	l ConsistencyLevel, shard string,
+	limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort, cursor *filters.Cursor,
+	addlProps additional.Properties,
+) ([]*storobj.Object, []float32, error) {
+	return []*storobj.Object{}, []float32{}, nil
 }
 
 // Exists checks if an object exists which satisfies the giving consistency
