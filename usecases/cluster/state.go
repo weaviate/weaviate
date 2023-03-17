@@ -43,7 +43,7 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 		delegate: delegate{
 			Name:      userConfig.Hostname,
 			dataPath:  dataPath,
-			DiskUsage: make(map[string]DiskSpace, 32),
+			DiskUsage: make(map[string]DiskInfo, 32),
 		},
 	}
 	cfg.Delegate = &state.delegate
@@ -173,6 +173,6 @@ func (s *State) SchemaSyncIgnored() bool {
 	return s.config.IgnoreStartupSchemaSync
 }
 
-func (s *State) DiskSpace(node string) (DiskSpace, bool) {
+func (s *State) DiskSpace(node string) (DiskInfo, bool) {
 	return s.delegate.Get(node)
 }

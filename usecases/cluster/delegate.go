@@ -24,19 +24,31 @@ import (
 // truncate total and available space to MB
 // add TTL to send disk info
 // cache disk space
+// send disk info if join == true otherwise when TTL expires
 
 type nodeSpace struct {
 	Name string
-	DiskSpace
+	DiskInfo
 }
-type DiskSpace struct {
+
+// proto protocol that we will speak
+type proto struct {
+	// OpCode operation code
+	OpCode uint8
+	// ProtoVersion protocol version
+	ProtoVersion uint8
+}
+
+// DiskInfo disk space
+type DiskInfo struct {
+	proto
 	Total     uint64
 	Available uint64
 }
 
 func (d *nodeSpace) marshal() (data []byte, err error) {
 	buf := bytes.NewBuffer(make([]byte, 0, 16+len(d.Name)))
-	if err := binary.Write(buf, binary.BigEndian, d.DiskSpace); err != nil {
+	if err := binary.Write(buf, binary.BigEndian, d.DiskInfo); err != nil {
 		return nil, err
 	}
 	_, err = buf.Write([]byte(d.Name))
@@ -45,7 +57,7 @@ func (d *nodeSpace) marshal() (data []byte, err error) {
 
 func (d *nodeSpace) Unmarshal(data []byte) error {
 	rd := bytes.NewReader(data)
-	if err := binary.Read(rd, binary.BigEndian, &d.DiskSpace); err != nil {
+	if err := binary.Read(rd, binary.BigEndian, &d.DiskInfo); err != nil {
 		return err
 	}
 	// fmt.Println(rd.Size(), rd.Len(), len(data), string(data))
@@ -57,7 +69,7 @@ type delegate struct {
 	Name     string
 	dataPath string
 	sync.Mutex
-	DiskUsage map[string]DiskSpace
+	DiskUsage map[string]DiskInfo
 }
 
 func (*delegate) NodeMeta(limit int) (meta []byte) {
@@ -85,7 +97,7 @@ func (d *delegate) MergeRemoteState(data []byte, join bool) {
 	if err := x.Unmarshal(data); err != nil || x.Name == "" {
 		return
 	}
-	d.Set(x.Name, x.DiskSpace)
+	d.Set(x.Name, x.DiskInfo)
 }
 
 func (d *delegate) NotifyMsg(data []byte) {}
@@ -94,14 +106,14 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	return nil
 }
 
-func (d *delegate) Get(node string) (DiskSpace, bool) {
+func (d *delegate) Get(node string) (DiskInfo, bool) {
 	d.Lock()
 	defer d.Unlock()
 	x, ok := d.DiskUsage[node]
 	return x, ok
 }
 
-func (d *delegate) Set(node string, x DiskSpace) {
+func (d *delegate) Set(node string, x DiskInfo) {
 	d.Lock()
 	defer d.Unlock()
 	d.DiskUsage[node] = x
@@ -114,13 +126,13 @@ func (d *delegate) Delete(node string) {
 	delete(d.DiskUsage, node)
 }
 
-func diskSpace(path string) (DiskSpace, error) {
+func diskSpace(path string) (DiskInfo, error) {
 	fs := syscall.Statfs_t{}
 	err := syscall.Statfs(path, &fs)
 	if err != nil {
-		return DiskSpace{}, err
+		return DiskInfo{}, err
 	}
-	return DiskSpace{
+	return DiskInfo{
 		Total:     fs.Blocks * uint64(fs.Bsize),
 		Available: fs.Bavail * uint64(fs.Bsize),
 	}, nil

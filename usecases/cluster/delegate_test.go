@@ -22,7 +22,7 @@ func TestDiskSpace(t *testing.T) {
 	for _, name := range []string{"", "host-12:1", "2", "00", "-jhd"} {
 		want := nodeSpace{
 			name,
-			DiskSpace{
+			DiskInfo{
 				Total:     256,
 				Available: 3,
 			},
@@ -41,7 +41,7 @@ func TestDelegateGetSet(t *testing.T) {
 		delegate: delegate{
 			Name:      "ABC",
 			dataPath:  ".",
-			DiskUsage: make(map[string]DiskSpace, 32),
+			DiskUsage: make(map[string]DiskInfo, 32),
 		},
 	}
 	st.delegate.NotifyMsg(nil)
@@ -51,7 +51,11 @@ func TestDelegateGetSet(t *testing.T) {
 	for i := range spaces {
 		spaces[i] = nodeSpace{
 			Name: fmt.Sprintf("N-%d", i+1),
-			DiskSpace: DiskSpace{
+			DiskInfo: DiskInfo{
+				proto{
+					ProtoVersion: uint8(i),
+					OpCode:       uint8(i + 1),
+				},
 				uint64(i + 1),
 				uint64(i),
 			},
@@ -73,13 +77,13 @@ func TestDelegateGetSet(t *testing.T) {
 	for _, x := range spaces {
 		space, ok := st.DiskSpace(x.Name)
 		if ok {
-			assert.Equal(t, x.DiskSpace, space)
+			assert.Equal(t, x.DiskInfo, space)
 		}
 	}
 	<-done
 	for _, x := range spaces {
 		space, ok := st.DiskSpace(x.Name)
-		assert.Equal(t, x.DiskSpace, space)
+		assert.Equal(t, x.DiskInfo, space)
 		assert.True(t, ok)
 		st.delegate.Delete(x.Name)
 
@@ -97,12 +101,12 @@ func TestDelegateSort(t *testing.T) {
 	delegate := delegate{
 		Name:      "ABC",
 		dataPath:  ".",
-		DiskUsage: make(map[string]DiskSpace, 32),
+		DiskUsage: make(map[string]DiskInfo, 32),
 	}
-	delegate.Set("N1", DiskSpace{Available: GB})
-	delegate.Set("N2", DiskSpace{Available: 3 * GB})
-	delegate.Set("N3", DiskSpace{Available: 2 * GB})
-	delegate.Set("N4", DiskSpace{Available: 4 * GB})
+	delegate.Set("N1", DiskInfo{Available: GB})
+	delegate.Set("N2", DiskInfo{Available: 3 * GB})
+	delegate.Set("N3", DiskInfo{Available: 2 * GB})
+	delegate.Set("N4", DiskInfo{Available: 4 * GB})
 	got := delegate.sortCandidates([]string{"N1", "N0", "N2", "N4", "N3"})
 	assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)
 }
