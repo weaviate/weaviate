@@ -145,7 +145,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
-	if class.ReplicationConfig.Factor > 1 {
+	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = &graphql.Field{
 			Type: graphql.Boolean,
 		}

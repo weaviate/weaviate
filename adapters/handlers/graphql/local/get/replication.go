@@ -9,6 +9,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+func replicationEnabled(class *models.Class) bool {
+	return class.ReplicationConfig != nil && class.ReplicationConfig.Factor > 1
+}
+
 func consistencyLevelArgument(class *models.Class) *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{
 		Description: descriptions.ConsistencyLevel,

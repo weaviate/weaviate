@@ -247,7 +247,7 @@ func buildGetClassField(classObject *graphql.Object,
 		}
 	}
 
-	if class.ReplicationConfig != nil && class.ReplicationConfig.Factor > 1 {
+	if replicationEnabled(class) {
 		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
 	}
 
