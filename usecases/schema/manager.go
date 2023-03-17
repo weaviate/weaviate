@@ -320,6 +320,7 @@ func newSchema() *State {
 func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 	for _, class := range schema.ObjectSchema.Classes {
 		for _, prop := range class.Properties {
+			m.migratePropertySettings(prop)
 			m.setPropertyDefaults(prop)
 		}
 

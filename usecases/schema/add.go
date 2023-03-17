@@ -226,36 +226,54 @@ func (m *Manager) setPropertyDefaults(prop *models.Property) {
 }
 
 func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
-	// as of v1.19 DataTypeString and DataTypeStringArray are deprecated
-	// here both are changed to Text/TextArray
-	// and proper, backward compatible tokenization
 	if dataType, ok := schema.AsPrimitive(prop.DataType); ok {
 		switch dataType {
+		case schema.DataTypeString, schema.DataTypeStringArray:
+			// deprecated as of v1.19, alias for text
+			fallthrough
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if prop.Tokenization == "" {
 				prop.Tokenization = DefaultTokenization
 			}
+		}
+	}
+}
+
+func (m *Manager) migratePropertySettings(prop *models.Property) {
+	m.migratePropertyDataTypeAndTokenization(prop)
+}
+
+// as of v1.19 DataTypeString and DataTypeStringArray are deprecated
+// here both are changed to Text/TextArray
+// and proper, backward compatible tokenization
+func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) {
+	if dataType, ok := schema.AsPrimitive(prop.DataType); ok {
+		switch dataType {
 		case schema.DataTypeString:
 			switch prop.Tokenization {
-			case "":
-				prop.Tokenization = DefaultTokenization
 			case models.PropertyTokenizationWord:
+				prop.DataType = schema.DataTypeText.PropString()
 				prop.Tokenization = models.PropertyTokenizationWhitespace
+			case models.PropertyTokenizationField:
+				prop.DataType = schema.DataTypeText.PropString()
+				// "field" tokenization supported for Text
+			case "":
+				prop.DataType = schema.DataTypeText.PropString()
+				// leave tokenization empty, will be set to default later
 			}
-			prop.DataType = []string{string(schema.DataTypeText)}
 		case schema.DataTypeStringArray:
 			switch prop.Tokenization {
-			case "":
-				prop.Tokenization = DefaultTokenization
 			case models.PropertyTokenizationWord:
+				prop.DataType = schema.DataTypeTextArray.PropString()
 				prop.Tokenization = models.PropertyTokenizationWhitespace
+			case models.PropertyTokenizationField:
+				prop.DataType = schema.DataTypeTextArray.PropString()
+				// "field" tokenization supported for TextArray
+			case "":
+				prop.DataType = schema.DataTypeTextArray.PropString()
+				// leave tokenization empty, will be set to default later
 			}
-			prop.DataType = []string{string(schema.DataTypeTextArray)}
-		default:
-			prop.Tokenization = ""
 		}
-	} else {
-		prop.Tokenization = ""
 	}
 }
 

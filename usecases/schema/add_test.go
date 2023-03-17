@@ -13,14 +13,17 @@ package schema
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestAddClass(t *testing.T) {
@@ -112,436 +115,126 @@ func TestAddClass(t *testing.T) {
 		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 
+	classNameFromDataTypeAndTokenization := func(dataType schema.DataType, tokenization string) string {
+		dtStr := strings.ReplaceAll(string(dataType), "[]", "Array")
+		tStr := "empty"
+		if tokenization != "" {
+			tStr = tokenization
+		}
+
+		return fmt.Sprintf("%s_%s", dtStr, tStr)
+	}
+
 	t.Run("with valid property tokenization", func(t *testing.T) {
 		mgr := newSchemaManager()
 
+		properties := []*models.Property{}
+		for _, dt := range append(schema.PrimitiveDataTypes, schema.DeprecatedPrimitiveDataTypes...) {
+			properties = append(properties, &models.Property{
+				Name:     classNameFromDataTypeAndTokenization(dt, ""),
+				DataType: dt.PropString(),
+			})
+		}
+		for _, dt := range []schema.DataType{
+			schema.DataTypeText, schema.DataTypeTextArray,
+			schema.DataTypeString, schema.DataTypeStringArray,
+		} {
+			for _, tokenization := range helpers.Tokenizations {
+				properties = append(properties, &models.Property{
+					Name:         classNameFromDataTypeAndTokenization(dt, tokenization),
+					DataType:     dt.PropString(),
+					Tokenization: tokenization,
+				})
+			}
+		}
+
 		err := mgr.AddClass(context.Background(),
 			nil, &models.Class{
-				Class: "NewClass",
-				Properties: []*models.Property{
-					{
-						Name:     "stringDefault",
-						DataType: []string{"string"},
-					},
-					{
-						Name:         "stringEmpty",
-						DataType:     []string{"string"},
-						Tokenization: "",
-					},
-					{
-						Name:         "stringWord",
-						DataType:     []string{"string"},
-						Tokenization: "word",
-					},
-					{
-						Name:         "stringField",
-						DataType:     []string{"string"},
-						Tokenization: "field",
-					},
-					{
-						Name:     "stringArrayDefault",
-						DataType: []string{"string[]"},
-					},
-					{
-						Name:         "stringArrayEmpty",
-						DataType:     []string{"string[]"},
-						Tokenization: "",
-					},
-					{
-						Name:         "stringArrayWord",
-						DataType:     []string{"string[]"},
-						Tokenization: "word",
-					},
-					{
-						Name:         "stringArrayField",
-						DataType:     []string{"string[]"},
-						Tokenization: "field",
-					},
-					{
-						Name:     "textDefault",
-						DataType: []string{"text"},
-					},
-					{
-						Name:         "textEmpty",
-						DataType:     []string{"text"},
-						Tokenization: "",
-					},
-					{
-						Name:         "textWord",
-						DataType:     []string{"text"},
-						Tokenization: "word",
-					},
-					{
-						Name:     "textArrayDefault",
-						DataType: []string{"text[]"},
-					},
-					{
-						Name:         "textArrayEmpty",
-						DataType:     []string{"text[]"},
-						Tokenization: "",
-					},
-					{
-						Name:         "textArrayWord",
-						DataType:     []string{"text[]"},
-						Tokenization: "word",
-					},
-					{
-						Name:     "IntDefault",
-						DataType: []string{"int"},
-					},
-					{
-						Name:         "IntEmpty",
-						DataType:     []string{"int"},
-						Tokenization: "",
-					},
-					{
-						Name:     "NumberDefault",
-						DataType: []string{"number"},
-					},
-					{
-						Name:         "NumberEmpty",
-						DataType:     []string{"number"},
-						Tokenization: "",
-					},
-					{
-						Name:     "BoolDefault",
-						DataType: []string{"boolean"},
-					},
-					{
-						Name:         "BoolEmpty",
-						DataType:     []string{"boolean"},
-						Tokenization: "",
-					},
-					{
-						Name:     "DateDefault",
-						DataType: []string{"date"},
-					},
-					{
-						Name:         "DateEmpty",
-						DataType:     []string{"date"},
-						Tokenization: "",
-					},
-					{
-						Name:     "GeoDefault",
-						DataType: []string{"geoCoordinates"},
-					},
-					{
-						Name:         "GeoEmpty",
-						DataType:     []string{"geoCoordinates"},
-						Tokenization: "",
-					},
-					{
-						Name:     "PhoneDefault",
-						DataType: []string{"phoneNumber"},
-					},
-					{
-						Name:         "PhoneEmpty",
-						DataType:     []string{"phoneNumber"},
-						Tokenization: "",
-					},
-					{
-						Name:     "BlobDefault",
-						DataType: []string{"blob"},
-					},
-					{
-						Name:         "BlobEmpty",
-						DataType:     []string{"blob"},
-						Tokenization: "",
-					},
-					{
-						Name:     "IntArrayDefault",
-						DataType: []string{"int[]"},
-					},
-					{
-						Name:         "IntArrayEmpty",
-						DataType:     []string{"int[]"},
-						Tokenization: "",
-					},
-					{
-						Name:     "NumberArrayDefault",
-						DataType: []string{"number[]"},
-					},
-					{
-						Name:         "NumberArrayEmpty",
-						DataType:     []string{"number[]"},
-						Tokenization: "",
-					},
-					{
-						Name:     "BoolArrayDefault",
-						DataType: []string{"boolean[]"},
-					},
-					{
-						Name:         "BoolArrayEmpty",
-						DataType:     []string{"boolean[]"},
-						Tokenization: "",
-					},
-					{
-						Name:     "DateArrayDefault",
-						DataType: []string{"date[]"},
-					},
-					{
-						Name:         "DateArrayEmpty",
-						DataType:     []string{"date[]"},
-						Tokenization: "",
-					},
-				},
+				Class:      "NewClass",
+				Properties: properties,
 			})
-		require.Nil(t, err)
 
+		require.Nil(t, err)
 		require.NotNil(t, mgr.state.ObjectSchema)
 		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
 	})
 
 	t.Run("with invalid property tokenization", func(t *testing.T) {
-		mgr := newSchemaManager()
-
-		type testData struct {
+		type testCase struct {
 			name         string
 			dataType     []string
 			tokenization string
 			errorMsg     string
 		}
 
-		tests := []testData{
-			{
-				name:         "textField",
-				dataType:     []string{"text"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'text'",
-			},
-			{
-				name:         "textArrayField",
-				dataType:     []string{"text[]"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'text[]'",
-			},
-			{
-				name:         "textNotExisting",
-				dataType:     []string{"text"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'text'",
-			},
-			{
-				name:         "textArrayNotExisting",
-				dataType:     []string{"text[]"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'text[]'",
-			},
-			{
-				name:         "intWord",
-				dataType:     []string{"int"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'int'",
-			},
-			{
-				name:         "intField",
-				dataType:     []string{"int"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'int'",
-			},
-			{
-				name:         "intNotExisting",
-				dataType:     []string{"int"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'int'",
-			},
-			{
-				name:         "numberWord",
-				dataType:     []string{"number"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'number'",
-			},
-			{
-				name:         "numberField",
-				dataType:     []string{"number"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'number'",
-			},
-			{
-				name:         "numberNotExisting",
-				dataType:     []string{"number"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'number'",
-			},
-			{
-				name:         "boolWord",
-				dataType:     []string{"boolean"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'boolean'",
-			},
-			{
-				name:         "boolField",
-				dataType:     []string{"boolean"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'boolean'",
-			},
-			{
-				name:         "boolNotExisting",
-				dataType:     []string{"boolean"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'boolean'",
-			},
-			{
-				name:         "dateWord",
-				dataType:     []string{"date"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'date'",
-			},
-			{
-				name:         "dateField",
-				dataType:     []string{"date"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'date'",
-			},
-			{
-				name:         "dateNotExisting",
-				dataType:     []string{"date"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'date'",
-			},
-			{
-				name:         "geoWord",
-				dataType:     []string{"geoCoordinates"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'geoCoordinates'",
-			},
-			{
-				name:         "geoField",
-				dataType:     []string{"geoCoordinates"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'geoCoordinates'",
-			},
-			{
-				name:         "geoNotExisting",
-				dataType:     []string{"geoCoordinates"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'geoCoordinates'",
-			},
-			{
-				name:         "phoneWord",
-				dataType:     []string{"phoneNumber"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'phoneNumber'",
-			},
-			{
-				name:         "phoneField",
-				dataType:     []string{"phoneNumber"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'phoneNumber'",
-			},
-			{
-				name:         "phoneNotExisting",
-				dataType:     []string{"phoneNumber"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'phoneNumber'",
-			},
-			{
-				name:         "blobWord",
-				dataType:     []string{"blob"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'blob'",
-			},
-			{
-				name:         "blobField",
-				dataType:     []string{"blob"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'blob'",
-			},
-			{
-				name:         "blobNotExisting",
-				dataType:     []string{"blob"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'blob'",
-			},
-			{
-				name:         "intArrayWord",
-				dataType:     []string{"int[]"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'int[]'",
-			},
-			{
-				name:         "intArrayField",
-				dataType:     []string{"int[]"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'int[]'",
-			},
-			{
-				name:         "intArrayNotExisting",
-				dataType:     []string{"int[]"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'int[]'",
-			},
-			{
-				name:         "numberArrayWord",
-				dataType:     []string{"number[]"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'number[]'",
-			},
-			{
-				name:         "numberArrayField",
-				dataType:     []string{"number[]"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'number[]'",
-			},
-			{
-				name:         "numberArrayNotExisting",
-				dataType:     []string{"number[]"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'number[]'",
-			},
-			{
-				name:         "booleanArrayWord",
-				dataType:     []string{"boolean[]"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'boolean[]'",
-			},
-			{
-				name:         "booleanArrayField",
-				dataType:     []string{"boolean[]"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'boolean[]'",
-			},
-			{
-				name:         "booleanArrayNotExisting",
-				dataType:     []string{"boolean[]"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'boolean[]'",
-			},
-			{
-				name:         "dateArrayWord",
-				dataType:     []string{"date[]"},
-				tokenization: "word",
-				errorMsg:     "Tokenization 'word' is not allowed for data type 'date[]'",
-			},
-			{
-				name:         "dateArrayField",
-				dataType:     []string{"date[]"},
-				tokenization: "field",
-				errorMsg:     "Tokenization 'field' is not allowed for data type 'date[]'",
-			},
-			{
-				name:         "dateArrayNotExisting",
-				dataType:     []string{"date[]"},
-				tokenization: "notExisting",
-				errorMsg:     "Tokenization 'notExisting' is not allowed for data type 'date[]'",
-			},
+		nonExistingTokenization := "non_existing"
+
+		mgr := newSchemaManager()
+		_, err := mgr.addClass(context.Background(), &models.Class{
+			Class: "SomeClass",
+		})
+		require.Nil(t, err)
+		_, err = mgr.addClass(context.Background(), &models.Class{
+			Class: "SomeOtherClass",
+		})
+		require.Nil(t, err)
+		_, err = mgr.addClass(context.Background(), &models.Class{
+			Class: "YetAnotherClass",
+		})
+		require.Nil(t, err)
+
+		testCases := []testCase{}
+		for _, dt := range append(schema.PrimitiveDataTypes, schema.DeprecatedPrimitiveDataTypes...) {
+			switch dt {
+			case schema.DataTypeString, schema.DataTypeStringArray:
+				fallthrough
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				testCases = append(testCases, testCase{
+					name:         classNameFromDataTypeAndTokenization(dt, nonExistingTokenization),
+					dataType:     []string{string(dt)},
+					tokenization: nonExistingTokenization,
+					errorMsg:     fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", nonExistingTokenization, dt),
+				})
+			default:
+				for _, tokenization := range append(helpers.Tokenizations, nonExistingTokenization) {
+					testCases = append(testCases, testCase{
+						name:         classNameFromDataTypeAndTokenization(dt, tokenization),
+						dataType:     []string{string(dt)},
+						tokenization: tokenization,
+						errorMsg:     fmt.Sprintf("Tokenization is not allowed for data type '%s'", dt),
+					})
+				}
+			}
+		}
+		for i, dataType := range [][]string{
+			{"SomeClass"},
+			{"SomeOtherClass", "YetAnotherClass"},
+		} {
+			for _, tokenization := range append(helpers.Tokenizations, nonExistingTokenization) {
+				testCases = append(testCases, testCase{
+					name:         fmt.Sprintf("RefClass_%d_%s", i, tokenization),
+					dataType:     dataType,
+					tokenization: tokenization,
+					errorMsg:     "Tokenization is not allowed for reference data type",
+				})
+			}
 		}
 
-		for _, td := range tests {
-			t.Run(td.name, func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
 				err := mgr.AddClass(context.Background(),
 					nil, &models.Class{
 						Class: "NewClass",
 						Properties: []*models.Property{
 							{
-								Name:         td.name,
-								DataType:     td.dataType,
-								Tokenization: td.tokenization,
+								Name:         tc.name,
+								DataType:     tc.dataType,
+								Tokenization: tc.tokenization,
 							},
 						},
 					})
 
-				require.EqualError(t, err, td.errorMsg)
+				require.EqualError(t, err, tc.errorMsg)
 			})
 		}
 	})
