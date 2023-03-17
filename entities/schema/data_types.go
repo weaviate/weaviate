@@ -64,11 +64,22 @@ const (
 	DataTypeStringArray DataType = "string[]"
 )
 
+func (dt DataType) String() string {
+	return string(dt)
+}
+
+func (dt DataType) PropString() []string {
+	return []string{dt.String()}
+}
+
 var PrimitiveDataTypes []DataType = []DataType{
 	DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate,
 	DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeTextArray,
 	DataTypeIntArray, DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray,
 	DataTypeUUID, DataTypeUUIDArray,
+}
+
+var DeprecatedPrimitiveDataTypes []DataType = []DataType{
 	// deprecated as of v1.19
 	DataTypeString, DataTypeStringArray,
 }
@@ -191,29 +202,22 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 ) (PropertyDataType, error) {
 	if len(dataType) < 1 {
 		return nil, errors.New("dataType must have at least one element")
-	} else if len(dataType) == 1 {
-		someDataType := dataType[0]
-		if len(someDataType) == 0 {
-			return nil, fmt.Errorf("dataType cannot be an empty string")
-		}
-		firstLetter := rune(someDataType[0])
-		if unicode.IsLower(firstLetter) {
-			switch someDataType {
-			case string(DataTypeString), string(DataTypeText),
-				string(DataTypeInt), string(DataTypeNumber),
-				string(DataTypeBoolean), string(DataTypeDate), string(DataTypeGeoCoordinates),
-				string(DataTypePhoneNumber), string(DataTypeBlob),
-				string(DataTypeStringArray), string(DataTypeTextArray),
-				string(DataTypeIntArray), string(DataTypeNumberArray),
-				string(DataTypeUUIDArray), string(DataTypeUUID),
-				string(DataTypeBooleanArray), string(DataTypeDateArray):
+	}
+	if len(dataType) == 1 {
+		for _, dt := range append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...) {
+			if dataType[0] == dt.String() {
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
-					primitiveType: DataType(someDataType),
+					primitiveType: dt,
 				}, nil
-			default:
-				return nil, fmt.Errorf("Unknown primitive data type '%s'", someDataType)
 			}
+		}
+		if len(dataType[0]) == 0 {
+			return nil, fmt.Errorf("dataType cannot be an empty string")
+		}
+		firstLetter := rune(dataType[0][0])
+		if unicode.IsLower(firstLetter) {
+			return nil, fmt.Errorf("Unknown primitive data type '%s'", dataType[0])
 		}
 	}
 	/* implies len(dataType) > 1, or first element is a class already */
@@ -248,9 +252,9 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 
 func AsPrimitive(dataType []string) (DataType, bool) {
 	if (len(dataType)) == 1 {
-		for _, dt := range PrimitiveDataTypes {
-			if dataType[0] == string(dt) {
-				return DataType(dataType[0]), true
+		for _, dt := range append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...) {
+			if dataType[0] == dt.String() {
+				return dt, true
 			}
 		}
 	}

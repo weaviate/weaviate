@@ -14,112 +14,124 @@ package helpers
 import (
 	"strings"
 	"unicode"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TokenizeField trims white spaces
+var Tokenizations []string = []string{
+	models.PropertyTokenizationWord,
+	models.PropertyTokenizationLowercase,
+	models.PropertyTokenizationWhitespace,
+	models.PropertyTokenizationField,
+}
+
+func IsSupportedTokenization(tokenization string) bool {
+	for _, t := range Tokenizations {
+		if t == tokenization {
+			return true
+		}
+	}
+	return false
+}
+
+func Tokenize(tokenization string, in string) []string {
+	switch tokenization {
+	case models.PropertyTokenizationWord:
+		return tokenizeWord(in)
+	case models.PropertyTokenizationLowercase:
+		return tokenizeLowercase(in)
+	case models.PropertyTokenizationWhitespace:
+		return tokenizeWhitespace(in)
+	case models.PropertyTokenizationField:
+		return tokenizeField(in)
+	default:
+		return []string{}
+	}
+}
+
+func TokenizeWithWildcards(tokenization string, in string) []string {
+	switch tokenization {
+	case models.PropertyTokenizationWord:
+		return tokenizeWordWithWildcards(in)
+	case models.PropertyTokenizationLowercase:
+		return tokenizeLowercase(in)
+	case models.PropertyTokenizationWhitespace:
+		return tokenizeWhitespace(in)
+	case models.PropertyTokenizationField:
+		return tokenizeField(in)
+	default:
+		return []string{}
+	}
+}
+
+// tokenizeField trims white spaces
 // (former DataTypeString/Field)
-func TokenizeField(in string) []string {
+func tokenizeField(in string) []string {
 	return []string{strings.TrimFunc(in, unicode.IsSpace)}
 }
 
-// TokenizeWhitespace splits on white spaces, does not alter casing
+// tokenizeWhitespace splits on white spaces, does not alter casing
 // (former DataTypeString/Word)
-func TokenizeWhitespace(in string) []string {
+func tokenizeWhitespace(in string) []string {
 	return strings.FieldsFunc(in, unicode.IsSpace)
 }
 
-// TokenizeLowercase splits on white spaces and lowercases the words
-func TokenizeLowercase(in string) []string {
-	parts := TokenizeWhitespace(in)
-	for i, part := range parts {
-		parts[i] = strings.ToLower(part)
-	}
-	return parts
+// tokenizeLowercase splits on white spaces and lowercases the words
+func tokenizeLowercase(in string) []string {
+	terms := tokenizeWhitespace(in)
+	return lowercase(terms)
 }
 
-// TokenizeWord splits on any non-alphanumerical and lowercases the words
+// tokenizeWord splits on any non-alphanumerical and lowercases the words
 // (former DataTypeText/Word)
-func TokenizeWord(in string) []string {
-	parts := strings.FieldsFunc(in, func(r rune) bool {
+func tokenizeWord(in string) []string {
+	terms := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	})
-	for i, part := range parts {
-		parts[i] = strings.ToLower(part)
-	}
-	return parts
+	return lowercase(terms)
 }
 
-// TokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
+// tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
-func TokenizeWordWithWildcards(in string) []string {
-	parts := strings.FieldsFunc(in, func(r rune) bool {
+func tokenizeWordWithWildcards(in string) []string {
+	terms := strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '?' && r != '*'
 	})
-	for i, part := range parts {
-		parts[i] = strings.ToLower(part)
-	}
-	return parts
+	return lowercase(terms)
 }
 
-// TokenizeString only splits on white spaces, it does not alter casing
-func TokenizeString(in string) []string {
-	return strings.FieldsFunc(in, unicode.IsSpace)
-}
-
-// Tokenize Text splits on any non-alphanumerical and lowercases the words
-func TokenizeText(in string) []string {
-	parts := strings.FieldsFunc(in, func(c rune) bool {
-		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
-	})
-	for i, part := range parts {
-		parts[i] = strings.ToLower(part)
+func lowercase(terms []string) []string {
+	for i := range terms {
+		terms[i] = strings.ToLower(terms[i])
 	}
-
-	return parts
+	return terms
 }
 
 func TokenizeTextAndCountDuplicates(in string) ([]string, []int) {
-	parts := TokenizeText(in)
-	return CountDuplicates(parts)
+	// TODO verify if proper tokenization
+	terms := tokenizeWord(in)
+	return countDuplicates(terms)
 }
 
 func TokenizeStringAndCountDuplicates(in string) ([]string, []int) {
-	parts := TokenizeString(in)
-	return CountDuplicates(parts)
+	// TODO verify if proper tokenization
+	terms := tokenizeWhitespace(in)
+	return countDuplicates(terms)
 }
 
-func CountDuplicates(parts []string) ([]string, []int) {
-	count := map[string]int{}
-	for _, term := range parts {
-		count[term]++
+func countDuplicates(terms []string) ([]string, []int) {
+	counts := map[string]int{}
+	for _, term := range terms {
+		counts[term]++
 	}
 
-	terms := make([]string, 0, len(count))
-	boosts := make([]int, 0, len(count))
+	termsUnique := make([]string, 0, len(counts))
+	boosts := make([]int, 0, len(counts))
 
-	for term, boost := range count {
-		terms = append(terms, term)
+	for term, boost := range counts {
+		termsUnique = append(termsUnique, term)
 		boosts = append(boosts, boost)
 	}
 
-	return terms, boosts
-}
-
-// Tokenize Text splits on any non-alphanumerical except wildcard-symbols and
-// lowercases the words
-func TokenizeTextKeepWildcards(in string) []string {
-	parts := strings.FieldsFunc(in, func(c rune) bool {
-		return !unicode.IsLetter(c) && !unicode.IsNumber(c) && c != '?' && c != '*'
-	})
-
-	for i, part := range parts {
-		parts[i] = strings.ToLower(part)
-	}
-
-	return parts
-}
-
-// TrimString trims on white spaces
-func TrimString(in string) string {
-	return strings.TrimFunc(in, unicode.IsSpace)
+	return termsUnique, boosts
 }

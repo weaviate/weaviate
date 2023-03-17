@@ -199,12 +199,15 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 }
 
 func HasFrequency(dt schema.DataType) bool {
-	if dt == schema.DataTypeText || dt == schema.DataTypeString ||
-		dt == schema.DataTypeStringArray || dt == schema.DataTypeTextArray {
+	switch dt {
+	case schema.DataTypeString, schema.DataTypeStringArray:
+		// deprecated as of v1.19, alias for text
+		fallthrough
+	case schema.DataTypeText, schema.DataTypeTextArray:
 		return true
+	default:
+		return false
 	}
-
-	return false
 }
 
 func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Property, error) {
@@ -212,6 +215,9 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 	var items []Countable
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
+	case schema.DataTypeStringArray:
+		// deprecated as of v1.19, alias for text
+		fallthrough
 	case schema.DataTypeTextArray:
 		hasFrequency = HasFrequency(dt)
 		in, err := stringsFromValues(prop, values)
@@ -219,13 +225,6 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, err
 		}
 		items = a.TextArray(prop.Tokenization, in)
-	case schema.DataTypeStringArray:
-		hasFrequency = HasFrequency(dt)
-		in, err := stringsFromValues(prop, values)
-		if err != nil {
-			return nil, err
-		}
-		items = a.StringArray(prop.Tokenization, in)
 	case schema.DataTypeIntArray:
 		hasFrequency = HasFrequency(dt)
 		in := make([]int64, len(values))
@@ -362,6 +361,9 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
+	case schema.DataTypeString:
+		// deprecated as of v1.19, alias for text
+		fallthrough
 	case schema.DataTypeText:
 		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)
@@ -369,14 +371,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
 		}
 		items = a.Text(prop.Tokenization, asString)
-		propertyLength = utf8.RuneCountInString(asString)
-	case schema.DataTypeString:
-		hasFrequency = HasFrequency(dt)
-		asString, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected property %s to be of type string, but got %T", prop.Name, value)
-		}
-		items = a.String(prop.Tokenization, asString)
 		propertyLength = utf8.RuneCountInString(asString)
 	case schema.DataTypeInt:
 		hasFrequency = HasFrequency(dt)

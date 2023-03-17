@@ -21,31 +21,31 @@ func TestTokenize(t *testing.T) {
 	input := " Hello You*-beautiful_world?!"
 
 	t.Run("tokenize field", func(t *testing.T) {
-		output := TokenizeField(input)
+		output := tokenizeField(input)
 
 		assert.ElementsMatch(t, output, []string{"Hello You*-beautiful_world?!"})
 	})
 
 	t.Run("tokenize whitespace", func(t *testing.T) {
-		output := TokenizeWhitespace(input)
+		output := tokenizeWhitespace(input)
 
 		assert.ElementsMatch(t, output, []string{"Hello", "You*-beautiful_world?!"})
 	})
 
 	t.Run("tokenize lowercase", func(t *testing.T) {
-		output := TokenizeLowercase(input)
+		output := tokenizeLowercase(input)
 
 		assert.ElementsMatch(t, output, []string{"hello", "you*-beautiful_world?!"})
 	})
 
 	t.Run("tokenize word", func(t *testing.T) {
-		output := TokenizeWord(input)
+		output := tokenizeWord(input)
 
 		assert.ElementsMatch(t, output, []string{"hello", "you", "beautiful", "world"})
 	})
 
 	t.Run("tokenize word with wildcards", func(t *testing.T) {
-		output := TokenizeWordWithWildcards(input)
+		output := tokenizeWordWithWildcards(input)
 
 		assert.ElementsMatch(t, output, []string{"hello", "you*", "beautiful", "world?"})
 	})

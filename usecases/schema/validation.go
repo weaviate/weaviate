@@ -43,29 +43,28 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 
 		switch primitiveDataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
-			switch tokenization {
-			case models.PropertyTokenizationField, models.PropertyTokenizationWord:
-				return nil
-			}
+			// deprecated as of v1.19, alias for text
+			fallthrough
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
-			case models.PropertyTokenizationWord:
+			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
 				return nil
+			default:
+				return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 			}
 		default:
 			if tokenization == "" {
 				return nil
 			}
+			return fmt.Errorf("Tokenization is not allowed for data type '%s'", primitiveDataType)
 		}
-
-		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 	}
 
 	if tokenization == "" {
 		return nil
 	}
-
-	return fmt.Errorf("Tokenization '%s' is not allowed for reference data type", tokenization)
+	return fmt.Errorf("Tokenization is not allowed for reference data type")
 }
 
 func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {
