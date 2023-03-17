@@ -161,6 +161,7 @@ type SearchResult struct {
 	Object       *storobj.Object `json:"object,omitempty"`
 	IsConsistent bool            `json:"isConsistent"`
 	Score        float32         `json:"score"`
+	Shard        string          `json:"shard"`
 }
 
 func fromReplicas(xs []objects.Replica) []*storobj.Object {

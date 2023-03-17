@@ -806,49 +806,23 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
-	perShardLimit := config.DefaultQueryMaximumResults
-	if perShardLimit > int64(limit) {
-		perShardLimit = int64(limit)
-	}
-	cap := perShardLimit * int64(len(shardNames))
+	var (
+		outObjects []*storobj.Object
+		outScores  []float32
+		err        error
+	)
 
-	outObjects := make([]*storobj.Object, 0, cap)
-	outScores := make([]float32, 0, cap)
+	// TODO: uncomment when clusterapi server+client have been implemented
+	//if i.replicationEnabled() {
+	//	outObjects, outScores, err = i.replicatedObjectSearchByShard(ctx, limit,
+	//		filters, keywordRanking, sort, cursor, addlProps, replProps, shardNames)
+	//} else {
+	outObjects, outScores, err = i.objectSearchByShard(ctx, limit,
+		filters, keywordRanking, sort, cursor, addlProps, shardNames)
+	//}
 
-	for _, shardName := range shardNames {
-		var objs []*storobj.Object
-		var scores []float32
-		var err error
-
-		if i.replicationEnabled() {
-			if replProps == nil {
-				replProps = defaultConsistency()
-			}
-			objs, scores, err = i.replicator.Search(ctx,
-				replica.ConsistencyLevel(replProps.ConsistencyLevel),
-				shardName, limit, filters, keywordRanking, sort, cursor,
-				addlProps)
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"failed to relay object search across replicas: %w", err)
-			}
-		} else if i.isLocalShard(shardName) {
-			shard := i.Shards[shardName]
-			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"local shard object serach %s: %w", shard.ID(), err)
-			}
-		} else {
-			objs, scores, err = i.remote.SearchShard(
-				ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, addlProps)
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"remote shard object serach %s: %w", shardName, err)
-			}
-		}
-		outObjects = append(outObjects, objs...)
-		outScores = append(outScores, scores...)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if len(outObjects) == len(outScores) {
@@ -911,6 +885,70 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	return outObjects, outScores, nil
+}
+
+func (i *Index) replicatedObjectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties, shards []string,
+) ([]*storobj.Object, []float32, error) {
+	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
+	for _, shardName := range shards {
+		if replProps == nil {
+			replProps = defaultConsistency()
+		}
+
+		results, err := i.replicator.Search(ctx,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel),
+			shardName, limit, filters, keywordRanking, sort, cursor,
+			addlProps)
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"failed to relay object search across replicas: %w", err)
+		}
+
+		objs, scores, err := i.replicator.CheckConsistency(results)
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"failed to check consistency of search results: %w", err)
+		}
+
+		resultObjects = append(resultObjects, objs...)
+		resultScores = append(resultScores, scores...)
+	}
+
+	return resultObjects, resultScores, nil
+}
+
+func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+	addlProps additional.Properties, shards []string,
+) ([]*storobj.Object, []float32, error) {
+	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
+
+	for _, shardName := range shards {
+		var objs []*storobj.Object
+		var scores []float32
+		var err error
+
+		if i.isLocalShard(shardName) {
+			shard := i.Shards[shardName]
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"local shard object serach %s: %w", shard.ID(), err)
+			}
+		} else {
+			objs, scores, err = i.remote.SearchShard(
+				ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, addlProps)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"remote shard object serach %s: %w", shardName, err)
+			}
+		}
+		resultObjects = append(resultObjects, objs...)
+		resultScores = append(resultScores, scores...)
+	}
+	return resultObjects, resultScores, nil
 }
 
 func (i *Index) sortByID(objects []*storobj.Object, scores []float32,
@@ -1406,4 +1444,16 @@ func defaultConsistency() *additional.ReplicationProperties {
 	return &additional.ReplicationProperties{
 		ConsistencyLevel: string(replica.Quorum),
 	}
+}
+
+func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []float32) {
+	perShardLimit := config.DefaultQueryMaximumResults
+	if perShardLimit > int64(limit) {
+		perShardLimit = int64(limit)
+	}
+	capacity := perShardLimit * int64(len(shards))
+	objects := make([]*storobj.Object, 0, capacity)
+	scores := make([]float32, 0, capacity)
+
+	return objects, scores
 }

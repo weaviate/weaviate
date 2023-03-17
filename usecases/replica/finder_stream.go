@@ -137,7 +137,7 @@ func (f *finderStream) readAll(ctx context.Context,
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
-			if r.Err != nil { // a least one node is not responding
+			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "get").WithField("replica", r.Value.Sender).
 					WithField("class", f.class).WithField("shard", shard).Error(r.Err)
 				resultCh <- batchResult{nil, errRead}
@@ -183,7 +183,7 @@ func (f *finderStream) readAll(ctx context.Context,
 	return resultCh
 }
 
-type searchResult _Result[[]SearchResult]
+type searchResult _Result[map[strfmt.UUID][]SearchResult]
 
 // readAll reads in replicated objects specified by their ids
 func (f *finderStream) readSearch(ctx context.Context,
@@ -191,6 +191,22 @@ func (f *finderStream) readSearch(ctx context.Context,
 	ch <-chan _Result[searchReply], st rState,
 ) <-chan searchResult {
 	resultCh := make(chan searchResult, 1)
+	go func() {
+		results := make(map[strfmt.UUID][]SearchResult)
+		defer close(resultCh)
+		for r := range ch {
+			for _, res := range r.Value.Data {
+				objs, found := results[res.Object.ID()]
+				if !found {
+					results[res.Object.ID()] = []SearchResult{res}
+				} else {
+					objsPtr := &objs
+					*objsPtr = append(*objsPtr, res)
+				}
+			}
+		}
+		resultCh <- searchResult{results, nil}
+	}()
 	return resultCh
 }
 

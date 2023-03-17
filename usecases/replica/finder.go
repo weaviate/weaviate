@@ -150,7 +150,7 @@ func (f *Finder) Search(ctx context.Context,
 	keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties,
-) ([]*storobj.Object, []float32, error) {
+) (map[strfmt.UUID][]SearchResult, error) {
 	c := newReadCoordinator[searchReply](f, shard)
 	op := func(ctx context.Context, host string, fullRead bool) (searchReply, error) {
 		xs, err := f.client.cl.SearchObjects(ctx, host, f.class, shard, limit, filters, keywordRanking, sort, cursor, addlProps)
@@ -159,21 +159,27 @@ func (f *Finder) Search(ctx context.Context,
 	replyCh, state, err := c.Pull(ctx, l, op)
 	if err != nil {
 		f.log.WithField("op", "pull.all").Error(err)
-		return nil, nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readSearch(ctx, shard, replyCh, state)
 	if err = result.Err; err != nil {
-		return nil, nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
 	}
 
-	objs := make([]*storobj.Object, len(replyCh))
-	scores := make([]float32, len(replyCh))
+	return result.Value, nil
+}
 
-	for i := range result.Value {
-		objs[i] = result.Value[i].Object
-		scores[i] = result.Value[i].Score
+func (f *Finder) CheckConsistency(results map[strfmt.UUID][]SearchResult,
+) ([]*storobj.Object, []float32, error) {
+	objs := make([]*storobj.Object, len(results))
+	scores := make([]float32, len(results))
+
+	i := 0
+	for _, res := range results {
+		objs[i] = res[0].Object
+		scores[i] = res[0].Score
+		i++
 	}
-
 	return objs, scores, nil
 }
 

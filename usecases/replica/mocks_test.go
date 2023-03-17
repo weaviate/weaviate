@@ -58,12 +58,14 @@ func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard stri
 	return args.Get(0).([]RepairResponse), args.Error(1)
 }
 
-func (*fakeRClient) SearchObjects(_ context.Context, host,
+func (f *fakeRClient) SearchObjects(ctx context.Context, host,
 	index, shard string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, addlProps additional.Properties,
 ) ([]SearchResult, error) {
-	return nil, nil
+	args := f.Called(ctx, host, index, shard, limit,
+		filters, keywordRanking, sort, cursor, addlProps)
+	return args.Get(0).([]SearchResult), args.Error(1)
 }
 
 type fakeClient struct {

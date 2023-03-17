@@ -14,12 +14,15 @@ package replica
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -744,5 +747,72 @@ func TestFinderExistsWithConsistencyLevelOne(t *testing.T) {
 		got, err := finder.Exists(ctx, One, shard, id)
 		assert.Nil(t, err)
 		assert.Equal(t, false, got)
+	})
+}
+
+func TestFinderSearchWithConsistencyLevelAll(t *testing.T) {
+	var (
+		cls    = "C1"
+		shard  = "SH1"
+		limit  = 10
+		filt   = &filters.LocalFilter{}
+		kw     = &searchparams.KeywordRanking{}
+		sort   = []filters.Sort{}
+		cursor = &filters.Cursor{}
+		addl   = additional.Properties{}
+		nodes  = []string{"A", "B", "C"}
+		ctx    = context.Background()
+	)
+
+	t.Run("Success", func(t *testing.T) {
+		var (
+			f       = newFakeFactory("C1", shard, nodes)
+			finder  = f.newFinder()
+			results = []SearchResult{
+				{
+					Object: object(
+						"14f2037c-89ef-4c29-8717-1b1e2756f1c8",
+						time.Now().UnixMilli()),
+					Score:        0.001,
+					Shard:        shard,
+					IsConsistent: true,
+				},
+				{
+					Object: object(
+						"6c09b763-aef7-49f7-ba1c-3949caf8a7c8",
+						time.Now().UnixMilli()),
+					Score:        0.002,
+					Shard:        shard,
+					IsConsistent: true,
+				},
+				{
+					Object: object(
+						"8d0d5ea3-b4c0-4120-b6c0-4c0f90c989a1",
+						time.Now().UnixMilli()),
+					Score:        0.003,
+					Shard:        shard,
+					IsConsistent: true,
+				},
+			}
+		)
+
+		want := func() map[strfmt.UUID][]SearchResult {
+			found := map[strfmt.UUID][]SearchResult{}
+			for _, res := range results {
+				found[res.Object.ID()] = []SearchResult{res}
+			}
+			return found
+		}()
+
+		for i := range nodes {
+			f.RClient.On("SearchObjects", ctx, nodes[i], cls,
+				shard, limit, filt, kw, sort, cursor, addl).
+				Return(results, nil)
+		}
+
+		got, err := finder.Search(ctx, All, shard,
+			limit, filt, kw, sort, cursor, addl)
+		assert.Nil(t, err)
+		assert.Equal(t, want, got)
 	})
 }
