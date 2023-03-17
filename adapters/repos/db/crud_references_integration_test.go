@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"sync"
 	"testing"
 	"time"
 
@@ -508,25 +507,6 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 	}
 }
 
-type testCounter struct {
-	sync.Mutex
-	count int
-}
-
-func (c *testCounter) Inc() {
-	c.Lock()
-	defer c.Unlock()
-
-	c.count = c.count + 1
-}
-
-func (c *testCounter) reset() {
-	c.Lock()
-	defer c.Unlock()
-
-	c.count = 0
-}
-
 func GetDimensionsFromRepo(repo *DB, className string) int {
 	if !repo.config.TrackVectorDimensions {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
@@ -622,6 +602,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 				"name": "target item",
 			},
 		}, []float32{0.5}, nil)
+		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    target2ID,

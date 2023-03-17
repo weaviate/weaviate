@@ -121,7 +121,7 @@ func (c *replicationClient) SearchObjects(_ context.Context, host,
 	index, shard string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, addlProps additional.Properties,
-) ([]*objects.SearchObject, error) {
+) ([]replica.SearchResult, error) {
 	return nil, nil
 }
 

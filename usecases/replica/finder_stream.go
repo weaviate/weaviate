@@ -29,7 +29,6 @@ type finderStream struct {
 }
 
 type (
-
 	// tuple is a container for the data received from a replica
 	tuple[T any] struct {
 		sender string
@@ -184,7 +183,7 @@ func (f *finderStream) readAll(ctx context.Context,
 	return resultCh
 }
 
-type searchResult _Result[[]*objects.SearchObject]
+type searchResult _Result[[]SearchResult]
 
 // readAll reads in replicated objects specified by their ids
 func (f *finderStream) readSearch(ctx context.Context,
@@ -193,6 +192,15 @@ func (f *finderStream) readSearch(ctx context.Context,
 ) <-chan searchResult {
 	resultCh := make(chan searchResult, 1)
 	return resultCh
+}
+
+// searchReply holds search results from each replica
+// This includes the scores as well as the objects
+type searchReply struct {
+	// Sender hostname of the sender
+	Sender string
+	// Data search results from the replica
+	Data []SearchResult
 }
 
 type boolTuple tuple[RepairResponse]
@@ -214,7 +222,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
-			if r.Err != nil { // a least one node is not responding
+			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
@@ -278,13 +286,4 @@ func (r batchReply) UpdateTimeAt(idx int) int64 {
 		return r.DigestData[idx].UpdateTime
 	}
 	return r.FullData[idx].UpdateTime()
-}
-
-// searchReply holds search results from each replica
-// This includes the scores as well as the objects
-type searchReply struct {
-	// Sender hostname of the sender
-	Sender string
-	// Data search results from the replica
-	Data []*objects.SearchObject
 }

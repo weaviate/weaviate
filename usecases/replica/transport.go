@@ -157,6 +157,12 @@ type RepairResponse struct {
 	Deleted    bool
 }
 
+type SearchResult struct {
+	Object       *storobj.Object `json:"object,omitempty"`
+	IsConsistent bool            `json:"isConsistent"`
+	Score        float32         `json:"score"`
+}
+
 func fromReplicas(xs []objects.Replica) []*storobj.Object {
 	rs := make([]*storobj.Object, len(xs))
 	for i := range xs {
@@ -209,7 +215,7 @@ type rClient interface {
 	SearchObjects(_ context.Context, host, index, shard string, limit int,
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, addlProps additional.Properties,
-	) ([]*objects.SearchObject, error)
+	) ([]SearchResult, error)
 }
 
 // finderClient extends RClient with consistency checks

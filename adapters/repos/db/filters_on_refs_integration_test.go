@@ -784,7 +784,7 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) dto.GetP
 }
 
 func extractNames(in []search.Result) []string {
-	out := make([]string, len(in), len(in))
+	out := make([]string, len(in))
 	for i, res := range in {
 		out[i] = res.Schema.(map[string]interface{})["name"].(string)
 	}
@@ -793,7 +793,7 @@ func extractNames(in []search.Result) []string {
 }
 
 func extractCodes(in []search.Result) []string {
-	out := make([]string, len(in), len(in))
+	out := make([]string, len(in))
 	for i, res := range in {
 		out[i] = res.Schema.(map[string]interface{})["code"].(string)
 	}

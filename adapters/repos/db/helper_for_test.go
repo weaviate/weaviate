@@ -195,6 +195,7 @@ func cityCountryAirportSchema() schema.Schema {
 }
 
 func testCtx() context.Context {
+	//nolint:govet
 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
 	return ctx
 }
@@ -235,18 +236,6 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	idx.Shards[shardName] = shd
 
 	return shd, idx
-}
-
-func withVectorIndexing(affirmative bool) func(*Index) {
-	if affirmative {
-		return func(i *Index) {
-			i.vectorIndexUserConfig = enthnsw.NewDefaultUserConfig()
-		}
-	}
-
-	return func(i *Index) {
-		i.vectorIndexUserConfig = enthnsw.UserConfig{Skip: true}
-	}
 }
 
 func testObject(className string) *storobj.Object {

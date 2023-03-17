@@ -456,25 +456,6 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	})
 }
 
-func dumpIndexFromCommitLog(t *testing.T, fileName string) {
-	fd, err := os.Open(fileName)
-	require.Nil(t, err)
-
-	bufr := bufio.NewReader(fd)
-	logger, _ := test.NewNullLogger()
-	res, _, err := NewDeserializer(logger).Do(bufr, nil, false)
-	require.Nil(t, err)
-
-	index := &hnsw{
-		nodes:               res.Nodes,
-		currentMaximumLayer: int(res.Level),
-		entryPointID:        res.Entrypoint,
-		tombstones:          res.Tombstones,
-	}
-
-	dumpIndex(index)
-}
-
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
 	fileNames []string,
 ) {

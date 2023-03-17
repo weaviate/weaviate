@@ -390,8 +390,8 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, additional additional.Properties,
-) ([]*objects.SearchObject, error) {
-	return nil, nil
+) ([]*storobj.Object, []float32, error) {
+	return nil, nil, nil
 }
 
 func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
@@ -539,6 +539,6 @@ func (*fakeReplicationClient) SearchObjects(_ context.Context, host,
 	index, shard string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, addlProps additional.Properties,
-) ([]*objects.SearchObject, error) {
+) ([]replica.SearchResult, error) {
 	return nil, nil
 }

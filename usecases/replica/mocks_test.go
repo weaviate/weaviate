@@ -62,7 +62,7 @@ func (*fakeRClient) SearchObjects(_ context.Context, host,
 	index, shard string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, addlProps additional.Properties,
-) ([]*objects.SearchObject, error) {
+) ([]SearchResult, error) {
 	return nil, nil
 }
 

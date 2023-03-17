@@ -626,6 +626,7 @@ func TestBM25FCompare(t *testing.T) {
 		addit := additional.Properties{}
 
 		withBM25Fobjs, withBM25Fscores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
 
 		for i, r := range withBM25Fobjs {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
@@ -635,12 +636,12 @@ func TestBM25FCompare(t *testing.T) {
 		kwr.Type = ""
 
 		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
 
 		for i, r := range objs {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
-		require.Nil(t, err)
 		require.Equal(t, len(withBM25Fobjs), len(objs))
 		for i := range objs {
 			t.Logf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])

@@ -38,15 +38,13 @@ import (
 )
 
 type node struct {
-	name             string
-	shardingState    *sharding.State
-	repo             *db.DB
-	schemaManager    *fakeSchemaManager
-	backupManager    *ubak.Manager
-	scheduler        *ubak.Scheduler
-	clusterAPIServer *httptest.Server
-	migrator         *db.Migrator
-	hostname         string
+	name          string
+	repo          *db.DB
+	schemaManager *fakeSchemaManager
+	backupManager *ubak.Manager
+	scheduler     *ubak.Scheduler
+	migrator      *db.Migrator
+	hostname      string
 }
 
 func (n *node) init(dirName string, shardStateRaw []byte,

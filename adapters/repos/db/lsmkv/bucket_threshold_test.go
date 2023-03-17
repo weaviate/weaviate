@@ -221,7 +221,8 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
-			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
 		})
 	})
@@ -260,7 +261,8 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
-			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
 		})
 	})
@@ -319,7 +321,8 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
-			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
 		})
 	})

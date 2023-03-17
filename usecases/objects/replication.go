@@ -184,9 +184,3 @@ func (r Replica) UpdateTime() int64 {
 	}
 	return 0
 }
-
-type SearchObject struct {
-	Object       *storobj.Object `json:"object,omitempty"`
-	IsConsistent bool            `json:"isConsistent"`
-	Score        float32         `json:"score"`
-}

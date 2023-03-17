@@ -163,7 +163,7 @@ func (f *Finder) Search(ctx context.Context,
 	}
 	result := <-f.readSearch(ctx, shard, replyCh, state)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		return nil, nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
 	}
 
 	objs := make([]*storobj.Object, len(replyCh))

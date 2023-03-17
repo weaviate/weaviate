@@ -78,7 +78,6 @@ var (
 	gte  = filters.OperatorGreaterThanEqual
 	wgr  = filters.OperatorWithinGeoRange
 	and  = filters.OperatorAnd
-	or   = filters.OperatorOr
 	null = filters.OperatorIsNull
 
 	// datatypes
@@ -509,7 +508,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					require.Nil(t, err)
 					require.Len(t, res, len(test.expectedIDs))
 
-					ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+					ids := make([]strfmt.UUID, len(test.expectedIDs))
 					for pos, concept := range res {
 						ids[pos] = concept.ID
 					}
@@ -632,7 +631,7 @@ func testChainedPrimitiveProps(repo *DB,
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedIDs))
 
-				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+				ids := make([]strfmt.UUID, len(test.expectedIDs))
 				for pos, concept := range res {
 					ids[pos] = concept.ID
 				}
@@ -665,7 +664,7 @@ func buildSortFilter(path []string, order string) filters.Sort {
 func compoundFilter(operator filters.Operator,
 	operands ...*filters.LocalFilter,
 ) *filters.LocalFilter {
-	clauses := make([]filters.Clause, len(operands), len(operands))
+	clauses := make([]filters.Clause, len(operands))
 	for i, filter := range operands {
 		clauses[i] = *filter.Root
 	}
@@ -684,10 +683,6 @@ func filterAnd(operands ...*filters.LocalFilter) *filters.LocalFilter {
 
 func filterOr(operands ...*filters.LocalFilter) *filters.LocalFilter {
 	return compoundFilter(filters.OperatorOr, operands...)
-}
-
-func filterNot(operands ...*filters.LocalFilter) *filters.LocalFilter {
-	return compoundFilter(filters.OperatorNot, operands...)
 }
 
 // test data
@@ -1418,7 +1413,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					require.Nil(t, err)
 					require.Len(t, res, len(test.expectedIDs))
 
-					ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+					ids := make([]strfmt.UUID, len(test.expectedIDs))
 					for pos, concept := range res {
 						ids[pos] = concept.ID
 					}

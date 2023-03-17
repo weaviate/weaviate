@@ -1133,7 +1133,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			leftToDelete := objectsMatches
 			deleteIterationCount := 0
 			deletedObjectsCount := 0
-			for true {
+			for {
 				// delete objects to limit
 				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil)
 				require.Nil(t, err)
