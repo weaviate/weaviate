@@ -377,36 +377,42 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	termResult := term{queryTerm: query}
 	uniqueDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
-	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
+	allMapPairsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
 		bucket := b.store.Bucket(helpers.BucketFromPropNameLSM(propName))
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		preM, err := bucket.MapList([]byte(query))
-		if err != nil {
-			return termResult, nil, err
-		}
+	
 
-		var m []lsmkv.MapPair
+		var mapPairResults []lsmkv.MapPair
 		if filterDocIds != nil {
-			m = make([]lsmkv.MapPair, 0, len(preM))
-			for _, val := range preM {
+			mapPairResults = make([]lsmkv.MapPair,0)
+		
+			bucket.MapListWithCallback([]byte(query), func ( val lsmkv.MapPair)  {
 				docID := binary.BigEndian.Uint64(val.Key)
 				uniqueDocIDs.Set(docID)
 				if filterDocIds.Contains(docID) {
-					m = append(m, val)
+					mapPairResults = append(mapPairResults, val)
 				}
-			}
+			})
+			
 		} else {
-			m = preM
+			mapPairResults = make([]lsmkv.MapPair,0)
+		
+			bucket.MapListWithCallback([]byte(query), func ( val lsmkv.MapPair)  {
+				docID := binary.BigEndian.Uint64(val.Key)
+				uniqueDocIDs.Set(docID)
+					mapPairResults = append(mapPairResults, val)
+				
+			})
 		}
-		if len(m) == 0 {
+		if len(mapPairResults) == 0 {
 			continue
 		}
 
-		allMsAndProps = append(allMsAndProps, MapPairsAndPropName{MapPairs: m, propname: propName})
+		allMapPairsAndProps = append(allMapPairsAndProps, MapPairsAndPropName{MapPairs: mapPairResults, propname: propName})
 	}
 
 	// sort ascending, this code has two effects
@@ -414,16 +420,16 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	//    biggest property at the end will save us most writes on average
 	// 2) For the first property all entries are new, and we can create the map with the respective size. When choosing
 	//    the second-biggest entry as the first property we save additional allocations later
-	sort.Sort(allMsAndProps)
-	if len(allMsAndProps) > 2 {
-		allMsAndProps[len(allMsAndProps)-2], allMsAndProps[0] = allMsAndProps[0], allMsAndProps[len(allMsAndProps)-2]
+	sort.Sort(allMapPairsAndProps)
+	if len(allMapPairsAndProps) > 2 {
+		allMapPairsAndProps[len(allMapPairsAndProps)-2], allMapPairsAndProps[0] = allMapPairsAndProps[0], allMapPairsAndProps[len(allMapPairsAndProps)-2]
 	}
 
-	var docMapPairs []docPointerWithScore = nil
-	var docMapPairsIndices *haxmap.Map[uint64, int] = nil
-	for i, mAndProps := range allMsAndProps {
-		m := mAndProps.MapPairs
-		propName := mAndProps.propname
+	var docSummaries []docPointerWithScore = nil			// contains the docID and some of the componenets to calculate the score
+	var docSummaryIndices *haxmap.Map[uint64, int] = nil  	// maps docID to index in docSummaries
+	for i, mapPairsAndProps := range allMapPairsAndProps {
+		mapPairs := mapPairsAndProps.MapPairs
+		propName := mapPairsAndProps.propname
 
 		// The indices are needed for two things:
 		// a) combining the results of different properties
@@ -433,69 +439,69 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		// When b) is not needed the results from the last property do not need to be added to the index-map as there
 		// won't be any follow-up combinations.
 		includeIndicesForLastElement := false
-		if additionalExplanations || i < len(allMsAndProps)-1 {
+		if additionalExplanations || i < len(allMapPairsAndProps)-1 {
 			includeIndicesForLastElement = true
 		}
 
 		// only create maps/slices if we know how many entries there are
-		if docMapPairs == nil {
-			docMapPairs = make([]docPointerWithScore, 0, len(m))
-			numItems := len(m)
-			docMapPairsIndices = haxmap.New[uint64, int](uintptr(numItems))
-			for k, val := range m {
+		if docSummaries == nil {
+			docSummaries = make([]docPointerWithScore, 0, len(mapPairs))
+			numItems := len(mapPairs)
+			docSummaryIndices = haxmap.New[uint64, int](uintptr(numItems))
+			for k, val := range mapPairs {
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
-				docMapPairs = append(docMapPairs,
+				docSummaries = append(docSummaries,
 					docPointerWithScore{
 						id:         binary.BigEndian.Uint64(val.Key),
 						frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 						propLength: math.Float32frombits(propLenBits),
 					})
 				if includeIndicesForLastElement {
-					docMapPairsIndices.Set(binary.BigEndian.Uint64(val.Key), k)
+					docSummaryIndices.Set(binary.BigEndian.Uint64(val.Key), k)
 				}
 			}
 		} else {
-			for _, val := range m {
+			for _, val := range mapPairs {
 				key := binary.BigEndian.Uint64(val.Key)
-				ind, ok := docMapPairsIndices.Get(key)
+				ind, ok := docSummaryIndices.Get(key)
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				if ok {
-					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
-					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
+					docSummaries[ind].propLength += math.Float32frombits(propLenBits)
+					docSummaries[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
-					docMapPairs = append(docMapPairs,
+					docSummaries = append(docSummaries,
 						docPointerWithScore{
 							id:         binary.BigEndian.Uint64(val.Key),
 							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 							propLength: math.Float32frombits(propLenBits),
 						})
 					if includeIndicesForLastElement {
-						docMapPairsIndices.Set(binary.BigEndian.Uint64(val.Key), len(docMapPairs) - 1) // current last entry
+						docSummaryIndices.Set(binary.BigEndian.Uint64(val.Key), len(docSummaries) - 1) // current last entry
 					}
 				}
 			}
 		}
 	}
-	if docMapPairs == nil {
+	if docSummaries == nil {
 		termResult.exhausted = true
-		return termResult, docMapPairsIndices, nil
+		return termResult, docSummaryIndices, nil
 	}
-	termResult.data = docMapPairs
+	termResult.data = docSummaries
 
 	var n float64
 	if filterDocIds != nil {
 		n = float64(uniqueDocIDs.GetCardinality())
 	} else {
-		n = float64(len(docMapPairs))
+		n = float64(len(docSummaries))
 	}
 
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
 
 	termResult.posPointer = 0
 	termResult.idPointer = termResult.data[0].id
-	return termResult, docMapPairsIndices, nil
+	return termResult, docSummaryIndices, nil
 }
 
 type term struct {
