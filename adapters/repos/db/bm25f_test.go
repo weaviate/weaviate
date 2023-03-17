@@ -392,7 +392,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Array fields text", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTitles"}, Query: "dinner"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
@@ -402,7 +402,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Array fields string", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiStringFieldWord"}, Query: "MuuultiYell!"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
