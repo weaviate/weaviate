@@ -45,7 +45,6 @@ func (h *hnsw) Delete(ids ...uint64) error {
 
 	for _, id := range ids {
 		h.metrics.DeleteVector()
-		h.cache.delete(context.TODO(), id)
 
 		// Adding a tombstone might not be enough in some cases, if the tombstoned
 		// entry was the entrypoint this might lead to issues for following inserts:
@@ -569,6 +568,11 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 		h.resetLock.Lock()
 		if !breakCleanUpTombstonedNodes() {
 			h.nodes[id] = nil
+			if h.compressed.Load() {
+				h.compressedVectorsCache.delete(context.TODO(), id)
+			} else {
+				h.cache.delete(context.TODO(), id)
+			}
 			if err := h.commitLog.DeleteNode(id); err != nil {
 				h.resetLock.Unlock()
 				return false, err
