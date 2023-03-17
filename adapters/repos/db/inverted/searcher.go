@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"golang.org/x/sync/errgroup"
@@ -475,45 +474,38 @@ func extractTimestampProp(propName string, propType schema.DataType, value inter
 	}, nil
 }
 
-func (s *Searcher) extractTokenizableProp(propName string, dt schema.DataType, value interface{},
-	operator filters.Operator, tokenization string,
+func (s *Searcher) extractTokenizableProp(propName string, searchedDataType schema.DataType, value interface{},
+	operator filters.Operator, configuredTokenization string,
 ) (*propValuePair, error) {
-	var parts []string
+	var terms []string
 
-	switch dt {
+	switch searchedDataType {
 	case schema.DataTypeString:
-		switch tokenization {
-		case models.PropertyTokenizationWord:
-			parts = helpers.TokenizeString(value.(string))
-		case models.PropertyTokenizationField:
-			parts = []string{helpers.TrimString(value.(string))}
-		default:
-			return nil, fmt.Errorf("unsupported tokenization '%v' configured for data type '%v'", tokenization, dt)
-		}
+		// deprecated as of v1.19, alias for text
+		fallthrough
 	case schema.DataTypeText:
-		switch tokenization {
-		case models.PropertyTokenizationWord:
-			if operator == filters.OperatorLike {
-				// if the operator is like, we cannot apply the regular text-splitting
-				// logic as it would remove all wildcard symbols
-				parts = helpers.TokenizeTextKeepWildcards(value.(string))
-			} else {
-				parts = helpers.TokenizeText(value.(string))
-			}
-		default:
-			return nil, fmt.Errorf("unsupported tokenization '%v' configured for data type '%v'", tokenization, dt)
+		if !helpers.IsSupportedTokenization(configuredTokenization) {
+			return nil, fmt.Errorf("unsupported tokenization '%s' configured for data type '%s'", configuredTokenization, searchedDataType)
+		}
+
+		// if the operator is like, we cannot apply the regular text-splitting
+		// logic as it would remove all wildcard symbols
+		if operator == filters.OperatorLike {
+			terms = helpers.TokenizeWithWildcards(configuredTokenization, value.(string))
+		} else {
+			terms = helpers.Tokenize(configuredTokenization, value.(string))
 		}
 	default:
-		return nil, fmt.Errorf("expected value type to be string or text, got %v", dt)
+		return nil, fmt.Errorf("expected value type to be text or string (deprecated as of v1.19), got %v", searchedDataType)
 	}
 
-	propValuePairs := make([]*propValuePair, 0, len(parts))
-	for _, part := range parts {
-		if s.stopwords.IsStopword(part) {
+	propValuePairs := make([]*propValuePair, 0, len(terms))
+	for _, term := range terms {
+		if s.stopwords.IsStopword(term) {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
-			value:        []byte(part),
+			value:        []byte(term),
 			hasFrequency: true,
 			prop:         propName,
 			operator:     operator,
@@ -579,7 +571,10 @@ func (s *Searcher) onInternalProp(propName string) bool {
 
 func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	switch valueType {
-	case schema.DataTypeString, schema.DataTypeText:
+	case schema.DataTypeString:
+		// deprecated as of v1.19, alias for text
+		fallthrough
+	case schema.DataTypeText:
 		return true
 	default:
 		return false

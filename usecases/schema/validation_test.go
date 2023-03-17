@@ -13,11 +13,14 @@ package schema
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func Test_Validation_ClassNames(t *testing.T) {
@@ -367,4 +370,123 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			}
 		})
 	})
+}
+
+func Test_Validation_Tokenization(t *testing.T) {
+	type testCase struct {
+		name             string
+		tokenization     string
+		propertyDataType schema.PropertyDataType
+		errMsg           string
+	}
+
+	runTestCases := func(t *testing.T, testCases []testCase) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := validatePropertyTokenization(tc.tokenization, tc.propertyDataType)
+				if tc.errMsg == "" {
+					assert.Nil(t, err)
+				} else {
+					assert.NotNil(t, err)
+					assert.EqualError(t, err, tc.errMsg)
+				}
+			})
+		}
+	}
+
+	t.Run("validates text/textArray/string/stringArray and all tokenizations", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dataType := range []schema.DataType{
+			schema.DataTypeText, schema.DataTypeTextArray,
+			schema.DataTypeString, schema.DataTypeStringArray,
+		} {
+			for _, tokenization := range helpers.Tokenizations {
+				testCases = append(testCases, testCase{
+					name:             fmt.Sprintf("%s + %s", dataType, tokenization),
+					propertyDataType: newFakePropertyDataType(dataType),
+					tokenization:     tokenization,
+					errMsg:           "",
+				})
+			}
+
+			tokenization := "non_existing"
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("%s + %s", dataType, tokenization),
+				propertyDataType: newFakePropertyDataType(dataType),
+				tokenization:     tokenization,
+				errMsg:           fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("validates non text/textArray/string/stringArray and all tokenizations", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dataType := range schema.PrimitiveDataTypes {
+			switch dataType {
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				continue
+			default:
+				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+					testCases = append(testCases, testCase{
+						name:             fmt.Sprintf("%s + %s", dataType, tokenization),
+						propertyDataType: newFakePropertyDataType(dataType),
+						tokenization:     tokenization,
+						errMsg:           fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+					})
+				}
+			}
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("validates empty datatype (reference) and all tokenizations", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("empty + %s", tokenization),
+				propertyDataType: newFakePropertyDataType(""),
+				tokenization:     tokenization,
+				errMsg:           "Tokenization is not allowed for reference data type",
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+}
+
+type fakePropertyDataType struct {
+	primitiveDataType schema.DataType
+}
+
+func newFakePropertyDataType(primitiveDataType schema.DataType) schema.PropertyDataType {
+	return &fakePropertyDataType{primitiveDataType}
+}
+
+func (pdt *fakePropertyDataType) Kind() schema.PropertyKind {
+	if pdt.IsPrimitive() {
+		return schema.PropertyKindPrimitive
+	}
+	return schema.PropertyKindRef
+}
+
+func (pdt *fakePropertyDataType) IsPrimitive() bool {
+	return pdt.primitiveDataType != ""
+}
+func (pdt *fakePropertyDataType) AsPrimitive() schema.DataType {
+	return pdt.primitiveDataType
+}
+func (pdt *fakePropertyDataType) IsReference() bool {
+	return !pdt.IsPrimitive()
+}
+func (pdt *fakePropertyDataType) Classes() []schema.ClassName {
+	if pdt.IsPrimitive() {
+		return nil
+	}
+	return []schema.ClassName{}
+}
+func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
+	return false
 }
