@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -157,11 +158,78 @@ type RepairResponse struct {
 	Deleted    bool
 }
 
+type SearchParams struct {
+	Limit      int                          `json:"limit"`
+	Filters    *filters.LocalFilter         `json:"filters"`
+	KWRanking  *searchparams.KeywordRanking `json:"kwRanking"`
+	Sort       []filters.Sort               `json:"sort"`
+	Cursor     *filters.Cursor              `json:"cursor"`
+	Additional additional.Properties        `json:"additional"`
+}
+
 type SearchResult struct {
 	Object       *storobj.Object `json:"object,omitempty"`
 	IsConsistent bool            `json:"isConsistent"`
 	Score        float32         `json:"score"`
 	Shard        string          `json:"shard"`
+}
+
+type SearchResults []SearchResult
+
+// srMarshaler is a helper for the methods implementing encoding.BinaryMarshaler
+//
+// Because *storobj.Object has an optimized custom MarshalBinary method, that is what
+// we want to use when serializing, rather than json.Marshal. This is just a thin
+// wrapper around the storobj bytes resulting from the underlying call to MarshalBinary
+type srMarshaler struct {
+	IsConsistent bool
+	Score        float32
+	Shard        string
+	Object       []byte
+}
+
+func (r SearchResults) MarshalBinary() ([]byte, error) {
+	ms := make([]srMarshaler, len(r))
+
+	for i, obj := range r {
+		m := srMarshaler{IsConsistent: obj.IsConsistent, Score: obj.Score, Shard: obj.Shard}
+		if obj.Object != nil {
+			b, err := obj.Object.MarshalBinary()
+			if err != nil {
+				return nil, fmt.Errorf("marshal object %q: %w", obj.Object.ID(), err)
+			}
+			m.Object = b
+		}
+		ms[i] = m
+	}
+
+	return json.Marshal(ms)
+}
+
+func (r *SearchResults) UnmarshalBinary(data []byte) error {
+	var ms []srMarshaler
+
+	err := json.Unmarshal(data, &ms)
+	if err != nil {
+		return err
+	}
+
+	reps := make(SearchResults, len(ms))
+	for i, m := range ms {
+		rep := SearchResult{IsConsistent: m.IsConsistent, Score: m.Score, Shard: m.Shard}
+		if m.Object != nil {
+			var obj storobj.Object
+			err = obj.UnmarshalBinary(m.Object)
+			if err != nil {
+				return fmt.Errorf("unmarshal srMarshaller object: %w", err)
+			}
+			rep.Object = &obj
+		}
+		reps[i] = rep
+	}
+
+	*r = reps
+	return nil
 }
 
 func fromReplicas(xs []objects.Replica) []*storobj.Object {
@@ -213,10 +281,8 @@ type rClient interface {
 		ids []strfmt.UUID) ([]RepairResponse, error)
 
 	// SearchObjects searches for objects with a given set of params
-	SearchObjects(_ context.Context, host, index, shard string, limit int,
-		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-		sort []filters.Sort, cursor *filters.Cursor, addlProps additional.Properties,
-	) ([]SearchResult, error)
+	SearchObjects(_ context.Context, host, index, shard string,
+		params SearchParams) (SearchResults, error)
 }
 
 // finderClient extends RClient with consistency checks

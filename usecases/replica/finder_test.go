@@ -768,7 +768,7 @@ func TestFinderSearchWithConsistencyLevelAll(t *testing.T) {
 		var (
 			f       = newFakeFactory("C1", shard, nodes)
 			finder  = f.newFinder()
-			results = []SearchResult{
+			results = SearchResults{
 				{
 					Object: object(
 						"14f2037c-89ef-4c29-8717-1b1e2756f1c8",
@@ -796,18 +796,19 @@ func TestFinderSearchWithConsistencyLevelAll(t *testing.T) {
 			}
 		)
 
-		want := func() map[strfmt.UUID][]SearchResult {
-			found := map[strfmt.UUID][]SearchResult{}
+		want := func() map[strfmt.UUID]SearchResults {
+			found := map[strfmt.UUID]SearchResults{}
 			for _, res := range results {
-				found[res.Object.ID()] = []SearchResult{res}
+				found[res.Object.ID()] = SearchResults{res}
 			}
 			return found
 		}()
 
+		params := SearchParams{limit, filt, kw, sort, cursor, addl}
+
 		for i := range nodes {
-			f.RClient.On("SearchObjects", ctx, nodes[i], cls,
-				shard, limit, filt, kw, sort, cursor, addl).
-				Return(results, nil)
+			f.RClient.On("SearchObjects", ctx, nodes[i],
+				cls, shard, params).Return(results, nil)
 		}
 
 		got, err := finder.Search(ctx, All, shard,

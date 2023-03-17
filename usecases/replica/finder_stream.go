@@ -183,7 +183,7 @@ func (f *finderStream) readAll(ctx context.Context,
 	return resultCh
 }
 
-type searchResult _Result[map[strfmt.UUID][]SearchResult]
+type searchResult _Result[map[strfmt.UUID]SearchResults]
 
 // readAll reads in replicated objects specified by their ids
 func (f *finderStream) readSearch(ctx context.Context,
@@ -192,13 +192,13 @@ func (f *finderStream) readSearch(ctx context.Context,
 ) <-chan searchResult {
 	resultCh := make(chan searchResult, 1)
 	go func() {
-		results := make(map[strfmt.UUID][]SearchResult)
+		results := make(map[strfmt.UUID]SearchResults)
 		defer close(resultCh)
 		for r := range ch {
 			for _, res := range r.Value.Data {
 				objs, found := results[res.Object.ID()]
 				if !found {
-					results[res.Object.ID()] = []SearchResult{res}
+					results[res.Object.ID()] = SearchResults{res}
 				} else {
 					objsPtr := &objs
 					*objsPtr = append(*objsPtr, res)
@@ -216,7 +216,7 @@ type searchReply struct {
 	// Sender hostname of the sender
 	Sender string
 	// Data search results from the replica
-	Data []SearchResult
+	Data SearchResults
 }
 
 type boolTuple tuple[RepairResponse]

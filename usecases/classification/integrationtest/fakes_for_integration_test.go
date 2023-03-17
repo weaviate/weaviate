@@ -535,10 +535,8 @@ func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	return nil, nil
 }
 
-func (*fakeReplicationClient) SearchObjects(_ context.Context, host,
-	index, shard string, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, addlProps additional.Properties,
-) ([]replica.SearchResult, error) {
+func (*fakeReplicationClient) SearchObjects(_ context.Context,
+	host, index, shard string, params replica.SearchParams,
+) (replica.SearchResults, error) {
 	return nil, nil
 }

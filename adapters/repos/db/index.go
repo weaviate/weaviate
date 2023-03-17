@@ -812,14 +812,13 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		err        error
 	)
 
-	// TODO: uncomment when clusterapi server+client have been implemented
-	//if i.replicationEnabled() {
-	//	outObjects, outScores, err = i.replicatedObjectSearchByShard(ctx, limit,
-	//		filters, keywordRanking, sort, cursor, addlProps, replProps, shardNames)
-	//} else {
-	outObjects, outScores, err = i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames)
-	//}
+	if i.replicationEnabled() {
+		outObjects, outScores, err = i.replicatedObjectSearchByShard(ctx, limit,
+			filters, keywordRanking, sort, cursor, addlProps, replProps, shardNames)
+	} else {
+		outObjects, outScores, err = i.objectSearchByShard(ctx, limit,
+			filters, keywordRanking, sort, cursor, addlProps, shardNames)
+	}
 
 	if err != nil {
 		return nil, nil, err

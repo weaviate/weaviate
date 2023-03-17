@@ -18,9 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -58,14 +56,11 @@ func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard stri
 	return args.Get(0).([]RepairResponse), args.Error(1)
 }
 
-func (f *fakeRClient) SearchObjects(ctx context.Context, host,
-	index, shard string, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, addlProps additional.Properties,
-) ([]SearchResult, error) {
-	args := f.Called(ctx, host, index, shard, limit,
-		filters, keywordRanking, sort, cursor, addlProps)
-	return args.Get(0).([]SearchResult), args.Error(1)
+func (f *fakeRClient) SearchObjects(ctx context.Context,
+	host, index, shard string, params SearchParams,
+) (SearchResults, error) {
+	args := f.Called(ctx, host, index, shard, params)
+	return args.Get(0).(SearchResults), args.Error(1)
 }
 
 type fakeClient struct {

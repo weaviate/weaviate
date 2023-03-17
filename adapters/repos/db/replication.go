@@ -497,7 +497,7 @@ func (i *Index) fetchObjects(ctx context.Context,
 
 	objs, err := shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
 	if err != nil {
-		return nil, fmt.Errorf("shard %q read repair multi get objects: %w", shard.ID(), err)
+		return nil, fmt.Errorf("shard %q replication multi get objects: %w", shard.ID(), err)
 	}
 
 	resp := make([]objects.Replica, len(ids))
@@ -518,6 +518,43 @@ func (i *Index) fetchObjects(ctx context.Context,
 				ID:     obj.ID(),
 			}
 		}
+	}
+
+	return resp, nil
+}
+
+func (db *DB) SearchObjects(ctx context.Context,
+	class, shardName string, params replica.SearchParams,
+) (replica.SearchResults, error) {
+	index := db.GetIndex(schema.ClassName(class))
+	return index.searchObjects(ctx, shardName, params)
+}
+
+func (i *Index) searchObjects(ctx context.Context,
+	shardName string, params replica.SearchParams,
+) (replica.SearchResults, error) {
+	shard, ok := i.Shards[shardName]
+	if !ok {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	objs, scores, err := shard.objectSearch(ctx, params.Limit, params.Filters,
+		params.KWRanking, params.Sort, params.Cursor, params.Additional)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q replication object search: %w", shard.ID(), err)
+	}
+
+	resp := make(replica.SearchResults, len(objs))
+
+	for j, obj := range objs {
+		res := replica.SearchResult{
+			Object: obj,
+			Shard:  shardName,
+		}
+		if scores != nil {
+			res.Score = scores[j]
+		}
+		resp[j] = res
 	}
 
 	return resp, nil

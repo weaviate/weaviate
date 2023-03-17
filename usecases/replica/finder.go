@@ -150,10 +150,11 @@ func (f *Finder) Search(ctx context.Context,
 	keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties,
-) (map[strfmt.UUID][]SearchResult, error) {
+) (map[strfmt.UUID]SearchResults, error) {
 	c := newReadCoordinator[searchReply](f, shard)
 	op := func(ctx context.Context, host string, fullRead bool) (searchReply, error) {
-		xs, err := f.client.cl.SearchObjects(ctx, host, f.class, shard, limit, filters, keywordRanking, sort, cursor, addlProps)
+		params := SearchParams{limit, filters, keywordRanking, sort, cursor, addlProps}
+		xs, err := f.client.cl.SearchObjects(ctx, host, f.class, shard, params)
 		return searchReply{Sender: host, Data: xs}, err
 	}
 	replyCh, state, err := c.Pull(ctx, l, op)
@@ -169,7 +170,7 @@ func (f *Finder) Search(ctx context.Context,
 	return result.Value, nil
 }
 
-func (f *Finder) CheckConsistency(results map[strfmt.UUID][]SearchResult,
+func (f *Finder) CheckConsistency(results map[strfmt.UUID]SearchResults,
 ) ([]*storobj.Object, []float32, error) {
 	objs := make([]*storobj.Object, len(results))
 	scores := make([]float32, len(results))

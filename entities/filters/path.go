@@ -21,12 +21,12 @@ import (
 // Represents the path in a filter.
 // Either RelationProperty or PrimitiveProperty must be empty (e.g. "").
 type Path struct {
-	Class    schema.ClassName
-	Property schema.PropertyName
+	Class    schema.ClassName    `json:"class"`
+	Property schema.PropertyName `json:"property"`
 
 	// If nil, then this is the property we're interested in.
 	// If a pointer to another Path, the constraint applies to that one.
-	Child *Path
+	Child *Path `json:"child"`
 }
 
 // GetInnerMost recursively searches for child paths, only when no more

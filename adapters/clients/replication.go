@@ -27,9 +27,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -56,7 +54,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomMarshal(c.timeoutUnit*20, req, nil, &resp)
+	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, &resp)
 	return resp, err
 }
 
@@ -113,16 +111,26 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
+	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
 }
 
-func (c *replicationClient) SearchObjects(_ context.Context, host,
-	index, shard string, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, addlProps additional.Properties,
-) ([]replica.SearchResult, error) {
-	return nil, nil
+func (c *replicationClient) SearchObjects(ctx context.Context,
+	host, index, shard string, params replica.SearchParams,
+) (replica.SearchResults, error) {
+	var resp replica.SearchResults
+	body, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+	req, err := newHttpReplicaRequest(
+		ctx, http.MethodGet, host, index, shard,
+		"", "_search", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, &resp)
+	return resp, err
 }
 
 func (c *replicationClient) PutObject(ctx context.Context, host, index,
@@ -304,7 +312,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 	return c.retry(ctx, 9, try)
 }
 
-func (c *replicationClient) doCustomMarshal(timeout time.Duration,
+func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, resp encoding.BinaryUnmarshaler,
 ) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
