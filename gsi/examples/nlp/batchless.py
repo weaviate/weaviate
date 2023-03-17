@@ -1,4 +1,5 @@
-import weaviate, os, time
+import weaviate, os
+from datetime import datetime
 
 # get docs from each subdir
 DATADIR = "/mnt/nas1/news20/"
@@ -11,7 +12,7 @@ paths = absoluteFilePaths(DATADIR)
 # initialize client and class object
 client = weaviate.Client('http://localhost:8080') 
 class_obj = {
-    "class": "News",
+    "class": "NewsBatchless",
     "description": "contains news-related emails",
     "moduleConfig": {
         "text2vec-transformers": {
@@ -50,21 +51,20 @@ except weaviate.UnexpectedStatusCodeException as e:
     print('Class already exists')
     pass
 
-t_start = time.process_time()
+t_start = datetime.now()
+print('time start:', t_start)
 
 # add data to weaviate schema
-count = 0
-with client.batch(batch_size=100) as batch:
-    for i, path in enumerate(paths):
-        with open(path, errors='ignore') as file: # ignoring 
-            data = file.read()
-            data_obj = {
-                "newsType": path.split('/')[-2], # gets the directory for each doc
-                "text": data # doc text
-                }
-            batch.add_data_object(data_object=data_obj, class_name="News")
-            file.close()
+for i, path in enumerate(paths):
+    with open(path, errors='ignore') as file:
+        data = file.read()
+        data_obj = {
+            "newsType": path.split('/')[-2], # gets the directory for each doc
+            "text": data # doc text
+        }
+        client.data_object.create(data_object=data_obj, class_name="NewsBatchless")
 
-client.batch.create_objects() # push remaining docs
-t_end = time.process_time()
+
+t_end = datetime.now()
+print('time end:', t_end)
 print('time elapsed:', t_end - t_start)

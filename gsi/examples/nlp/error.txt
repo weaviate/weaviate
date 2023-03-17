@@ -1,0 +1,56 @@
+(weav) jacob@sv7-apu11:~/plugins/weaviate/gsi/examples/nlp$ python3 batch_data.py 
+docs added: 0, latest doc: /mnt/nas1/news20/rec.motorcycles/104985
+docs added: 1000, latest doc: /mnt/nas1/news20/talk.politics.guns/54357
+docs added: 2000, latest doc: /mnt/nas1/news20/rec.sport.hockey/53969
+docs added: 3000, latest doc: /mnt/nas1/news20/sci.space/60859
+docs added: 4000, latest doc: /mnt/nas1/news20/sci.med/59498
+docs added: 5000, latest doc: /mnt/nas1/news20/talk.politics.mideast/76522
+docs added: 6000, latest doc: /mnt/nas1/news20/sci.crypt/15754
+docs added: 7000, latest doc: /mnt/nas1/news20/talk.religion.misc/83968
+docs added: 8000, latest doc: /mnt/nas1/news20/sci.electronics/54283
+docs added: 9000, latest doc: /mnt/nas1/news20/soc.religion.christian/21685
+{'error': [{'message': 'update vector: send POST request: Post "http://t2v-transformers:8080/vectors/": read tcp 172.26.0.2:60900->172.26.0.3:8080: read: connection reset by peer'}]}
+docs added: 10000, latest doc: /mnt/nas1/news20/comp.sys.mac.hardware/50547
+docs added: 11000, latest doc: /mnt/nas1/news20/rec.autos/103774
+docs added: 12000, latest doc: /mnt/nas1/news20/comp.graphics/38694
+{'error': [{'message': 'update vector: send POST request: Post "http://t2v-transformers:8080/vectors/": read tcp 172.26.0.2:42816->172.26.0.3:8080: read: connection reset by peer'}]}
+docs added: 13000, latest doc: /mnt/nas1/news20/alt.atheism/53059
+docs added: 14000, latest doc: /mnt/nas1/news20/rec.sport.baseball/102705
+docs added: 15000, latest doc: /mnt/nas1/news20/misc.forsale/76937
+docs added: 16000, latest doc: /mnt/nas1/news20/comp.sys.ibm.pc.hardware/60932
+docs added: 17000, latest doc: /mnt/nas1/news20/comp.os.ms-windows.misc/10804
+[ERROR] Batch ReadTimeout Exception occurred! Retrying in 2s. [1/3]
+[ERROR] Batch ReadTimeout Exception occurred! Retrying in 4s. [2/3]
+[ERROR] Batch ReadTimeout Exception occurred! Retrying in 6s. [3/3]
+Traceback (most recent call last):
+  File "batch_data.py", line 71, in <module>
+    if i % 1000 == 0: # show status every 1000 docs
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 1526, in __exit__
+    self.flush()
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 1144, in flush
+    self._send_batch_requests(force_wait=True)
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 1055, in _send_batch_requests
+    response_objects, nr_objects = done_future.result()
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/concurrent/futures/_base.py", line 437, in result
+    return self.__get_result()
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/concurrent/futures/_base.py", line 389, in __get_result
+    raise self._exception
+  File "batch_data.py", line 64, in <module>
+    }
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 495, in add_data_object
+    self._auto_create()
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 1127, in _auto_create
+    self._send_batch_requests(force_wait=False)
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 1055, in _send_batch_requests
+    response_objects, nr_objects = done_future.result()
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/concurrent/futures/_base.py", line 437, in result
+    return self.__get_result()
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/concurrent/futures/_base.py", line 389, in __get_result
+    raise self._exception
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/concurrent/futures/thread.py", line 57, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 1004, in _flush_in_thread
+    response = self._create_data(
+  File "/home/jacob/mambaforge/envs/weav/lib/python3.8/site-packages/weaviate/batch/crud_batch.py", line 662, in _create_data
+    raise ReadTimeout(message) from None
+requests.exceptions.ReadTimeout: The 'objects' creation was cancelled because it took longer than the configured timeout of 60s. Try reducing the batch size (currently 100) to a lower value. Aim to on average complete batch request within less than 10s
