@@ -17,10 +17,18 @@ import (
 	"sort"
 	"sync"
 	"syscall"
+	"time"
+)
+
+type _OpCode uint8
+
+const (
+	_ProtoVersion uint8   = 1
+	_ProtoTTL             = time.Second * 60
+	_OpCodeDisk   _OpCode = 1
 )
 
 // TODO:
-// add version and opcode
 // truncate total and available space to MB
 // add TTL to send disk info
 // cache disk space
@@ -34,7 +42,7 @@ type nodeSpace struct {
 // proto protocol that we will speak
 type proto struct {
 	// OpCode operation code
-	OpCode uint8
+	OpCode _OpCode
 	// ProtoVersion protocol version
 	ProtoVersion uint8
 }
@@ -133,6 +141,7 @@ func diskSpace(path string) (DiskInfo, error) {
 		return DiskInfo{}, err
 	}
 	return DiskInfo{
+		proto:     proto{OpCode: _OpCodeDisk, ProtoVersion: _ProtoVersion},
 		Total:     fs.Blocks * uint64(fs.Bsize),
 		Available: fs.Bavail * uint64(fs.Bsize),
 	}, nil

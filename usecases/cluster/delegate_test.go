@@ -54,7 +54,7 @@ func TestDelegateGetSet(t *testing.T) {
 			DiskInfo: DiskInfo{
 				proto{
 					ProtoVersion: uint8(i),
-					OpCode:       uint8(i + 1),
+					OpCode:       _OpCode(i + 1),
 				},
 				uint64(i + 1),
 				uint64(i),
