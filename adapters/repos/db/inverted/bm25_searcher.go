@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/alphadose/haxmap"
 )
 
 type BM25Searcher struct {
@@ -212,7 +213,7 @@ func (b *BM25Searcher) wand(
 	}
 	lengthAllResults := textLength + stringLength + fullQueryLength
 	results := make(terms, lengthAllResults)
-	indices := make([]map[uint64]int, lengthAllResults)
+	indices := make([]*haxmap.Map[uint64, int], lengthAllResults)
 
 	var eg errgroup.Group
 	if len(propertyNamesText) > 0 {
@@ -268,7 +269,7 @@ func (b *BM25Searcher) wand(
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, ind := range indices {
-			limit += len(ind)
+			limit += int(ind.Len())
 		}
 	}
 
@@ -305,7 +306,7 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []map[uint64]int, additionalExplanations bool) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []*haxmap.Map[uint64, int], additionalExplanations bool) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return nil, nil, errors.Errorf("objects bucket not found")
@@ -335,7 +336,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 				obj.Object.Additional = make(map[string]interface{})
 			}
 			for j, result := range results {
-				if termIndice, ok := indices[j][res.ID]; ok {
+				if termIndice, ok := indices[j].Get(res.ID); ok {
 					queryTerm := result.queryTerm
 					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
 					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
@@ -372,7 +373,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 	}
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (term, map[uint64]int, error) {
+func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (term, *haxmap.Map[uint64, int], error) {
 	termResult := term{queryTerm: query}
 	uniqueDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
@@ -419,7 +420,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 
 	var docMapPairs []docPointerWithScore = nil
-	var docMapPairsIndices map[uint64]int = nil
+	var docMapPairsIndices *haxmap.Map[uint64, int] = nil
 	for i, mAndProps := range allMsAndProps {
 		m := mAndProps.MapPairs
 		propName := mAndProps.propname
@@ -439,7 +440,8 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
 			docMapPairs = make([]docPointerWithScore, 0, len(m))
-			docMapPairsIndices = make(map[uint64]int, len(m))
+			numItems := len(m)
+			docMapPairsIndices = haxmap.New[uint64, int](uintptr(numItems))
 			for k, val := range m {
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
@@ -450,13 +452,13 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 						propLength: math.Float32frombits(propLenBits),
 					})
 				if includeIndicesForLastElement {
-					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+					docMapPairsIndices.Set(binary.BigEndian.Uint64(val.Key), k)
 				}
 			}
 		} else {
 			for _, val := range m {
 				key := binary.BigEndian.Uint64(val.Key)
-				ind, ok := docMapPairsIndices[key]
+				ind, ok := docMapPairsIndices.Get(key)
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				if ok {
@@ -470,7 +472,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 							propLength: math.Float32frombits(propLenBits),
 						})
 					if includeIndicesForLastElement {
-						docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
+						docMapPairsIndices.Set(binary.BigEndian.Uint64(val.Key), len(docMapPairs) - 1) // current last entry
 					}
 				}
 			}
