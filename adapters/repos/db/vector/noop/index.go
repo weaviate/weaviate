@@ -13,11 +13,13 @@ package noop
 
 import (
 	"context"
-	//
+	//GW
 	"fmt"
-	//
+	//GW
 
     //GW
+    "github.com/go-openapi/strfmt"
+    "github.com/google/uuid"
     //"example.com/gemini"
     //GW
 
@@ -26,11 +28,25 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-type Index struct{}
+//GW type Index struct{}
+type Index struct{
+    name strfmt.UUID
+    db_path string
+    
+}
+//GW
 
 func NewIndex() *Index {
+	//GW return &Index{}
 
-	return &Index{}
+    //GW
+    idx := &Index{}
+    idx.name = strfmt.UUID(uuid.New().String())
+    idx.db_path = fmt.Sprintf("/var/lib/weaviate/%s.npy", idx.name.String())
+    fmt.Println("NOOP GEMINI NewIndex path=", idx.db_path)
+    return idx
+    //GW    
+
 }
 
 func (i *Index) Add(id uint64, vector []float32) error {
@@ -38,6 +54,7 @@ func (i *Index) Add(id uint64, vector []float32) error {
     fmt.Println("NOOP Add!")
     //GW
 
+    //GW
     farr := make([][]float32, 1)
     dim := int64( len(vector) )
     fmt.Println("Add Dim", dim)
@@ -49,6 +66,7 @@ func (i *Index) Add(id uint64, vector []float32) error {
     //gemini.Read_float32_array( f, farr, dim, 0, 1000, 128 )
 
     //gemini.Append_float32_array( "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/gsi/tests/dbase.npy", farr, dim, 1 )
+    //GW
 
     return nil
 	//GW // silently ignore
