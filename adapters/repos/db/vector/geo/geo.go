@@ -19,11 +19,18 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	//GW
+    //GW"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+    "github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
+    //GW
+	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
+    //GW
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	//GW hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+    //GW
 )
 
 // Index wraps another index to provide geo searches. This allows us to reuse
@@ -58,19 +65,27 @@ type Config struct {
 }
 
 func NewIndex(config Config) (*Index, error) {
-	vi, err := hnsw.New(hnsw.Config{
+	//GW vi, err := hnsw.New(hnsw.Config{
+	vi, err := gemini.New(gemini.Config{
+    //GW
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
 		ID:                    config.ID,
 		RootPath:              config.RootPath,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config),
 		DistanceProvider:      distancer.NewGeoProvider(),
-	}, hnswent.UserConfig{
+	//GW}, hnswent.UserConfig{
+	}, geminient.UserConfig{
+    //GW
 		MaxConnections:         64,
 		EFConstruction:         128,
-		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
+		//GWCleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
+		CleanupIntervalSeconds: geminient.DefaultCleanupIntervalSeconds,
+        //GW
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "underlying hnsw index")
+		//GW return nil, errors.Wrap(err, "underlying hnsw index")
+		return nil, errors.Wrap(err, "underlying gemini index")
+        //GW
 	}
 
 	i := &Index{
@@ -94,11 +109,19 @@ func (i *Index) PostStartup() {
 	i.vectorIndex.PostStartup()
 }
 
-func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
-	makeCL := hnsw.MakeNoopCommitLogger
+//GW func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
+func makeCommitLoggerFromConfig(config Config) gemini.MakeCommitLogger {
+//GW
+	//GWmakeCL := hnsw.MakeNoopCommitLogger
+	makeCL := gemini.MakeNoopCommitLogger
+    //GW
 	if !config.DisablePersistence {
-		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, 10*time.Second,
+		//GW makeCL = func() (hnsw.CommitLogger, error) {
+		makeCL = func() (gemini.CommitLogger, error) {
+        //GW
+			//GW return hnsw.NewCommitLogger(config.RootPath, config.ID, 10*time.Second,
+			return gemini.NewCommitLogger(config.RootPath, config.ID, 10*time.Second,
+            //GW
 				config.Logger)
 		}
 	}

@@ -15,6 +15,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+    //GW
+    //goruntime "runtime"
+    //GW
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -62,6 +65,9 @@ func (d *DB) init(ctx context.Context) error {
         		fmt.Println("RIGHT Before New Index! adapters/repos/db/init.go")
         		//GW
 
+            //GW
+            //goruntime.Breakpoint()
+            //GW
 
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),

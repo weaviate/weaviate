@@ -16,7 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-    goruntime "runtime"
+    //goruntime "runtime"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -164,12 +164,12 @@ func FromEnv(config *Config) error {
 	}
 
     //GW
-    goruntime.Breakpoint()
+    //goruntime.Breakpoint()
     //GW
 
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
-//GW
+//GW MAJOR
         config.ModulesPath = "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
 //GW
     }

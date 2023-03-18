@@ -21,7 +21,9 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	//GW "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/gemini"
+    //GW
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -31,6 +33,11 @@ const (
 
 	errorVectorIndexType = "vector index config (%T) is not of type HNSW, " +
 		"but objects manager is restricted to HNSW"
+
+    //GW	
+    errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
+		"but objects manager is restricted to Gemini"
+    //GW
 
 	warningVectorIgnored = "This vector will be ignored. If you meant to index " +
 		"the vector, make sure to set vectorIndexConfig.skip to 'false'. If the previous " +
@@ -91,10 +98,16 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
         fmt.Println("UpdateVector usecases/modules/vectorizer.go !")
         //GW
 
-	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
+    //GW
+	//GWhnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
+	//GWif !ok {
+	//GW	return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+	//GW}
+	hnswConfig, ok := class.VectorIndexConfig.(gemini.UserConfig)
 	if !ok {
-		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+		return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
 	}
+    //GW
 
 	if class.Vectorizer == config.VectorizerModuleNone {
 		if hnswConfig.Skip && len(object.Vector) > 0 {

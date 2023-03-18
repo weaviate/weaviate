@@ -29,15 +29,22 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
+    //GW
+	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
+    //GW
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+    //GW
+	//GW hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+    //GW
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -119,11 +126,20 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
 
-	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
+	//GW hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
+	//GW if !ok {
+	//GW	return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+	//GW		index.vectorIndexUserConfig)
+	//GW}
+
+    //GW	
+    hnswUserConfig, ok := index.vectorIndexUserConfig.(geminient.UserConfig)
 	if !ok {
 		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
 			index.vectorIndexUserConfig)
 	}
+    //GW
+
 
 	if hnswUserConfig.Skip {
 		//GW
@@ -150,21 +166,38 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 }
 
 func (s *Shard) initVectorIndex(
-	ctx context.Context, hnswUserConfig hnswent.UserConfig,
+//GW
+//GW    ctx context.Context, hnswUserConfig hnswent.UserConfig,
+	ctx context.Context, hnswUserConfig geminient.UserConfig,
+//GW
 ) error {
 	var distProv distancer.Provider
 
 	switch hnswUserConfig.Distance {
-	case "", hnswent.DistanceCosine:
-		distProv = distancer.NewCosineDistanceProvider()
-	case hnswent.DistanceDot:
-		distProv = distancer.NewDotProductProvider()
-	case hnswent.DistanceL2Squared:
-		distProv = distancer.NewL2SquaredProvider()
-	case hnswent.DistanceManhattan:
-		distProv = distancer.NewManhattanProvider()
-	case hnswent.DistanceHamming:
-		distProv = distancer.NewHammingProvider()
+
+//GW
+//GW case "", hnswent.DistanceCosine:
+//GW	distProv = distancer.NewCosineDistanceProvider()
+//GW case hnswent.DistanceDot:
+//GW    distProv = distancer.NewDotProductProvider()
+//GW case hnswent.DistanceL2Squared:
+//GW    distProv = distancer.NewL2SquaredProvider()
+//GW case hnswent.DistanceManhattan:
+//GW    distProv = distancer.NewManhattanProvider()
+//GW case hnswent.DistanceHamming:
+//GW    distProv = distancer.NewHammingProvider()
+//GW
+    case "", geminient.DistanceCosine:
+        distProv = distancer.NewCosineDistanceProvider()
+    case geminient.DistanceDot:
+        distProv = distancer.NewDotProductProvider()
+    case geminient.DistanceL2Squared:
+        distProv = distancer.NewL2SquaredProvider()
+    case geminient.DistanceManhattan:
+        distProv = distancer.NewManhattanProvider()
+    case geminient.DistanceHamming:
+        distProv = distancer.NewHammingProvider()
+//GW
 	default:
 		return errors.Errorf("unrecognized distance metric %q,"+
 			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
@@ -174,14 +207,20 @@ func (s *Shard) initVectorIndex(
         fmt.Println("BEFORE HNSW NEW  adapters/repos/db/shard.go!")
         //GW
 
-	vi, err := hnsw.New(hnsw.Config{
+    //GW
+	//GW vi, err := hnsw.New(hnsw.Config{
+	vi, err := gemini.New(gemini.Config{
+    //GW
 		Logger:            s.index.logger,
 		RootPath:          s.index.Config.RootPath,
 		ID:                s.ID(),
 		ShardName:         s.name,
 		ClassName:         s.index.Config.ClassName.String(),
 		PrometheusMetrics: s.promMetrics,
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+        //GW
+		//GW MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+		MakeCommitLoggerThunk: func() (gemini.CommitLogger, error) {
+        //GW 
 			// Previously we had an interval of 10s in here, which was changed to
 			// 0.5s as part of gh-1867. There's really no way to wait so long in
 			// between checks: If you are running on a low-powered machine, the
@@ -189,20 +228,25 @@ func (s *Shard) initVectorIndex(
 			// each iteration. However, if you are running on a very powerful
 			// machine within 10s you could have potentially created two units of
 			// work, but we'll only be handling one every 10s. This means
-			// uncombined/uncondensed hnsw commit logs will keep piling up can only
+			// uncombined/uncondensed hnsw/gemini commit logs will keep piling up can only
 			// be processes long after the initial insert is complete. This also
 			// means that if there is a crash during importing a lot of work needs
 			// to be done at startup, since the commit logs still contain too many
 			// redundancies. So as of now it seems there are only advantages to
 			// running the cleanup checks and work much more often.
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+            //GW
+			//GWreturn hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+			return gemini.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+            //GW
 				s.index.logger)
 		},
 		VectorForIDThunk: s.vectorByIndexID,
 		DistanceProvider: distProv,
 	}, hnswUserConfig)
 	if err != nil {
-		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+		//GW return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+		return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
+        //GW
 	}
 	s.vectorIndex = vi
 

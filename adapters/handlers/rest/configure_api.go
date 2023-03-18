@@ -42,7 +42,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+    //GW
+	//GW enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+    //GW
+	entgemini "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+    //GW
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
@@ -114,7 +118,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 
     //GW
-    goruntime.Breakpoint()
+    //goruntime.Breakpoint()
     //GW
 	appState := startupRoutine(ctx)
 	setupGoProfiling(appState.ServerConfig.Config)
@@ -133,7 +137,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
         //GW
 
     //GW
-    goruntime.Breakpoint()
+    //goruntime.Breakpoint()
     //GW
 
 	err := registerModules(appState)
@@ -232,9 +236,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
+	//GW schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
+	//GW	appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
+	//GW	enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+	//GW	appState.Modules, appState.Cluster, schemaTxClient, scaler,
+	//GW)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+		entgemini.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, schemaTxClient, scaler,
 	)
 	if err != nil {
@@ -354,7 +363,7 @@ func startupRoutine(ctx context.Context) *state.State {
 	appState := &state.State{}
 
     //GW 
-    goruntime.Breakpoint()
+    //goruntime.Breakpoint()
     //GW
 
 	logger := logger()
@@ -367,7 +376,7 @@ func startupRoutine(ctx context.Context) *state.State {
 	serverConfig := &config.WeaviateConfig{}
 
     //GW 
-    goruntime.Breakpoint()
+    //goruntime.Breakpoint()
     //GW
 
 	appState.ServerConfig = serverConfig
@@ -554,7 +563,7 @@ func registerModules(appState *state.State) error {
         fmt.Println("before enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !")
         //GW
     //GW
-    goruntime.Breakpoint()
+    //goruntime.Breakpoint()
     //GW
 
 	if _, ok := enabledModules["text2vec-openai"]; ok {

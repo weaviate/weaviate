@@ -16,6 +16,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+    //GW
+    //goruntime "runtime"
+    //GW
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -195,12 +198,22 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
+
+    //GW
+    fmt.Println("setClassDefaults usecases/schema/add.go")
+    //goruntime.Breakpoint()
+    //GW
+    
+
 	if class.Vectorizer == "" {
 		class.Vectorizer = m.config.DefaultVectorizerModule
 	}
 
 	if class.VectorIndexType == "" {
-		class.VectorIndexType = "hnsw"
+        //GW MAJOR CHANGE
+		//class.VectorIndexType = "hnsw"
+		class.VectorIndexType = "gemini"
+        //GW
 	}
 
 	if m.config.DefaultVectorDistanceMetric != "" {
@@ -311,18 +324,41 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	if class.VectorIndexType != "hnsw" {
-		return errors.Errorf(
-			"parse vector index config: unsupported vector index type: %q",
+    //GW
+	//GWif class.VectorIndexType != "hnsw" {
+	//GW	return errors.Errorf(
+	//GW		"parse vector index config: unsupported vector index type: %q",
+	//GW		class.VectorIndexType)
+	//GW}
+	//GW parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+	//GW if err != nil {
+	//GW	return errors.Wrap(err, "parse vector index config")
+	//GW}
+    
+    //GW
+    //goruntime.Breakpoint()
+    if class.VectorIndexType == "hnsw" {
+        parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+        if err != nil {
+            return errors.Wrap(err, "parse vector index config")
+        }
+        class.VectorIndexConfig = parsed
+    } else if class.VectorIndexType == "gemini" {
+        parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+        if err != nil {
+            return errors.Wrap(err, "parse vector index config")
+        }
+        class.VectorIndexConfig = parsed
+    } else {
+	    return errors.Errorf(
+	    	"parse vector index config: unsupported vector index type: %q",
 			class.VectorIndexType)
-	}
+    }
+    //GW
 
-	parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
-	if err != nil {
-		return errors.Wrap(err, "parse vector index config")
-	}
-
-	class.VectorIndexConfig = parsed
+	//GW
+    //GWclass.VectorIndexConfig = parsed
+    //GW
 
 	return nil
 }

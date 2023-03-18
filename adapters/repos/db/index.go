@@ -17,6 +17,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+    //GW
+    //goruntime "runtime"
+    //GW
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -99,6 +102,10 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	//GW
         fmt.Println("NEWINDEX Inside adapters/repos/db/index.go!")
         //GW
+
+    //GW
+    //goruntime.Breakpoint()
+    //GW
 
 	repl := replica.NewReplicator(config.ClassName.String(),
 		sg, nodeResolver, replicaClient)

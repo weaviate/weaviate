@@ -2,7 +2,7 @@
 
 export OPENAI_APIKEY=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
 export QUERY_DEFAULTS_LIMIT=25
-export PERSISTENCE_DATA_PATH=true
+export AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
 export PERSISTENCE_DATA_PATH=/var/lib/weaviate
 export DEFAULT_VECTORIZER_MODULE=text2vec-openai
 export CLUSTER_HOSTNAME=node1
@@ -12,4 +12,4 @@ export PATH="$GOPATH/bin:$PATH"
 
 which dlv
 
-dlv debug cmd/weaviate-server/main.go -- --host==0.0.0.0 --port=8081 --scheme=http
+dlv debug cmd/weaviate-server/main.go -- --host=0.0.0.0 --port=8081 --scheme=http

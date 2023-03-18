@@ -19,6 +19,10 @@ import (
 	"context"
 	"fmt"
 	"time"
+    
+    //GW
+    goruntime "runtime"
+    //GW
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -123,6 +127,10 @@ func NewManager(locks locks, schemaManager schemaManager,
 	authorizer authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics,
 ) *Manager {
+    //GW
+    fmt.Println("NewManager usecases/objects/manager.go")
+    goruntime.Breakpoint() 
+    //GW 
 	return &Manager{
 		config:            config,
 		locks:             locks,
