@@ -17,6 +17,7 @@ import (
 	"fmt"
     "golang.org/x/exp/mmap"
     "sync"
+    "os"
 	//GW
 
     //GW
@@ -35,13 +36,21 @@ type Index struct{
 
     // global lock to prevent concurrent map read/write, etc.
     sync.RWMutex
+    idxLock     *sync.RWMutex
 
-    addLock     *sync.RWMutex
-
+    // a globally unique name for this index
     name        strfmt.UUID
+
+    // the file backing store for this index
     db_path     string
+
+    // a boolean which indicates the first add to the index
     first_add   bool
+
+    // the floating point array dimensions of this index
     dim         int
+
+    // the current record size of this index
     count       int
 }
 //GW
@@ -56,7 +65,7 @@ func NewIndex() *Index {
     idx.first_add   = true
     idx.dim         = 0
     idx.count       = 0
-    idx.addLock     = &sync.RWMutex{}
+    idx.idxLock     = &sync.RWMutex{}
     fmt.Println("NOOP GEMINI NewIndex path=", idx.db_path)
     return idx
     //GW    
@@ -66,8 +75,8 @@ func NewIndex() *Index {
 func (i *Index) Add(id uint64, vector []float32) error {
 
 	//GW
-    i.addLock.Lock()
-    defer i.addLock.Unlock()
+    i.idxLock.Lock()
+    defer i.idxLock.Unlock()
 
     fmt.Println("NOOP Add Before!", i.db_path)
     //GW
@@ -127,7 +136,11 @@ func (i *Index) Delete(id uint64) error {
 }
 
 func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+
 	//GW
+    i.idxLock.Lock()
+    defer i.idxLock.Unlock()
+
     fmt.Println("NOOP SearchByVector!")
     //GW
 
@@ -180,11 +193,18 @@ func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 func (i *Index) Drop(context.Context) error {
 
     //GW
-        fmt.Println("NOOP DROP!")
-        //GW
+    i.idxLock.Lock()
+    defer i.idxLock.Unlock()
 
-	// silently ignore
-	return nil
+    fmt.Println("NOOP DROP!")
+    //GW
+
+    err := os.Remove( i.db_path )
+    if (err!=nil) {
+        return errors.Errorf("Could not remove the file backing store of this index.")
+    } else {
+	    return nil
+    }
 }
 
 func (i *Index) Flush() error {
