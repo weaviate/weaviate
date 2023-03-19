@@ -21,7 +21,7 @@ import (
 	"time"
     
     //GW
-    goruntime "runtime"
+    //goruntime "runtime"
     //GW
 
 	"github.com/go-openapi/strfmt"
@@ -129,7 +129,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 ) *Manager {
     //GW
     fmt.Println("NewManager usecases/objects/manager.go")
-    goruntime.Breakpoint() 
+    //goruntime.Breakpoint() 
     //GW 
 	return &Manager{
 		config:            config,

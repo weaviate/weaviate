@@ -186,7 +186,7 @@ func Append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) {
 
 }
 
-func Append_float32_array(fname string, arr [][]float32, dim int64, count int64) {
+func Append_float32_array(fname string, arr [][]float32, dim int64, count int64) (int, int, error) {
 
     preheader := []byte{0x93,0x4e,0x55,0x4d,0x50,0x59,0x01,0x00,0x76,0x00}
     fmt_header := "{'descr': '<f4', 'fortran_order': False, 'shape': (%d, %d), }"
@@ -294,5 +294,6 @@ func Append_float32_array(fname string, arr [][]float32, dim int64, count int64)
 
     mem.Flush()
 
+    return int(new_row_count), int(dim), nil
 }
 
