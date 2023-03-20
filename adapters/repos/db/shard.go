@@ -261,10 +261,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) drop(force bool) error {
-	if s.isReadOnly() && !force {
-		return storagestate.ErrStatusReadOnly
-	}
+func (s *Shard) drop() error {
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
