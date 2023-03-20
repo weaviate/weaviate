@@ -41,9 +41,9 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	state := State{
 		config: userConfig,
 		delegate: delegate{
-			Name:      userConfig.Hostname,
-			dataPath:  dataPath,
-			DiskUsage: make(map[string]NodeInfo, 32),
+			Name:     userConfig.Hostname,
+			dataPath: dataPath,
+			Cache:    make(map[string]NodeInfo, 32),
 		},
 	}
 	if err := state.delegate.init(); err != nil {

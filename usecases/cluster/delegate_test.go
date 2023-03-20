@@ -21,12 +21,12 @@ import (
 
 func TestDiskSpace(t *testing.T) {
 	for _, name := range []string{"", "host-12:1", "2", "00", "-jhd"} {
-		want := spaceRequest{
+		want := spaceMsg{
 			header{
 				ProtoVersion: uint8(1),
 				OpCode:       _OpCode(2),
 			},
-			DiskSpace{
+			DiskUsage{
 				Total:     256,
 				Available: 3,
 			},
@@ -34,7 +34,7 @@ func TestDiskSpace(t *testing.T) {
 		}
 		bytes, err := want.marshal()
 		assert.Nil(t, err)
-		got := spaceRequest{}
+		got := spaceMsg{}
 		err = got.unmarshal(bytes)
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
@@ -45,19 +45,19 @@ func TestDelegateGetSet(t *testing.T) {
 	now := time.Now()
 	st := State{
 		delegate: delegate{
-			Name:      "ABC",
-			dataPath:  ".",
-			DiskUsage: make(map[string]NodeInfo, 32),
+			Name:     "ABC",
+			dataPath: ".",
+			Cache:    make(map[string]NodeInfo, 32),
 		},
 	}
 	st.delegate.NotifyMsg(nil)
 	st.delegate.GetBroadcasts(0, 0)
 	st.delegate.NodeMeta(0)
-	spaces := make([]spaceRequest, 32)
+	spaces := make([]spaceMsg, 32)
 	for i := range spaces {
-		spaces[i] = spaceRequest{
-			Name: fmt.Sprintf("N-%d", i+1),
-			DiskSpace: DiskSpace{
+		spaces[i] = spaceMsg{
+			Node: fmt.Sprintf("N-%d", i+1),
+			DiskUsage: DiskUsage{
 				uint64(i + 1),
 				uint64(i),
 			},
@@ -77,24 +77,24 @@ func TestDelegateGetSet(t *testing.T) {
 	assert.False(t, ok)
 
 	for _, x := range spaces {
-		space, ok := st.NodeInfo(x.Name)
+		space, ok := st.NodeInfo(x.Node)
 		if ok {
-			assert.Equal(t, x.DiskSpace, space)
+			assert.Equal(t, x.DiskUsage, space)
 		}
 	}
 	<-done
 	for _, x := range spaces {
-		info, ok := st.NodeInfo(x.Name)
+		info, ok := st.NodeInfo(x.Node)
 		assert.Greater(t, info.LastTime, now)
-		want := NodeInfo{x.DiskSpace, info.LastTime}
+		want := NodeInfo{x.DiskUsage, info.LastTime}
 		assert.Equal(t, want, info)
 		assert.True(t, ok)
-		st.delegate.Delete(x.Name)
+		st.delegate.delete(x.Node)
 
 	}
-	assert.Empty(t, st.delegate.DiskUsage)
+	assert.Empty(t, st.delegate.Cache)
 	st.delegate.init()
-	assert.Equal(t, 1, len(st.delegate.DiskUsage))
+	assert.Equal(t, 1, len(st.delegate.Cache))
 
 	st.delegate.MergeRemoteState(st.delegate.LocalState(false), false)
 	space, ok := st.NodeInfo(st.delegate.Name)
@@ -106,15 +106,15 @@ func TestDelegateSort(t *testing.T) {
 	now := time.Now()
 	GB := uint64(1) << 30
 	delegate := delegate{
-		Name:      "ABC",
-		dataPath:  ".",
-		DiskUsage: make(map[string]NodeInfo, 32),
+		Name:     "ABC",
+		dataPath: ".",
+		Cache:    make(map[string]NodeInfo, 32),
 	}
 
-	delegate.Set("N1", NodeInfo{DiskSpace{Available: GB}, now})
-	delegate.Set("N2", NodeInfo{DiskSpace{Available: 3 * GB}, now})
-	delegate.Set("N3", NodeInfo{DiskSpace{Available: 2 * GB}, now})
-	delegate.Set("N4", NodeInfo{DiskSpace{Available: 4 * GB}, now})
+	delegate.set("N1", NodeInfo{DiskUsage{Available: GB}, now})
+	delegate.set("N2", NodeInfo{DiskUsage{Available: 3 * GB}, now})
+	delegate.set("N3", NodeInfo{DiskUsage{Available: 2 * GB}, now})
+	delegate.set("N4", NodeInfo{DiskUsage{Available: 4 * GB}, now})
 	got := delegate.sortCandidates([]string{"N1", "N0", "N2", "N4", "N3"})
 	assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)
 }
