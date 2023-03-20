@@ -52,7 +52,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 	})
 
 	t.Run("run combiner", func(t *testing.T) {
-		err := NewCommitLogCombiner(rootPath, id, threshold, logger).Do()
+		err, _ := NewCommitLogCombiner(rootPath, id, threshold, logger).Do()
 		require.Nil(t, err)
 	})
 

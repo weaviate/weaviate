@@ -287,7 +287,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
 	return newPath, nil
 }
 
-func (sg *SegmentGroup) compactIfLevelsMatch(stopFunc cyclemanager.ShouldBreakFunc) {
+func (sg *SegmentGroup) compactIfLevelsMatch(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 	sg.monitorSegments()
 
 	if sg.eligibleForCompaction() {
@@ -297,11 +297,13 @@ func (sg *SegmentGroup) compactIfLevelsMatch(stopFunc cyclemanager.ShouldBreakFu
 				WithError(err).
 				Errorf("compaction failed")
 		}
-	} else {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			Trace("no segment eligible for compaction")
+		return true
 	}
+
+	sg.logger.WithField("action", "lsm_compaction").
+		WithField("path", sg.dir).
+		Trace("no segment eligible for compaction")
+	return false
 }
 
 func (sg *SegmentGroup) Len() int {

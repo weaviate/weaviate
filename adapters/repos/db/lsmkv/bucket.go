@@ -708,7 +708,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.ShouldBreakFunc) {
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
@@ -727,8 +727,9 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.ShouldBreak
 			Warn("flush halted due to shard READONLY status")
 
 		b.flushLock.RUnlock()
+		// TODO maybe will not be necessary with dynamic interval
 		time.Sleep(time.Second)
-		return
+		return false
 	}
 
 	b.flushLock.RUnlock()
@@ -747,7 +748,9 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.ShouldBreak
 				b.memtableThreshold = uint64(next)
 			}
 		}
+		return true
 	}
+	return false
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket

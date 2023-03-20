@@ -445,48 +445,58 @@ func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
 }
 
-func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.ShouldBreakFunc) {
-	if err := l.SwitchCommitLogs(false); err != nil {
+func (l *hnswCommitLogger) startSwitchLogs(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+	err, executed := l.switchCommitLogs(false)
+	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_maintenance").
 			Error("hnsw commit log maintenance failed")
 	}
+	return executed
 }
 
-func (l *hnswCommitLogger) startCombineAndCondenseLogs(stopFunc cyclemanager.ShouldBreakFunc) {
-	if err := l.combineLogs(); err != nil {
+func (l *hnswCommitLogger) startCombineAndCondenseLogs(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+	err, executed1 := l.combineLogs(); 
+	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
-	if err := l.condenseOldLogs(); err != nil {
+	err, executed2 := l.condenseOldLogs()
+	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
+	return executed1 || executed2
 }
 
 func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
+	err, _ := l.switchCommitLogs(force)
+	return err
+}
+
+func (l *hnswCommitLogger) switchCommitLogs(force bool) (error, bool) {
 	l.Lock()
 	defer l.Unlock()
 
 	size, err := l.commitLogger.FileSize()
 	if err != nil {
-		return err
+		return err, false
 	}
 
 	if size <= l.maxSizeIndividual && !force {
-		return nil
+		return nil, false
 	}
 
 	oldFileName, err := l.commitLogger.FileName()
 	if err != nil {
-		return err
+		return err, false
 	}
 
 	if err := l.commitLogger.Close(); err != nil {
-		return err
+		return err, true
 	}
 
 	// this is a new commit log, initialize with the current time stamp
@@ -511,25 +521,25 @@ func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
 	fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
 		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
-		return errors.Wrap(err, "create commit log file")
+		return errors.Wrap(err, "create commit log file"), true
 	}
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
-	return nil
+	return nil, true
 }
 
-func (l *hnswCommitLogger) condenseOldLogs() error {
+func (l *hnswCommitLogger) condenseOldLogs() (error, bool) {
 	files, err := getCommitFileNames(l.rootPath, l.id)
 	if err != nil {
-		return err
+		return err, false
 	}
 
 	if len(files) <= 1 {
 		// if there are no files there is nothing to do
 		// if there is only a single file, it must still be in use, we can't do
 		// anything yet
-		return nil
+		return nil, false
 	}
 
 	// cut off last element, as that's never a candidate
@@ -541,13 +551,13 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 			continue
 		}
 
-		return l.condensor.Do(candidate)
+		return l.condensor.Do(candidate), true
 	}
 
-	return nil
+	return nil, false
 }
 
-func (l *hnswCommitLogger) combineLogs() error {
+func (l *hnswCommitLogger) combineLogs() (error, bool) {
 	// maxSize is the desired final size, since we assume a lot of redunancy we
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
