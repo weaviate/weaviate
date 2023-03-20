@@ -43,6 +43,10 @@ DEEP50M_GT_1000 = "deep-50M-gt-1000.npy"
 DEEP50M_GT_100 = "deep-50M-gt-100.npy"
 DEEP50M_GT_10 = "deep-50M-gt-10.npy"
 
+# Deep1M filenames
+DEEP1M =  "deep-1M.npy"
+DEEP1M_GT_10 = "deep-1M-gt-10.npy"
+
 # 
 # Configure modules
 #
@@ -438,5 +442,74 @@ elif VERIFY:
     if arr.shape[0]!=10:
         raise Exception("Bad size for %s" % fname, arr.shape)
     print("Verified.")
+
+# Create/verify deep-1M
+fname = os.path.join( FVS_DATA_DIR, DEEP1M )
+print("Checking ", fname,"exists...")
+if not os.path.exists(fname):
+    print("Creating", fname, "...")
+
+    print("Downloading Competition Deep1B base, query, and gt...")
+    ds = datasets.DATASETS["deep-1M"]()
+    ds.prepare(True)
+
+    for dt in ds.get_dataset_iterator(bs=1000):
+        newsize = append_floatarray(fname, dt)
+        print("deep-1M, appended batch, newsize=", newsize)
+        if newsize[0]==1000000:
+            break
+
+    print("done")
+
+    if False:
+        print("counting...")
+        count = 0
+        for dt in ds.get_dataset_iterator():
+            count += 1
+        print("%d" % count, type(dt), dt.shape, dt.dtype)
+
+        arr = numpy.empty( (0,96), dt.dtype )
+        print("arr shape", dt.shape)
+
+        print("appending")
+        for dt in ds.get_dataset_iterator():
+            arr = numpy.concatenate( (arr, dt), axis=0 )
+            print(dt.shape, arr.shape)
+
+        print("saving",fname)
+        numpy.save( fname, arr )
+        print("done")
+elif VERIFY:
+    # Verify it
+    print("Found %s.  Verifying it (this may take a sec.)" % fname)
+    arr = numpy.load(fname)
+    if arr.shape[0]!=1000000:
+        raise Exception("Bad size for %s" % fname, arr.shape)
+    print("Verified.")
+
+# DEEP1M of DEEP1B, gt set - 10
+fname = os.path.join( FVS_DATA_DIR, DEEP1M_GT_10)
+print("Checking ", fname,"exists...")
+if not os.path.exists(fname):
+    ds = datasets.DATASETS["deep-1M"]()
+    ds.prepare(False)
+
+    I, D = ds.get_groundtruth()
+    print(I.shape)
+    I = I[:10,:]
+    print(I.shape)
+
+    print("saving",fname)
+    numpy.save( fname, I )
+    print("done")
+
+elif VERIFY:
+    # Verify it
+    print("Found %s.  Verifying it..." % fname)
+    arr = numpy.load(fname)
+    if arr.shape[0]!=10:
+        raise Exception("Bad size for %s" % fname, arr.shape)
+    print("Verified.")
+
 
 print("Done.")
