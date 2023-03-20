@@ -19,8 +19,10 @@ import (
 )
 
 type (
-	StopFunc  func() bool
-	CycleFunc func(StopFunc)
+	// indicates whether cyclemanager's stop was requested to allow safely
+	// break execution of CycleFunc and stop cyclemanager earlier
+	ShouldBreakFunc func() bool
+	CycleFunc       func(shouldBreak ShouldBreakFunc)
 )
 
 type CycleManager struct {
@@ -29,9 +31,10 @@ type CycleManager struct {
 	cycleFunc     CycleFunc
 	cycleInterval time.Duration
 	running       bool
-	stop          chan struct{}
-	stopContexts  []context.Context
-	stopResult    chan bool
+	stopSignal    chan struct{}
+
+	stopContexts []context.Context
+	stopResults  []chan bool
 }
 
 func New(cycleInterval time.Duration, cycleFunc CycleFunc) *CycleManager {
@@ -39,7 +42,7 @@ func New(cycleInterval time.Duration, cycleFunc CycleFunc) *CycleManager {
 		cycleFunc:     cycleFunc,
 		cycleInterval: cycleInterval,
 		running:       false,
-		stop:          make(chan struct{}, 1),
+		stopSignal:    make(chan struct{}, 1),
 	}
 }
 
@@ -58,18 +61,18 @@ func (c *CycleManager) Start() {
 		defer ticker.Stop()
 
 		for {
-			if c.selectedStop(ticker) {
+			if c.isStopRequested(ticker) {
 				c.Lock()
-				if c.anyCtxValid() {
-					c.handleStop(true)
+				if c.shouldStop() {
+					c.handleStopRequest(true)
 					c.Unlock()
 					break
 				}
-				c.handleStop(false)
+				c.handleStopRequest(false)
 				c.Unlock()
 				continue
 			}
-			c.cycleFunc(c.stopFunc)
+			c.cycleFunc(c.shouldBreakCycleCallback)
 		}
 	}()
 
@@ -89,32 +92,18 @@ func (c *CycleManager) Stop(ctx context.Context) (stopResult chan bool) {
 
 	stopResult = make(chan bool, 1)
 	if !c.running {
-		sendAndClose(stopResult, true)
+		stopResult <- true
+		close(stopResult)
 		return stopResult
 	}
 
 	if len(c.stopContexts) == 0 {
-		// Stop called 1st time on running instance
-		c.stopContexts = []context.Context{ctx}
-		c.stopResult = stopResult
-		c.stop <- struct{}{}
-
-	} else {
-		// Stop called another time on running instance
-		// before 1st stop was handled
-		// results of previous and current call are therefore combined to
-		// return the same and consistent output
-		combinedStopResult := make(chan bool, 1)
-		prevStopResult := c.stopResult
-		c.stopContexts = append(c.stopContexts, ctx)
-		c.stopResult = combinedStopResult
-
-		go func(combinedStopResult <-chan bool, prevStopResult chan<- bool, stopResult chan<- bool) {
-			stopped := <-combinedStopResult
-			sendAndClose(prevStopResult, stopped)
-			sendAndClose(stopResult, stopped)
-		}(combinedStopResult, prevStopResult, stopResult)
+		defer func() {
+			c.stopSignal <- struct{}{}
+		}()
 	}
+	c.stopContexts = append(c.stopContexts, ctx)
+	c.stopResults = append(c.stopResults, stopResult)
 
 	return stopResult
 }
@@ -159,32 +148,30 @@ func (c *CycleManager) Running() bool {
 	return c.running
 }
 
-func (c *CycleManager) anyCtxValid() bool {
-	if len(c.stopContexts) > 0 {
-		for _, ctx := range c.stopContexts {
-			if ctx.Err() == nil {
-				return true
-			}
+func (c *CycleManager) shouldStop() bool {
+	for _, ctx := range c.stopContexts {
+		if ctx.Err() == nil {
+			return true
 		}
 	}
 	return false
 }
 
-func (c *CycleManager) stopFunc() bool {
+func (c *CycleManager) shouldBreakCycleCallback() bool {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.anyCtxValid()
+	return c.shouldStop()
 }
 
-func (c *CycleManager) selectedStop(ticker *time.Ticker) bool {
+func (c *CycleManager) isStopRequested(ticker *time.Ticker) bool {
 	select {
-	case <-c.stop:
+	case <-c.stopSignal:
 	case <-ticker.C:
 		// as stop chan has higher priority,
 		// it is checked again in case of ticker was selected over stop if both were ready
 		select {
-		case <-c.stop:
+		case <-c.stopSignal:
 		default:
 			return false
 		}
@@ -192,14 +179,12 @@ func (c *CycleManager) selectedStop(ticker *time.Ticker) bool {
 	return true
 }
 
-func (c *CycleManager) handleStop(stopped bool) {
-	sendAndClose(c.stopResult, stopped)
+func (c *CycleManager) handleStopRequest(stopped bool) {
+	for _, stopResult := range c.stopResults {
+		stopResult <- stopped
+		close(stopResult)
+	}
 	c.running = !stopped
-	c.stopResult = nil
 	c.stopContexts = nil
-}
-
-func sendAndClose(ch chan<- bool, value bool) {
-	ch <- value
-	close(ch)
+	c.stopResults = nil
 }

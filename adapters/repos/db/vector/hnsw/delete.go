@@ -174,7 +174,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
 // edges that were previously pointing to the tombstoned nodes
-func (h *hnsw) CleanUpTombstonedNodes(stopFunc cyclemanager.StopFunc) error {
+func (h *hnsw) CleanUpTombstonedNodes(stopFunc cyclemanager.ShouldBreakFunc) error {
 	h.metrics.StartCleanup(1)
 	defer h.metrics.EndCleanup(1)
 
