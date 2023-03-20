@@ -534,9 +534,3 @@ func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 ) ([]replica.RepairResponse, error) {
 	return nil, nil
 }
-
-func (*fakeReplicationClient) SearchObjects(_ context.Context,
-	host, index, shard string, params replica.SearchParams,
-) (replica.SearchResults, error) {
-	return nil, nil
-}

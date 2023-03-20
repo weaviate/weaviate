@@ -115,24 +115,6 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	return resp, err
 }
 
-func (c *replicationClient) SearchObjects(ctx context.Context,
-	host, index, shard string, params replica.SearchParams,
-) (replica.SearchResults, error) {
-	var resp replica.SearchResults
-	body, err := json.Marshal(params)
-	if err != nil {
-		return nil, fmt.Errorf("encode request: %w", err)
-	}
-	req, err := newHttpReplicaRequest(
-		ctx, http.MethodGet, host, index, shard,
-		"", "_search", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create http request: %w", err)
-	}
-	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, &resp)
-	return resp, err
-}
-
 func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	shard, requestID string, obj *storobj.Object,
 ) (replica.SimpleResponse, error) {
