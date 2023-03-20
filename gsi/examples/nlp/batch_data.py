@@ -50,11 +50,10 @@ except weaviate.UnexpectedStatusCodeException as e:
     print('Class already exists')
     pass
 
-t_start = time.process_time()
+t_start = time.time()
 
 # add data to weaviate schema
-count = 0
-with client.batch(batch_size=100) as batch:
+with client.batch(batch_size=1) as batch:
     for i, path in enumerate(paths):
         with open(path, errors='ignore') as file: # ignoring 
             data = file.read()
@@ -64,7 +63,7 @@ with client.batch(batch_size=100) as batch:
                 }
             batch.add_data_object(data_object=data_obj, class_name="News")
             file.close()
+        break
 
 client.batch.create_objects() # push remaining docs
-t_end = time.process_time()
-print('time elapsed:', t_end - t_start)
+print('time elapsed (s):', time.time() - t_start)

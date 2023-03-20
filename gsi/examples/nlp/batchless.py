@@ -63,6 +63,8 @@ for i, path in enumerate(paths):
             "text": data # doc text
         }
         client.data_object.create(data_object=data_obj, class_name="NewsBatchless")
+    if i == 1000:
+        break
 
 
 t_end = datetime.now()

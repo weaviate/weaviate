@@ -16,5 +16,11 @@ services:
   t2v-transformers:
     image: semitechnologies/transformers-inference:sentence-transformers-msmarco-distilroberta-base-v2
     environment:
-      ENABLE_CUDA: 0 # set to 1 to enable
-      # NVIDIA_VISIBLE_DEVICES: all # enable if running with CUDA 
+      ENABLE_CUDA: 1 # set to 1 to enable
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
