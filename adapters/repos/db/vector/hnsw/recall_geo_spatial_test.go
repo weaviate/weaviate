@@ -127,7 +127,6 @@ func TestRecallGeo(t *testing.T) {
 	})
 
 	t.Run("with max dist set", func(t *testing.T) {
-		const km = 1000
 		distances := []float32{
 			0.1,
 			1,

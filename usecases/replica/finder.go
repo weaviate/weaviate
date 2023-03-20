@@ -142,6 +142,19 @@ func (f *Finder) GetAll(ctx context.Context,
 	return result.Value, err
 }
 
+func (f *Finder) CheckConsistency(ctx context.Context,
+	l ConsistencyLevel, objs []*storobj.Object,
+	scores []float32,
+) ([]*storobj.Object, []float32, error) {
+	// TODO:
+	// 1. Aggregate result set by shard
+	// 2. Aggregate the result set of a shard by node (owner of objects)
+	// 3. Set digest requests for non owning nodes
+	// 4. Check the consistency level for each shard
+	// 5. Repair for each shard
+	return objs, scores, nil
+}
+
 // Exists checks if an object exists which satisfies the giving consistency
 func (f *Finder) Exists(ctx context.Context,
 	l ConsistencyLevel,
