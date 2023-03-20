@@ -46,6 +46,7 @@ DEEP50M_GT_10 = "deep-50M-gt-10.npy"
 # Deep1M filenames
 DEEP1M =  "deep-1M.npy"
 DEEP1M_GT_10 = "deep-1M-gt-10.npy"
+DEEP1M_GT_10_DISTS = "deep-1M-gt-10-dists.npy"
 
 # 
 # Configure modules
@@ -501,6 +502,30 @@ if not os.path.exists(fname):
 
     print("saving",fname)
     numpy.save( fname, I )
+    print("done")
+
+elif VERIFY:
+    # Verify it
+    print("Found %s.  Verifying it..." % fname)
+    arr = numpy.load(fname)
+    if arr.shape[0]!=10:
+        raise Exception("Bad size for %s" % fname, arr.shape)
+    print("Verified.")
+
+# DEEP1M of DEEP1B, gt set - 10 - dists
+fname = os.path.join( FVS_DATA_DIR, DEEP1M_GT_10_DISTS )
+print("Checking ", fname,"exists...")
+if not os.path.exists(fname):
+    ds = datasets.DATASETS["deep-1M"]()
+    ds.prepare(False)
+
+    I, D = ds.get_groundtruth()
+    print(I.shape)
+    D = D[:10,:]
+    print(D.shape)
+
+    print("saving",fname)
+    numpy.save( fname, D )
     print("done")
 
 elif VERIFY:
