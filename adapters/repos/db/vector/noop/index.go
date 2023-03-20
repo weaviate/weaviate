@@ -15,11 +15,11 @@ import (
 	"context"
 	//GW
 	"fmt"
-    "golang.org/x/exp/mmap"
+    //"golang.org/x/exp/mmap"
     "sync"
     "os"
     "log"
-    goruntime "runtime"
+    //goruntime "runtime"
 	//GW
 
     //GW
@@ -56,10 +56,23 @@ type Index struct{
     count       int
 
     // the allocation_id required by gemini
-    allocation_id   string;
+    allocation_id   string
+    
+    // the gemini dataset_id 
+    dataset_id   string
 
     // the local filesystem directory required by gemini
-    gemini_dir      string;
+    data_dir  string
+
+    // indicates that the index needs retraining
+    stale       bool
+
+    // indicates the current training status from FVS
+    last_fvs_status string
+
+    // verbose printing for debugging
+    verbose     bool
+
 
 }
 //GW
@@ -69,7 +82,18 @@ func NewIndex() *Index {
 
     //GW
 
-    goruntime.Breakpoint()
+    //goruntime.Breakpoint()
+   
+    // get special verbose/debug flag if present 
+    gemini_verbose := false
+    gemini_debug_flag := os.Getenv("GEMINI_DEBUG")
+    if gemini_debug_flag == "" {
+        gemini_verbose = false
+    } else if gemini_debug_flag == "false" {
+        gemini_verbose = false
+    } else {
+        gemini_verbose = true
+    }
 
     // a valid gemini_allocation_id is required
     allocation_id := os.Getenv("GEMINI_ALLOCATION_ID")
@@ -79,19 +103,18 @@ func NewIndex() *Index {
         return nil
     }
 
-    // a valid gemini_dir is required
-    gemini_dir := os.Getenv("GEMINI_DIRECTORY")
-    fmt.Println("NOOP NewIndex", gemini_dir)
-    if gemini_dir == "" {
-        log.Fatalf("Could not find GEMINI_DIRECTORY env var.") 
+    // a valid data_dir is required for gemini files
+    data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
+    fmt.Println("NOOP NewIndex", data_dir)
+    if data_dir == "" {
+        log.Fatalf("Could not find GEMINI_DATA_DIRECTORY env var.") 
         return nil
     }
-    _, err := os.Stat(gemini_dir)
+    _, err := os.Stat(data_dir)
     if os.IsNotExist(err) {
-        log.Fatalf("The GEMINI_DIRECTORY %s is not valid (%v)", gemini_dir, err)
+        log.Fatalf("The GEMINI_DATA_DIRECTORY %s is not valid (%v)", data_dir, err)
         return nil
     }
-
 
     idx := &Index{}
     idx.name        = strfmt.UUID(uuid.New().String())
@@ -100,8 +123,11 @@ func NewIndex() *Index {
     idx.dim         = 0
     idx.count       = 0
     idx.allocation_id = allocation_id
-    idx.gemini_dir  = gemini_dir
+    idx.data_dir    = data_dir
     idx.idxLock     = &sync.RWMutex{}
+    idx.verbose     = gemini_verbose
+    idx.stale       = true
+    idx.last_fvs_status = ""
     fmt.Println("NOOP GEMINI NewIndex path=", idx.db_path)
     return idx
     //GW    
@@ -117,14 +143,14 @@ func (i *Index) Add(id uint64, vector []float32) error {
     fmt.Println("NOOP Add Before!", i.db_path)
     //GW
 
-    //GW
-    //func Append_float32_array(fname string, arr [][]float32, dim int64, count int64) {
-
     farr := make([][]float32, 1)
     farr[0] = vector
     dim := int64( len(vector) )
     fmt.Println("Add Dim", dim)
-    new_count, _, err := gemini.Append_float32_array( i.db_path, farr, int64(dim), int64(1) )
+    new_count, _, err := gemini.Numpy_append_float32_array( i.db_path, farr, int64(dim), int64(1) )
+    if err!=nil {
+        return errors.Errorf("There was a problem adding to the index backing store file.")
+    }
     
     //GW
     fmt.Println("NOOP Add After!", new_count, dim, err)
@@ -147,26 +173,20 @@ func (i *Index) Add(id uint64, vector []float32) error {
             i.count = new_count
         }
     }
-	
-    //GW
-    //farr := make([][]float32, 1)
-    //dim := int64( len(vector) )
-    //fmt.Println("Add Dim", dim)
-    //farr[0] := make([]float32, dim)
-    //for i := 0; i< 1; i++ {
-    //    farr[i] = vector
-    //}
-    //gemini.Read_float32_array( f, farr, dim, 0, 1000, 128 )
-    //
-    //gemini.Append_float32_array( "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/gsi/tests/dbase.npy", farr, dim, 1 )
-    //GW
 
+    i.stale = true
+	
     return nil
 	//GW // silently ignore
 	//GW return nil
 }
 
 func (i *Index) Delete(id uint64) error {
+
+    //GW
+    return errors.New("Delete is not supported.")
+    //GW
+
 	// silently ignore
 	return nil
 }
@@ -181,12 +201,47 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
     //GW
 
     if (i.count==0) {
-	    return nil, nil, errors.Errorf("No items in the index.")
+	    return nil, nil, errors.Errorf("No items in the gemini index.")
 
     } else {
 
-        //func Read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, index int64, count int64, offset int64) (int64,error) {
+        // Do we need to initiate a train/re-train ?
+        if ( i.stale ) {
+            if ( i.last_fvs_status == "" ) {
+                // Initiate gemini index training/re-training asynchronously
 
+                dataset_id, err := gemini.Fvs_import_dataset( "localhost", 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
+                if err!=nil {
+                    return nil, nil, errors.New("Gemini dataset import failed.")
+                } else {
+                    i.dataset_id = dataset_id
+                }
+            }
+
+            // Query the training status to get the 'last_fvs_status' field
+            status, err := gemini.Fvs_train_status( "localhost", 7761, i.allocation_id, i.dataset_id, i.verbose )
+            if err!=nil {
+                return nil, nil, errors.New("Could not get gemini index training status.")
+            }
+            i.last_fvs_status = status;
+
+            // At this point, we have an updated training status
+            if ( i.last_fvs_status == "Loaded" ) {
+                i.stale = false;
+            } else {
+                return nil, nil, errors.New("Index training in progress.  Please try again later.")
+            }
+        }
+
+        // If we got here, we can proceed with the search
+        dist, inds, _, s_err := gemini.Fvs_search( "localhost", 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        if s_err!= nil {
+            return nil, nil, errors.New("Gemini index search failed.")
+        }
+
+        return inds[0], dist[0], nil
+
+        /*
         f, _ := mmap.Open( i.db_path)
         defer f.Close()
 
@@ -205,6 +260,7 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
         iarr[0] = 0
 
         return iarr, farr[0], nil
+        */
 
     }
     //GW

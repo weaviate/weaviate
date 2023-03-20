@@ -363,7 +363,7 @@ func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id 
 
 }
 
-func Fvs_search( host string, port uint, allocation_token string, dataset_id string, path string, topk uint, verbose bool) ([][]float32, [][]int, float32, error) {
+func Fvs_search( host string, port uint, allocation_token string, dataset_id string, path string, topk uint, verbose bool) ([][]float32, [][]uint64, float32, error) {
 
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/search", host, port)
@@ -445,12 +445,12 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
 
     // reconstruct the indices returned
     inds := respData["indices"].([]interface{})
-    iarr := make([][]int, len(inds))
+    iarr := make([][]uint64, len(inds))
     for i:=0 ;i<len(inds);i++ {
         inner := inds[i].([]interface{})
-        iarr[i] = make([]int, len(inner))
+        iarr[i] = make([]uint64, len(inner))
         for j:=0;j<len(inner);j++ {
-            iarr[i][j] = int(inner[j].(float64))
+            iarr[i][j] = uint64( int(inner[j].(uint64)) )
         }                       
     } 
     if verbose {

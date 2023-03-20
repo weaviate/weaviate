@@ -77,7 +77,6 @@ with client.batch as batch:
 
 print("Done adding...")
 
-
 nearText = {"concepts": ["biology"]}
 
 result = (
