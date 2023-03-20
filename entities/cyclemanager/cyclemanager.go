@@ -21,7 +21,8 @@ type (
 	// indicates whether cyclemanager's stop was requested to allow safely
 	// break execution of CycleFunc and stop cyclemanager earlier
 	ShouldBreakFunc func() bool
-	CycleFunc       func(shouldBreak ShouldBreakFunc)
+	// return value indicates whether actual work was done in the cycle
+	CycleFunc func(shouldBreak ShouldBreakFunc) bool
 )
 
 type CycleManager struct {
@@ -71,7 +72,7 @@ func (c *CycleManager) Start() {
 				c.Unlock()
 				continue
 			}
-			c.cycleFunc(c.shouldBreakCycleCallback)
+			c.cycleTicker.CycleExecuted(c.cycleFunc(c.shouldBreakCycleCallback))
 		}
 	}()
 
