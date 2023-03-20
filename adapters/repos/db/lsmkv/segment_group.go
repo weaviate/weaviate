@@ -133,7 +133,9 @@ func newSegmentGroup(dir string,
 		out.metrics.ObjectCount(out.count())
 	}
 
-	out.compactionCycle = cyclemanager.New(compactionInterval, out.compactIfLevelsMatch)
+	out.compactionCycle = cyclemanager.New(
+		cyclemanager.NewFixedIntervalTicker(compactionInterval),
+		out.compactIfLevelsMatch)
 	out.compactionCycle.Start()
 
 	return out, nil

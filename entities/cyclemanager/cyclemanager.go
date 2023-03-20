@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 )
 
 type (
@@ -28,21 +27,21 @@ type (
 type CycleManager struct {
 	sync.RWMutex
 
-	cycleFunc     CycleFunc
-	cycleInterval time.Duration
-	running       bool
-	stopSignal    chan struct{}
+	cycleFunc   CycleFunc
+	cycleTicker CycleTicker
+	running     bool
+	stopSignal  chan struct{}
 
 	stopContexts []context.Context
 	stopResults  []chan bool
 }
 
-func New(cycleInterval time.Duration, cycleFunc CycleFunc) *CycleManager {
+func New(cycleTicker CycleTicker, cycleFunc CycleFunc) *CycleManager {
 	return &CycleManager{
-		cycleFunc:     cycleFunc,
-		cycleInterval: cycleInterval,
-		running:       false,
-		stopSignal:    make(chan struct{}, 1),
+		cycleFunc:   cycleFunc,
+		cycleTicker: cycleTicker,
+		running:     false,
+		stopSignal:  make(chan struct{}, 1),
 	}
 }
 
@@ -52,16 +51,16 @@ func (c *CycleManager) Start() {
 	c.Lock()
 	defer c.Unlock()
 
-	if c.cycleInterval <= 0 || c.running {
+	if c.running {
 		return
 	}
 
 	go func() {
-		ticker := time.NewTicker(c.cycleInterval)
-		defer ticker.Stop()
+		c.cycleTicker.Start()
+		defer c.cycleTicker.Stop()
 
 		for {
-			if c.isStopRequested(ticker) {
+			if c.isStopRequested() {
 				c.Lock()
 				if c.shouldStop() {
 					c.handleStopRequest(true)
@@ -164,10 +163,10 @@ func (c *CycleManager) shouldBreakCycleCallback() bool {
 	return c.shouldStop()
 }
 
-func (c *CycleManager) isStopRequested(ticker *time.Ticker) bool {
+func (c *CycleManager) isStopRequested() bool {
 	select {
 	case <-c.stopSignal:
-	case <-ticker.C:
+	case <-c.cycleTicker.C():
 		// as stop chan has higher priority,
 		// it is checked again in case of ticker was selected over stop if both were ready
 		select {
