@@ -20,12 +20,14 @@ import (
 	"time"
 )
 
+// _OpCode represents the type of supported operation
 type _OpCode uint8
 
 const (
 	_ProtoVersion uint8   = 1
-	_ProtoTTL             = time.Second * 60
+	_ProtoTTL             = time.Second * 20
 	_OpCodeDisk   _OpCode = 1
+	KB                    = 1 << 10
 )
 
 // TODO:
@@ -39,18 +41,20 @@ type nodeSpace struct {
 	DiskInfo
 }
 
-// proto protocol that we will speak
-type proto struct {
+// header of an operation
+type header struct {
 	// OpCode operation code
 	OpCode _OpCode
-	// ProtoVersion protocol version
+	// ProtoVersion protocol we will speak
 	ProtoVersion uint8
 }
 
 // DiskInfo disk space
 type DiskInfo struct {
-	proto
-	Total     uint64
+	header
+	// Total disk space
+	Total uint64
+	// Total available space
 	Available uint64
 }
 
@@ -63,7 +67,7 @@ func (d *nodeSpace) marshal() (data []byte, err error) {
 	return buf.Bytes(), err
 }
 
-func (d *nodeSpace) Unmarshal(data []byte) error {
+func (d *nodeSpace) unmarshal(data []byte) error {
 	rd := bytes.NewReader(data)
 	if err := binary.Read(rd, binary.BigEndian, &d.DiskInfo); err != nil {
 		return err
@@ -77,6 +81,7 @@ type delegate struct {
 	Name     string
 	dataPath string
 	sync.Mutex
+	LastTime  time.Time
 	DiskUsage map[string]DiskInfo
 }
 
@@ -86,23 +91,39 @@ func (*delegate) NodeMeta(limit int) (meta []byte) {
 
 func (d *delegate) LocalState(join bool) []byte {
 	// TODO should we return if join == true
-	space, err := diskSpace(d.dataPath)
-	if err != nil {
+	// shouldUpdate = join == true ||
+	d.Lock() // get previous state
+	prvTime, prvInfo := d.LastTime, d.DiskUsage[d.Name]
+	d.Unlock()
+	// TODO: do we need to check "join" dur < _ProtoTTL might be sufficient
+	var space DiskInfo
+	var err error
+	// Is it time to update?
+	if prvInfo.Available == 0 || time.Since(prvTime) > _ProtoTTL {
+		space, err = diskSpace(d.dataPath)
+	}
+	// no need to update if space didn't change too much
+	a, b := prvInfo.Available, space.Available
+	if err != nil || !join && ((b >= a && b-a < KB) ||
+		(a >= b && a-b < KB)) {
 		return nil
 	}
+
 	d.Set(d.Name, space) // store internally
 	x := nodeSpace{d.Name, space}
 	bytes, err := x.marshal()
 	if err != nil {
 		return nil
 	}
+	d.Lock()
+	d.LastTime = time.Now()
+	d.Unlock()
 	return bytes
 }
 
 func (d *delegate) MergeRemoteState(data []byte, join bool) {
-	// TODO should we return if join == true
 	var x nodeSpace
-	if err := x.Unmarshal(data); err != nil || x.Name == "" {
+	if err := x.unmarshal(data); err != nil || x.Name == "" {
 		return
 	}
 	d.Set(x.Name, x.DiskInfo)
@@ -141,7 +162,7 @@ func diskSpace(path string) (DiskInfo, error) {
 		return DiskInfo{}, err
 	}
 	return DiskInfo{
-		proto:     proto{OpCode: _OpCodeDisk, ProtoVersion: _ProtoVersion},
+		header:    header{OpCode: _OpCodeDisk, ProtoVersion: _ProtoVersion},
 		Total:     fs.Blocks * uint64(fs.Bsize),
 		Available: fs.Bavail * uint64(fs.Bsize),
 	}, nil

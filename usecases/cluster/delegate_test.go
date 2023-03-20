@@ -30,7 +30,7 @@ func TestDiskSpace(t *testing.T) {
 		bytes, err := want.marshal()
 		assert.Nil(t, err)
 		got := nodeSpace{}
-		err = got.Unmarshal(bytes)
+		err = got.unmarshal(bytes)
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	}
@@ -52,7 +52,7 @@ func TestDelegateGetSet(t *testing.T) {
 		spaces[i] = nodeSpace{
 			Name: fmt.Sprintf("N-%d", i+1),
 			DiskInfo: DiskInfo{
-				proto{
+				header{
 					ProtoVersion: uint8(i),
 					OpCode:       _OpCode(i + 1),
 				},
