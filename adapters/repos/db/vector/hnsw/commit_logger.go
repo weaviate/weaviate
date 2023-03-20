@@ -67,8 +67,12 @@ func NewCommitLogger(rootPath, name string,
 		return nil, err
 	}
 
-	l.switchLogCycle = cyclemanager.New(l.maintainenceInterval, l.startSwitchLogs)
-	l.condenseCycle = cyclemanager.New(l.maintainenceInterval, l.startCombineAndCondenseLogs)
+	l.switchLogCycle = cyclemanager.New(
+		cyclemanager.NewFixedIntervalTicker(l.maintainenceInterval),
+		l.startSwitchLogs)
+	l.condenseCycle = cyclemanager.New(
+		cyclemanager.NewFixedIntervalTicker(l.maintainenceInterval),
+		l.startCombineAndCondenseLogs)
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 	l.Start()
