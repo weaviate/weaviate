@@ -46,8 +46,6 @@ type RemoteIncomingRepo interface {
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
 		ids []strfmt.UUID) (result []RepairResponse, err error)
-	SearchObjects(ctx context.Context, class, shardName string,
-		params SearchParams) (SearchResults, error)
 }
 
 type RemoteReplicaIncoming struct {
@@ -130,10 +128,4 @@ func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) (result []RepairResponse, err error) {
 	return rri.repo.DigestObjects(ctx, indexName, shardName, ids)
-}
-
-func (rri *RemoteReplicaIncoming) SearchObjects(ctx context.Context,
-	indexName, shardName string, params SearchParams,
-) (SearchResults, error) {
-	return rri.repo.SearchObjects(ctx, indexName, shardName, params)
 }

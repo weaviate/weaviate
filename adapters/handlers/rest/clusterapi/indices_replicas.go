@@ -54,8 +54,6 @@ type replicator interface {
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
-	SearchObjects(ctx context.Context, class, shardName string,
-		params replica.SearchParams) (replica.SearchResults, error)
 }
 
 type localScaler interface {
@@ -75,8 +73,6 @@ var (
 		`\/shards\/([A-Za-z0-9]+)\/objects/_overwrite`)
 	regxObjectsDigest = regexp.MustCompile(`\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects/_digest`)
-	regxObjectSearch = regexp.MustCompile(`\/indices\/([A-Za-z0-9_+-]+)` +
-		`\/shards\/([A-Za-z0-9]+)\/objects/_search`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
 		`\/shards\/([A-Za-z0-9]+)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/([A-Za-z0-9_+-]+)` +
@@ -101,14 +97,6 @@ func (i *replicatedIndices) Indices() http.Handler {
 		case regxObjectsDigest.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getObjectsDigest().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-		case regxObjectSearch.MatchString(path):
-			if r.Method == http.MethodGet {
-				i.getObjectsSearch().ServeHTTP(w, r)
 				return
 			}
 
@@ -376,47 +364,6 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 		}
 
 		resBytes, err := json.Marshal(results)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Write(resBytes)
-	})
-}
-
-func (i *replicatedIndices) getObjectsSearch() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := regxObjectSearch.FindStringSubmatch(r.URL.Path)
-		if len(args) != 3 {
-			http.Error(w, "invalid URI", http.StatusBadRequest)
-			return
-		}
-
-		index, shard := args[1], args[2]
-
-		defer r.Body.Close()
-		reqPayload, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		var params replica.SearchParams
-		if err := json.Unmarshal(reqPayload, &params); err != nil {
-			http.Error(w, "unmarshal search objects params from json: "+err.Error(),
-				http.StatusBadRequest)
-			return
-		}
-
-		results, err := i.shards.SearchObjects(r.Context(), index, shard, params)
-		if err != nil {
-			http.Error(w, "search objects: "+err.Error(),
-				http.StatusInternalServerError)
-			return
-		}
-
-		resBytes, err := results.MarshalBinary()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

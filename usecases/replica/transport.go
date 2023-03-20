@@ -279,10 +279,6 @@ type rClient interface {
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
 		ids []strfmt.UUID) ([]RepairResponse, error)
-
-	// SearchObjects searches for objects with a given set of params
-	SearchObjects(_ context.Context, host, index, shard string,
-		params SearchParams) (SearchResults, error)
 }
 
 // finderClient extends RClient with consistency checks
