@@ -166,8 +166,9 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
-			return nil, nil, errors.Errorf("shard was built with an older version of " +
-				"Weaviate which does not yet support BM25 search")
+			return nil, nil, errors.Errorf(
+				"shard was built with an older version of " +
+					"Weaviate which does not yet support BM25 search")
 		}
 
 		bm25Config := s.index.getInvertedIndexConfig().BM25
@@ -195,27 +196,35 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 			filterDocIds = objs
 		}
+
+		searchFunc := func(index uint64) *storobj.Object {
+			v, _ := s.objectByIndexID(ctx, index, false)
+			return v
+		}
+
 		if keywordRanking.Type == "bm25" {
 			className := s.index.Config.ClassName
-			bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object { v, _ := s.objectByIndexID(ctx, index, false); return v })
+			bm25objs, bm25count, err = bm25searcher.BM25F(ctx,
+				filterDocIds, className, limit, keywordRanking,
+				filters, sort, additional, searchFunc)
 			if err != nil {
 				return nil, nil, err
 			}
 		} else {
-
-			bm25objs, bm25count, err = bm25searcher.Objects(ctx, filterDocIds, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+			bm25objs, bm25count, err = bm25searcher.Objects(ctx,
+				filterDocIds, limit, keywordRanking, filters,
+				sort, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
 			}
-
 		}
 
 		return bm25objs, bm25count, nil
-
 	}
 
 	if filters == nil {
-		objs, err := s.objectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName)
+		objs, err := s.objectList(ctx, limit, sort,
+			cursor, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
 	objs, err := inverted.NewSearcher(s.index.logger, s.store,

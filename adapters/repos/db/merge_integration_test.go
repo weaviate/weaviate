@@ -268,7 +268,7 @@ func Test_MergingObjects(t *testing.T) {
 			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)
@@ -321,7 +321,7 @@ func Test_MergingObjects(t *testing.T) {
 			"weaviate://localhost/MergeTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target2, target3, target4}
-		refs := make(objects.BatchReferences, len(targets), len(targets))
+		refs := make(objects.BatchReferences, len(targets))
 		for i, target := range targets {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/%s", target))
 			require.Nil(t, err)

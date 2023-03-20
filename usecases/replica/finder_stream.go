@@ -29,7 +29,6 @@ type finderStream struct {
 }
 
 type (
-
 	// tuple is a container for the data received from a replica
 	tuple[T any] struct {
 		sender string
@@ -138,7 +137,7 @@ func (f *finderStream) readAll(ctx context.Context,
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
-			if r.Err != nil { // a least one node is not responding
+			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "get").WithField("replica", r.Value.Sender).
 					WithField("class", f.class).WithField("shard", shard).Error(r.Err)
 				resultCh <- batchResult{nil, errRead}
@@ -203,7 +202,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
-			if r.Err != nil { // a least one node is not responding
+			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
