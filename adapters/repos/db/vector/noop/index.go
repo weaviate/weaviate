@@ -18,6 +18,8 @@ import (
     "golang.org/x/exp/mmap"
     "sync"
     "os"
+    "log"
+    goruntime "runtime"
 	//GW
 
     //GW
@@ -52,6 +54,13 @@ type Index struct{
 
     // the current record size of this index
     count       int
+
+    // the allocation_id required by gemini
+    allocation_id   string;
+
+    // the local filesystem directory required by gemini
+    gemini_dir      string;
+
 }
 //GW
 
@@ -59,12 +68,39 @@ func NewIndex() *Index {
 	//GW return &Index{}
 
     //GW
+
+    goruntime.Breakpoint()
+
+    // a valid gemini_allocation_id is required
+    allocation_id := os.Getenv("GEMINI_ALLOCATION_ID")
+    fmt.Println("NOOP NewIndex", allocation_id)
+    if allocation_id == "" {
+        log.Fatalf("Could not find GEMINI_ALLOCATIONID env var.") 
+        return nil
+    }
+
+    // a valid gemini_dir is required
+    gemini_dir := os.Getenv("GEMINI_DIRECTORY")
+    fmt.Println("NOOP NewIndex", gemini_dir)
+    if gemini_dir == "" {
+        log.Fatalf("Could not find GEMINI_DIRECTORY env var.") 
+        return nil
+    }
+    _, err := os.Stat(gemini_dir)
+    if os.IsNotExist(err) {
+        log.Fatalf("The GEMINI_DIRECTORY %s is not valid (%v)", gemini_dir, err)
+        return nil
+    }
+
+
     idx := &Index{}
     idx.name        = strfmt.UUID(uuid.New().String())
     idx.db_path     = fmt.Sprintf("/var/lib/weaviate/%s.npy", idx.name.String())
     idx.first_add   = true
     idx.dim         = 0
     idx.count       = 0
+    idx.allocation_id = allocation_id
+    idx.gemini_dir  = gemini_dir
     idx.idxLock     = &sync.RWMutex{}
     fmt.Println("NOOP GEMINI NewIndex path=", idx.db_path)
     return idx

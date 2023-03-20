@@ -19,7 +19,9 @@ import (
 	"math/rand"
 	"sync"
 	"time"
-
+    //GW
+    goruntime "runtime"
+    //GW
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -190,6 +192,7 @@ type (
 func New(cfg Config, uc ent.UserConfig) (*gemini, error) {
 
 	//GW
+    goruntime.Breakpoint()
 	fmt.Println("GEMINI New!")
 	//GW
 

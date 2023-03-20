@@ -58,6 +58,9 @@ type UserConfig struct {
 	VectorCacheMaxObjects  int    `json:"vectorCacheMaxObjects"`
 	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
 	Distance               string `json:"distance"`
+//GW
+
+//GW
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure

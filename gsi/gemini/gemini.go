@@ -5,31 +5,641 @@ import (
     "fmt"
     "log"
     "math"
+    "net/http"
+    "encoding/json"
+    "bytes"
+    "io/ioutil"
+    //"reflect"
+    "strconv"
+    "errors"
 
     mmapgo "github.com/edsrzf/mmap-go"
     "encoding/binary"
     "golang.org/x/exp/mmap"
 )
 
-// Hello returns a greeting for the named person.
-func Hello(name string) string {
-    // Return a greeting that embeds the name in a message.
-    message := fmt.Sprintf("Hi, %v. Welcome!", name)
-    return message
+
+func Fvs_import_dataset( host string, port uint, allocation_token string, path string, bits uint, verbose bool ) (string, error) {
+    // form the rest url        
+    url := fmt.Sprintf("http://%s:%d/v1.0/dataset/import", host, port)
+    if verbose {                
+        fmt.Println("Fvs_import_dataset: url=", url)
+    }                           
+                                
+    // create the post json payload
+    //{"dsFilePath": "/home/public/deep-1M.npy", "searchType": "flat", "trainInd": true, "gridTrain": false, "nbits": 768, "qbits": 768, "targetAccuracy": 100, "mdUnique": false, "convertToDataset": false}
+    values := map[string]interface{}{ "dsFilePath": path,
+                                    "searchType": "flat",
+                                    "trainInd": true,
+                                    "gridTrain": false,
+                                    "nbits": bits,
+                                    "qbits": 768,
+                                    "targetAccuracy": 100,
+                                    "mdUnique": false,
+                                    "convertToDataset": false }
+    jsonValue, jErr := json.Marshal(values)
+    if jErr != nil {
+        return "", jErr
+    }
+    if verbose {
+        fmt.Println("Fvs_import_dataset: body json=", jsonValue)
+    }
+        
+    // form a request object
+    request, rErr := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
+    if rErr != nil {
+        return "", rErr
+    }
+    
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+
+    // perform the request
+    client := &http.Client{}
+    response, dErr := client.Do(request)
+    if dErr != nil {
+        return "", dErr
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_import_dataset: response Status:", response.Status)
+        fmt.Println("Fvs_import_dataset: response Headers:", response.Header)
+        fmt.Println("Fvs_import_dataset: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    juErr := json.Unmarshal( respbody, &respData)
+    if juErr != nil {
+        return "", juErr
+    }
+    if verbose {
+        fmt.Println("Fvs_import_dataset: json resp=", respData, rErr)
+    }
+
+    // reconstruct the dataset id
+    did := respData["datasetId"].(string)
+    if verbose {
+        fmt.Println("Fvs_import_dataset : dataset id=",did)
+    }
+
+    return did, nil
+
 }
 
-// Hello returns a greeting for the named person.
-func Hello2(name string) string {
-    // Return a greeting that embeds the name in a message.
-    message := fmt.Sprintf("Hi, %v. Welcome!", name)
-    return message
+func Fvs_train_status( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+    // form the rest url
+    url := fmt.Sprintf("http://%s:%d/v1.0/dataset/train/status/%s", host, port, dataset_id)
+    if verbose {
+        fmt.Println("Fvs_train_status: url=", url)
+    }
+
+    // form a request object
+    request, rErr := http.NewRequest("GET", url, nil)
+    if rErr != nil {
+        return "error", rErr
+    }
+
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+
+    // perform the request
+    client := &http.Client{}
+    response, dErr := client.Do(request)
+    if dErr != nil {
+        return "error", dErr
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_train_status: response Status:", response.Status)
+        fmt.Println("Fvs_train_status: response Headers:", response.Header)
+        fmt.Println("Fvs_train_status: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    juErr := json.Unmarshal( respbody, &respData)
+    if juErr != nil {
+        return "", juErr
+    }
+    if verbose {
+        fmt.Println("Fvs_train_status: json resp=", respData, rErr)
+    }
+
+    // check http status
+    if response.Status != "200 OK" {
+        return "error", errors.New("The resource is not valid.")
+    }
+
+    // reconstruct the queries id returned
+    status := respData["datasetStatus"].(string)
+    if verbose {
+        fmt.Println("Fvs_train_status: status=",status)
+    }
+
+    return status, nil
 }
 
-func Yo( dim int64, index int64, count int64, offset int64 ) int64 {
-    return 1
+func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string,error) {
+    // form the rest url        
+    url := fmt.Sprintf("http://%s:%d/v1.0/dataset/load", host, port)
+    if verbose {
+        fmt.Println("Fvs_load_dataset: url=", url)
+    }
+
+    // create the post json payload
+    //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "7e3a75f6-9996-4ffe-9cb1-84f7e5d0366b", "typicalNQueries": 10, "maxNQueries": 3100, "normalize": false, "centroidsHammingK": 5000, "centroidsRerank": 4000, "hammingK": 3200, "topk": 1000, "bitmasksInd": false, "asyncLoad": false}
+    values := map[string]interface{}{
+                                "allocationId": allocation_token,
+                                "datasetId": dataset_id,
+                                "typicalNQueries": 10,
+                                "maxNQueries": 3100,
+                                "normalize": false,
+                                "centroidsHammingK": 5000,
+                                "centroidsRerank": 4000,
+                                "hammingK": 3200,
+                                "topk": 1000,
+                                "bitmasksInd": false,
+                                "asyncLoad": false }
+    jsonValue, err := json.Marshal(values)
+    if err != nil {
+        return "", err
+    }
+    if verbose {
+        fmt.Println("Fvs_load_dataset: body json=", jsonValue)
+    }
+   
+    // form a request object    
+    request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
+    if err != nil {             
+        return "", err
+    }
+
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+
+    // perform the request
+    client := &http.Client{}
+    response, err := client.Do(request)
+    if err != nil {
+        return "", err
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_load_dataset: response Status:", response.Status)
+        fmt.Println("Fvs_load_dataset: response Headers:", response.Header)
+        fmt.Println("Fvs_load_dataset: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    rErr := json.Unmarshal( respbody, &respData)
+    if rErr != nil {
+        return "", rErr
+    }
+    if verbose {
+        fmt.Println("Fvs_load_dataset: json resp=", respData, rErr)
+    }
+
+    status := respData["status"].(string)
+    if verbose {
+        fmt.Println("Fvs_load_dataset: status=",status)
+    }
+ 
+    return status, nil
 }
 
-func Read_uint32_array(f *mmap.ReaderAt, arr [][]uint32, dim int64, index int64, count int64, offset int64) (int64,error) {
+func Fvs_import_queries( host string, port uint, allocation_token string, path string, verbose bool ) (string, error) {
+    // form the rest url
+    url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/import", host, port)
+    if verbose {
+        fmt.Println("Fvs_import_queries: url=", url)
+    }
+    
+    // create the post json payload
+    //{"queriesFilePath": "/home/public/deep-queries-10.npy"}
+    values := map[string]interface{}{
+                                "queriesFilePath": path}
+    jsonValue, jErr := json.Marshal(values)
+    if jErr != nil {
+        return "", jErr
+    }
+    if verbose {
+        fmt.Println("Fvs_import_queries: body json=", jsonValue)
+    }
+  
+    // form a request object
+    request, rErr := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
+    if rErr != nil {
+        return "", rErr
+    }
+
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+
+    // perform the request
+    client := &http.Client{}
+    response, dErr := client.Do(request)
+    if dErr != nil {
+        return "", dErr
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_import_queries: response Status:", response.Status)
+        fmt.Println("Fvs_import_queries: response Headers:", response.Header)
+        fmt.Println("Fvs_import_queries: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    juErr := json.Unmarshal( respbody, &respData)
+    if juErr != nil {
+        return "", juErr
+    }
+    if verbose {
+        fmt.Println("Fvs_import_queries: json resp=", respData, rErr)
+    }
+
+    // reconstruct the queries id returned
+    aq := respData["addedQuery"].(map[string]interface{})
+    qid := aq["id"].(string)
+    if verbose {
+        fmt.Println("Fvs_import_queries : query id=",qid)
+    }
+
+    return qid, nil
+
+}
+
+func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id string, verbose bool ) error {
+
+   // form the rest url
+    url := fmt.Sprintf("http://%s:%d/v1.0/dataset/focus", host, port)
+    if verbose {
+        fmt.Println("Fvs_set_focust: url=", url)
+    }
+
+    // create the post json payload
+    //{'allocationId': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'datasetId': 'cbd7c113-b700-4b32-9bf6-0b9205b7525e'} 
+    values := map[string]interface{}{
+                                "allocationId": allocation_token,
+                                "datasetId": dataset_id}
+    jsonValue, err := json.Marshal(values)
+    if err != nil {
+        return nil
+    }
+    if verbose {
+        fmt.Println("Fvs_set_focus: body json=", jsonValue)
+    }
+  
+    // form a request object
+    request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
+    if err != nil {
+        return nil
+    }
+
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+
+    // perform the request
+    client := &http.Client{}
+    response, err := client.Do(request)
+    if err != nil {
+        return nil
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_set_focus: response Status:", response.Status)
+        fmt.Println("Fvs_set_focus: response Headers:", response.Header)
+        fmt.Println("Fvs_set_focus: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    rErr := json.Unmarshal( respbody, &respData)
+    if rErr != nil {
+        return nil
+    }
+    if verbose {
+        fmt.Println("Fvs_set_focus: json resp=", respData, rErr)
+    }
+
+    return nil
+
+}
+
+func Fvs_search( host string, port uint, allocation_token string, dataset_id string, path string, topk uint, verbose bool) ([][]float32, [][]int, float32, error) {
+
+    // form the rest url
+    url := fmt.Sprintf("http://%s:%d/v1.0/dataset/search", host, port)
+    if verbose {
+        fmt.Println("Fvs_search: url=", url)
+    }
+   
+    // compose the post body
+    //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "c37e9f7c-7ed0-4029-bbd7-353264614432", "queriesFilePath": "/home/public/deep-queries-10.npy", "topk": 10} 
+    values := map[string]interface{}{
+                                "allocationId": allocation_token,
+                                "datasetId": dataset_id, 
+                                "queriesFilePath": path,
+                                "topk": 10 }
+    jsonValue, err := json.Marshal(values)
+    if err != nil {
+        return nil, nil, 0, err
+    }
+    if verbose {
+        fmt.Println("Fvs_search: body json=", jsonValue)
+    }
+
+    // form a request object
+    request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
+    if err != nil {
+        return nil, nil, 0, err
+    }
+
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+
+    // perform the request
+    client := &http.Client{}
+    response, err := client.Do(request)
+    if err != nil {
+        return nil, nil, 0, err
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_search: response Status:", response.Status)
+        fmt.Println("Fvs_search: response Headers:", response.Header)
+        fmt.Println("Fvs_search: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    rErr := json.Unmarshal( respbody, &respData)
+    if rErr != nil {
+        return nil, nil, 0, rErr
+    }
+    if verbose {
+        fmt.Println("Fvs_search: json resp=", respData, rErr)
+    }
+    
+    // reconstruct the distances returned
+    dist := respData["distance"].([]interface{})
+    farr := make([][]float32, len(dist))
+    for i:=0 ;i<len(dist);i++ {
+        inner := dist[i].([]interface{}) 
+        farr[i] = make([]float32, len(inner))
+        for j:=0;j<len(inner);j++ {
+            ff, fErr := strconv.ParseFloat(inner[j].(string),32)
+            if fErr!= nil { 
+                return nil, nil, 0, fErr
+            }
+            farr[i][j] = float32(ff)
+        }
+    }
+    if verbose {
+        fmt.Println("Fvs search: reconstructed dists=", farr )
+    }
+
+    // reconstruct the indices returned
+    inds := respData["indices"].([]interface{})
+    iarr := make([][]int, len(inds))
+    for i:=0 ;i<len(inds);i++ {
+        inner := inds[i].([]interface{})
+        iarr[i] = make([]int, len(inner))
+        for j:=0;j<len(inner);j++ {
+            iarr[i][j] = int(inner[j].(float64))
+        }                       
+    } 
+    if verbose {
+        fmt.Println("Fvs search: reconstructed inds=", iarr )
+    }
+
+    // reconstruct the timing
+    timing := float32( respData["search"].(float64) )
+    if verbose {
+        fmt.Println("Fvs search: reconstructed timing=", timing )
+    }
+
+    return farr, iarr, timing, nil
+}
+
+func Fvs_delete_queries( host string, port uint, allocation_token string, qid string, verbose bool) (string, error) {
+    // form the rest url
+    url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/remove/%s", host, port, qid)
+   
+    // form a request object
+    request, err := http.NewRequest("DELETE", url, nil)
+    if err!=nil {
+        return "", err
+    }
+
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+
+    // perform the request
+    client := &http.Client{}
+    response, err := client.Do(request)
+    if err != nil {
+        return "", err
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_delete_queries: response Status:", response.Status)
+        fmt.Println("Fvs_delete_queries: response Headers:", response.Header)
+        fmt.Println("Fvs_delete_queries: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    rErr := json.Unmarshal( respbody, &respData)
+    if rErr != nil {
+        return "", rErr
+    }
+    if verbose {
+        fmt.Println("Fvs_delete_queries: json resp=", respData, rErr)
+    }
+
+    // TODO:  Not sure what the response is all about
+    //status := respData["status"].(string)
+    //if verbose {
+    //    fmt.Println("Fvs_delete_queries: status=",status)
+    //}
+
+    return "ok", nil
+}
+
+func Fvs_unload_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+
+    // form the rest url
+    url := fmt.Sprintf("http://%s:%d/v1.0/dataset/unload", host, port)
+    if verbose {
+        fmt.Println("Fvs_unload_dataset: url=", url)
+    }
+    
+    // create the post json payload
+    //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "fdebfbac-8608-486c-aae0-f203e7d9993a", "asyncUnload": false} 
+    values := map[string]interface{}{
+                                "allocationId": allocation_token,
+                                "datasetId": dataset_id,
+                                "asyncUnload": false }
+    jsonValue, err := json.Marshal(values)
+    if err != nil {
+        return "", err
+    }
+    if verbose {
+        fmt.Println("Fvs_unload_dataset: body json=", jsonValue)
+    }
+  
+    // form a request object
+    request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
+    if err != nil {
+        return "", err
+    }
+
+    // add headers
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+
+    // perform the request
+    client := &http.Client{}
+    response, err := client.Do(request)
+    if err != nil {
+        return "", err
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_unload_dataset: response Status:", response.Status)
+        fmt.Println("Fvs_unload_dataset: response Headers:", response.Header)
+        fmt.Println("Fvs_unload_dataset: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    rErr := json.Unmarshal( respbody, &respData)
+    if rErr != nil {
+        return "", rErr
+    }
+    if verbose {
+        fmt.Println("Fvs_unload_dataset: json resp=", respData, rErr)
+    }
+
+    status := respData["status"].(string)
+    if verbose {
+        fmt.Println("Fvs_unload_dataset: status=",status)
+    }
+
+    return status, nil
+
+
+}
+
+func Fvs_delete_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+    // form the rest url
+    url := fmt.Sprintf("http://%s:%d/v1.0/dataset/remove/%s", host, port, dataset_id)
+  
+    // form a request object
+    request, err := http.NewRequest("DELETE", url, nil)
+    if err!=nil {
+        return "", err 
+    }       
+
+    // add headers 
+    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
+    request.Header.Set("allocationToken", allocation_token)
+    request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
+
+    // perform the request
+    client := &http.Client{}
+    response, err := client.Do(request)
+    if err != nil {
+        return "", err
+    }
+    defer response.Body.Close()
+
+    // retrieve response
+    respbody, _ := ioutil.ReadAll(response.Body)
+    if verbose {
+        fmt.Println("Fvs_delete_dataset: response Status:", response.Status)
+        fmt.Println("Fvs_delete_dataset: response Headers:", response.Header)
+        fmt.Println("Fvs_delete_dataset: response Body:", string(respbody))
+    }
+
+    // parse the json response
+    respData := map[string]interface{}{}
+    rErr := json.Unmarshal( respbody, &respData)
+    if rErr != nil {
+        return "", rErr
+    }
+    if verbose {
+        fmt.Println("Fvs_delete_dataset: json resp=", respData, rErr)
+    }
+
+    status := respData["status"].(string)
+    if verbose {
+        fmt.Println("Fvs_delete_dataset: status=",status)
+    }
+
+    return status, nil
+
+}
+
+
+// Read a uint32 array from data stored in numpy format
+func Numpy_read_uint32_array(f *mmap.ReaderAt, arr [][]uint32, dim int64, index int64, count int64, offset int64) (int64,error) {
 
     // Iterate rows
     for j := 0; j < int(count); j++ {
@@ -56,7 +666,8 @@ func Read_uint32_array(f *mmap.ReaderAt, arr [][]uint32, dim int64, index int64,
     return dim, nil
 }
 
-func Read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, index int64, count int64, offset int64) (int64,error) {
+// Read a float32 array from data stored in numpy format
+func Numpy_read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, index int64, count int64, offset int64) (int64,error) {
 
     // Iterate rows
     for j := 0; j < int(count); j++ {
@@ -86,7 +697,8 @@ func Read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, index int6
     return dim, nil
 }
 
-func Append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) {
+// Write a uint32 array to a file in numpy format
+func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) {
 
     preheader := []byte{0x93,0x4e,0x55,0x4d,0x50,0x59,0x01,0x00,0x76,0x00}
     fmt_header := "{'descr': '<i4', 'fortran_order': False, 'shape': (%d, %d), }"
@@ -186,7 +798,8 @@ func Append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) {
 
 }
 
-func Append_float32_array(fname string, arr [][]float32, dim int64, count int64) (int, int, error) {
+// Write a float32 array to a file in numpy format
+func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count int64) (int, int, error) {
 
     preheader := []byte{0x93,0x4e,0x55,0x4d,0x50,0x59,0x01,0x00,0x76,0x00}
     fmt_header := "{'descr': '<f4', 'fortran_order': False, 'shape': (%d, %d), }"
