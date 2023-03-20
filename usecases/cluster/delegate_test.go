@@ -53,7 +53,7 @@ func TestDelegateGetSet(t *testing.T) {
 	st.delegate.NotifyMsg(nil)
 	st.delegate.GetBroadcasts(0, 0)
 	st.delegate.NodeMeta(0)
-	spaces := make([]spaceRequest, 16)
+	spaces := make([]spaceRequest, 32)
 	for i := range spaces {
 		spaces[i] = spaceRequest{
 			Name: fmt.Sprintf("N-%d", i+1),
@@ -93,6 +93,8 @@ func TestDelegateGetSet(t *testing.T) {
 
 	}
 	assert.Empty(t, st.delegate.DiskUsage)
+	st.delegate.init()
+	assert.Equal(t, 1, len(st.delegate.DiskUsage))
 
 	st.delegate.MergeRemoteState(st.delegate.LocalState(false), false)
 	space, ok := st.NodeInfo(st.delegate.Name)

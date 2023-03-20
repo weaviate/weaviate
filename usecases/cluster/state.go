@@ -46,6 +46,9 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 			DiskUsage: make(map[string]NodeInfo, 32),
 		},
 	}
+	if err := state.delegate.init(); err != nil {
+		logger.WithField("action", "init_state.delete_init").Error(err)
+	}
 	cfg.Delegate = &state.delegate
 	if userConfig.Hostname != "" {
 		cfg.Name = userConfig.Hostname

@@ -14,6 +14,7 @@ package cluster
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"sort"
 	"sync"
 	"syscall"
@@ -92,11 +93,24 @@ type delegate struct {
 	Name     string
 	dataPath string
 	sync.Mutex
-	LastTime  time.Time
 	DiskUsage map[string]NodeInfo
 }
 
-func (*delegate) NodeMeta(limit int) (meta []byte) {
+func (d *delegate) init() error {
+	d.DiskUsage = make(map[string]NodeInfo, 32)
+	space, err := diskSpace(d.dataPath)
+	if err != nil {
+		return fmt.Errorf("disk_space: %w", err)
+	}
+
+	d.Set(d.Name, NodeInfo{space, time.Now()}) // cache
+	return nil
+}
+
+// NodeMeta is used to retrieve meta-data about the current node
+// when broadcasting an alive message. It's length is limited to
+// the given byte size. This metadata is available in the Node structure.
+func (d *delegate) NodeMeta(limit int) (meta []byte) {
 	return nil
 }
 
@@ -105,33 +119,33 @@ func (*delegate) NodeMeta(limit int) (meta []byte) {
 // data can be sent here. See MergeRemoteState as well. The `join`
 // boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) LocalState(join bool) []byte {
-	d.Lock() // get previous state
-	prvTime, prvInfo := d.LastTime, d.DiskUsage[d.Name]
-	d.Unlock()
+	prv, _ := d.Get(d.Name) // value from cache
 	var (
-		space NodeInfo
-		err   error
+		info NodeInfo = prv
+		err  error
 	)
-	// Is it time to update?
-	if prvInfo.Available == 0 || time.Since(prvTime) > _ProtoTTL {
-		space.DiskSpace, err = diskSpace(d.dataPath)
-	}
-	// no need to update if space didn't change too much
-	a, b := prvInfo.Available, space.Available
-	if err != nil || !join && ((b >= a && b-a < KB) ||
-		(a >= b && a-b < KB)) {
-		return nil
+	// renew cached value if ttl expires
+	if prv.Available == 0 || time.Since(prv.LastTime) > _ProtoTTL {
+		info.DiskSpace, err = diskSpace(d.dataPath)
+		if err != nil {
+			return nil
+		}
+		info.LastTime = time.Now()
 	}
 
-	d.Set(d.Name, space) // store internally
-	x := spaceRequest{header{OpCode: 1, ProtoVersion: _ProtoVersion}, space.DiskSpace, d.Name}
+	if !prv.LastTime.Equal(info.LastTime) {
+		d.Set(d.Name, info) // cache new value
+	}
+
+	x := spaceRequest{
+		header{OpCode: 1, ProtoVersion: _ProtoVersion},
+		info.DiskSpace,
+		d.Name,
+	}
 	bytes, err := x.marshal()
 	if err != nil {
 		return nil
 	}
-	d.Lock()
-	d.LastTime = time.Now()
-	d.Unlock()
 	return bytes
 }
 
