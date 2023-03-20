@@ -36,9 +36,10 @@ const (
 // cache disk space
 // send disk info if join == true otherwise when TTL expires
 
-type nodeSpace struct {
-	Name string
+type spaceRequest struct {
+	header
 	DiskInfo
+	Name string
 }
 
 // header of an operation
@@ -51,15 +52,17 @@ type header struct {
 
 // DiskInfo disk space
 type DiskInfo struct {
-	header
 	// Total disk space
 	Total uint64
 	// Total available space
 	Available uint64
 }
 
-func (d *nodeSpace) marshal() (data []byte, err error) {
-	buf := bytes.NewBuffer(make([]byte, 0, 16+len(d.Name)))
+func (d *spaceRequest) marshal() (data []byte, err error) {
+	buf := bytes.NewBuffer(make([]byte, 0, 18+len(d.Name)))
+	if err := binary.Write(buf, binary.BigEndian, d.header); err != nil {
+		return nil, err
+	}
 	if err := binary.Write(buf, binary.BigEndian, d.DiskInfo); err != nil {
 		return nil, err
 	}
@@ -67,8 +70,11 @@ func (d *nodeSpace) marshal() (data []byte, err error) {
 	return buf.Bytes(), err
 }
 
-func (d *nodeSpace) unmarshal(data []byte) error {
+func (d *spaceRequest) unmarshal(data []byte) error {
 	rd := bytes.NewReader(data)
+	if err := binary.Read(rd, binary.BigEndian, &d.header); err != nil {
+		return err
+	}
 	if err := binary.Read(rd, binary.BigEndian, &d.DiskInfo); err != nil {
 		return err
 	}
@@ -89,15 +95,18 @@ func (*delegate) NodeMeta(limit int) (meta []byte) {
 	return nil
 }
 
+// LocalState is used for a TCP Push/Pull. This is sent to
+// the remote side in addition to the membership information. Any
+// data can be sent here. See MergeRemoteState as well. The `join`
+// boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) LocalState(join bool) []byte {
-	// TODO should we return if join == true
-	// shouldUpdate = join == true ||
 	d.Lock() // get previous state
 	prvTime, prvInfo := d.LastTime, d.DiskUsage[d.Name]
 	d.Unlock()
-	// TODO: do we need to check "join" dur < _ProtoTTL might be sufficient
-	var space DiskInfo
-	var err error
+	var (
+		space DiskInfo
+		err   error
+	)
 	// Is it time to update?
 	if prvInfo.Available == 0 || time.Since(prvTime) > _ProtoTTL {
 		space, err = diskSpace(d.dataPath)
@@ -110,7 +119,7 @@ func (d *delegate) LocalState(join bool) []byte {
 	}
 
 	d.Set(d.Name, space) // store internally
-	x := nodeSpace{d.Name, space}
+	x := spaceRequest{header{OpCode: 1, ProtoVersion: _ProtoVersion}, space, d.Name}
 	bytes, err := x.marshal()
 	if err != nil {
 		return nil
@@ -121,8 +130,12 @@ func (d *delegate) LocalState(join bool) []byte {
 	return bytes
 }
 
+// MergeRemoteState is invoked after a TCP Push/Pull. This is the
+// state received from the remote side and is the result of the
+// remote side's LocalState call. The 'join'
+// boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) MergeRemoteState(data []byte, join bool) {
-	var x nodeSpace
+	var x spaceRequest
 	if err := x.unmarshal(data); err != nil || x.Name == "" {
 		return
 	}
@@ -162,7 +175,6 @@ func diskSpace(path string) (DiskInfo, error) {
 		return DiskInfo{}, err
 	}
 	return DiskInfo{
-		header:    header{OpCode: _OpCodeDisk, ProtoVersion: _ProtoVersion},
 		Total:     fs.Blocks * uint64(fs.Bsize),
 		Available: fs.Bavail * uint64(fs.Bsize),
 	}, nil

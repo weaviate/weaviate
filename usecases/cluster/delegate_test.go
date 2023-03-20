@@ -20,16 +20,20 @@ import (
 
 func TestDiskSpace(t *testing.T) {
 	for _, name := range []string{"", "host-12:1", "2", "00", "-jhd"} {
-		want := nodeSpace{
-			name,
+		want := spaceRequest{
+			header{
+				ProtoVersion: uint8(1),
+				OpCode:       _OpCode(2),
+			},
 			DiskInfo{
 				Total:     256,
 				Available: 3,
 			},
+			name,
 		}
 		bytes, err := want.marshal()
 		assert.Nil(t, err)
-		got := nodeSpace{}
+		got := spaceRequest{}
 		err = got.unmarshal(bytes)
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
@@ -47,15 +51,11 @@ func TestDelegateGetSet(t *testing.T) {
 	st.delegate.NotifyMsg(nil)
 	st.delegate.GetBroadcasts(0, 0)
 	st.delegate.NodeMeta(0)
-	spaces := make([]nodeSpace, 16)
+	spaces := make([]spaceRequest, 16)
 	for i := range spaces {
-		spaces[i] = nodeSpace{
+		spaces[i] = spaceRequest{
 			Name: fmt.Sprintf("N-%d", i+1),
 			DiskInfo: DiskInfo{
-				header{
-					ProtoVersion: uint8(i),
-					OpCode:       _OpCode(i + 1),
-				},
 				uint64(i + 1),
 				uint64(i),
 			},
