@@ -19,9 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -144,43 +142,16 @@ func (f *Finder) GetAll(ctx context.Context,
 	return result.Value, err
 }
 
-func (f *Finder) Search(ctx context.Context,
-	l ConsistencyLevel, shard string,
-	limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties,
-) (map[strfmt.UUID]SearchResults, error) {
-	c := newReadCoordinator[searchReply](f, shard)
-	op := func(ctx context.Context, host string, fullRead bool) (searchReply, error) {
-		params := SearchParams{limit, filters, keywordRanking, sort, cursor, addlProps}
-		xs, err := f.client.cl.SearchObjects(ctx, host, f.class, shard, params)
-		return searchReply{Sender: host, Data: xs}, err
-	}
-	replyCh, state, err := c.Pull(ctx, l, op)
-	if err != nil {
-		f.log.WithField("op", "pull.all").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
-	}
-	result := <-f.readSearch(ctx, shard, replyCh, state)
-	if err = result.Err; err != nil {
-		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, err)
-	}
-
-	return result.Value, nil
-}
-
-func (f *Finder) CheckConsistency(results map[strfmt.UUID]SearchResults,
+func (f *Finder) CheckConsistency(ctx context.Context,
+	l ConsistencyLevel, objs []*storobj.Object,
+	scores []float32,
 ) ([]*storobj.Object, []float32, error) {
-	objs := make([]*storobj.Object, len(results))
-	scores := make([]float32, len(results))
-
-	i := 0
-	for _, res := range results {
-		objs[i] = res[0].Object
-		scores[i] = res[0].Score
-		i++
-	}
+	// TODO:
+	// 1. Aggregate result set by shard
+	// 2. Aggregate the result set of a shard by node (owner of objects)
+	// 3. Set digest requests for non owning nodes
+	// 4. Check the consistency level for each shard
+	// 5. Repair for each shard
 	return objs, scores, nil
 }
 

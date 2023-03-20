@@ -183,42 +183,6 @@ func (f *finderStream) readAll(ctx context.Context,
 	return resultCh
 }
 
-type searchResult _Result[map[strfmt.UUID]SearchResults]
-
-// readAll reads in replicated objects specified by their ids
-func (f *finderStream) readSearch(ctx context.Context,
-	shard string,
-	ch <-chan _Result[searchReply], st rState,
-) <-chan searchResult {
-	resultCh := make(chan searchResult, 1)
-	go func() {
-		results := make(map[strfmt.UUID]SearchResults)
-		defer close(resultCh)
-		for r := range ch {
-			for _, res := range r.Value.Data {
-				objs, found := results[res.Object.ID()]
-				if !found {
-					results[res.Object.ID()] = SearchResults{res}
-				} else {
-					objsPtr := &objs
-					*objsPtr = append(*objsPtr, res)
-				}
-			}
-		}
-		resultCh <- searchResult{results, nil}
-	}()
-	return resultCh
-}
-
-// searchReply holds search results from each replica
-// This includes the scores as well as the objects
-type searchReply struct {
-	// Sender hostname of the sender
-	Sender string
-	// Data search results from the replica
-	Data SearchResults
-}
-
 type boolTuple tuple[RepairResponse]
 
 // readExistence checks if replicated object exists

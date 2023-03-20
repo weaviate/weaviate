@@ -807,20 +807,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	}
 
-	var (
-		outObjects []*storobj.Object
-		outScores  []float32
-		err        error
-	)
-
-	if i.replicationEnabled() {
-		outObjects, outScores, err = i.replicatedObjectSearchByShard(ctx, limit,
-			filters, keywordRanking, sort, cursor, addlProps, replProps, shardNames)
-	} else {
-		outObjects, outScores, err = i.objectSearchByShard(ctx, limit,
-			filters, keywordRanking, sort, cursor, addlProps, shardNames)
-	}
-
+	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
+		filters, keywordRanking, sort, cursor, addlProps, shardNames)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -884,39 +872,19 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	return outObjects, outScores, nil
-}
-
-func (i *Index) replicatedObjectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, replProps *additional.ReplicationProperties, shards []string,
-) ([]*storobj.Object, []float32, error) {
-	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
-	for _, shardName := range shards {
+	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = defaultConsistency()
+			replProps = defaultConsistency(replica.One)
 		}
-
-		results, err := i.replicator.Search(ctx,
-			replica.ConsistencyLevel(replProps.ConsistencyLevel),
-			shardName, limit, filters, keywordRanking, sort, cursor,
-			addlProps)
-		if err != nil {
-			return nil, nil, fmt.Errorf(
-				"failed to relay object search across replicas: %w", err)
-		}
-
-		objs, scores, err := i.replicator.CheckConsistency(results)
+		outObjects, outScores, err = i.replicator.CheckConsistency(ctx,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel), outObjects, outScores)
 		if err != nil {
 			return nil, nil, fmt.Errorf(
 				"failed to check consistency of search results: %w", err)
 		}
-
-		resultObjects = append(resultObjects, objs...)
-		resultScores = append(resultScores, scores...)
 	}
 
-	return resultObjects, resultScores, nil
+	return outObjects, outScores, nil
 }
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
@@ -937,9 +905,13 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				return nil, nil, fmt.Errorf(
 					"local shard object serach %s: %w", shard.ID(), err)
 			}
+			if i.replicationEnabled() {
+				storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
+			}
 		} else {
 			objs, scores, err = i.remote.SearchShard(
-				ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, addlProps)
+				ctx, shardName, nil, limit, filters, keywordRanking,
+				sort, cursor, addlProps, i.replicationEnabled())
 			if err != nil {
 				return nil, nil, fmt.Errorf(
 					"remote shard object serach %s: %w", shardName, err)
@@ -1009,8 +981,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
 			} else {
-				res, resDists, err = i.remote.SearchShard(
-					ctx, shardName, searchVector, limit, filters, nil, sort, nil, additional)
+				res, resDists, err = i.remote.SearchShard(ctx,
+					shardName, searchVector, limit, filters,
+					nil, sort, nil, additional, i.replicationEnabled())
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
@@ -1440,10 +1413,14 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
 }
 
-func defaultConsistency() *additional.ReplicationProperties {
-	return &additional.ReplicationProperties{
-		ConsistencyLevel: string(replica.Quorum),
+func defaultConsistency(l ...replica.ConsistencyLevel) *additional.ReplicationProperties {
+	rp := &additional.ReplicationProperties{}
+	if len(l) != 0 {
+		rp.ConsistencyLevel = string(l[0])
+	} else {
+		rp.ConsistencyLevel = string(replica.Quorum)
 	}
+	return rp
 }
 
 func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []float32) {
