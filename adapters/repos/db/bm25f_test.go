@@ -859,3 +859,96 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		}
 	})
 }
+
+func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) string {
+	className := "MultiProps"
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		Class:               className,
+
+		Properties: []*models.Property{
+			{
+				Name:          "document",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "title",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+		},
+	}
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	migrator := NewMigrator(repo, logger)
+	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+	testData := []map[string]interface{}{}
+	testData = append(testData, map[string]interface{}{"document": "test", "title": "pepper"})
+	testData = append(testData, map[string]interface{}{"document": "banana", "title": "pepper"})
+	testData = append(testData, map[string]interface{}{"document": "apple", "title": "banana taste great"})
+	testData = append(testData, map[string]interface{}{"document": "banana burger", "title": "test"})
+	testData = append(testData, map[string]interface{}{"document": "carotte", "title": "great"})
+
+	for i, data := range testData {
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+
+		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+		vector := []float32{1, 3, 5, 0.4}
+		err := repo.PutObject(context.Background(), obj, vector, nil)
+		require.Nil(t, err)
+	}
+	return className
+}
+
+func TestBM25F_SortMultiProp(t *testing.T) {
+	t.Skip("Currently failing")
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{},
+		},
+	}
+	repo, err := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	idx := repo.GetIndex(schema.ClassName(MultiPropClass(t, repo, schemaGetter, logger, 0.5, 0.75)))
+	require.NotNil(t, idx)
+
+	addit := additional.Properties{}
+
+	t.Run("single term", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
+		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
+
+		// Print results
+		t.Log("--- Start results for boosted search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, \n", r.DocID(), r.Score())
+		}
+
+		// Document 1 is a result for both terms
+		require.Len(t, res, 1)
+		require.Equal(t, uint64(1), res[0].DocID())
+	})
+}
