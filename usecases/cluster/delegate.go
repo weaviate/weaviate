@@ -38,7 +38,7 @@ const (
 
 type spaceRequest struct {
 	header
-	DiskInfo
+	DiskSpace
 	Name string
 }
 
@@ -50,12 +50,17 @@ type header struct {
 	ProtoVersion uint8
 }
 
-// DiskInfo disk space
-type DiskInfo struct {
+type DiskSpace struct {
 	// Total disk space
 	Total uint64
 	// Total available space
 	Available uint64
+}
+
+// NodeInfo disk space
+type NodeInfo struct {
+	DiskSpace
+	LastTime time.Time
 }
 
 func (d *spaceRequest) marshal() (data []byte, err error) {
@@ -63,7 +68,7 @@ func (d *spaceRequest) marshal() (data []byte, err error) {
 	if err := binary.Write(buf, binary.BigEndian, d.header); err != nil {
 		return nil, err
 	}
-	if err := binary.Write(buf, binary.BigEndian, d.DiskInfo); err != nil {
+	if err := binary.Write(buf, binary.BigEndian, d.DiskSpace); err != nil {
 		return nil, err
 	}
 	_, err = buf.Write([]byte(d.Name))
@@ -75,7 +80,7 @@ func (d *spaceRequest) unmarshal(data []byte) error {
 	if err := binary.Read(rd, binary.BigEndian, &d.header); err != nil {
 		return err
 	}
-	if err := binary.Read(rd, binary.BigEndian, &d.DiskInfo); err != nil {
+	if err := binary.Read(rd, binary.BigEndian, &d.DiskSpace); err != nil {
 		return err
 	}
 	// fmt.Println(rd.Size(), rd.Len(), len(data), string(data))
@@ -88,7 +93,7 @@ type delegate struct {
 	dataPath string
 	sync.Mutex
 	LastTime  time.Time
-	DiskUsage map[string]DiskInfo
+	DiskUsage map[string]NodeInfo
 }
 
 func (*delegate) NodeMeta(limit int) (meta []byte) {
@@ -104,12 +109,12 @@ func (d *delegate) LocalState(join bool) []byte {
 	prvTime, prvInfo := d.LastTime, d.DiskUsage[d.Name]
 	d.Unlock()
 	var (
-		space DiskInfo
+		space NodeInfo
 		err   error
 	)
 	// Is it time to update?
 	if prvInfo.Available == 0 || time.Since(prvTime) > _ProtoTTL {
-		space, err = diskSpace(d.dataPath)
+		space.DiskSpace, err = diskSpace(d.dataPath)
 	}
 	// no need to update if space didn't change too much
 	a, b := prvInfo.Available, space.Available
@@ -119,7 +124,7 @@ func (d *delegate) LocalState(join bool) []byte {
 	}
 
 	d.Set(d.Name, space) // store internally
-	x := spaceRequest{header{OpCode: 1, ProtoVersion: _ProtoVersion}, space, d.Name}
+	x := spaceRequest{header{OpCode: 1, ProtoVersion: _ProtoVersion}, space.DiskSpace, d.Name}
 	bytes, err := x.marshal()
 	if err != nil {
 		return nil
@@ -139,7 +144,8 @@ func (d *delegate) MergeRemoteState(data []byte, join bool) {
 	if err := x.unmarshal(data); err != nil || x.Name == "" {
 		return
 	}
-	d.Set(x.Name, x.DiskInfo)
+	info := NodeInfo{x.DiskSpace, time.Now()}
+	d.Set(x.Name, info)
 }
 
 func (d *delegate) NotifyMsg(data []byte) {}
@@ -148,14 +154,14 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	return nil
 }
 
-func (d *delegate) Get(node string) (DiskInfo, bool) {
+func (d *delegate) Get(node string) (NodeInfo, bool) {
 	d.Lock()
 	defer d.Unlock()
 	x, ok := d.DiskUsage[node]
 	return x, ok
 }
 
-func (d *delegate) Set(node string, x DiskInfo) {
+func (d *delegate) Set(node string, x NodeInfo) {
 	d.Lock()
 	defer d.Unlock()
 	d.DiskUsage[node] = x
@@ -168,13 +174,13 @@ func (d *delegate) Delete(node string) {
 	delete(d.DiskUsage, node)
 }
 
-func diskSpace(path string) (DiskInfo, error) {
+func diskSpace(path string) (DiskSpace, error) {
 	fs := syscall.Statfs_t{}
 	err := syscall.Statfs(path, &fs)
 	if err != nil {
-		return DiskInfo{}, err
+		return DiskSpace{}, err
 	}
-	return DiskInfo{
+	return DiskSpace{
 		Total:     fs.Blocks * uint64(fs.Bsize),
 		Available: fs.Bavail * uint64(fs.Bsize),
 	}, nil
