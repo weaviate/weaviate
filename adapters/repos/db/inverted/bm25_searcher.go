@@ -362,9 +362,10 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 			topKHeap.Insert(id, float32(score))
 			for topKHeap.Len() > limit {
 				topKHeap.Pop()
-
-				// only update the worst distance when the queue is full, otherwise results can be missing if the first
-				// entry that is checked already has a very high score
+			}
+			// only update the worst distance when the queue is full, otherwise results can be missing if the first
+			// entry that is checked already has a very high score
+			if topKHeap.Len() >= limit {
 				worstDist = float64(topKHeap.Top().Dist)
 			}
 		}
