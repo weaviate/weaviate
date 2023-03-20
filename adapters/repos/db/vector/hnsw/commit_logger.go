@@ -441,7 +441,7 @@ func (l *hnswCommitLogger) RootPath() string {
 	return l.rootPath
 }
 
-func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.StopFunc) {
+func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.ShouldBreakFunc) {
 	if err := l.SwitchCommitLogs(false); err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_maintenance").
@@ -449,7 +449,7 @@ func (l *hnswCommitLogger) startSwitchLogs(stopFunc cyclemanager.StopFunc) {
 	}
 }
 
-func (l *hnswCommitLogger) startCombineAndCondenseLogs(stopFunc cyclemanager.StopFunc) {
+func (l *hnswCommitLogger) startCombineAndCondenseLogs(stopFunc cyclemanager.ShouldBreakFunc) {
 	if err := l.combineLogs(); err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").

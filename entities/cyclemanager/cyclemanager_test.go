@@ -29,15 +29,15 @@ type cycleFuncProvider struct {
 }
 
 func newProvider(cycleDuration time.Duration, resultsSize uint) *cycleFuncProvider {
-	return newProviderStoppable(cycleDuration, resultsSize, 1)
+	return newProviderBreakable(cycleDuration, resultsSize, 1)
 }
 
-func newProviderStoppable(cycleDuration time.Duration, resultsSize uint, stops int) *cycleFuncProvider {
+func newProviderBreakable(cycleDuration time.Duration, resultsSize uint, breaks int) *cycleFuncProvider {
 	fs := false
 	p := &cycleFuncProvider{}
 	p.results = make(chan string, resultsSize)
 	p.firstCycleStarted = make(chan struct{}, 1)
-	p.cycleFunc = func(stopFunc StopFunc) {
+	p.cycleFunc = func(shouldBreak ShouldBreakFunc) {
 		p.Lock()
 		if !fs {
 			p.firstCycleStarted <- struct{}{}
@@ -45,10 +45,10 @@ func newProviderStoppable(cycleDuration time.Duration, resultsSize uint, stops i
 		}
 		p.Unlock()
 
-		if stops > 1 {
-			for i := 0; i < stops; i++ {
-				time.Sleep(cycleDuration / time.Duration(stops))
-				if stopFunc() {
+		if breaks > 1 {
+			for i := 0; i < breaks; i++ {
+				time.Sleep(cycleDuration / time.Duration(breaks))
+				if shouldBreak() {
 					return
 				}
 			}
@@ -74,7 +74,7 @@ func TestCycleManager_beforeTimeout(t *testing.T) {
 		assert.False(t, cm.Running())
 		assert.Equal(t, cycleInterval, cm.cycleInterval)
 		assert.NotNil(t, cm.cycleFunc)
-		assert.NotNil(t, cm.stop)
+		assert.NotNil(t, cm.stopSignal)
 	})
 
 	t.Run("start", func(t *testing.T) {
@@ -115,7 +115,7 @@ func TestCycleManager_beforeTimeoutWithWait(t *testing.T) {
 		assert.False(t, cm.Running())
 		assert.Equal(t, cycleInterval, cm.cycleInterval)
 		assert.NotNil(t, cm.cycleFunc)
-		assert.NotNil(t, cm.stop)
+		assert.NotNil(t, cm.stopSignal)
 	})
 
 	t.Run("start", func(t *testing.T) {
@@ -354,7 +354,7 @@ func TestCycleManager_cycleFuncStoppedDueToFrequentStopChecks(t *testing.T) {
 	stopTimeout := 100 * time.Millisecond
 
 	// despite cycleDuration is 30ms, cycle function checks every 20ms (300/15) if it needs to be stopped
-	p := newProviderStoppable(cycleDuration, 1, 15)
+	p := newProviderBreakable(cycleDuration, 1, 15)
 	cm := New(cycleInterval, p.cycleFunc)
 
 	t.Run("cycle funcion stopped before timeout reached", func(t *testing.T) {
@@ -384,7 +384,7 @@ func TestCycleManager_cycleFuncNotStoppedDueToRareStopChecks(t *testing.T) {
 	stopTimeout := 100 * time.Millisecond
 
 	// despite cycleDuration is 30ms, cycle function checks every 150ms (300/2) if it needs to be stopped
-	p := newProviderStoppable(cycleDuration, 1, 2)
+	p := newProviderBreakable(cycleDuration, 1, 2)
 	cm := New(cycleInterval, p.cycleFunc)
 
 	t.Run("timeout reached", func(t *testing.T) {

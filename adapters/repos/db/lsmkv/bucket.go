@@ -706,7 +706,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
+func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.ShouldBreakFunc) {
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
