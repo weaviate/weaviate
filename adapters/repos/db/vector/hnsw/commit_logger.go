@@ -456,7 +456,7 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldBreak cyclemanager.ShouldBreakF
 }
 
 func (l *hnswCommitLogger) startCombineAndCondenseLogs(shouldBreak cyclemanager.ShouldBreakFunc) bool {
-	err, executed1 := l.combineLogs(); 
+	err, executed1 := l.combineLogs()
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
