@@ -43,13 +43,13 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 		delegate: delegate{
 			Name:     userConfig.Hostname,
 			dataPath: dataPath,
-			Cache:    make(map[string]NodeInfo, 32),
 		},
 	}
 	if err := state.delegate.init(); err != nil {
 		logger.WithField("action", "init_state.delete_init").Error(err)
 	}
 	cfg.Delegate = &state.delegate
+	cfg.Events = events{&state.delegate}
 	if userConfig.Hostname != "" {
 		cfg.Name = userConfig.Hostname
 	}
