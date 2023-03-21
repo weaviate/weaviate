@@ -26,7 +26,8 @@ import (
 )
 
 // NewObjectsHeadParams creates a new ObjectsHeadParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewObjectsHeadParams() ObjectsHeadParams {
 
 	return ObjectsHeadParams{}
@@ -61,7 +62,6 @@ func (o *ObjectsHeadParams) BindRequest(r *http.Request, route *middleware.Match
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}

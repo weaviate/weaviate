@@ -64,9 +64,8 @@ func (o *SchemaClassesIndexesGetReader) ReadResponse(response runtime.ClientResp
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,7 +75,7 @@ func NewSchemaClassesIndexesGetOK() *SchemaClassesIndexesGetOK {
 }
 
 /*
-SchemaClassesIndexesGetOK handles this case with default header values.
+SchemaClassesIndexesGetOK describes a response with status code 200, with default header values.
 
 OK. Indexes are listed in the response
 */
@@ -84,7 +83,41 @@ type SchemaClassesIndexesGetOK struct {
 	Payload *models.IndexStatusList
 }
 
+// IsSuccess returns true when this schema classes indexes get o k response has a 2xx status code
+func (o *SchemaClassesIndexesGetOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this schema classes indexes get o k response has a 3xx status code
+func (o *SchemaClassesIndexesGetOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema classes indexes get o k response has a 4xx status code
+func (o *SchemaClassesIndexesGetOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema classes indexes get o k response has a 5xx status code
+func (o *SchemaClassesIndexesGetOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema classes indexes get o k response a status code equal to that given
+func (o *SchemaClassesIndexesGetOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the schema classes indexes get o k response
+func (o *SchemaClassesIndexesGetOK) Code() int {
+	return 200
+}
+
 func (o *SchemaClassesIndexesGetOK) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetOK  %+v", 200, o.Payload)
+}
+
+func (o *SchemaClassesIndexesGetOK) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetOK  %+v", 200, o.Payload)
 }
 
@@ -110,14 +143,48 @@ func NewSchemaClassesIndexesGetUnauthorized() *SchemaClassesIndexesGetUnauthoriz
 }
 
 /*
-SchemaClassesIndexesGetUnauthorized handles this case with default header values.
+SchemaClassesIndexesGetUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type SchemaClassesIndexesGetUnauthorized struct {
 }
 
+// IsSuccess returns true when this schema classes indexes get unauthorized response has a 2xx status code
+func (o *SchemaClassesIndexesGetUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema classes indexes get unauthorized response has a 3xx status code
+func (o *SchemaClassesIndexesGetUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema classes indexes get unauthorized response has a 4xx status code
+func (o *SchemaClassesIndexesGetUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema classes indexes get unauthorized response has a 5xx status code
+func (o *SchemaClassesIndexesGetUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema classes indexes get unauthorized response a status code equal to that given
+func (o *SchemaClassesIndexesGetUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the schema classes indexes get unauthorized response
+func (o *SchemaClassesIndexesGetUnauthorized) Code() int {
+	return 401
+}
+
 func (o *SchemaClassesIndexesGetUnauthorized) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetUnauthorized ", 401)
+}
+
+func (o *SchemaClassesIndexesGetUnauthorized) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetUnauthorized ", 401)
 }
 
@@ -132,7 +199,7 @@ func NewSchemaClassesIndexesGetForbidden() *SchemaClassesIndexesGetForbidden {
 }
 
 /*
-SchemaClassesIndexesGetForbidden handles this case with default header values.
+SchemaClassesIndexesGetForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -140,7 +207,41 @@ type SchemaClassesIndexesGetForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema classes indexes get forbidden response has a 2xx status code
+func (o *SchemaClassesIndexesGetForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema classes indexes get forbidden response has a 3xx status code
+func (o *SchemaClassesIndexesGetForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema classes indexes get forbidden response has a 4xx status code
+func (o *SchemaClassesIndexesGetForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema classes indexes get forbidden response has a 5xx status code
+func (o *SchemaClassesIndexesGetForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema classes indexes get forbidden response a status code equal to that given
+func (o *SchemaClassesIndexesGetForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the schema classes indexes get forbidden response
+func (o *SchemaClassesIndexesGetForbidden) Code() int {
+	return 403
+}
+
 func (o *SchemaClassesIndexesGetForbidden) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetForbidden  %+v", 403, o.Payload)
+}
+
+func (o *SchemaClassesIndexesGetForbidden) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetForbidden  %+v", 403, o.Payload)
 }
 
@@ -166,7 +267,7 @@ func NewSchemaClassesIndexesGetNotFound() *SchemaClassesIndexesGetNotFound {
 }
 
 /*
-SchemaClassesIndexesGetNotFound handles this case with default header values.
+SchemaClassesIndexesGetNotFound describes a response with status code 404, with default header values.
 
 This class does not exist
 */
@@ -174,7 +275,41 @@ type SchemaClassesIndexesGetNotFound struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema classes indexes get not found response has a 2xx status code
+func (o *SchemaClassesIndexesGetNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema classes indexes get not found response has a 3xx status code
+func (o *SchemaClassesIndexesGetNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema classes indexes get not found response has a 4xx status code
+func (o *SchemaClassesIndexesGetNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this schema classes indexes get not found response has a 5xx status code
+func (o *SchemaClassesIndexesGetNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this schema classes indexes get not found response a status code equal to that given
+func (o *SchemaClassesIndexesGetNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the schema classes indexes get not found response
+func (o *SchemaClassesIndexesGetNotFound) Code() int {
+	return 404
+}
+
 func (o *SchemaClassesIndexesGetNotFound) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetNotFound  %+v", 404, o.Payload)
+}
+
+func (o *SchemaClassesIndexesGetNotFound) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetNotFound  %+v", 404, o.Payload)
 }
 
@@ -200,7 +335,7 @@ func NewSchemaClassesIndexesGetInternalServerError() *SchemaClassesIndexesGetInt
 }
 
 /*
-SchemaClassesIndexesGetInternalServerError handles this case with default header values.
+SchemaClassesIndexesGetInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -208,7 +343,41 @@ type SchemaClassesIndexesGetInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this schema classes indexes get internal server error response has a 2xx status code
+func (o *SchemaClassesIndexesGetInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this schema classes indexes get internal server error response has a 3xx status code
+func (o *SchemaClassesIndexesGetInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this schema classes indexes get internal server error response has a 4xx status code
+func (o *SchemaClassesIndexesGetInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this schema classes indexes get internal server error response has a 5xx status code
+func (o *SchemaClassesIndexesGetInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this schema classes indexes get internal server error response a status code equal to that given
+func (o *SchemaClassesIndexesGetInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the schema classes indexes get internal server error response
+func (o *SchemaClassesIndexesGetInternalServerError) Code() int {
+	return 500
+}
+
 func (o *SchemaClassesIndexesGetInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaClassesIndexesGetInternalServerError) String() string {
 	return fmt.Sprintf("[GET /schema/{className}/indexes][%d] schemaClassesIndexesGetInternalServerError  %+v", 500, o.Payload)
 }
 

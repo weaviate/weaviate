@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type Memtable struct {
@@ -106,7 +106,7 @@ func (l *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 	primary := l.secondaryToPrimary[pos][string(key)]
 	if primary == nil {
-		return nil, entities.NotFound
+		return nil, lsmkv.NotFound
 	}
 
 	v, err := l.key.get(primary)

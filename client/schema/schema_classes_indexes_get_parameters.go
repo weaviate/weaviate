@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewSchemaClassesIndexesGetParams creates a new SchemaClassesIndexesGetParams object
-// with the default values initialized.
+// NewSchemaClassesIndexesGetParams creates a new SchemaClassesIndexesGetParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewSchemaClassesIndexesGetParams() *SchemaClassesIndexesGetParams {
-	var ()
 	return &SchemaClassesIndexesGetParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewSchemaClassesIndexesGetParamsWithTimeout creates a new SchemaClassesIndexesGetParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewSchemaClassesIndexesGetParamsWithTimeout(timeout time.Duration) *SchemaClassesIndexesGetParams {
-	var ()
 	return &SchemaClassesIndexesGetParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewSchemaClassesIndexesGetParamsWithContext creates a new SchemaClassesIndexesGetParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewSchemaClassesIndexesGetParamsWithContext(ctx context.Context) *SchemaClassesIndexesGetParams {
-	var ()
 	return &SchemaClassesIndexesGetParams{
-
 		Context: ctx,
 	}
 }
 
 // NewSchemaClassesIndexesGetParamsWithHTTPClient creates a new SchemaClassesIndexesGetParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewSchemaClassesIndexesGetParamsWithHTTPClient(client *http.Client) *SchemaClassesIndexesGetParams {
-	var ()
 	return &SchemaClassesIndexesGetParams{
 		HTTPClient: client,
 	}
@@ -68,16 +65,34 @@ func NewSchemaClassesIndexesGetParamsWithHTTPClient(client *http.Client) *Schema
 
 /*
 SchemaClassesIndexesGetParams contains all the parameters to send to the API endpoint
-for the schema classes indexes get operation typically these are written to a http.Request
+
+	for the schema classes indexes get operation.
+
+	Typically these are written to a http.Request.
 */
 type SchemaClassesIndexesGetParams struct {
 
-	/*ClassName*/
+	// ClassName.
 	ClassName string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the schema classes indexes get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaClassesIndexesGetParams) WithDefaults() *SchemaClassesIndexesGetParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the schema classes indexes get params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaClassesIndexesGetParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the schema classes indexes get params

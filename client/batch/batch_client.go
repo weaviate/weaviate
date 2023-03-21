@@ -36,13 +36,16 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientOption is the option for Client methods
+type ClientOption func(*runtime.ClientOperation)
+
 // ClientService is the interface for Client methods
 type ClientService interface {
-	BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchObjectsCreateOK, error)
+	BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsCreateOK, error)
 
-	BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*BatchObjectsDeleteOK, error)
+	BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsDeleteOK, error)
 
-	BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchReferencesCreateOK, error)
+	BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchReferencesCreateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -52,13 +55,12 @@ BatchObjectsCreate creates new objects based on a object template as a batch
 
 Register new Objects in bulk. Provided meta-data and schema values are validated.
 */
-func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchObjectsCreateOK, error) {
+func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewBatchObjectsCreateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "batch.objects.create",
 		Method:             "POST",
 		PathPattern:        "/batch/objects",
@@ -70,7 +72,12 @@ func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo r
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -89,13 +96,12 @@ BatchObjectsDelete deletes objects based on a match filter as a batch
 
 Delete Objects in bulk that match a certain filter.
 */
-func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*BatchObjectsDeleteOK, error) {
+func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewBatchObjectsDeleteParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "batch.objects.delete",
 		Method:             "DELETE",
 		PathPattern:        "/batch/objects",
@@ -107,7 +113,12 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}
@@ -126,13 +137,12 @@ BatchReferencesCreate creates new cross references between arbitrary classes in 
 
 Register cross-references between any class items (objects or objects) in bulk.
 */
-func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchReferencesCreateOK, error) {
+func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewBatchReferencesCreateParams()
 	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
+	op := &runtime.ClientOperation{
 		ID:                 "batch.references.create",
 		Method:             "POST",
 		PathPattern:        "/batch/references",
@@ -144,7 +154,12 @@ func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, auth
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
-	})
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
 	if err != nil {
 		return nil, err
 	}

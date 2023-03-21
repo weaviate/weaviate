@@ -76,3 +76,16 @@ func (d DotProductProvider) Type() string {
 func (d DotProductProvider) New(a []float32) Distancer {
 	return &DotProduct{a: a}
 }
+
+func (d DotProductProvider) Step(x, y []float32) float32 {
+	var sum float32
+	for i := range x {
+		sum += x[i] * y[i]
+	}
+
+	return sum
+}
+
+func (d DotProductProvider) Wrap(x float32) float32 {
+	return -x
+}

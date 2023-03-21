@@ -69,6 +69,7 @@ type Index struct {
 
 	metrics         *Metrics
 	userIndexStatus *userindex.Status
+	centralJobQueue chan job
 }
 
 func (i *Index) ID() string {
@@ -87,7 +88,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -95,7 +96,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 	}
 
 	repl := replica.NewReplicator(config.ClassName.String(),
-		sg, nodeResolver, replicaClient, remoteClient)
+		sg, nodeResolver, replicaClient, logger)
 
 	index := &Index{
 		Config:                config,
@@ -111,6 +112,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			nodeResolver, remoteClient),
 		metrics:         NewMetrics(logger, promMetrics, config.ClassName.String(), "n/a"),
 		userIndexStatus: &userindex.Status{},
+		centralJobQueue: jobQueueCh,
 	}
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -124,7 +126,7 @@ func NewIndex(ctx context.Context, config IndexConfig,
 			continue
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, index, class)
+		shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %s of index %s", shardName, index.ID())
 		}
@@ -248,7 +250,6 @@ type IndexConfig struct {
 	ClassName                 schema.ClassName
 	QueryMaximumResults       int64
 	ResourceUsage             config.ResourceUsage
-	MaxImportGoroutinesFactor float64
 	MemtablesFlushIdleAfter   int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
@@ -291,9 +292,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		err = i.replicator.PutObject(ctx, shardName, object, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
@@ -465,9 +464,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			var errs []error
 			if i.replicationEnabled() {
 				if replProps == nil {
-					replProps = &additional.ReplicationProperties{
-						ConsistencyLevel: string(replica.All),
-					}
+					replProps = defaultConsistency()
 				}
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -557,9 +554,7 @@ func (i *Index) addReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		var errs []error
 		if i.replicationEnabled() {
 			if replProps == nil {
-				replProps = &additional.ReplicationProperties{
-					ConsistencyLevel: string(replica.All),
-				}
+				replProps = defaultConsistency()
 			}
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -605,9 +600,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		if replProps.NodeName != "" {
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
@@ -738,28 +731,33 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 	return out
 }
 
-func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (i *Index) exists(ctx context.Context, id strfmt.UUID,
+	replProps *additional.ReplicationProperties,
+) (bool, error) {
 	shardName, err := i.shardFromUUID(id)
 	if err != nil {
 		return false, err
 	}
 
-	local := i.getSchema.
-		ShardingState(i.Config.ClassName.String()).
-		IsShardLocal(shardName)
-
-	var ok bool
-	if local {
+	var exists bool
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency()
+		}
+		exists, err = i.replicator.Exists(ctx,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id)
+	} else if i.isLocalShard(shardName) {
 		shard := i.Shards[shardName]
-		ok, err = shard.exists(ctx, id)
+		exists, err = shard.exists(ctx, id)
 	} else {
-		ok, err = i.remote.Exists(ctx, shardName, id)
+		exists, err = i.remote.Exists(ctx, shardName, id)
 	}
+
 	if err != nil {
 		return false, errors.Wrapf(err, "shard %s", shardName)
 	}
 
-	return ok, nil
+	return exists, nil
 }
 
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
@@ -779,99 +777,86 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties,
 ) ([]*storobj.Object, []float32, error) {
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()
 
-	outObjects := make([]*storobj.Object, 0, len(shardNames)*limit)
-	outScores := make([]float32, 0, len(shardNames)*limit)
-	for _, shardName := range shardNames {
-		local := i.getSchema.
-			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
+	// If the request is a BM25F with no properties selected, use all possible properties
+	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 
-		var objs []*storobj.Object
-		var scores []float32
-		var err error
+		cl, err := schema.GetClassByName(
+			i.getSchema.GetSchemaSkipAuth().Objects,
+			i.Config.ClassName.String())
+		if err != nil {
+			return nil, nil, err
+		}
 
-		if local {
-			// If the request is a BM25F with no properties selected, use all possible properties
-			if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
-
-				cl, err := schema.GetClassByName(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String())
-				if err != nil {
-					return nil, nil, err
-				}
-
-				propHash := cl.Properties
-				// Get keys of hash
-				for _, v := range propHash {
-					if (v.DataType[0] == "text" || v.DataType[0] == "string") && schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects, i.Config.ClassName.String(), v.Name) { // Also the array types?
-						keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
-					}
-				}
-
-				// WEAVIATE-471 - error if we can't find a property to search
-				if len(keywordRanking.Properties) == 0 {
-					return nil, []float32{}, errors.New("No properties provided, and no indexed properties found in class")
-				}
-			}
-			shard := i.Shards[shardName]
-			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
-			}
-
-		} else {
-			objs, scores, err = i.remote.SearchShard(
-				ctx, shardName, nil, limit, filters, keywordRanking, sort, additional)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
+		propHash := cl.Properties
+		// Get keys of hash
+		for _, v := range propHash {
+			if (v.DataType[0] == "text" || v.DataType[0] == "string") &&
+				schema.PropertyIsIndexed(i.getSchema.GetSchemaSkipAuth().Objects,
+					i.Config.ClassName.String(), v.Name) { // Also the array types?
+				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 			}
 		}
-		outObjects = append(outObjects, objs...)
-		outScores = append(outScores, scores...)
+
+		// WEAVIATE-471 - error if we can't find a property to search
+		if len(keywordRanking.Properties) == 0 {
+			return nil, []float32{}, errors.New(
+				"No properties provided, and no indexed properties found in class")
+		}
+	}
+
+	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
+		filters, keywordRanking, sort, cursor, addlProps, shardNames)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if len(outObjects) == len(outScores) {
 		if keywordRanking != nil && keywordRanking.Type == "bm25" {
 			for ii := range outObjects {
-
 				oo := outObjects[ii]
-
 				os := outScores[ii]
+
 				if oo.AdditionalProperties() == nil {
 					oo.Object.Additional = make(map[string]interface{})
 				}
 				oo.Object.Additional["score"] = os
-				// Collect all keys starting with "BM25F" and add them to the Additional
-				explainScore := ""
-				for k, v := range oo.Object.Additional {
-					if strings.HasPrefix(k, "BM25F") {
 
-						explainScore = fmt.Sprintf("%v, %v:%v", explainScore, k, v)
-						delete(oo.Object.Additional, k)
+				// Collect all keys starting with "BM25F" and add them to the Additional
+				if keywordRanking.AdditionalExplanations {
+					explainScore := ""
+					for k, v := range oo.Object.Additional {
+						if strings.HasPrefix(k, "BM25F") {
+
+							explainScore = fmt.Sprintf("%v, %v:%v", explainScore, k, v)
+							delete(oo.Object.Additional, k)
+						}
 					}
+					oo.Object.Additional["explainScore"] = explainScore
 				}
-				oo.Object.Additional["explainScore"] = explainScore
 			}
 		}
 	}
+
 	if len(sort) > 0 {
 		if len(shardNames) > 1 {
-			sortedObjs, _, err := i.sort(outObjects, outScores, sort, limit)
+			var err error
+			outObjects, outScores, err = i.sort(outObjects, outScores, sort, limit)
 			if err != nil {
 				return nil, nil, errors.Wrap(err, "sort")
 			}
-			return sortedObjs, nil, nil
 		}
-		return outObjects, nil, nil
-	}
-
-	if keywordRanking != nil {
-		outObjects, _ = i.sortKeywordRanking(outObjects, outScores)
+	} else if keywordRanking != nil {
+		outObjects, outScores = i.sortKeywordRanking(outObjects, outScores)
+	} else if len(shardNames) > 1 && !addlProps.ReferenceQuery {
+		// sort only for multiple shards (already sorted for single)
+		// and for not reference nested query (sort is applied for root query)
+		outObjects, outScores = i.sortByID(outObjects, outScores)
 	}
 
 	// if this search was caused by a reference property
@@ -883,11 +868,67 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// the `And` to return no results where results would
 	// be expected. we won't know that unless we search
 	// and return all referenced object properties.
-	if !additional.ReferenceQuery && len(outObjects) > limit {
+	if !addlProps.ReferenceQuery && len(outObjects) > limit {
+		if len(outObjects) == len(outScores) {
+			outScores = outScores[:limit]
+		}
 		outObjects = outObjects[:limit]
 	}
 
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(replica.One)
+		}
+		outObjects, outScores, err = i.replicator.CheckConsistency(ctx,
+			replica.ConsistencyLevel(replProps.ConsistencyLevel), outObjects, outScores)
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"failed to check consistency of search results: %w", err)
+		}
+	}
+
 	return outObjects, outScores, nil
+}
+
+func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+	addlProps additional.Properties, shards []string,
+) ([]*storobj.Object, []float32, error) {
+	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
+
+	for _, shardName := range shards {
+		var objs []*storobj.Object
+		var scores []float32
+		var err error
+
+		if i.isLocalShard(shardName) {
+			shard := i.Shards[shardName]
+			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"local shard object serach %s: %w", shard.ID(), err)
+			}
+			if i.replicationEnabled() {
+				storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
+			}
+		} else {
+			objs, scores, err = i.remote.SearchShard(
+				ctx, shardName, nil, limit, filters, keywordRanking,
+				sort, cursor, addlProps, i.replicationEnabled())
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"remote shard object serach %s: %w", shardName, err)
+			}
+		}
+		resultObjects = append(resultObjects, objs...)
+		resultScores = append(resultScores, scores...)
+	}
+	return resultObjects, resultScores, nil
+}
+
+func (i *Index) sortByID(objects []*storobj.Object, scores []float32,
+) ([]*storobj.Object, []float32) {
+	return newIDSorter().sort(objects, scores)
 }
 
 func (i *Index) sortKeywordRanking(objects []*storobj.Object,
@@ -943,8 +984,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
 			} else {
-				res, resDists, err = i.remote.SearchShard(
-					ctx, shardName, searchVector, limit, filters, nil, sort, additional)
+				res, resDists, err = i.remote.SearchShard(ctx,
+					shardName, searchVector, limit, filters,
+					nil, sort, nil, additional, i.replicationEnabled())
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
@@ -983,7 +1025,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVector []float32, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties,
+	cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	shard, ok := i.Shards[shardName]
 	if !ok {
@@ -991,7 +1033,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	if searchVector == nil {
-		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, sort, additional)
+		// TODO: after
+		res, scores, err := shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 		}
@@ -1020,9 +1063,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		err = i.replicator.DeleteObject(ctx, shardName, id,
 			replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -1078,9 +1119,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = &additional.ReplicationProperties{
-				ConsistencyLevel: string(replica.All),
-			}
+			replProps = defaultConsistency()
 		}
 		err = i.replicator.MergeObject(ctx, shardName, &merge, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		if err != nil {
@@ -1337,9 +1376,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
 				if replProps == nil {
-					replProps = &additional.ReplicationProperties{
-						ConsistencyLevel: string(replica.All),
-					}
+					replProps = defaultConsistency()
 				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
@@ -1377,4 +1414,26 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	}
 
 	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
+}
+
+func defaultConsistency(l ...replica.ConsistencyLevel) *additional.ReplicationProperties {
+	rp := &additional.ReplicationProperties{}
+	if len(l) != 0 {
+		rp.ConsistencyLevel = string(l[0])
+	} else {
+		rp.ConsistencyLevel = string(replica.Quorum)
+	}
+	return rp
+}
+
+func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []float32) {
+	perShardLimit := config.DefaultQueryMaximumResults
+	if perShardLimit > int64(limit) {
+		perShardLimit = int64(limit)
+	}
+	capacity := perShardLimit * int64(len(shards))
+	objects := make([]*storobj.Object, 0, capacity)
+	scores := make([]float32, 0, capacity)
+
+	return objects, scores
 }

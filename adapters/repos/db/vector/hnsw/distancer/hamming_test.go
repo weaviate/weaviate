@@ -79,3 +79,23 @@ func TestHammingDistancer(t *testing.T) {
 		assert.Equal(t, expectedDistance, dist)
 	})
 }
+
+func TestHammingDistancerStepbyStep(t *testing.T) {
+	t.Run("step by step equals SingleDist", func(t *testing.T) {
+		vec1 := []float32{10, 11, 15, 25, 31}
+		vec2 := []float32{10, 15, 16, 25, 30}
+
+		expectedDistance, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		distanceProvider := NewHammingProvider()
+		sum := float32(0.0)
+		for i := range vec1 {
+			sum += distanceProvider.Step([]float32{vec1[i]}, []float32{vec2[i]})
+		}
+		control := distanceProvider.Wrap(sum)
+
+		assert.Equal(t, control, expectedDistance)
+	})
+}

@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -267,6 +268,7 @@ const (
 	ResetIndex
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
+	AddPQ
 )
 
 func (t HnswCommitType) String() string {
@@ -293,12 +295,21 @@ func (t HnswCommitType) String() string {
 		return "ResetIndex"
 	case ClearLinksAtLevel:
 		return "ClearLinksAtLevel"
+	case AddPQ:
+		return "AddProductQuantizer"
 	}
 	return "unknown commit type"
 }
 
 func (l *hnswCommitLogger) ID() string {
 	return l.id
+}
+
+func (l *hnswCommitLogger) AddPQ(data ssdhelpers.PQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddPQ(data)
 }
 
 // AddNode adds an empty node

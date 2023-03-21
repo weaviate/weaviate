@@ -33,7 +33,7 @@ import (
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) error {
-	err := m.authorizer.Authorize(principal, "create", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -160,8 +160,22 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	}
 
 	if err := m.cluster.CommitWriteTransaction(ctx, tx); err != nil {
-		return nil, errors.Wrap(err, "commit cluster-wide transaction")
+		// Only log the commit error, but do not abort the changes locally. Once
+		// we've told others to commit, we also need to commit ourselves!
+		//
+		// The idea is that if we abort our changes we are guaranteed to create an
+		// inconsistency as soon as any other node honored the commit. This would
+		// for example be the case in a 3-node cluster where node 1 is the
+		// coordinator, node 2 honored the commit and node 3 died during the commit
+		// phase.
+		//
+		// In this scenario it is far more desirable to make sure that node 1 and
+		// node 2 stay in sync, as node 3 - who may or may not have missed the
+		// update - can use a local WAL from the first TX phase to replay any
+		// missing changes once it's back.
+		m.logger.WithError(err).Errorf("not every node was able to commit")
 	}
+
 	if err := m.addClassApplyChanges(ctx, class, shardState); err != nil {
 		return nil, err
 	}
@@ -197,27 +211,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 		}
 	}
 
-	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
-	}
-
-	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
-		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
-	}
-
-	if class.InvertedIndexConfig.Bm25 == nil {
-		class.InvertedIndexConfig.Bm25 = &models.BM25Config{
-			K1: config.DefaultBM25k1,
-			B:  config.DefaultBM25b,
-		}
-	}
-
-	if class.InvertedIndexConfig.Stopwords == nil {
-		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
-			Preset: stopwords.EnglishPreset,
-		}
-	}
-
+	setInvertedConfigDefaults(class)
 	for _, prop := range class.Properties {
 		m.setPropertyDefaults(prop)
 	}
@@ -377,4 +371,27 @@ func lowerCaseFirstLetter(name string) string {
 	}
 
 	return strings.ToLower(string(name[0])) + name[1:]
+}
+
+func setInvertedConfigDefaults(class *models.Class) {
+	if class.InvertedIndexConfig == nil {
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+	}
+
+	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
+		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds
+	}
+
+	if class.InvertedIndexConfig.Bm25 == nil {
+		class.InvertedIndexConfig.Bm25 = &models.BM25Config{
+			K1: config.DefaultBM25k1,
+			B:  config.DefaultBM25b,
+		}
+	}
+
+	if class.InvertedIndexConfig.Stopwords == nil {
+		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
+			Preset: stopwords.EnglishPreset,
+		}
+	}
 }

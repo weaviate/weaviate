@@ -17,9 +17,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
-type Queries []string
+type Query struct {
+	Query       string
+	MatchingIds []int
+}
+
+type Queries []Query
 
 func ParseQueries(ds Dataset, limit int) (Queries, error) {
 	p := filepath.Join(ds.Path, "queries.jsonl")
@@ -49,7 +55,37 @@ func ParseQueries(ds Dataset, limit int) (Queries, error) {
 				ds.Queries.Property, obj[ds.Queries.Property])
 		}
 
-		q = append(q, queryStr)
+		var matchingIds []int
+		if ds.Queries.MatchingResults != "" {
+			matchingIdsInterface, ok := obj[ds.Queries.MatchingResults].([]interface{})
+			if !ok {
+				return nil, fmt.Errorf("property %s is not a []interface{}]: %T",
+					ds.Queries.MatchingResults, obj[ds.Queries.MatchingResults])
+			}
+			matchingIds = make([]int, len(matchingIdsInterface))
+			for i, val := range matchingIdsInterface {
+				// docIds can be provided as strings or float arrays
+				valStr, ok := val.(string)
+				if ok {
+					valInt, err := strconv.Atoi(valStr)
+					if err != nil {
+						return nil, err
+					}
+					matchingIds[i] = valInt
+
+				} else {
+					valFloat, ok := val.(float64)
+					if !ok {
+						return nil, fmt.Errorf("matching Id %v is not a float: %v", i, matchingIdsInterface)
+					}
+					matchingIds[i] = int(valFloat)
+				}
+
+			}
+
+		}
+
+		q = append(q, Query{Query: queryStr, MatchingIds: matchingIds})
 	}
 
 	return q, nil

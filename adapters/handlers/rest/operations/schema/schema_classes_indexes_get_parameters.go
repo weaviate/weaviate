@@ -25,7 +25,8 @@ import (
 )
 
 // NewSchemaClassesIndexesGetParams creates a new SchemaClassesIndexesGetParams object
-// no default values defined in spec.
+//
+// There are no default values defined in the spec.
 func NewSchemaClassesIndexesGetParams() SchemaClassesIndexesGetParams {
 
 	return SchemaClassesIndexesGetParams{}
@@ -60,7 +61,6 @@ func (o *SchemaClassesIndexesGetParams) BindRequest(r *http.Request, route *midd
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -76,7 +76,6 @@ func (o *SchemaClassesIndexesGetParams) bindClassName(rawData []string, hasKey b
 
 	// Required: true
 	// Parameter is provided by construction from the route
-
 	o.ClassName = raw
 
 	return nil

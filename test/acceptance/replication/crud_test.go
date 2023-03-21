@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 var (
@@ -104,7 +105,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert objects exist on node 2", func(t *testing.T) {
-			resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph")
+			resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
 			assert.Len(t, resp, len(paragraphIDs))
 		})
 
@@ -129,7 +130,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert objects exist on node 1", func(t *testing.T) {
-			resp := gqlGet(t, compose.GetWeaviate().URI(), "Article")
+			resp := gqlGet(t, compose.GetWeaviate().URI(), "Article", replica.One)
 			assert.Len(t, resp, len(articleIDs))
 		})
 
@@ -170,8 +171,8 @@ func immediateReplicaCRUD(t *testing.T) {
 
 			// maps article id to referenced paragraph id
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
-			resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", "_additional{id}",
-				"hasParagraphs {... on Paragraph {_additional{id}}}")
+			resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One,
+				"_additional{id}", "hasParagraphs {... on Paragraph {_additional{id}}}")
 			assert.Len(t, resp, len(articleIDs))
 
 			for _, r := range resp {
@@ -259,7 +260,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert objects are removed from node 1", func(t *testing.T) {
-			resp := gqlGet(t, compose.GetWeaviate().URI(), "Article")
+			resp := gqlGet(t, compose.GetWeaviate().URI(), "Article", replica.One)
 			assert.Empty(t, resp)
 		})
 
@@ -337,9 +338,9 @@ func eventualReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article")
+		resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
 		assert.Len(t, resp, len(articleIDs))
-		resp = gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph")
+		resp = gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
 		assert.Len(t, resp, len(paragraphIDs))
 	})
 
@@ -411,7 +412,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("assert objects are removed from node 1", func(t *testing.T) {
-				resp := gqlGet(t, compose.GetWeaviate().URI(), "Article")
+				resp := gqlGet(t, compose.GetWeaviate().URI(), "Article", replica.One)
 				assert.Empty(t, resp)
 			})
 

@@ -19,6 +19,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestVectorCacheGrowth(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	var vecForId VectorForID = nil
+	vectorCache := newShardedLockCache(vecForId, 1000000, logger, false, time.Duration(10000))
+	id := int64(100000)
+	assert.True(t, int64(len(vectorCache.cache)) < id)
+	vectorCache.grow(uint64(id))
+	assert.True(t, int64(len(vectorCache.cache)) > id)
+	last := vectorCache.count
+	vectorCache.grow(uint64(id))
+	assert.True(t, int64(len(vectorCache.cache)) == last)
+}
+
 func TestCacheCleanup(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var vecForId VectorForID = nil

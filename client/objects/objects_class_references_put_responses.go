@@ -76,9 +76,8 @@ func (o *ObjectsClassReferencesPutReader) ReadResponse(response runtime.ClientRe
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -88,14 +87,48 @@ func NewObjectsClassReferencesPutOK() *ObjectsClassReferencesPutOK {
 }
 
 /*
-ObjectsClassReferencesPutOK handles this case with default header values.
+ObjectsClassReferencesPutOK describes a response with status code 200, with default header values.
 
 Successfully replaced all the references.
 */
 type ObjectsClassReferencesPutOK struct {
 }
 
+// IsSuccess returns true when this objects class references put o k response has a 2xx status code
+func (o *ObjectsClassReferencesPutOK) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects class references put o k response has a 3xx status code
+func (o *ObjectsClassReferencesPutOK) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put o k response has a 4xx status code
+func (o *ObjectsClassReferencesPutOK) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects class references put o k response has a 5xx status code
+func (o *ObjectsClassReferencesPutOK) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references put o k response a status code equal to that given
+func (o *ObjectsClassReferencesPutOK) IsCode(code int) bool {
+	return code == 200
+}
+
+// Code gets the status code for the objects class references put o k response
+func (o *ObjectsClassReferencesPutOK) Code() int {
+	return 200
+}
+
 func (o *ObjectsClassReferencesPutOK) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
+}
+
+func (o *ObjectsClassReferencesPutOK) String() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutOK ", 200)
 }
 
@@ -110,7 +143,7 @@ func NewObjectsClassReferencesPutBadRequest() *ObjectsClassReferencesPutBadReque
 }
 
 /*
-ObjectsClassReferencesPutBadRequest handles this case with default header values.
+ObjectsClassReferencesPutBadRequest describes a response with status code 400, with default header values.
 
 Malformed request.
 */
@@ -118,7 +151,41 @@ type ObjectsClassReferencesPutBadRequest struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references put bad request response has a 2xx status code
+func (o *ObjectsClassReferencesPutBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references put bad request response has a 3xx status code
+func (o *ObjectsClassReferencesPutBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put bad request response has a 4xx status code
+func (o *ObjectsClassReferencesPutBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references put bad request response has a 5xx status code
+func (o *ObjectsClassReferencesPutBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references put bad request response a status code equal to that given
+func (o *ObjectsClassReferencesPutBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the objects class references put bad request response
+func (o *ObjectsClassReferencesPutBadRequest) Code() int {
+	return 400
+}
+
 func (o *ObjectsClassReferencesPutBadRequest) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ObjectsClassReferencesPutBadRequest) String() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutBadRequest  %+v", 400, o.Payload)
 }
 
@@ -144,14 +211,48 @@ func NewObjectsClassReferencesPutUnauthorized() *ObjectsClassReferencesPutUnauth
 }
 
 /*
-ObjectsClassReferencesPutUnauthorized handles this case with default header values.
+ObjectsClassReferencesPutUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsClassReferencesPutUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects class references put unauthorized response has a 2xx status code
+func (o *ObjectsClassReferencesPutUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references put unauthorized response has a 3xx status code
+func (o *ObjectsClassReferencesPutUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put unauthorized response has a 4xx status code
+func (o *ObjectsClassReferencesPutUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references put unauthorized response has a 5xx status code
+func (o *ObjectsClassReferencesPutUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references put unauthorized response a status code equal to that given
+func (o *ObjectsClassReferencesPutUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects class references put unauthorized response
+func (o *ObjectsClassReferencesPutUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsClassReferencesPutUnauthorized) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
+}
+
+func (o *ObjectsClassReferencesPutUnauthorized) String() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnauthorized ", 401)
 }
 
@@ -166,7 +267,7 @@ func NewObjectsClassReferencesPutForbidden() *ObjectsClassReferencesPutForbidden
 }
 
 /*
-ObjectsClassReferencesPutForbidden handles this case with default header values.
+ObjectsClassReferencesPutForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -174,7 +275,41 @@ type ObjectsClassReferencesPutForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references put forbidden response has a 2xx status code
+func (o *ObjectsClassReferencesPutForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references put forbidden response has a 3xx status code
+func (o *ObjectsClassReferencesPutForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put forbidden response has a 4xx status code
+func (o *ObjectsClassReferencesPutForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references put forbidden response has a 5xx status code
+func (o *ObjectsClassReferencesPutForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references put forbidden response a status code equal to that given
+func (o *ObjectsClassReferencesPutForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects class references put forbidden response
+func (o *ObjectsClassReferencesPutForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsClassReferencesPutForbidden) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsClassReferencesPutForbidden) String() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutForbidden  %+v", 403, o.Payload)
 }
 
@@ -200,14 +335,48 @@ func NewObjectsClassReferencesPutNotFound() *ObjectsClassReferencesPutNotFound {
 }
 
 /*
-ObjectsClassReferencesPutNotFound handles this case with default header values.
+ObjectsClassReferencesPutNotFound describes a response with status code 404, with default header values.
 
 Source object doesn't exist.
 */
 type ObjectsClassReferencesPutNotFound struct {
 }
 
+// IsSuccess returns true when this objects class references put not found response has a 2xx status code
+func (o *ObjectsClassReferencesPutNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references put not found response has a 3xx status code
+func (o *ObjectsClassReferencesPutNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put not found response has a 4xx status code
+func (o *ObjectsClassReferencesPutNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references put not found response has a 5xx status code
+func (o *ObjectsClassReferencesPutNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references put not found response a status code equal to that given
+func (o *ObjectsClassReferencesPutNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the objects class references put not found response
+func (o *ObjectsClassReferencesPutNotFound) Code() int {
+	return 404
+}
+
 func (o *ObjectsClassReferencesPutNotFound) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
+}
+
+func (o *ObjectsClassReferencesPutNotFound) String() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutNotFound ", 404)
 }
 
@@ -222,7 +391,7 @@ func NewObjectsClassReferencesPutUnprocessableEntity() *ObjectsClassReferencesPu
 }
 
 /*
-ObjectsClassReferencesPutUnprocessableEntity handles this case with default header values.
+ObjectsClassReferencesPutUnprocessableEntity describes a response with status code 422, with default header values.
 
 Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
@@ -230,7 +399,41 @@ type ObjectsClassReferencesPutUnprocessableEntity struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references put unprocessable entity response has a 2xx status code
+func (o *ObjectsClassReferencesPutUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references put unprocessable entity response has a 3xx status code
+func (o *ObjectsClassReferencesPutUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put unprocessable entity response has a 4xx status code
+func (o *ObjectsClassReferencesPutUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects class references put unprocessable entity response has a 5xx status code
+func (o *ObjectsClassReferencesPutUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects class references put unprocessable entity response a status code equal to that given
+func (o *ObjectsClassReferencesPutUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the objects class references put unprocessable entity response
+func (o *ObjectsClassReferencesPutUnprocessableEntity) Code() int {
+	return 422
+}
+
 func (o *ObjectsClassReferencesPutUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *ObjectsClassReferencesPutUnprocessableEntity) String() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutUnprocessableEntity  %+v", 422, o.Payload)
 }
 
@@ -256,7 +459,7 @@ func NewObjectsClassReferencesPutInternalServerError() *ObjectsClassReferencesPu
 }
 
 /*
-ObjectsClassReferencesPutInternalServerError handles this case with default header values.
+ObjectsClassReferencesPutInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -264,7 +467,41 @@ type ObjectsClassReferencesPutInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects class references put internal server error response has a 2xx status code
+func (o *ObjectsClassReferencesPutInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects class references put internal server error response has a 3xx status code
+func (o *ObjectsClassReferencesPutInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects class references put internal server error response has a 4xx status code
+func (o *ObjectsClassReferencesPutInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects class references put internal server error response has a 5xx status code
+func (o *ObjectsClassReferencesPutInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects class references put internal server error response a status code equal to that given
+func (o *ObjectsClassReferencesPutInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects class references put internal server error response
+func (o *ObjectsClassReferencesPutInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsClassReferencesPutInternalServerError) Error() string {
+	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsClassReferencesPutInternalServerError) String() string {
 	return fmt.Sprintf("[PUT /objects/{className}/{id}/references/{propertyName}][%d] objectsClassReferencesPutInternalServerError  %+v", 500, o.Payload)
 }
 

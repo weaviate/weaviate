@@ -39,15 +39,15 @@ func TestFilters(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 
 	migrator := NewMigrator(repo, logger)
@@ -78,7 +78,6 @@ var (
 	gte  = filters.OperatorGreaterThanEqual
 	wgr  = filters.OperatorWithinGeoRange
 	and  = filters.OperatorAnd
-	or   = filters.OperatorOr
 	null = filters.OperatorIsNull
 
 	// datatypes
@@ -469,6 +468,26 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("len(colorArrayWord)", 0, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carEmpty, carNilID},
 			},
+			{
+				name:        "made by Mercedes ... I mean manufacturer1",
+				filter:      buildFilter("manufacturerId", manufacturer1.String(), eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
+			},
+			{
+				name:        "made by manufacturer2",
+				filter:      buildFilter("manufacturerId", manufacturer2.String(), eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "available at the north dealership",
+				filter:      buildFilter("availableAtDealerships", dealershipNorth.String(), eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
+			},
+			{
+				name:        "available at the south dealership",
+				filter:      buildFilter("availableAtDealerships", dealershipSouth.String(), eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
+			},
 		}
 
 		for _, test := range tests {
@@ -489,7 +508,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					require.Nil(t, err)
 					require.Len(t, res, len(test.expectedIDs))
 
-					ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+					ids := make([]strfmt.UUID, len(test.expectedIDs))
 					for pos, concept := range res {
 						ids[pos] = concept.ID
 					}
@@ -612,7 +631,7 @@ func testChainedPrimitiveProps(repo *DB,
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedIDs))
 
-				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+				ids := make([]strfmt.UUID, len(test.expectedIDs))
 				for pos, concept := range res {
 					ids[pos] = concept.ID
 				}
@@ -645,7 +664,7 @@ func buildSortFilter(path []string, order string) filters.Sort {
 func compoundFilter(operator filters.Operator,
 	operands ...*filters.LocalFilter,
 ) *filters.LocalFilter {
-	clauses := make([]filters.Clause, len(operands), len(operands))
+	clauses := make([]filters.Clause, len(operands))
 	for i, filter := range operands {
 		clauses[i] = *filter.Root
 	}
@@ -664,10 +683,6 @@ func filterAnd(operands ...*filters.LocalFilter) *filters.LocalFilter {
 
 func filterOr(operands ...*filters.LocalFilter) *filters.LocalFilter {
 	return compoundFilter(filters.OperatorOr, operands...)
-}
-
-func filterNot(operands ...*filters.LocalFilter) *filters.LocalFilter {
-	return compoundFilter(filters.OperatorNot, operands...)
 }
 
 // test data
@@ -727,6 +742,14 @@ var carClass = &models.Class{
 			Name:         "colorArrayField",
 			Tokenization: "field",
 		},
+		{
+			DataType: []string{string(schema.DataTypeUUID)},
+			Name:     "manufacturerId",
+		},
+		{
+			DataType: []string{string(schema.DataTypeUUIDArray)},
+			Name:     "availableAtDealerships",
+		},
 	},
 }
 
@@ -736,6 +759,13 @@ var (
 	carPoloID     strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f2e"
 	carNilID      strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f3e"
 	carEmpty      strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f4e"
+
+	// these UUIDs are not primary IDs of objects, but rather values for uuid and
+	// uuid[] fields
+	manufacturer1   = uuid.MustParse("11111111-2222-3333-4444-000000000001")
+	manufacturer2   = uuid.MustParse("11111111-2222-3333-4444-000000000002")
+	dealershipNorth = uuid.MustParse("99999999-9999-9999-9999-000000000001")
+	dealershipSouth = uuid.MustParse("99999999-9999-9999-9999-000000000002")
 )
 
 func mustParseTime(in string) time.Time {
@@ -759,12 +789,14 @@ var cars = []models.Object{
 				Latitude:  ptFloat32(34.052235),
 				Longitude: ptFloat32(-118.243683),
 			},
-			"contact":         "john@heavycars.example.com",
-			"description":     "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
-			"colorWord":       "light grey",
-			"colorField":      "light grey",
-			"colorArrayWord":  []interface{}{"light grey"},
-			"colorArrayField": []interface{}{"light grey"},
+			"contact":                "john@heavycars.example.com",
+			"description":            "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
+			"colorWord":              "light grey",
+			"colorField":             "light grey",
+			"colorArrayWord":         []interface{}{"light grey"},
+			"colorArrayField":        []interface{}{"light grey"},
+			"manufacturerId":         manufacturer1,
+			"availableAtDealerships": []uuid.UUID{dealershipNorth, dealershipSouth},
 		},
 	},
 	{
@@ -779,28 +811,32 @@ var cars = []models.Object{
 				Latitude:  ptFloat32(40.730610),
 				Longitude: ptFloat32(-73.935242),
 			},
-			"contact":         "jessica-世界@unicode.example.com",
-			"description":     "This car has a huge motor, but it's also not exactly lightweight.",
-			"colorWord":       "very light grey",
-			"colorField":      "very light grey",
-			"colorArrayWord":  []interface{}{"very light", "grey"},
-			"colorArrayField": []interface{}{"very light", "grey"},
+			"contact":                "jessica-世界@unicode.example.com",
+			"description":            "This car has a huge motor, but it's also not exactly lightweight.",
+			"colorWord":              "very light grey",
+			"colorField":             "very light grey",
+			"colorArrayWord":         []interface{}{"very light", "grey"},
+			"colorArrayField":        []interface{}{"very light", "grey"},
+			"manufacturerId":         manufacturer1,
+			"availableAtDealerships": []uuid.UUID{dealershipNorth},
 		},
 	},
 	{
 		Class: carClass.Class,
 		ID:    carPoloID,
 		Properties: map[string]interface{}{
-			"released":        mustParseTime("1975-01-01T10:12:00+02:00"),
-			"modelName":       "polo",
-			"horsepower":      int64(100),
-			"weight":          1200.0,
-			"contact":         "sandra@efficientcars.example.com",
-			"description":     "This small car has a small engine and unicode labels (ąę), but it's very light, so it feels fater than it is.",
-			"colorWord":       "dark grey",
-			"colorField":      "dark grey",
-			"colorArrayWord":  []interface{}{"dark", "grey"},
-			"colorArrayField": []interface{}{"dark", "grey"},
+			"released":               mustParseTime("1975-01-01T10:12:00+02:00"),
+			"modelName":              "polo",
+			"horsepower":             int64(100),
+			"weight":                 1200.0,
+			"contact":                "sandra@efficientcars.example.com",
+			"description":            "This small car has a small engine and unicode labels (ąę), but it's very light, so it feels fater than it is.",
+			"colorWord":              "dark grey",
+			"colorField":             "dark grey",
+			"colorArrayWord":         []interface{}{"dark", "grey"},
+			"colorArrayField":        []interface{}{"dark", "grey"},
+			"manufacturerId":         manufacturer2,
+			"availableAtDealerships": []uuid.UUID{dealershipSouth},
 		},
 	},
 	{
@@ -839,15 +875,15 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
@@ -945,15 +981,15 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
@@ -1377,7 +1413,7 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 					require.Nil(t, err)
 					require.Len(t, res, len(test.expectedIDs))
 
-					ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+					ids := make([]strfmt.UUID, len(test.expectedIDs))
 					for pos, concept := range res {
 						ids[pos] = concept.ID
 					}
@@ -1394,15 +1430,15 @@ func TestFilteringAfterDeletion(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)

@@ -12,6 +12,7 @@
 package filters
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -95,6 +96,10 @@ func validateClause(sch schema.Schema, clause *Clause) error {
 		}
 	}
 
+	if isUUIDType(prop.DataType[0]) {
+		return validateUUIDType(propName, clause)
+	}
+
 	if schema.IsRefDataType(prop.DataType) {
 		// bit of an edge case, directly on refs (i.e. not on a primitive prop of a
 		// ref) we only allow valueInt which is what's used to count references
@@ -167,5 +172,31 @@ func validateInternalPropertyClause(propName schema.PropertyName, clause *Clause
 			`using ["%s"] to filter by timestamp: must use "valueString" or "valueDate"`, propName)
 	default:
 		return errors.Errorf("unsupported internal property: %s", propName)
+	}
+}
+
+func isUUIDType(dtString string) bool {
+	dt := schema.DataType(dtString)
+	return dt == schema.DataTypeUUID || dt == schema.DataTypeUUIDArray
+}
+
+func validateUUIDType(propName schema.PropertyName, clause *Clause) error {
+	if clause.Value.Type == schema.DataTypeString {
+		return validateUUIDOperators(propName, clause)
+	}
+
+	return fmt.Errorf("property %q is of type \"uuid\" or \"uuid[]\": "+
+		"specify uuid as string using \"valueString\"", propName)
+}
+
+func validateUUIDOperators(propName schema.PropertyName, clause *Clause) error {
+	op := clause.Operator
+
+	switch op {
+	case OperatorEqual, OperatorNotEqual, OperatorLessThan, OperatorLessThanEqual,
+		OperatorGreaterThan, OperatorGreaterThanEqual:
+		return nil
+	default:
+		return fmt.Errorf("operator %q cannot be used on uuid/uuid[] props", op.Name())
 	}
 }

@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type RemoteIndex struct {
@@ -75,7 +74,8 @@ type RemoteIndexClient interface {
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
 		searchVector []float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-		additional additional.Properties) ([]*storobj.Object, []float32, error)
+		cursor *filters.Cursor, additional additional.Properties,
+	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindDocIDs(ctx context.Context, hostName, indexName, shardName string,
@@ -88,17 +88,6 @@ type RemoteIndexClient interface {
 
 	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
-
-	// FindObject extends GetObject with retries
-	// It exists to not alter the behavior of GetObject when replication is not enabled
-	FindObject(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (*storobj.Object, error)
-
-	// OverwriteObjects updates an existing object if the replication coordinator
-	// detects that a set of nodes contains an outdated version of an object
-	OverwriteObjects(ctx context.Context, host, index, shard string,
-		objects []*objects.VObject) ([]replica.RepairResponse, error)
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
@@ -247,7 +236,7 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 	searchVector []float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties,
+	cursor *filters.Cursor, additional additional.Properties, replEnabled bool,
 ) ([]*storobj.Object, []float32, error) {
 	shard, ok := ri.stateGetter.ShardingState(ri.class).Physical[shardName]
 	if !ok {
@@ -259,8 +248,12 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shardName string,
 		return nil, nil, errors.Errorf("resolve node name %q to host", shard.BelongsToNode())
 	}
 
-	return ri.client.SearchShard(ctx, host, ri.class, shardName, searchVector, limit,
-		filters, keywordRanking, sort, additional)
+	objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shardName, searchVector, limit,
+		filters, keywordRanking, sort, cursor, additional)
+	if replEnabled {
+		storobj.AddOwnership(objs, shard.BelongsToNode(), shard.Name)
+	}
+	return objs, scores, err
 }
 
 func (ri *RemoteIndex) Aggregate(ctx context.Context, shardName string,

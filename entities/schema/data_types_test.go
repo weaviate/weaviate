@@ -82,6 +82,7 @@ func TestGetPropertyDataType(t *testing.T) {
 		"string", "text", "int", "number", "boolean",
 		"date", "geoCoordinates", "phoneNumber", "blob", "Ref", "invalid",
 		"string[]", "text[]", "int[]", "number[]", "boolean[]", "date[]",
+		"uuid", "uuid[]",
 	}
 	class.Properties = make([]*models.Property, len(dataTypes))
 	for i, dtString := range dataTypes {
@@ -157,6 +158,14 @@ func TestGetPropertyDataType(t *testing.T) {
 		{
 			propName:         "date[]Prop",
 			expectedDataType: ptDataType(DataTypeDateArray),
+		},
+		{
+			propName:         "uuidProp",
+			expectedDataType: ptDataType(DataTypeUUID),
+		},
+		{
+			propName:         "uuid[]Prop",
+			expectedDataType: ptDataType(DataTypeUUIDArray),
 		},
 		{
 			propName:         "RefProp",

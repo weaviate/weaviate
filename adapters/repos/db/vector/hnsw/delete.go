@@ -26,7 +26,10 @@ type breakCleanUpTombstonedNodesFunc func() bool
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
-func (h *hnsw) Delete(id uint64) error {
+func (h *hnsw) Delete(ids ...uint64) error {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
+
 	h.deleteVsInsertLock.Lock()
 	defer h.deleteVsInsertLock.Unlock()
 
@@ -36,44 +39,46 @@ func (h *hnsw) Delete(id uint64) error {
 	before := time.Now()
 	defer h.metrics.TrackDelete(before, "total")
 
-	h.metrics.DeleteVector()
-	if err := h.addTombstone(id); err != nil {
+	if err := h.addTombstone(ids...); err != nil {
 		return err
 	}
 
-	h.cache.delete(context.TODO(), id)
+	for _, id := range ids {
+		h.metrics.DeleteVector()
 
-	// Adding a tombstone might not be enough in some cases, if the tombstoned
-	// entry was the entrypoint this might lead to issues for following inserts:
-	// On a nearly empty graph the entrypoint might be the only viable element to
-	// connect to, however, because the entrypoint itself is tombstones
-	// connections to it are impossible. So, unless we find a new entrypoint,
-	// subsequent inserts might end up isolated (without edges) in the graph.
-	// This is especially true if the tombstoned entrypoint is the only node in
-	// the graph. In this case we must reset the graph, so it acts like an empty
-	// one. Otherwise we'd insert the next id and have only one possible node to
-	// connect it to (the entrypoint). With that one being tombstoned, the new
-	// node would be guaranteed to have zero edges
+		// Adding a tombstone might not be enough in some cases, if the tombstoned
+		// entry was the entrypoint this might lead to issues for following inserts:
+		// On a nearly empty graph the entrypoint might be the only viable element to
+		// connect to, however, because the entrypoint itself is tombstones
+		// connections to it are impossible. So, unless we find a new entrypoint,
+		// subsequent inserts might end up isolated (without edges) in the graph.
+		// This is especially true if the tombstoned entrypoint is the only node in
+		// the graph. In this case we must reset the graph, so it acts like an empty
+		// one. Otherwise we'd insert the next id and have only one possible node to
+		// connect it to (the entrypoint). With that one being tombstoned, the new
+		// node would be guaranteed to have zero edges
 
-	node := h.nodeByID(id)
-	if node == nil {
-		// node was already deleted/cleaned up
-		return nil
-	}
+		node := h.nodeByID(id)
+		if node == nil {
+			// node was already deleted/cleaned up
+			continue
+		}
 
-	if h.getEntrypoint() == id {
-		beforeDeleteEP := time.Now()
-		defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
+		if h.getEntrypoint() == id {
+			beforeDeleteEP := time.Now()
+			defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
 
-		denyList := h.tombstonesAsDenyList()
-		if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
-			return errors.Wrap(err, "reset index")
-		} else if !onlyNode {
-			if err := h.deleteEntrypoint(node, denyList); err != nil {
-				return errors.Wrap(err, "delete entrypoint")
+			denyList := h.tombstonesAsDenyList()
+			if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
+				return errors.Wrap(err, "reset index")
+			} else if !onlyNode {
+				if err := h.deleteEntrypoint(node, denyList); err != nil {
+					return errors.Wrap(err, "delete entrypoint")
+				}
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -274,7 +279,16 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		return true, nil
 	}
 
-	neighborVec, err := h.vectorForID(context.Background(), neighbor)
+	var neighborVec []float32
+	if h.compressed.Load() {
+		vec, err := h.compressedVectorsCache.get(context.Background(), neighbor)
+		if err == nil {
+			neighborVec = h.pq.Decode(vec)
+		}
+	} else {
+		neighborVec, err = h.cache.get(context.Background(), neighbor)
+	}
+
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -529,12 +543,18 @@ func (h *hnsw) hasTombstone(id uint64) bool {
 	return ok
 }
 
-func (h *hnsw) addTombstone(id uint64) error {
-	h.metrics.AddTombstone()
+func (h *hnsw) addTombstone(ids ...uint64) error {
 	h.tombstoneLock.Lock()
-	h.tombstones[id] = struct{}{}
-	h.tombstoneLock.Unlock()
-	return h.commitLog.AddTombstone(id)
+	defer h.tombstoneLock.Unlock()
+
+	for _, id := range ids {
+		h.metrics.AddTombstone()
+		h.tombstones[id] = struct{}{}
+		if err := h.commitLog.AddTombstone(id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
@@ -548,6 +568,11 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 		h.resetLock.Lock()
 		if !breakCleanUpTombstonedNodes() {
 			h.nodes[id] = nil
+			if h.compressed.Load() {
+				h.compressedVectorsCache.delete(context.TODO(), id)
+			} else {
+				h.cache.delete(context.TODO(), id)
+			}
 			if err := h.commitLog.DeleteNode(id); err != nil {
 				h.resetLock.Unlock()
 				return false, err

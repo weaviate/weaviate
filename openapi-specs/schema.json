@@ -557,7 +557,7 @@
       "type": "object"
     },
     "Schema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "properties": {
         "classes": {
           "description": "Semantic classes that are available.",
@@ -1670,19 +1670,26 @@
     }
   },
   "externalDocs": {
-    "url": "https://github.com/semi-technologies/weaviate"
+    "url": "https://github.com/weaviate/weaviate"
   },
   "info": {
     "contact": {
-      "email": "hello@semi.technology",
+      "email": "hello@weaviate.io",
       "name": "Weaviate",
-      "url": "https://github.com/semi-technologies"
+      "url": "https://github.com/weaviate"
     },
     "description": "Cloud-native, modular vector search engine",
     "title": "Weaviate",
-    "version": "1.18.0-prealpha"
+    "version": "1.19.0-prealpha"
   },
   "parameters": {
+    "CommonAfterParameterQuery": {
+      "description": "The starting ID of the result window.",
+      "in": "query",
+      "name": "after",
+      "required": false,
+      "type": "string"
+    },
     "CommonOffsetParameterQuery": {
       "description": "The starting index of the result window. Default value is 0.",
       "format": "int64",
@@ -1847,6 +1854,9 @@
           "weaviate.local.query"
         ],
         "parameters": [
+          {
+            "$ref": "#/parameters/CommonAfterParameterQuery"
+          },
           {
             "$ref": "#/parameters/CommonOffsetParameterQuery"
           },
@@ -2565,6 +2575,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
           }
         ],
         "responses": {
@@ -3621,6 +3634,12 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "responses": {

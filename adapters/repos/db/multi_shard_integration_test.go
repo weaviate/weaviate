@@ -277,7 +277,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
 		MemtablesFlushIdleAfter:   60,
@@ -285,7 +285,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-
+	require.Nil(t, err)
 	return repo, logger
 }
 
@@ -349,8 +349,8 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 						},
 					},
 				}
-				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters,
-					nil, additional.Properties{})
+				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters, nil,
+					additional.Properties{})
 				assert.Nil(t, err)
 
 				assert.Len(t, res, expected)

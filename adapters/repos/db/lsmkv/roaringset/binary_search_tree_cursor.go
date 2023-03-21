@@ -14,7 +14,7 @@ package roaringset
 import (
 	"bytes"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type BinarySearchTreeCursor struct {
@@ -44,7 +44,7 @@ func (c *BinarySearchTreeCursor) Next() ([]byte, BitmapLayer, error) {
 func (c *BinarySearchTreeCursor) Seek(key []byte) ([]byte, BitmapLayer, error) {
 	pos := c.posKeyGreaterThanEqual(key)
 	if pos == -1 {
-		return nil, BitmapLayer{}, entities.NotFound
+		return nil, BitmapLayer{}, lsmkv.NotFound
 	}
 	c.nextNodePos = pos
 	return c.Next()

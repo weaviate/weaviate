@@ -22,9 +22,8 @@ var manhattanImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
 
 	for i := range a {
 		// take absolute difference, converted to float64 because math.Abs needs that
-		diff := math.Abs(float64(a[i] - b[i]))
 		// convert back to float32 as sum is float32
-		sum += float32(diff)
+		sum += float32(math.Abs(float64(a[i] - b[i])))
 	}
 
 	return sum
@@ -64,4 +63,20 @@ func (l ManhattanProvider) Type() string {
 
 func (l ManhattanProvider) New(a []float32) Distancer {
 	return &Manhattan{a: a}
+}
+
+func (l ManhattanProvider) Step(x, y []float32) float32 {
+	var sum float32
+
+	for i := range x {
+		// take absolute difference, converted to float64 because math.Abs needs that
+		// convert back to float32 as sum is float32
+		sum += float32(math.Abs(float64(x[i] - y[i])))
+	}
+
+	return sum
+}
+
+func (l ManhattanProvider) Wrap(x float32) float32 {
+	return x
 }

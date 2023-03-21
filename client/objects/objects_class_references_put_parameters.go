@@ -29,40 +29,37 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewObjectsClassReferencesPutParams creates a new ObjectsClassReferencesPutParams object
-// with the default values initialized.
+// NewObjectsClassReferencesPutParams creates a new ObjectsClassReferencesPutParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewObjectsClassReferencesPutParams() *ObjectsClassReferencesPutParams {
-	var ()
 	return &ObjectsClassReferencesPutParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewObjectsClassReferencesPutParamsWithTimeout creates a new ObjectsClassReferencesPutParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewObjectsClassReferencesPutParamsWithTimeout(timeout time.Duration) *ObjectsClassReferencesPutParams {
-	var ()
 	return &ObjectsClassReferencesPutParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewObjectsClassReferencesPutParamsWithContext creates a new ObjectsClassReferencesPutParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewObjectsClassReferencesPutParamsWithContext(ctx context.Context) *ObjectsClassReferencesPutParams {
-	var ()
 	return &ObjectsClassReferencesPutParams{
-
 		Context: ctx,
 	}
 }
 
 // NewObjectsClassReferencesPutParamsWithHTTPClient creates a new ObjectsClassReferencesPutParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewObjectsClassReferencesPutParamsWithHTTPClient(client *http.Client) *ObjectsClassReferencesPutParams {
-	var ()
 	return &ObjectsClassReferencesPutParams{
 		HTTPClient: client,
 	}
@@ -70,36 +67,60 @@ func NewObjectsClassReferencesPutParamsWithHTTPClient(client *http.Client) *Obje
 
 /*
 ObjectsClassReferencesPutParams contains all the parameters to send to the API endpoint
-for the objects class references put operation typically these are written to a http.Request
+
+	for the objects class references put operation.
+
+	Typically these are written to a http.Request.
 */
 type ObjectsClassReferencesPutParams struct {
 
-	/*Body*/
+	// Body.
 	Body models.MultipleRef
-	/*ClassName
-	  The class name as defined in the schema
 
+	/* ClassName.
+
+	   The class name as defined in the schema
 	*/
 	ClassName string
-	/*ConsistencyLevel
-	  Determines how many replicas must acknowledge a request before it is considered successful
 
+	/* ConsistencyLevel.
+
+	   Determines how many replicas must acknowledge a request before it is considered successful
 	*/
 	ConsistencyLevel *string
-	/*ID
-	  Unique ID of the Object.
 
+	/* ID.
+
+	   Unique ID of the Object.
+
+	   Format: uuid
 	*/
 	ID strfmt.UUID
-	/*PropertyName
-	  Unique name of the property related to the Object.
 
+	/* PropertyName.
+
+	   Unique name of the property related to the Object.
 	*/
 	PropertyName string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the objects class references put params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassReferencesPutParams) WithDefaults() *ObjectsClassReferencesPutParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the objects class references put params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *ObjectsClassReferencesPutParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the objects class references put params
@@ -197,7 +218,6 @@ func (o *ObjectsClassReferencesPutParams) WriteToRequest(r runtime.ClientRequest
 		return err
 	}
 	var res []error
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
@@ -213,16 +233,17 @@ func (o *ObjectsClassReferencesPutParams) WriteToRequest(r runtime.ClientRequest
 
 		// query param consistency_level
 		var qrConsistencyLevel string
+
 		if o.ConsistencyLevel != nil {
 			qrConsistencyLevel = *o.ConsistencyLevel
 		}
 		qConsistencyLevel := qrConsistencyLevel
 		if qConsistencyLevel != "" {
+
 			if err := r.SetQueryParam("consistency_level", qConsistencyLevel); err != nil {
 				return err
 			}
 		}
-
 	}
 
 	// path param id

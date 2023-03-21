@@ -15,7 +15,7 @@ import (
 	"bytes"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type CursorReplace struct {
@@ -76,12 +76,12 @@ func (c *CursorReplace) seekAll(target []byte) {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			state[i].err = err
 			continue
 		}
 
-		if err == entities.Deleted {
+		if err == lsmkv.Deleted {
 			state[i].err = err
 			state[i].key = key
 			continue
@@ -101,7 +101,7 @@ func (c *CursorReplace) seekAll(target []byte) {
 func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			return nil, nil
 		}
 	}
@@ -148,7 +148,7 @@ func (c *CursorReplace) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]by
 		c.advanceInner(id)
 	}
 
-	if c.serveCache.err == entities.Deleted {
+	if c.serveCache.err == lsmkv.Deleted {
 		// element was deleted, proceed with next round
 		return c.Next()
 	}
@@ -181,12 +181,12 @@ func (c *CursorReplace) Seek(key []byte) ([]byte, []byte) {
 }
 
 func (c *CursorReplace) cursorWithLowestKey() (int, error) {
-	err := entities.NotFound
+	err := lsmkv.NotFound
 	pos := -1
 	var lowest []byte
 
 	for i, res := range c.state {
-		if res.err == entities.NotFound {
+		if res.err == lsmkv.NotFound {
 			continue
 		}
 
@@ -206,14 +206,14 @@ func (c *CursorReplace) cursorWithLowestKey() (int, error) {
 
 func (c *CursorReplace) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if err == entities.NotFound {
+	if err == lsmkv.NotFound {
 		c.state[id].err = err
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
 	}
 
-	if err == entities.Deleted {
+	if err == lsmkv.Deleted {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil
@@ -237,11 +237,11 @@ func (c *CursorReplace) firstAll() {
 	state := make([]cursorStateReplace, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			state[i].err = err
 			continue
 		}
-		if err == entities.Deleted {
+		if err == lsmkv.Deleted {
 			state[i].err = err
 			state[i].key = key
 			continue

@@ -1157,7 +1157,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				sort: []string{
 					buildSort([]string{}, "asc"),
 				},
-				expectedMsg: "invalid 'sort' filter: sort parameter at position 0: " +
+				expectedMsg: "invalid 'sort' parameter: sort parameter at position 0: " +
 					"path parameter cannot be empty",
 			},
 			{
@@ -1166,7 +1166,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				sort: []string{
 					buildSort([]string{""}, "asc"),
 				},
-				expectedMsg: "invalid 'sort' filter: sort parameter at position 0: " +
+				expectedMsg: "invalid 'sort' parameter: sort parameter at position 0: " +
 					"no such prop with name '' found in class 'City' in the schema. " +
 					"Check your schema files for which properties in this class are available",
 			},
@@ -1176,7 +1176,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				sort: []string{
 					buildSort([]string{"ref", "prop"}, "asc"),
 				},
-				expectedMsg: "invalid 'sort' filter: sort parameter at position 0: " +
+				expectedMsg: "invalid 'sort' parameter: sort parameter at position 0: " +
 					"sorting by reference not supported, path must have exactly one argument",
 			},
 			{
@@ -1193,7 +1193,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				sort: []string{
 					buildSort([]string{"nonexistentproperty"}, "asc"),
 				},
-				expectedMsg: "invalid 'sort' filter: sort parameter at position 0: " +
+				expectedMsg: "invalid 'sort' parameter: sort parameter at position 0: " +
 					"no such prop with name 'nonexistentproperty' found in class 'City' in the schema. " +
 					"Check your schema files for which properties in this class are available",
 			},
@@ -1203,7 +1203,7 @@ func gettingObjectsWithSort(t *testing.T) {
 				sort: []string{
 					buildSort([]string{"inCountry"}, "asc"),
 				},
-				expectedMsg: "invalid 'sort' filter: sort parameter at position 0: " +
+				expectedMsg: "invalid 'sort' parameter: sort parameter at position 0: " +
 					"sorting by reference not supported, " +
 					"property \"inCountry\" is a ref prop to the class \"Country\"",
 			},

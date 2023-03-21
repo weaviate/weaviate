@@ -1206,7 +1206,7 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 			// no flush for this one, so this segment stays in the memtable
 		})
 
-		t.Run("update something that was already written previoulsy", func(t *testing.T) {
+		t.Run("update something that was already written previously", func(t *testing.T) {
 			require.Nil(t, b.Put([]byte("key-000"), []byte("twice-updated-value-000")))
 			require.Nil(t, b.Put([]byte("key-001"), []byte("once-updated-value-001")))
 			require.Nil(t, b.Put([]byte("key-019"), []byte("once-updated-value-019")))

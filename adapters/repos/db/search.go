@@ -68,8 +68,9 @@ func (db *DB) ClassObjectSearch(ctx context.Context,
 		return nil, nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	res, dist, err := idx.objectSearch(ctx, totalLimit, params.Filters,
-		params.KeywordRanking, params.Sort, params.AdditionalProperties)
+	res, dist, err := idx.objectSearch(ctx, totalLimit,
+		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
+		params.AdditionalProperties, params.ReplicationProperties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -119,8 +120,9 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	}
 
 	return db.ResolveReferences(ctx,
-		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties,
-			db.getDists(dists, params.Pagination)), params.Properties, params.AdditionalProperties)
+		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
+			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
+		params.Properties, params.AdditionalProperties)
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {
@@ -252,13 +254,17 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 		if err := filters.ValidateSort(scheme, schema.ClassName(q.Class), q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
-
 	}
 	idx := d.GetIndex(schema.ClassName(q.Class))
 	if idx == nil {
 		return nil, &objects.Error{Msg: "class not found " + q.Class, Code: objects.StatusNotFound}
 	}
-	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Additional)
+	if q.Cursor != nil {
+		if err := filters.ValidateCursor(schema.ClassName(q.Class), q.Cursor, q.Offset, q.Filters, q.Sort); err != nil {
+			return nil, &objects.Error{Msg: "cursor api: invalid 'after' parameter", Code: objects.StatusBadRequest, Err: err}
+		}
+	}
+	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters, nil, q.Sort, q.Cursor, q.Additional, nil)
 	if err != nil {
 		return nil, &objects.Error{Msg: "search index " + idx.ID(), Code: objects.StatusInternalServerError, Err: err}
 	}
@@ -268,7 +274,8 @@ func (d *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, 
 // ObjectSearch search each index.
 // Deprecated by Query which searches a specific index
 func (d *DB) ObjectSearch(ctx context.Context, offset, limit int,
-	filters *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
+	filters *filters.LocalFilter, sort []filters.Sort,
+	additional additional.Properties,
 ) (search.Results, error) {
 	return d.objectSearch(ctx, offset, limit, filters, sort, additional)
 }
@@ -289,7 +296,8 @@ func (d *DB) objectSearch(ctx context.Context, offset, limit int,
 	d.indexLock.RLock()
 	for _, index := range d.indices {
 		// TODO support all additional props
-		res, _, err := index.objectSearch(ctx, totalLimit, filters, nil, sort, additional)
+		res, _, err := index.objectSearch(ctx, totalLimit,
+			filters, nil, sort, nil, additional, nil)
 		if err != nil {
 			d.indexLock.RUnlock()
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
@@ -348,6 +356,9 @@ func (db *DB) getTotalLimit(pagination *filters.Pagination, addl additional.Prop
 	}
 
 	totalLimit := pagination.Offset + db.getLimit(pagination.Limit)
+	if totalLimit == 0 {
+		return 0, fmt.Errorf("invalid default limit: %v", db.getLimit(pagination.Limit))
+	}
 	if !addl.ReferenceQuery && totalLimit > int(db.config.QueryMaximumResults) {
 		return 0, errors.New("query maximum results exceeded")
 	}

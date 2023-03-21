@@ -74,7 +74,13 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 					for i := range keys {
 						err := bucket.Put(keys[i], values[i])
 						assert.Nil(t, err)
-						time.Sleep(time.Millisecond)
+						// the pause was adjusted from 1ms to 10ms in this test as part of
+						// https://github.com/weaviate/weaviate/issues/2776 which also
+						// changed the cyclemanage's default flush interval from 100ms to
+						// 500ms. With the previous value the test was too fast. It would
+						// write all the data (and therefore cross the threshold) before
+						// the memtable could ever flush.
+						time.Sleep(10 * time.Millisecond)
 					}
 				}
 			}
@@ -210,7 +216,12 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("wait until idle threshold has passed", func(t *testing.T) {
-			time.Sleep(50 * time.Millisecond)
+			// This threshold was adjusted as part of
+			// https://github.com/weaviate/weaviate/issues/2776 because the interval
+			// to check thresholds is now 500ms (from previously 100ms). With the old
+			// sleep here, a cycle would never have run regardless of the setting.
+			// Now there's a buffer of 250ms.
+			time.Sleep(750 * time.Millisecond)
 		})
 
 		t.Run("assert no segments exist even after passing the idle threshold", func(t *testing.T) {
@@ -221,7 +232,8 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
-			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
 		})
 	})
@@ -249,7 +261,12 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("wait until idle threshold has passed", func(t *testing.T) {
-			time.Sleep(500 * time.Millisecond)
+			// This threshold was adjusted as part of
+			// https://github.com/weaviate/weaviate/issues/2776 because the interval
+			// to check thresholds is now 500ms (from previously 100ms). With the old
+			// sleep here, a cycle would never have run regardless of the setting.
+			// Now there's a buffer of 250ms.
+			time.Sleep(750 * time.Millisecond)
 		})
 
 		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
@@ -260,7 +277,8 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
-			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
 		})
 	})
@@ -319,7 +337,8 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
-			ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
 			require.Nil(t, bucket.Shutdown(ctx))
 		})
 	})

@@ -64,9 +64,8 @@ func (o *ObjectsDeleteReader) ReadResponse(response runtime.ClientResponse, cons
 			return nil, err
 		}
 		return nil, result
-
 	default:
-		return nil, runtime.NewAPIError("unknown error", response, response.Code())
+		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
 }
 
@@ -76,14 +75,48 @@ func NewObjectsDeleteNoContent() *ObjectsDeleteNoContent {
 }
 
 /*
-ObjectsDeleteNoContent handles this case with default header values.
+ObjectsDeleteNoContent describes a response with status code 204, with default header values.
 
 Successfully deleted.
 */
 type ObjectsDeleteNoContent struct {
 }
 
+// IsSuccess returns true when this objects delete no content response has a 2xx status code
+func (o *ObjectsDeleteNoContent) IsSuccess() bool {
+	return true
+}
+
+// IsRedirect returns true when this objects delete no content response has a 3xx status code
+func (o *ObjectsDeleteNoContent) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects delete no content response has a 4xx status code
+func (o *ObjectsDeleteNoContent) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects delete no content response has a 5xx status code
+func (o *ObjectsDeleteNoContent) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects delete no content response a status code equal to that given
+func (o *ObjectsDeleteNoContent) IsCode(code int) bool {
+	return code == 204
+}
+
+// Code gets the status code for the objects delete no content response
+func (o *ObjectsDeleteNoContent) Code() int {
+	return 204
+}
+
 func (o *ObjectsDeleteNoContent) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteNoContent ", 204)
+}
+
+func (o *ObjectsDeleteNoContent) String() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteNoContent ", 204)
 }
 
@@ -98,14 +131,48 @@ func NewObjectsDeleteUnauthorized() *ObjectsDeleteUnauthorized {
 }
 
 /*
-ObjectsDeleteUnauthorized handles this case with default header values.
+ObjectsDeleteUnauthorized describes a response with status code 401, with default header values.
 
 Unauthorized or invalid credentials.
 */
 type ObjectsDeleteUnauthorized struct {
 }
 
+// IsSuccess returns true when this objects delete unauthorized response has a 2xx status code
+func (o *ObjectsDeleteUnauthorized) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects delete unauthorized response has a 3xx status code
+func (o *ObjectsDeleteUnauthorized) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects delete unauthorized response has a 4xx status code
+func (o *ObjectsDeleteUnauthorized) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects delete unauthorized response has a 5xx status code
+func (o *ObjectsDeleteUnauthorized) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects delete unauthorized response a status code equal to that given
+func (o *ObjectsDeleteUnauthorized) IsCode(code int) bool {
+	return code == 401
+}
+
+// Code gets the status code for the objects delete unauthorized response
+func (o *ObjectsDeleteUnauthorized) Code() int {
+	return 401
+}
+
 func (o *ObjectsDeleteUnauthorized) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteUnauthorized ", 401)
+}
+
+func (o *ObjectsDeleteUnauthorized) String() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteUnauthorized ", 401)
 }
 
@@ -120,7 +187,7 @@ func NewObjectsDeleteForbidden() *ObjectsDeleteForbidden {
 }
 
 /*
-ObjectsDeleteForbidden handles this case with default header values.
+ObjectsDeleteForbidden describes a response with status code 403, with default header values.
 
 Forbidden
 */
@@ -128,7 +195,41 @@ type ObjectsDeleteForbidden struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects delete forbidden response has a 2xx status code
+func (o *ObjectsDeleteForbidden) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects delete forbidden response has a 3xx status code
+func (o *ObjectsDeleteForbidden) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects delete forbidden response has a 4xx status code
+func (o *ObjectsDeleteForbidden) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects delete forbidden response has a 5xx status code
+func (o *ObjectsDeleteForbidden) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects delete forbidden response a status code equal to that given
+func (o *ObjectsDeleteForbidden) IsCode(code int) bool {
+	return code == 403
+}
+
+// Code gets the status code for the objects delete forbidden response
+func (o *ObjectsDeleteForbidden) Code() int {
+	return 403
+}
+
 func (o *ObjectsDeleteForbidden) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteForbidden  %+v", 403, o.Payload)
+}
+
+func (o *ObjectsDeleteForbidden) String() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteForbidden  %+v", 403, o.Payload)
 }
 
@@ -154,14 +255,48 @@ func NewObjectsDeleteNotFound() *ObjectsDeleteNotFound {
 }
 
 /*
-ObjectsDeleteNotFound handles this case with default header values.
+ObjectsDeleteNotFound describes a response with status code 404, with default header values.
 
 Successful query result but no resource was found.
 */
 type ObjectsDeleteNotFound struct {
 }
 
+// IsSuccess returns true when this objects delete not found response has a 2xx status code
+func (o *ObjectsDeleteNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects delete not found response has a 3xx status code
+func (o *ObjectsDeleteNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects delete not found response has a 4xx status code
+func (o *ObjectsDeleteNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects delete not found response has a 5xx status code
+func (o *ObjectsDeleteNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects delete not found response a status code equal to that given
+func (o *ObjectsDeleteNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the objects delete not found response
+func (o *ObjectsDeleteNotFound) Code() int {
+	return 404
+}
+
 func (o *ObjectsDeleteNotFound) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteNotFound ", 404)
+}
+
+func (o *ObjectsDeleteNotFound) String() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteNotFound ", 404)
 }
 
@@ -176,7 +311,7 @@ func NewObjectsDeleteInternalServerError() *ObjectsDeleteInternalServerError {
 }
 
 /*
-ObjectsDeleteInternalServerError handles this case with default header values.
+ObjectsDeleteInternalServerError describes a response with status code 500, with default header values.
 
 An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
@@ -184,7 +319,41 @@ type ObjectsDeleteInternalServerError struct {
 	Payload *models.ErrorResponse
 }
 
+// IsSuccess returns true when this objects delete internal server error response has a 2xx status code
+func (o *ObjectsDeleteInternalServerError) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects delete internal server error response has a 3xx status code
+func (o *ObjectsDeleteInternalServerError) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects delete internal server error response has a 4xx status code
+func (o *ObjectsDeleteInternalServerError) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this objects delete internal server error response has a 5xx status code
+func (o *ObjectsDeleteInternalServerError) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this objects delete internal server error response a status code equal to that given
+func (o *ObjectsDeleteInternalServerError) IsCode(code int) bool {
+	return code == 500
+}
+
+// Code gets the status code for the objects delete internal server error response
+func (o *ObjectsDeleteInternalServerError) Code() int {
+	return 500
+}
+
 func (o *ObjectsDeleteInternalServerError) Error() string {
+	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ObjectsDeleteInternalServerError) String() string {
 	return fmt.Sprintf("[DELETE /objects/{id}][%d] objectsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 

@@ -124,7 +124,7 @@ func makeResolveClass(modulesProvider ModulesProvider, class *models.Class) grap
 		// refactored
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybrid"]; ok {
-			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}))
+			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 			}

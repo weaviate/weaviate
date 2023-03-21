@@ -15,12 +15,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/schema"
+	"golang.org/x/sync/errgroup"
 )
 
 type propValuePair struct {
@@ -43,7 +43,7 @@ func newPropValuePair() propValuePair {
 	return propValuePair{docIDs: newDocBitmap()}
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
+func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipCache bool) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
 		if pv.prop == filters.InternalPropBackwardsCompatID {
@@ -92,21 +92,30 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		}
 
 		ctx := context.TODO() // TODO: pass through instead of spawning new
-		dbm, err := s.docBitmap(ctx, b, limit, pv)
+		dbm, err := s.docBitmap(ctx, b, limit, pv, skipCache)
 		if err != nil {
 			return err
 		}
 		pv.docIDs = dbm
 	} else {
+		eg := errgroup.Group{}
 		for i, child := range pv.children {
-			// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
-			// otherwise we run into situations where each subfilter on their own
-			// runs into the limit, possibly yielding in "less than limit" results
-			// after merging.
-			err := child.fetchDocIDs(s, 0)
-			if err != nil {
-				return errors.Wrapf(err, "nested child %d", i)
-			}
+			i, child := i, child
+			eg.Go(func() error {
+				// Explicitly set the limit to 0 (=unlimited) as this is a nested filter,
+				// otherwise we run into situations where each subfilter on their own
+				// runs into the limit, possibly yielding in "less than limit" results
+				// after merging.
+				err := child.fetchDocIDs(s, 0, skipCache)
+				if err != nil {
+					return errors.Wrapf(err, "nested child %d", i)
+				}
+
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return fmt.Errorf("nested query: %w", err)
 		}
 	}
 
@@ -134,8 +143,8 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		dbms[i] = dbm
 	}
 
-	// all children are identical, no need to merge, simply return the first
-	if checksumsIdenticalBM(dbms) {
+	if pv.cacheable() && checksumsIdenticalBM(dbms) {
+		// all children are identical, no need to merge, simply return the first
 		return dbms[0], nil
 	}
 

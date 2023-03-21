@@ -46,15 +46,16 @@ type ModulesProvider interface {
 type objectsManager interface {
 	AddObject(context.Context, *models.Principal, *models.Object,
 		*additional.ReplicationProperties) (*models.Object, error)
-	ValidateObject(context.Context, *models.Principal, *models.Object) error
+	ValidateObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties) error
 	GetObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
 		_ additional.Properties, _ *additional.ReplicationProperties) (*models.Object, error)
 	DeleteObject(_ context.Context, _ *models.Principal,
 		class string, _ strfmt.UUID, _ *additional.ReplicationProperties) error
 	UpdateObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID,
 		_ *models.Object, _ *additional.ReplicationProperties) (*models.Object, error)
-	HeadObject(_ context.Context, _ *models.Principal, class string, _ strfmt.UUID) (bool, *uco.Error)
-	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, additional.Properties) ([]*models.Object, error)
+	HeadObject(ctx context.Context, principal *models.Principal, class string,
+		id strfmt.UUID, repl *additional.ReplicationProperties) (bool, *uco.Error)
+	GetObjects(context.Context, *models.Principal, *int64, *int64, *string, *string, *string, additional.Properties) ([]*models.Object, error)
 	Query(ctx context.Context, principal *models.Principal, params *uco.QueryParams) ([]*models.Object, *uco.Error)
 	MergeObject(context.Context, *models.Principal, *models.Object, *additional.ReplicationProperties) *uco.Error
 	AddObjectReference(context.Context, *models.Principal, *uco.AddReferenceInput, *additional.ReplicationProperties) *uco.Error
@@ -100,7 +101,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body)
+	err := h.manager.ValidateObject(params.HTTPRequest.Context(), principal, params.Body, nil)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -188,7 +189,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	var deprecationsRes []*models.Deprecation
 
 	list, err := h.manager.GetObjects(params.HTTPRequest.Context(), principal,
-		params.Offset, params.Limit, params.Sort, params.Order, additional)
+		params.Offset, params.Limit, params.Sort, params.Order, params.After, additional)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -227,6 +228,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		Class:      *params.Class,
 		Offset:     params.Offset,
 		Limit:      params.Limit,
+		After:      params.After,
 		Sort:       params.Sort,
 		Order:      params.Order,
 		Additional: additional,
@@ -327,22 +329,29 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
 
-func (h *objectHandlers) headObject(r objects.ObjectsClassHeadParams,
+func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	ok, err := h.manager.HeadObject(r.HTTPRequest.Context(), principal, r.ClassName, r.ID)
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
+		return objects.NewObjectsCreateBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	exists, objErr := h.manager.HeadObject(params.HTTPRequest.Context(),
+		principal, params.ClassName, params.ID, repl)
+	if objErr != nil {
 		switch {
-		case err.Forbidden():
+		case objErr.Forbidden():
 			return objects.NewObjectsClassHeadForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(objErr))
 		default:
 			return objects.NewObjectsClassHeadInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(objErr))
 		}
 	}
 
-	if !ok {
+	if !exists {
 		return objects.NewObjectsClassHeadNotFound()
 	}
 	return objects.NewObjectsClassHeadNoContent()
@@ -751,7 +760,7 @@ func getConsistencyLevel(lvl *string) (string, error) {
 		case replica.One, replica.Quorum, replica.All:
 			return *lvl, nil
 		default:
-			return "", fmt.Errorf("unreckognized consistency level %q, "+
+			return "", fmt.Errorf("unrecognized consistency level %q, "+
 				"try one of the following: ['ONE', 'QUORUM', 'ALL']", *lvl)
 		}
 	}

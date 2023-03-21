@@ -14,21 +14,23 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // a helper tool to extract the uuid beacon for any matching reference
 type refFilterExtractor struct {
+	logger        logrus.FieldLogger
 	filter        *filters.Clause
 	className     schema.ClassName
 	classSearcher ClassSearcher
@@ -42,11 +44,12 @@ type ClassSearcher interface {
 	GetQueryMaximumResults() int
 }
 
-func newRefFilterExtractor(classSearcher ClassSearcher,
-	filter *filters.Clause, className schema.ClassName,
-	schema schema.Schema,
+func newRefFilterExtractor(logger logrus.FieldLogger,
+	classSearcher ClassSearcher, filter *filters.Clause,
+	className schema.ClassName, schema schema.Schema,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
+		logger:        logger,
 		filter:        filter,
 		className:     className,
 		classSearcher: classSearcher,
@@ -64,6 +67,14 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 		return nil, errors.Wrap(err, "nested request to fetch matching IDs")
 	}
 
+	if len(ids) > r.classSearcher.GetQueryMaximumResults() {
+		r.logger.
+			WithField("nested_reference_results", len(ids)).
+			WithField("query_maximum_results", r.classSearcher.GetQueryMaximumResults()).
+			Warnf("Number of found nested reference results exceeds configured QUERY_MAXIMUM_RESULTS. " +
+				"This may result in search performance degradation or even out of memory errors.")
+	}
+
 	return r.resultsToPropValuePairs(ids)
 }
 
@@ -76,7 +87,12 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 			// implementation, so using a 10x as high value should be safe. However,
 			// we might come back to reduce this number in case this leads to
 			// unexpected performance issues
-			Limit: int(config.DefaultQueryMaximumResults),
+			// Limit: int(config.DefaultQueryMaximumResults),
+
+			// due to reported issue https://github.com/weaviate/weaviate/issues/2537
+			// ref search is temporarily (until better solution) effectively unlimited
+			Offset: 0,
+			Limit:  math.MaxInt,
 		},
 		// set this to indicate that this is a sub-query, so we do not need
 		// to perform the same search limits cutoff check that we do with
@@ -155,20 +171,11 @@ func (r *refFilterExtractor) backwardCompatibleIDToPropValuePair(p classUUIDPair
 	return r.chainedIDsToPropValuePair([]classUUIDPair{p})
 }
 
-func (r *refFilterExtractor) idToPropValuePairWithClass(p classUUIDPair) (*propValuePair, error) {
+func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte) (*propValuePair, error) {
 	return &propValuePair{
 		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
 		hasFrequency: false,
-		value:        []byte(crossref.New("localhost", p.class, p.id).String()),
-		operator:     filters.OperatorEqual,
-	}, nil
-}
-
-func (r *refFilterExtractor) idToPropValuePairLegacyWithoutClass(p classUUIDPair) (*propValuePair, error) {
-	return &propValuePair{
-		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
-		hasFrequency: false,
-		value:        []byte(crossref.New("localhost", "", p.id).String()),
+		value:        v,
 		operator:     filters.OperatorEqual,
 	}, nil
 }
@@ -196,10 +203,17 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 // no more class-less beacons exist. Most likely this will be the case with the
 // next breaking change, such as v2.0.0.
 func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propValuePair, error) {
+	// This makes it safe to access the first element later on without further
+	// checks
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
 	out := make([]*propValuePair, len(ids)*2)
+	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, ids[0].class, 1.25)
 	for i, id := range ids {
 		// future-proof way
-		pv, err := r.idToPropValuePairWithClass(id)
+		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id))
 		if err != nil {
 			return nil, err
 		}
@@ -207,7 +221,7 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair) ([]*propVa
 		out[i*2] = pv
 
 		// backward-compatible way
-		pv, err = r.idToPropValuePairLegacyWithoutClass(id)
+		pv, err = r.idToPropValuePairWithValue(bb.LegacyIDOnly(id.id))
 		if err != nil {
 			return nil, err
 		}

@@ -27,6 +27,13 @@ const (
 	RequestKey = "request_id"
 )
 
+// Client is used to read and write objects on replicas
+type Client interface {
+	rClient
+	wClient
+}
+
+// StatusCode is communicate the cause of failure during replication
 type StatusCode int
 
 const (
@@ -65,7 +72,9 @@ func (e *Error) Clone() *Error {
 // Unwrap underlying error
 func (e *Error) Unwrap() error { return e.Err }
 
-func (e *Error) Error() string { return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err) }
+func (e *Error) Error() string {
+	return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err)
+}
 
 func (e *Error) IsStatusCode(sc StatusCode) bool {
 	return e.Code == sc
@@ -138,7 +147,24 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-type Client interface {
+type RepairResponse struct {
+	ID         string // object id
+	Version    int64  // sender's current version of the object
+	UpdateTime int64  // sender's current update time
+	Err        string
+	Deleted    bool
+}
+
+func fromReplicas(xs []objects.Replica) []*storobj.Object {
+	rs := make([]*storobj.Object, len(xs))
+	for i := range xs {
+		rs[i] = xs[i].Object
+	}
+	return rs
+}
+
+// wClient is the client used to write to replicas
+type wClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
@@ -155,23 +181,74 @@ type Client interface {
 	Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error)
 }
 
-// RClient is the client used to read from remote replicas
-type RClient interface {
-	FindObject(_ context.Context, host, index, shard string,
+// rClient is the client used to read from remote replicas
+type rClient interface {
+	// FetchObject fetches one object
+	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (*storobj.Object, error)
+		additional additional.Properties) (objects.Replica, error)
 
-	Exists(_ context.Context, host, index, shard string, id strfmt.UUID) (bool, error)
+	// FetchObjects fetches objects specified in ids list.
+	FetchObjects(_ context.Context, host, index, shard string,
+		ids []strfmt.UUID) ([]objects.Replica, error)
 
-	MultiGetObjects(_ context.Context, host, index, shard string,
-		ids []strfmt.UUID) ([]*storobj.Object, error)
+	// OverwriteObjects conditionally updates existing objects.
+	OverwriteObjects(_ context.Context, host, index, shard string,
+		_ []*objects.VObject) ([]RepairResponse, error)
+
+	// DigestObjects finds a list of objects and returns a compact representation
+	// of a list of the objects. This is used by the replicator to optimize the
+	// number of bytes transferred over the network when fetching a replicated
+	// object
+	DigestObjects(ctx context.Context, host, index, shard string,
+		ids []strfmt.UUID) ([]RepairResponse, error)
 }
 
-type RepairResponse struct {
-	ID         string // object id
-	Version    uint64 // sender's current version of the object
-	UpdateTime int64  // sender's current update time
-	Err        string
+// finderClient extends RClient with consistency checks
+type finderClient struct {
+	cl rClient
 }
 
-// Ticket: Extend adapter/client with retry strategy for exists() and getobjects()
+// FullRead reads full object
+func (fc finderClient) FullRead(ctx context.Context,
+	host, index, shard string,
+	id strfmt.UUID,
+	props search.SelectProperties,
+	additional additional.Properties,
+) (objects.Replica, error) {
+	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional)
+}
+
+// DigestReads reads digests of all specified objects
+func (fc finderClient) DigestReads(ctx context.Context,
+	host, index, shard string,
+	ids []strfmt.UUID,
+) ([]RepairResponse, error) {
+	n := len(ids)
+	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids)
+	if err == nil && len(rs) != n {
+		err = fmt.Errorf("malformed digest read response: length expected %d got %d", n, len(rs))
+	}
+	return rs, err
+}
+
+// FullReads read full objects
+func (fc finderClient) FullReads(ctx context.Context,
+	host, index, shard string,
+	ids []strfmt.UUID,
+) ([]objects.Replica, error) {
+	n := len(ids)
+	rs, err := fc.cl.FetchObjects(ctx, host, index, shard, ids)
+	if m := len(rs); err == nil && n != m {
+		err = fmt.Errorf("malformed full read response: length expected %d got %d", n, m)
+	}
+	return rs, err
+}
+
+// Overwrite specified object with most recent contents
+func (fc finderClient) Overwrite(ctx context.Context,
+	host, index, shard string,
+	xs []*objects.VObject,
+) ([]RepairResponse, error) {
+	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
+}

@@ -39,16 +39,16 @@ func TestRefFilters(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryLimit:                20,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 	migrator := NewMigrator(repo, logger)
 
@@ -461,15 +461,15 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 	migrator := NewMigrator(repo, logger)
 
@@ -784,7 +784,7 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) dto.GetP
 }
 
 func extractNames(in []search.Result) []string {
-	out := make([]string, len(in), len(in))
+	out := make([]string, len(in))
 	for i, res := range in {
 		out[i] = res.Schema.(map[string]interface{})["name"].(string)
 	}
@@ -793,7 +793,7 @@ func extractNames(in []search.Result) []string {
 }
 
 func extractCodes(in []search.Result) []string {
-	out := make([]string, len(in), len(in))
+	out := make([]string, len(in))
 	for i, res := range in {
 		out[i] = res.Schema.(map[string]interface{})["code"].(string)
 	}

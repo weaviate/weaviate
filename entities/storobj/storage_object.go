@@ -37,6 +37,8 @@ type Object struct {
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
 	VectorLen         int           `json:"-"`
+	BelongsToNode     string        `json:"-"`
+	BelongsToShard    string        `json:"-"`
 	docID             uint64
 }
 
@@ -72,6 +74,34 @@ func FromBinary(data []byte) (*Object, error) {
 	if err := ko.UnmarshalBinary(data); err != nil {
 		return nil, err
 	}
+
+	return ko, nil
+}
+
+func FromBinaryUUIDOnly(data []byte) (*Object, error) {
+	ko := &Object{}
+
+	byteOps := byte_operations.ByteOperations{Buffer: data}
+	version := byteOps.ReadUint8()
+	if version != 1 {
+		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
+	}
+
+	ko.docID = byteOps.ReadUint64()
+	byteOps.MoveBufferPositionForward(1) // ignore kind-byte
+	uuidObj, err := uuid.FromBytes(byteOps.ReadBytesFromBuffer(16))
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid: %w", err)
+	}
+	ko.Object.ID = strfmt.UUID(uuidObj.String())
+
+	byteOps.MoveBufferPositionForward(16)
+
+	vecLen := byteOps.ReadUint16()
+	byteOps.MoveBufferPositionForward(uint64(vecLen * 4))
+	classNameLen := byteOps.ReadUint16()
+
+	ko.Object.Class = string(byteOps.ReadBytesFromBuffer(uint64(classNameLen)))
 
 	return ko, nil
 }
@@ -752,21 +782,11 @@ func (ko *Object) DeepCopyDangerous() *Object {
 	}
 }
 
-func DocIDsFromSearchResults(sr []search.Result) ([]uint64, error) {
-	ids := make([]uint64, len(sr))
-	for i, res := range sr {
-		obj := FromObject(res.Object(), res.Vector)
-		b, err := obj.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		id, err := DocIDFromBinary(b)
-		if err != nil {
-			return nil, err
-		}
-		ids[i] = id
+func AddOwnership(objs []*Object, node, shard string) {
+	for i := range objs {
+		objs[i].BelongsToNode = node
+		objs[i].BelongsToShard = shard
 	}
-	return ids, nil
 }
 
 func deepCopyVector(orig []float32) []float32 {

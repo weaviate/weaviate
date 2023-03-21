@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func getClass(t *testing.T, host, class string) *models.Class {
@@ -42,6 +43,11 @@ func createObject(t *testing.T, host string, obj *models.Object) {
 	helper.CreateObject(t, obj)
 }
 
+func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
+	helper.SetupClient(host)
+	helper.CreateObjectCL(t, obj, cl)
+}
+
 func createObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.SetupClient(host)
 	helper.CreateObjectsBatch(t, batch)
@@ -52,6 +58,16 @@ func getObject(t *testing.T, host, class string, id strfmt.UUID) (*models.Object
 	return helper.GetObject(t, class, id)
 }
 
+func objectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+	helper.SetupClient(host)
+	return helper.ObjectExistsCL(t, class, id, cl)
+}
+
+func getObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (*models.Object, error) {
+	helper.SetupClient(host)
+	return helper.GetObjectCL(t, class, id, cl)
+}
+
 func getObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodename string) (*models.Object, error) {
 	helper.SetupClient(host)
 	return helper.GetObjectFromNode(t, class, id, nodename)
@@ -60,6 +76,11 @@ func getObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodenam
 func patchObject(t *testing.T, host string, patch *models.Object) {
 	helper.SetupClient(host)
 	helper.PatchObject(t, patch)
+}
+
+func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
+	helper.SetupClient(host)
+	helper.UpdateObjectCL(t, obj, cl)
 }
 
 func addReferences(t *testing.T, host string, refs []*models.BatchReference) {
@@ -76,7 +97,7 @@ func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {
 	helper.DeleteObject(t, toDelete)
 
 	_, err = helper.GetObject(t, class, id)
-	assert.Equal(t, err, &objects.ObjectsClassGetNotFound{})
+	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
 func deleteObjects(t *testing.T, host, class string, path []string, valueString string) {
@@ -94,14 +115,18 @@ func deleteObjects(t *testing.T, host, class string, path []string, valueString 
 	}
 	helper.DeleteObjectsBatch(t, batchDelete)
 
-	resp := gqlGet(t, host, class)
+	resp := gqlGet(t, host, class, replica.All)
 	assert.Empty(t, resp)
 }
 
-func gqlGet(t *testing.T, host, class string, fields ...string) []interface{} {
+func gqlGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, fields ...string) []interface{} {
 	helper.SetupClient(host)
 
-	q := "{Get {" + class + " {%s}}}"
+	if cl == "" {
+		cl = replica.Quorum
+	}
+
+	q := fmt.Sprintf("{Get {%s (consistencyLevel: %s)", class, cl) + " {%s}}}"
 	if len(fields) == 0 {
 		fields = []string{"_additional{id}"}
 	}

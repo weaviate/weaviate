@@ -49,7 +49,7 @@ func (m *Manager) DeleteObject(ctx context.Context, principal *models.Principal,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id)
+	ok, err := m.vectorRepo.Exists(ctx, class, id, repl)
 	if err != nil {
 		return NewErrInternal("check object existence: %v", err)
 	}

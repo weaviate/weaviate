@@ -75,7 +75,7 @@ type TestQuery struct {
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "StandardTest",
 		Properties: []*models.Property{
 			{
@@ -120,14 +120,14 @@ func TestHybrid(t *testing.T) {
 	dirName := t.TempDir()
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupStandardTestData(t, repo, schemaGetter, logger, 1.2, 0.75)
@@ -144,7 +144,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -157,14 +157,14 @@ func TestBIER(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupStandardTestData(t, repo, schemaGetter, logger, 1.2, 0.75)
@@ -181,7 +181,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, addit)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -227,7 +227,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) *models.Class {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: BM25FinvertedConfig(k1, b),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "MyClass",
 		Properties: []*models.Property{
 			{
@@ -273,14 +273,15 @@ func TestRFJourney(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
+		QueryLimit:                20,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
@@ -459,6 +460,149 @@ func TestRFJourney(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
+				Query:  "Elephant Parade",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  -1,
+			},
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+		require.True(t, len(hybridResults) > 0)
+
+		fmt.Println("--- Start results for hybrid ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+	})
+}
+
+func TestRFJourneyWithFilters(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	repo, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		QueryLimit:                20,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
+
+	filter := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "elephant",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "elephant",
+						Type:  schema.DataType("string"),
+					},
+				},
+			},
+		},
+	}
+
+	filter1 := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "My",
+						Type:  schema.DataType("text"),
+					},
+				},
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "journeys",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
+	t.Run("Hybrid with filter - no results expected", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "elephant",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  100,
+			},
+			Filters: filter1,
+		}
+
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+		require.Equal(t, 0, len(hybridResults))
+	})
+
+	t.Run("Hybrid", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
 				Limit:  100,
@@ -478,6 +622,7 @@ func TestRFJourney(t *testing.T) {
 		explorer := traverser.NewExplorer(repo, log, prov, metrics)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
+		require.Equal(t, 1, len(hybridResults))
 
 		fmt.Println("--- Start results for hybrid ---")
 		for _, r := range hybridResults {
@@ -486,17 +631,44 @@ func TestRFJourney(t *testing.T) {
 			description := schema["description"].(string)
 			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
 		}
+		require.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000002"), hybridResults[0].ID)
 	})
-}
 
-// "journey"
-func journeyVector() []float32 {
-	return []float32{-0.523002, 0.14169, 0.016461, -0.069062, 0.487908, -0.024193, -0.282436, 0.004778, -0.378135, 0.396011, 0.094045, -0.06584, 0.061162, -0.600018, -0.110189, 0.244562, 0.433501, 0.303775, -0.451004, -0.453709, 0.350324, 0.2047, -0.091615, -0.282805, -0.232953, -0.215143, 0.333113, -0.126952, -0.639225, 0.101498, 0.232343, 0.58831, 0.971, 0.494446, -0.483305, -0.873438, -0.483694, 0.406465, 0.342816, 1.253387, -0.24718, -0.046063, -0.660406, 0.103386, -0.06063, 0.3422, 0.322542, 0.026074, -0.623612, 0.489793, -0.632363, 0.448922, -0.370049, 0.212377, -0.315855, 0.364525, 0.056798, 0.805679, 0.145633, 0.850648, 0.432728, -1.431841, -0.226569, -0.315194, 0.560742, 0.261859, -0.001653, -0.068738, -0.662729, -0.049259, -0.380322, -0.374194, 0.363328, 0.341796, -0.077566, 0.503337, 0.353664, -0.045754, -0.499081, 0.198603, 0.038837, -0.460198, 0.00735, -0.270993, 0.950923, -0.085815, -0.52167, -0.10439, 0.31398, -0.560229, 0.411738, -0.129033, -0.009998, 0.443882, -0.045643, -0.078445, -0.259311, -0.08337, 0.232652, -0.015912, -0.229458, -0.474973, 1.265934, -0.204483, -0.293586, -0.619023, 0.158895, -0.730671, -0.163626, 0.411716, -0.000132, 0.069014, -0.682714, 0.303234, 0.299097, -0.484469, 0.608172, -0.163785, -0.419754, -0.160745, 0.278904, 0.550542, -0.008052, 0.160397, -0.211354, -0.19755, 1.182627, 0.705073, -0.461941, -0.235292, 0.534275, -0.096419, -0.405812, -0.157745, -0.335469, 0.200545, 0.406497, -0.05341, -0.009234, -0.029925, -0.394101, -0.060133, 0.182601, 0.615583, 0.212157, 0.363921, 0.41868, -0.652791, 0.657173, -0.131662, 0.269305, 0.381748, -0.827964, -0.452596, 0.201918, 0.0673, -0.020293, 0.486942, -0.72454, -0.435051, -0.615452, -0.218852, 0.090703, -0.471036, 0.032373, 0.569953, 0.098359, -0.570767, -0.21015, -0.53019, -0.227117, 0.327978, 0.087079, -0.115037, 0.09193, -0.922884, -0.165566, -0.353596, 0.535904, -0.328579, 0.029465, -1.508702, -0.320394, -0.596324, 0.290277, -0.272515, 0.104348, 0.062855, -0.236447, 0.388958, -0.186552, -0.156253, 0.355678, 0.53834, -0.321627, 0.486004, 0.301326, 0.786779, 0.430292, -0.012458, -0.164964, -0.072951, 0.746564, 0.19136, 0.003213, 0.53479, 0.511118, -0.559153, -0.088731, -0.436206, 0.421004, 0.193043, -0.656222, 0.133223, 0.00107, 0.037087, 0.263503, 0.378593, 0.158718, -0.401664, -0.10563, -0.111221, 0.018598, -0.036396, 0.189584, -0.347721, -0.544111, -0.018158, 0.134147, -0.362431, -0.702383, -0.375221, 0.365745, 0.118082, -0.19102, -0.150732, 0.638995, 0.070662, -0.054605, 0.221755, 0.23726, -0.274418, 0.294639, 0.221177, -0.012947, 0.08444, -0.486605, -0.225034, 0.774728, 0.167609, 0.766647, 0.381622, 0.241907, -0.196452, 0.245138, -0.203225, -0.701671, 0.236662, -0.627221, 0.143006, 0.055671, 0.564561, -0.114897, -0.542244, 0.464601, 0.201577, -0.177196, -0.795015, -0.580793, -0.134996, -0.579672, -0.399042, 0.008118, -0.458077, -0.43296, 0.074138, 0.328092, 0.02934, 0.406294, 0.330677, -0.138583, -0.676608, -0.099983, -0.137182, 0.713108, 0.248643, 0.153462, 0.56039, -0.109877, 0.260655, -0.529779, -0.13416, 0.067448, -0.139468, -0.179535, 0.372629, 0.287185, 0.100582, 0.093573, -0.208796}
-}
+	t.Run("Hybrid with filter", func(t *testing.T) {
+		params := dto.GetParams{
+			ClassName: "MyClass",
+			HybridSearch: &searchparams.HybridSearch{
+				Query:  "elephant",
+				Vector: elephantVector(),
+				Limit:  100,
+				Alpha:  0.5,
+			},
+			Pagination: &filters.Pagination{
+				Offset: 0,
+				Limit:  -1,
+			},
+			Filters: filter,
+		}
 
-// "peanuts"
-func peanutsVector() []float32 {
-	return []float32{0.563772, -0.779601, -0.18491, 0.509093, 0.080691, -0.621506, -0.127855, -0.165435, 0.57496, 0.006945, 0.452967, -0.285534, -0.129205, 0.193883, 0.092732, 0.083284, 0.714696, 0.107078, -0.398886, -0.117344, -0.387671, 0.026748, -0.562581, -0.007178, -0.354846, -0.431299, -0.788228, 0.175199, 0.914486, 0.441425, 0.089804, 0.284472, 0.106916, -0.133174, 0.399299, 0.002177, 0.551474, 0.389343, -0.016404, 0.770212, -0.219833, 0.303322, 0.127598, -0.378037, -0.172971, 0.394854, -0.424415, -0.71173, 0.080323, -0.406372, 0.398395, -0.594257, -0.418287, 0.055755, -0.352343, -0.393373, -0.732443, 0.333113, 0.420378, -0.50231, 0.261863, -0.061356, -0.180985, 0.311916, -0.180207, -0.154169, 0.371969, 0.454717, 0.320499, -0.182448, 0.087347, 0.585272, 0.136098, 0.288909, -0.229571, -0.140278, 0.229644, -0.557327, -0.110147, 0.034364, -0.021627, -0.598707, 0.221168, -0.059591, -0.203555, -0.434876, 0.209634, -0.460895, -0.345391, -0.18248, -0.24853, 0.730295, -0.295402, -0.562237, 0.255922, 0.076661, -0.713794, -0.354747, -1.109888, -0.066694, -0.195747, -0.282781, 0.459869, -0.309599, -0.002211, -0.274471, -0.003621, 0.008228, 0.011961, -0.258772, -0.210687, -0.664148, -0.257968, 0.231335, 0.530392, -0.205764, -0.621055, -0.440582, 0.080335, 0.017367, 0.880771, 0.656272, -0.713248, -0.208629, 0.095346, 0.336802, 0.888765, 0.251927, 0.066473, 0.182678, -0.220494, 0.288927, -0.602036, 0.057106, -0.594172, 0.848978, 0.751973, 0.090758, -0.732184, 0.683475, -0.075085, 0.381326, -0.076531, -0.253831, 0.10311, -0.02988, -0.043583, 0.005746, -0.460183, -0.189048, 0.25792, 0.477565, 0.391953, 0.08469, -0.10022, 0.454383, 0.170811, 0.196819, -0.760276, 0.045886, -0.743934, 0.190072, -0.216326, -0.624262, -0.22944, 0.066233, 1.024283, 0.044009, -0.373543, -0.243663, 0.204444, 0.402183, 0.043356, 0.31716, 0.302178, 0.369374, 0.36901, 0.02886, -0.26132, -0.234714, -0.791308, -0.433528, -0.098797, -0.447567, -0.124892, -0.119958, 0.31019, -0.096092, -0.259021, -0.078099, -0.178679, 0.14879, 0.106432, -0.450003, -0.294972, 0.044257, 0.402832, 0.263266, -0.309787, -0.17766, -0.399104, 0.577422, 0.30102, 0.05326, -0.271873, 0.204839, -0.019002, -0.743543, 0.739314, -0.115868, -0.504568, -0.115713, 0.042769, -0.123561, -0.057097, 0.407096, 0.770627, 0.372981, -0.321945, 0.349865, 0.437571, -0.77394, -0.090017, -0.011273, -0.468664, -0.735247, -0.745655, 0.018983, -0.248165, 0.215342, -0.136942, -0.458205, 0.4572, -0.032293, 0.654409, -0.024184, -0.392144, 0.634579, 0.222185, 0.471951, -0.063678, -0.473611, 0.796793, -0.295494, -0.157621, -0.103365, -0.564606, -0.092231, -0.517754, -0.369358, 0.137479, -0.214837, 0.11057, -0.095227, 0.726768, -0.079352, -0.065927, -0.846602, -0.317556, -0.344271, 0.201353, -0.367633, -0.004477, 0.157801, -0.249114, -0.549599, -0.147123, 0.308084, -0.175564, 0.306867, -0.071157, -0.588356, 0.450987, -0.184879, -0.096782, -0.006346, -0.017689, 0.005998, 0.200963, 0.225338, 0.189993, -1.105824, 0.520005, 0.129679, 0.198194, -0.254813, -0.127583, 0.326054, 0.009956, -0.016008, -0.483044, 0.801135, -0.517766, 0.067179, -0.372756, -0.511781, 0.058562, -0.082906, -0.28168, -0.285859}
+		prov := modules.NewProvider()
+		prov.SetClassDefaults(class)
+
+		metrics := &fakeMetrics{}
+		log, _ := test.NewNullLogger()
+		explorer := traverser.NewExplorer(repo, log, prov, metrics)
+		hybridResults, err := explorer.Hybrid(context.TODO(), params)
+		require.Nil(t, err)
+		require.Equal(t, 1, len(hybridResults))
+
+		fmt.Println("--- Start results for hybrid ---")
+		for _, r := range hybridResults {
+			schema := r.Schema.(map[string]interface{})
+			title := schema["title"].(string)
+			description := schema["description"].(string)
+			fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
+		}
+		require.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000002"), hybridResults[0].ID)
+	})
 }
 
 func elephantVector() []float32 {

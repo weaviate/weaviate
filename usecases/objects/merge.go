@@ -50,7 +50,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
-	if err := m.validateObject(ctx, principal, updates); err != nil {
+	if err := m.validateObject(ctx, principal, updates, repl); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	if updates.Properties == nil {

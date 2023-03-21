@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
@@ -78,7 +78,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	if b.flushing != nil {
 		flushing, err := b.flushing.roaringSetGet(key)
 		if err != nil {
-			if err != entities.NotFound {
+			if err != lsmkv.NotFound {
 				return nil, err
 			}
 		} else {
@@ -88,7 +88,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 
 	memtable, err := b.active.roaringSetGet(key)
 	if err != nil {
-		if err != entities.NotFound {
+		if err != lsmkv.NotFound {
 			return nil, err
 		}
 	} else {

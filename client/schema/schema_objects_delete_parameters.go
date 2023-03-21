@@ -25,42 +25,40 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
-// NewSchemaObjectsDeleteParams creates a new SchemaObjectsDeleteParams object
-// with the default values initialized.
+// NewSchemaObjectsDeleteParams creates a new SchemaObjectsDeleteParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewSchemaObjectsDeleteParams() *SchemaObjectsDeleteParams {
-	var ()
 	return &SchemaObjectsDeleteParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewSchemaObjectsDeleteParamsWithTimeout creates a new SchemaObjectsDeleteParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewSchemaObjectsDeleteParamsWithTimeout(timeout time.Duration) *SchemaObjectsDeleteParams {
-	var ()
 	return &SchemaObjectsDeleteParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewSchemaObjectsDeleteParamsWithContext creates a new SchemaObjectsDeleteParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewSchemaObjectsDeleteParamsWithContext(ctx context.Context) *SchemaObjectsDeleteParams {
-	var ()
 	return &SchemaObjectsDeleteParams{
-
 		Context: ctx,
 	}
 }
 
 // NewSchemaObjectsDeleteParamsWithHTTPClient creates a new SchemaObjectsDeleteParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewSchemaObjectsDeleteParamsWithHTTPClient(client *http.Client) *SchemaObjectsDeleteParams {
-	var ()
 	return &SchemaObjectsDeleteParams{
 		HTTPClient: client,
 	}
@@ -68,16 +66,37 @@ func NewSchemaObjectsDeleteParamsWithHTTPClient(client *http.Client) *SchemaObje
 
 /*
 SchemaObjectsDeleteParams contains all the parameters to send to the API endpoint
-for the schema objects delete operation typically these are written to a http.Request
+
+	for the schema objects delete operation.
+
+	Typically these are written to a http.Request.
 */
 type SchemaObjectsDeleteParams struct {
 
-	/*ClassName*/
+	// ClassName.
 	ClassName string
+
+	// Force.
+	Force *bool
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the schema objects delete params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsDeleteParams) WithDefaults() *SchemaObjectsDeleteParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the schema objects delete params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *SchemaObjectsDeleteParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the schema objects delete params
@@ -124,6 +143,17 @@ func (o *SchemaObjectsDeleteParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithForce adds the force to the schema objects delete params
+func (o *SchemaObjectsDeleteParams) WithForce(force *bool) *SchemaObjectsDeleteParams {
+	o.SetForce(force)
+	return o
+}
+
+// SetForce adds the force to the schema objects delete params
+func (o *SchemaObjectsDeleteParams) SetForce(force *bool) {
+	o.Force = force
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -135,6 +165,23 @@ func (o *SchemaObjectsDeleteParams) WriteToRequest(r runtime.ClientRequest, reg 
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.Force != nil {
+
+		// query param force
+		var qrForce bool
+
+		if o.Force != nil {
+			qrForce = *o.Force
+		}
+		qForce := swag.FormatBool(qrForce)
+		if qForce != "" {
+
+			if err := r.SetQueryParam("force", qForce); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

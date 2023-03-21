@@ -43,7 +43,7 @@ func NewObjectsHead(ctx *middleware.Context, handler ObjectsHeadHandler) *Object
 }
 
 /*
-ObjectsHead swagger:route HEAD /objects/{id} objects objectsHead
+	ObjectsHead swagger:route HEAD /objects/{id} objects objectsHead
 
 Checks Object's existence based on its UUID.
 
@@ -57,17 +57,16 @@ type ObjectsHead struct {
 func (o *ObjectsHead) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
-		r = rCtx
+		*r = *rCtx
 	}
 	var Params = NewObjectsHeadParams()
-
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 	if aCtx != nil {
-		r = aCtx
+		*r = *aCtx
 	}
 	var principal *models.Principal
 	if uprinc != nil {
@@ -80,7 +79,6 @@ func (o *ObjectsHead) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
-
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
 }

@@ -27,40 +27,37 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// NewBackupsCreateStatusParams creates a new BackupsCreateStatusParams object
-// with the default values initialized.
+// NewBackupsCreateStatusParams creates a new BackupsCreateStatusParams object,
+// with the default timeout for this client.
+//
+// Default values are not hydrated, since defaults are normally applied by the API server side.
+//
+// To enforce default values in parameter, use SetDefaults or WithDefaults.
 func NewBackupsCreateStatusParams() *BackupsCreateStatusParams {
-	var ()
 	return &BackupsCreateStatusParams{
-
 		timeout: cr.DefaultTimeout,
 	}
 }
 
 // NewBackupsCreateStatusParamsWithTimeout creates a new BackupsCreateStatusParams object
-// with the default values initialized, and the ability to set a timeout on a request
+// with the ability to set a timeout on a request.
 func NewBackupsCreateStatusParamsWithTimeout(timeout time.Duration) *BackupsCreateStatusParams {
-	var ()
 	return &BackupsCreateStatusParams{
-
 		timeout: timeout,
 	}
 }
 
 // NewBackupsCreateStatusParamsWithContext creates a new BackupsCreateStatusParams object
-// with the default values initialized, and the ability to set a context for a request
+// with the ability to set a context for a request.
 func NewBackupsCreateStatusParamsWithContext(ctx context.Context) *BackupsCreateStatusParams {
-	var ()
 	return &BackupsCreateStatusParams{
-
 		Context: ctx,
 	}
 }
 
 // NewBackupsCreateStatusParamsWithHTTPClient creates a new BackupsCreateStatusParams object
-// with the default values initialized, and the ability to set a custom HTTPClient for a request
+// with the ability to set a custom HTTPClient for a request.
 func NewBackupsCreateStatusParamsWithHTTPClient(client *http.Client) *BackupsCreateStatusParams {
-	var ()
 	return &BackupsCreateStatusParams{
 		HTTPClient: client,
 	}
@@ -68,24 +65,43 @@ func NewBackupsCreateStatusParamsWithHTTPClient(client *http.Client) *BackupsCre
 
 /*
 BackupsCreateStatusParams contains all the parameters to send to the API endpoint
-for the backups create status operation typically these are written to a http.Request
+
+	for the backups create status operation.
+
+	Typically these are written to a http.Request.
 */
 type BackupsCreateStatusParams struct {
 
-	/*Backend
-	  Backup backend name e.g. filesystem, gcs, s3.
+	/* Backend.
 
+	   Backup backend name e.g. filesystem, gcs, s3.
 	*/
 	Backend string
-	/*ID
-	  The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 
+	/* ID.
+
+	   The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	*/
 	ID string
 
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
+}
+
+// WithDefaults hydrates default values in the backups create status params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *BackupsCreateStatusParams) WithDefaults() *BackupsCreateStatusParams {
+	o.SetDefaults()
+	return o
+}
+
+// SetDefaults hydrates default values in the backups create status params (not the query body).
+//
+// All values with no default are reset to their zero value.
+func (o *BackupsCreateStatusParams) SetDefaults() {
+	// no default values defined for this parameter
 }
 
 // WithTimeout adds the timeout to the backups create status params

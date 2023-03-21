@@ -56,7 +56,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields)
+	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl)
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var (
@@ -82,7 +82,7 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 }
 
 func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string,
+	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) BatchObjects {
 	fieldsToKeep := determineResponseFields(fields)
 	c := make(chan BatchObject, len(classes))
@@ -92,7 +92,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 	// Generate a goroutine for each separate request
 	for i, object := range classes {
 		wg.Add(1)
-		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep)
+		go b.validateObject(ctx, principal, wg, object, i, &c, fieldsToKeep, repl)
 	}
 
 	wg.Wait()
@@ -102,7 +102,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
 	wg *sync.WaitGroup, concept *models.Object, originalIndex int, resultsC *chan BatchObject,
-	fieldsToKeep map[string]struct{},
+	fieldsToKeep map[string]struct{}, repl *additional.ReplicationProperties,
 ) {
 	defer wg.Done()
 
@@ -155,7 +155,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
 		// not possible without the class being present
-		err = validation.New(b.vectorRepo.Exists, b.config).Object(ctx, object, class)
+		err = validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, object, class)
 		ec.Add(err)
 
 		err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)

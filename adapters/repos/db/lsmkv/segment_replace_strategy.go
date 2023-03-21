@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func (i *segment) get(key []byte) ([]byte, error) {
@@ -30,14 +30,14 @@ func (i *segment) get(key []byte) ([]byte, error) {
 
 	if !i.bloomFilter.Test(key) {
 		i.bloomFilterMetrics.trueNegative(before)
-		return nil, entities.NotFound
+		return nil, lsmkv.NotFound
 	}
 
 	node, err := i.index.Get(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
+		if err == lsmkv.NotFound {
 			i.bloomFilterMetrics.falsePositive(before)
-			return nil, entities.NotFound
+			return nil, lsmkv.NotFound
 		} else {
 			return nil, err
 		}
@@ -72,16 +72,12 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 	}
 
 	if !i.secondaryBloomFilters[pos].Test(key) {
-		return nil, entities.NotFound
+		return nil, lsmkv.NotFound
 	}
 
 	node, err := i.secondaryIndices[pos].Get(key)
 	if err != nil {
-		if err == segmentindex.NotFound {
-			return nil, entities.NotFound
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -103,7 +99,7 @@ func (i *segment) getBySecondary(pos int, key []byte) ([]byte, error) {
 
 func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	if len(in) == 0 {
-		return nil, entities.NotFound
+		return nil, lsmkv.NotFound
 	}
 
 	// byte         meaning
@@ -113,7 +109,7 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 
 	// check the tombstone byte
 	if in[0] == 0x01 {
-		return nil, entities.Deleted
+		return nil, lsmkv.Deleted
 	}
 
 	valueLength := binary.LittleEndian.Uint64(in[1:9])
@@ -123,7 +119,7 @@ func (i *segment) replaceStratParseData(in []byte) ([]byte, error) {
 
 func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
 	if len(in) == 0 {
-		return segmentReplaceNode{}, entities.NotFound
+		return segmentReplaceNode{}, lsmkv.NotFound
 	}
 
 	r := bytes.NewReader(in)
@@ -134,7 +130,7 @@ func (i *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, e
 	}
 
 	if out.tombstone {
-		return out, entities.Deleted
+		return out, lsmkv.Deleted
 	}
 
 	return out, nil
@@ -144,7 +140,7 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 	node *segmentReplaceNode,
 ) error {
 	if len(in) == 0 {
-		return entities.NotFound
+		return lsmkv.NotFound
 	}
 
 	r := bytes.NewReader(in)
@@ -155,7 +151,7 @@ func (i *segment) replaceStratParseDataWithKeyInto(in []byte,
 	}
 
 	if node.tombstone {
-		return entities.Deleted
+		return lsmkv.Deleted
 	}
 
 	return nil

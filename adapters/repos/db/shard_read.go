@@ -162,38 +162,75 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32,
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
-			return nil, nil, errors.Errorf("shard was built with an older version of " +
-				"Weaviate which does not yet support BM25 search")
+			return nil, nil, errors.Errorf(
+				"shard was built with an older version of " +
+					"Weaviate which does not yet support BM25 search")
 		}
 
 		bm25Config := s.index.getInvertedIndexConfig().BM25
 
-		searcher := inverted.NewBM25Searcher(bm25Config, s.store,
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 			s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.propLengths,
 			s.index.logger, s.versioner.Version())
-		if keywordRanking != nil && keywordRanking.Type == "bm25" {
-			className := s.index.Config.ClassName
-			return searcher.BM25F(ctx, className, limit, keywordRanking, filters, sort, additional, func(index uint64) *storobj.Object {
-				v, _ := s.objectByIndexID(ctx, index, false)
-				return v
-			})
-		} else {
-			return searcher.Objects(ctx, limit, keywordRanking, filters, sort, additional, s.index.Config.ClassName)
+
+		var bm25objs []*storobj.Object
+		var bm25count []float32
+		var err error
+		var objs helpers.AllowList
+		var filterDocIds helpers.AllowList
+
+		if filters != nil {
+			objs, err = inverted.NewSearcher(s.index.logger, s.store,
+				s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+				s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+				s.index.stopwords, s.versioner.Version()).
+				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			filterDocIds = objs
 		}
+
+		searchFunc := func(index uint64) *storobj.Object {
+			v, _ := s.objectByIndexID(ctx, index, false)
+			return v
+		}
+
+		if keywordRanking.Type == "bm25" {
+			className := s.index.Config.ClassName
+			bm25objs, bm25count, err = bm25searcher.BM25F(ctx,
+				filterDocIds, className, limit, keywordRanking,
+				filters, sort, additional, searchFunc)
+			if err != nil {
+				return nil, nil, err
+			}
+		} else {
+			bm25objs, bm25count, err = bm25searcher.Objects(ctx,
+				filterDocIds, limit, keywordRanking, filters,
+				sort, additional, s.index.Config.ClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+
+		return bm25objs, bm25count, nil
 	}
 
 	if filters == nil {
-		objs, err := s.objectList(ctx, limit, sort, additional, s.index.Config.ClassName)
+		objs, err := s.objectList(ctx, limit, sort,
+			cursor, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
-	objs, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
-		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+	objs, err := inverted.NewSearcher(s.index.logger, s.store,
+		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.index.stopwords, s.versioner.Version()).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
@@ -268,7 +305,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context,
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	sort []filters.Sort, additional additional.Properties,
+	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
@@ -280,21 +317,39 @@ func (s *Shard) objectList(ctx context.Context, limit int,
 		return storobj.ObjectsByDocID(bucket, docIDs, additional)
 	}
 
-	return s.allObjectList(ctx, limit, additional, className)
+	if cursor == nil {
+		cursor = &filters.Cursor{After: "", Limit: limit}
+	}
+	return s.cursorObjectList(ctx, cursor, additional, className)
 }
 
-func (s *Shard) allObjectList(ctx context.Context, limit int,
+func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, limit)
-
-	i := 0
 	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
 	defer cursor.Close()
 
-	for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+	var key, val []byte
+	if c.After == "" {
+		key, val = cursor.First()
+	} else {
+		uuidBytes, err := uuid.MustParse(c.After).MarshalBinary()
+		if err != nil {
+			return nil, errors.Wrap(err, "after argument is not a valid uuid")
+		}
+		key, val = cursor.Seek(uuidBytes)
+		if bytes.Equal(key, uuidBytes) {
+			// move cursor by one if it's the same ID
+			key, val = cursor.Next()
+		}
+	}
+
+	i := 0
+	out := make([]*storobj.Object, c.Limit)
+
+	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
+		obj, err := storobj.FromBinary(val)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
 		}
@@ -337,9 +392,10 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,
 	addl additional.Properties,
 ) (helpers.AllowList, error) {
-	list, err := inverted.NewSearcher(s.store, s.index.getSchema.GetSchemaSkipAuth(),
-		s.invertedRowCache, s.propertyIndices, s.index.classSearcher,
-		s.deletedDocIDs, s.index.stopwords, s.versioner.Version()).
+	list, err := inverted.NewSearcher(s.index.logger, s.store,
+		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
+		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
+		s.index.stopwords, s.versioner.Version()).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")
@@ -378,7 +434,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	var docID uint64
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	existing, err := bucket.Get([]byte(idBytes))
+	existing, err := bucket.Get(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "unexpected error on previous lookup")
 	}
@@ -414,4 +470,14 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	return nil
+}
+
+func (s *Shard) wasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return false, err
+	}
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	return bucket.WasDeleted(idBytes)
 }

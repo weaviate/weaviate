@@ -69,7 +69,7 @@ node_modules
 .!
 
 # IDE files
-.idea
+.idea/
 .vscode/
 
 # Local files

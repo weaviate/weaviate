@@ -62,6 +62,14 @@ func (p GeoProvider) Type() string {
 	return "geo"
 }
 
+func (d GeoProvider) Step(x, y []float32) float32 {
+	panic("Not implemented")
+}
+
+func (d GeoProvider) Wrap(x float32) float32 {
+	panic("Not implemented")
+}
+
 func NewGeoProvider() Provider {
 	return GeoProvider{}
 }

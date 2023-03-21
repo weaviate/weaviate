@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// ConsistencyLevel is an enum of all possible consistency level
 type ConsistencyLevel string
 
 const (
@@ -25,6 +26,7 @@ const (
 	All    ConsistencyLevel = "ALL"
 )
 
+// cLevel returns min number of replicas to fulfill the consistency level
 func cLevel(l ConsistencyLevel, n int) int {
 	switch l {
 	case All:
@@ -49,40 +51,39 @@ type resolver struct {
 }
 
 // State returns replicas state
-func (r *resolver) State(shardName string) (rState, error) {
-	res := rState{}
-
-	resolved, unresolved, err := r.schema.ResolveParentNodes(r.class, shardName)
+func (r *resolver) State(shardName string, cl ConsistencyLevel) (res rState, err error) {
+	res.CLevel = cl
+	res.Hosts, res.nodes, err = r.schema.ResolveParentNodes(r.class, shardName)
 	if err != nil {
 		return res, err
 	}
-
-	if resolved == nil && unresolved == nil {
+	if res.Len() == 0 {
 		return res, errNoReplicaFound
 	}
 
-	res.Hosts = resolved
-	res.nodes = unresolved
-
-	return res, nil
+	res.Level, err = res.ConsistencyLevel(cl)
+	return res, err
 }
 
 // rState replicas state
 type rState struct {
-	Hosts []string // successfully resolved names
-	nodes []string // names which could not be resolved
+	CLevel ConsistencyLevel
+	Level  int
+	Hosts  []string // successfully resolved names
+	nodes  []string // names which could not be resolved
 }
 
-// Len returns the number of replica
-func (r rState) Len() int {
+// Len returns the number of replicas
+func (r *rState) Len() int {
 	return len(r.Hosts) + len(r.nodes)
 }
 
-// ConsistencyLevel returns consistency level when it is satisfied
-func (r rState) ConsistencyLevel(l ConsistencyLevel) (int, error) {
+// ConsistencyLevel returns consistency level if it is satisfied
+func (r *rState) ConsistencyLevel(l ConsistencyLevel) (int, error) {
 	level := cLevel(l, r.Len())
 	if n := len(r.Hosts); level > n {
-		return 0, fmt.Errorf("consistency level (%d) > available replicas(%d): %w :%v", level, n, errUnresolvedName, r.nodes)
+		return 0, fmt.Errorf("consistency level (%d) > available replicas(%d): %w :%v",
+			level, n, errUnresolvedName, r.nodes)
 	}
 	return level, nil
 }

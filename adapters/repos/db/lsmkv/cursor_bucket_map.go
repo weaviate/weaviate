@@ -16,7 +16,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/entities"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type CursorMap struct {
@@ -102,7 +102,7 @@ func (c *CursorMap) seekAll(target []byte) {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			state[i].err = err
 			continue
 		}
@@ -124,7 +124,7 @@ func (c *CursorMap) firstAll() {
 	state := make([]cursorStateMap, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			state[i].err = err
 			continue
 		}
@@ -145,7 +145,7 @@ func (c *CursorMap) firstAll() {
 func (c *CursorMap) serveCurrentStateAndAdvance() ([]byte, []MapPair) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
-		if err == entities.NotFound {
+		if err == lsmkv.NotFound {
 			return nil, nil
 		}
 	}
@@ -162,12 +162,12 @@ func (c *CursorMap) serveCurrentStateAndAdvance() ([]byte, []MapPair) {
 }
 
 func (c *CursorMap) cursorWithLowestKey() (int, error) {
-	err := entities.NotFound
+	err := lsmkv.NotFound
 	pos := -1
 	var lowest []byte
 
 	for i, res := range c.state {
-		if res.err == entities.NotFound {
+		if res.err == lsmkv.NotFound {
 			continue
 		}
 
@@ -250,14 +250,14 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 
 func (c *CursorMap) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if err == entities.NotFound {
+	if err == lsmkv.NotFound {
 		c.state[id].err = err
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
 	}
 
-	if err == entities.Deleted {
+	if err == lsmkv.Deleted {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil

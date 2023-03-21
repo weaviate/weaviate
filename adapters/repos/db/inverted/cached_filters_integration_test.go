@@ -90,7 +90,8 @@ func Test_CachedFilters_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, fakeStopwordDetector{}, 2)
+	searcher := NewSearcher(logger, store, createSchema(), rowCacher,
+		nil, nil, nil, fakeStopwordDetector{}, 2)
 
 	type test struct {
 		name                     string
@@ -415,7 +416,8 @@ func Test_CachedFilters_Int(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, fakeStopwordDetector{}, 2)
+	searcher := NewSearcher(logger, store, createSchema(), rowCacher,
+		nil, nil, nil, fakeStopwordDetector{}, 2)
 
 	type test struct {
 		name                     string
@@ -442,78 +444,6 @@ func Test_CachedFilters_Int(t *testing.T) {
 			},
 			expectedListBeforeUpdate: helpers.NewAllowList(7, 14),
 			expectedListAfterUpdate:  helpers.NewAllowList(7, 14, 21),
-		},
-		{
-			name: "greater than",
-			filter: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorGreaterThan,
-					On: &filters.Path{
-						Class:    "foo",
-						Property: schema.PropertyName(propName),
-					},
-					Value: &filters.Value{
-						Value: 6,
-						Type:  schema.DataTypeInt,
-					},
-				},
-			},
-			expectedListBeforeUpdate: helpers.NewAllowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15),
-			expectedListAfterUpdate:  helpers.NewAllowList(7, 14, 8, 16, 9, 10, 11, 12, 13, 15, 21),
-		},
-		{
-			name: "greater than equal",
-			filter: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorGreaterThanEqual,
-					On: &filters.Path{
-						Class:    "foo",
-						Property: schema.PropertyName(propName),
-					},
-					Value: &filters.Value{
-						Value: 6,
-						Type:  schema.DataTypeInt,
-					},
-				},
-			},
-			expectedListBeforeUpdate: helpers.NewAllowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15),
-			expectedListAfterUpdate:  helpers.NewAllowList(6, 12, 7, 14, 8, 16, 9, 10, 11, 13, 15, 21),
-		},
-		{
-			name: "less than",
-			filter: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorLessThan,
-					On: &filters.Path{
-						Class:    "foo",
-						Property: schema.PropertyName(propName),
-					},
-					Value: &filters.Value{
-						Value: 8,
-						Type:  schema.DataTypeInt,
-					},
-				},
-			},
-			expectedListBeforeUpdate: helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7),
-			expectedListAfterUpdate:  helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21),
-		},
-		{
-			name: "less than equal",
-			filter: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorLessThanEqual,
-					On: &filters.Path{
-						Class:    "foo",
-						Property: schema.PropertyName(propName),
-					},
-					Value: &filters.Value{
-						Value: 8,
-						Type:  schema.DataTypeInt,
-					},
-				},
-			},
-			expectedListBeforeUpdate: helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7),
-			expectedListAfterUpdate:  helpers.NewAllowList(2, 4, 6, 8, 10, 12, 14, 16, 3, 9, 15, 5, 7, 21),
 		},
 		{
 			name: "not equal",
@@ -782,7 +712,8 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 	})
 
 	rowCacher := newRowCacherSpy()
-	searcher := NewSearcher(store, createSchema(), rowCacher, nil, nil, nil, fakeStopwordDetector{}, 2)
+	searcher := NewSearcher(logger, store, createSchema(), rowCacher,
+		nil, nil, nil, fakeStopwordDetector{}, 2)
 
 	type test struct {
 		name                     string
