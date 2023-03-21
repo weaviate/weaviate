@@ -72,7 +72,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	}
 
 	class.Class = schema.UpperCaseClassName(class.Class)
-	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	class.Properties = schema.LowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err = m.validateCanAddClass(ctx, class, true)
@@ -120,7 +120,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	defer m.Unlock()
 
 	class.Class = schema.UpperCaseClassName(class.Class)
-	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	class.Properties = schema.LowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err := m.validateCanAddClass(ctx, class, false)
@@ -339,26 +339,6 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	class.ShardingConfig = parsed
 
 	return nil
-}
-
-func lowerCaseAllPropertyNames(props []*models.Property) []*models.Property {
-	for i, prop := range props {
-		props[i].Name = lowerCaseFirstLetter(prop.Name)
-	}
-
-	return props
-}
-
-func lowerCaseFirstLetter(name string) string {
-	if len(name) < 1 {
-		return name
-	}
-
-	if len(name) == 1 {
-		return strings.ToLower(name)
-	}
-
-	return strings.ToLower(string(name[0])) + name[1:]
 }
 
 func setInvertedConfigDefaults(class *models.Class) {

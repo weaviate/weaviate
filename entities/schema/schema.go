@@ -65,3 +65,23 @@ func UpperCaseClassName(name string) string {
 
 	return strings.ToUpper(string(name[0])) + name[1:]
 }
+
+func LowerCaseAllPropertyNames(props []*models.Property) []*models.Property {
+	for i, prop := range props {
+		props[i].Name = LowerCaseFirstLetter(prop.Name)
+	}
+
+	return props
+}
+
+func LowerCaseFirstLetter(name string) string {
+	if len(name) < 1 {
+		return name
+	}
+
+	if len(name) == 1 {
+		return strings.ToLower(name)
+	}
+
+	return strings.ToLower(string(name[0])) + name[1:]
+}

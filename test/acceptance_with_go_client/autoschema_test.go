@@ -53,3 +53,39 @@ func TestAutoschemaCasingClass(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoschemaCasingProps(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+
+	className := "RandomTestClass548468"
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	creator := c.Data().Creator()
+	_, err := creator.WithClassName(className).Do(ctx)
+	require.Nil(t, err)
+
+	upperPropName := "SomeProp"
+	lowerPropName := "someProp"
+	cases := []struct {
+		prop1 string
+		prop2 string
+	}{
+		{prop1: upperPropName, prop2: upperPropName},
+		{prop1: lowerPropName, prop2: lowerPropName},
+		{prop1: upperPropName, prop2: lowerPropName},
+		{prop1: lowerPropName, prop2: upperPropName},
+	}
+	for _, tt := range cases {
+		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
+			creator1 := c.Data().Creator()
+			_, err := creator1.WithClassName(className).WithProperties(map[string]string{tt.prop1: "something"}).Do(ctx)
+			require.Nil(t, err)
+
+			creator2 := c.Data().Creator()
+			_, err = creator2.WithClassName(className).WithProperties(map[string]string{tt.prop2: "overwrite value"}).Do(ctx)
+			require.Nil(t, err)
+
+			require.Nil(t, c.Schema().ClassDeleter().WithClassName(className).Do(ctx))
+		})
+	}
+}

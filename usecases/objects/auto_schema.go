@@ -116,7 +116,7 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 	for _, prop := range properties {
 		found := false
 		for _, classProp := range existingProperties {
-			if classProp.Name == prop.Name {
+			if classProp.Name == schema.LowerCaseFirstLetter(prop.Name) {
 				found = true
 				break
 			}
