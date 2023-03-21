@@ -229,7 +229,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 
 	if class.Class != className {
 		// the name in the URI and body don't match, so we assume the user wants to rename
-		n := upperCaseClassName(class.Class)
+		n := schema.UpperCaseClassName(class.Class)
 		newName = &n
 	}
 

@@ -69,6 +69,9 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 		// stop performing auto schema
 		return fmt.Errorf(validation.ErrorMissingClass)
 	}
+
+	object.Class = schema.UpperCaseClassName(object.Class)
+
 	schemaClass, err := m.getClass(principal, object)
 	if err != nil {
 		return err
