@@ -9,6 +9,6 @@ By default the script is trying to embed 'distilroberta' and will write a contai
 
 We took several files from the original Weaviate repo at https://github.com/weaviate/t2v-transformers-models, so maybe you can start there if you are having problems.
 
-One issue we can into was regarding the docker.io login.  We followed the directories to setup docker credentials here:  https://github.com/docker/docker-credential-helpers/issues/102
+One issue we can into was regarding the docker.io login.  We followed the directions to setup docker credentials here:  https://github.com/docker/docker-credential-helpers/issues/102
 
 
