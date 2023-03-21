@@ -73,7 +73,7 @@ func TestDelegateGetSet(t *testing.T) {
 		done <- struct{}{}
 	}()
 
-	_, ok := st.delegate.Get("X")
+	_, ok := st.delegate.get("X")
 	assert.False(t, ok)
 
 	for _, x := range spaces {
@@ -122,7 +122,8 @@ func TestDelegateSort(t *testing.T) {
 	// insert equivalent nodes "N2" and "N3"
 	delegate.set("N2", NodeInfo{DiskUsage{Available: GB + 128}, now})
 	delegate.set("N3", NodeInfo{DiskUsage{Available: GB + 512}, now})
-	delegate.set("N4", NodeInfo{DiskUsage{Available: 2 * GB}, now})
+	// one block more
+	delegate.set("N4", NodeInfo{DiskUsage{Available: GB + 4096}, now})
 	got = delegate.sortCandidates([]string{"N1", "N0", "N2", "N3", "N4"})
 	if got[1] == "N2" {
 		assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)

@@ -177,5 +177,5 @@ func (s *State) SchemaSyncIgnored() bool {
 }
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
-	return s.delegate.Get(node)
+	return s.delegate.get(node)
 }

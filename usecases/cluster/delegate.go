@@ -27,14 +27,13 @@ import (
 type _OpCode uint8
 
 const (
-	_ProtoVersion uint8   = 1
-	_ProtoTTL             = time.Second * 20
-	_OpCodeDisk   _OpCode = 1
-	KB                    = 1 << 10
+	// _ProtoVersion internal protocol version for exchanging messages
+	_ProtoVersion uint8 = 1
+	// _OpCodeDisk operation code for getting disk space
+	_OpCodeDisk _OpCode = 1
+	// _ProtoTTL used to decide when to update the cache
+	_ProtoTTL = time.Second * 20
 )
-
-// TODO:
-// truncate total and available space to MB
 
 // spaceMsg is used to notify other nodes about current disk usage
 type spaceMsg struct {
@@ -66,7 +65,7 @@ type NodeInfo struct {
 }
 
 func (d *spaceMsg) marshal() (data []byte, err error) {
-	buf := bytes.NewBuffer(make([]byte, 0, 18+len(d.Node)))
+	buf := bytes.NewBuffer(make([]byte, 0, 20+len(d.Node)))
 	if err := binary.Write(buf, binary.BigEndian, d.header); err != nil {
 		return nil, err
 	}
@@ -97,6 +96,7 @@ type delegate struct {
 	Cache map[string]NodeInfo
 }
 
+// init must be called first to initialize the cache
 func (d *delegate) init() error {
 	d.Cache = make(map[string]NodeInfo, 32)
 	space, err := diskSpace(d.dataPath)
@@ -120,7 +120,7 @@ func (d *delegate) NodeMeta(limit int) (meta []byte) {
 // data can be sent here. See MergeRemoteState as well. The `join`
 // boolean indicates this is for a join instead of a push/pull.
 func (d *delegate) LocalState(join bool) []byte {
-	prv, _ := d.Get(d.Name) // value from cache
+	prv, _ := d.get(d.Name) // value from cache
 	var (
 		info NodeInfo = prv
 		err  error
@@ -139,7 +139,7 @@ func (d *delegate) LocalState(join bool) []byte {
 	}
 
 	x := spaceMsg{
-		header{OpCode: 1, ProtoVersion: _ProtoVersion},
+		header{OpCode: _OpCodeDisk, ProtoVersion: _ProtoVersion},
 		info.DiskUsage,
 		d.Name,
 	}
@@ -169,8 +169,8 @@ func (d *delegate) GetBroadcasts(overhead, limit int) [][]byte {
 	return nil
 }
 
-// Get returns info about about a specific node in the cluster
-func (d *delegate) Get(node string) (NodeInfo, bool) {
+// get returns info about about a specific node in the cluster
+func (d *delegate) get(node string) (NodeInfo, bool) {
 	d.Lock()
 	defer d.Unlock()
 	x, ok := d.Cache[node]
@@ -185,23 +185,9 @@ func (d *delegate) set(node string, x NodeInfo) {
 
 // delete key from the cache
 func (d *delegate) delete(node string) {
-	// TODO clean up entries for node leaving the cluster
 	d.Lock()
 	defer d.Unlock()
 	delete(d.Cache, node)
-}
-
-// diskSpace return the disk space usage
-func diskSpace(path string) (DiskUsage, error) {
-	fs := syscall.Statfs_t{}
-	err := syscall.Statfs(path, &fs)
-	if err != nil {
-		return DiskUsage{}, err
-	}
-	return DiskUsage{
-		Total:     fs.Blocks * uint64(fs.Bsize),
-		Available: fs.Bavail * uint64(fs.Bsize),
-	}, nil
 }
 
 // sortCandidates by the amount of free space in descending order
@@ -209,7 +195,7 @@ func diskSpace(path string) (DiskUsage, error) {
 // Two nodes are considered equivalent if the difference between their
 // free spaces is less than 4KB.
 // The free space is just an rough estimate of the actual amount.
-// The Lower bound 4KB helps to mitigate the selection of same set of nodes
+// The Lower bound 4KB helps to mitigate the risk of selecting same set of nodes
 // when selections happens concurrently on different initiator nodes.
 func (d *delegate) sortCandidates(names []string) []string {
 	d.Lock()
@@ -244,3 +230,16 @@ func (e events) NotifyLeave(node *memberlist.Node) {
 // updated, usually involving the meta data. The Node argument
 // must not be modified.
 func (e events) NotifyUpdate(*memberlist.Node) {}
+
+// diskSpace return the disk space usage
+func diskSpace(path string) (DiskUsage, error) {
+	fs := syscall.Statfs_t{}
+	err := syscall.Statfs(path, &fs)
+	if err != nil {
+		return DiskUsage{}, err
+	}
+	return DiskUsage{
+		Total:     fs.Blocks * uint64(fs.Bsize),
+		Available: fs.Bavail * uint64(fs.Bsize),
+	}, nil
+}
