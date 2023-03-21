@@ -415,6 +415,11 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         fmt.Println("Fvs_search: response Body:", string(respbody))
     }
 
+    // check http status
+    if response.Status != "200 OK" {
+        return nil, nil, 0, errors.New("Search failed.")
+    }
+
     // parse the json response
     respData := map[string]interface{}{}
     rErr := json.Unmarshal( respbody, &respData)
@@ -450,7 +455,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         inner := inds[i].([]interface{})
         iarr[i] = make([]uint64, len(inner))
         for j:=0;j<len(inner);j++ {
-            iarr[i][j] = uint64( int(inner[j].(uint64)) )
+            iarr[i][j] = uint64( inner[j].(float64) )
         }                       
     } 
     if verbose {

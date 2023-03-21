@@ -141,7 +141,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
     //GW
 
     //GW
-    runtime.Breakpoint()
+    //runtime.Breakpoint()
     //GW
 
 	if hnswUserConfig.Skip {
