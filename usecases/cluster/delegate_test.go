@@ -42,7 +42,7 @@ func TestDiskSpace(t *testing.T) {
 }
 
 func TestDelegateGetSet(t *testing.T) {
-	now := time.Now()
+	now := time.Now().UnixMilli()-1
 	st := State{
 		delegate: delegate{
 			Name:     "ABC",
@@ -85,8 +85,8 @@ func TestDelegateGetSet(t *testing.T) {
 	<-done
 	for _, x := range spaces {
 		info, ok := st.NodeInfo(x.Node)
-		assert.Greater(t, info.LastTime, now)
-		want := NodeInfo{x.DiskUsage, info.LastTime}
+		assert.Greater(t, info.LastTimeMilli, now)
+		want := NodeInfo{x.DiskUsage, info.LastTimeMilli}
 		assert.Equal(t, want, info)
 		assert.True(t, ok)
 		st.delegate.delete(x.Node)
@@ -103,7 +103,7 @@ func TestDelegateGetSet(t *testing.T) {
 }
 
 func TestDelegateSort(t *testing.T) {
-	now := time.Now()
+	now := time.Now().UnixMilli()
 	GB := uint64(1) << 30
 	delegate := delegate{
 		Name:     "ABC",

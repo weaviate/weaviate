@@ -62,7 +62,7 @@ type DiskUsage struct {
 // NodeInfo disk space
 type NodeInfo struct {
 	DiskUsage
-	LastTime time.Time
+	LastTimeMilli int64 // last update time in milli seconds
 }
 
 func (d *spaceMsg) marshal() (data []byte, err error) {
@@ -104,7 +104,7 @@ func (d *delegate) init() error {
 		return fmt.Errorf("disk_space: %w", err)
 	}
 
-	d.set(d.Name, NodeInfo{space, time.Now()}) // cache
+	d.set(d.Name, NodeInfo{space, time.Now().UnixMilli()}) // cache
 	return nil
 }
 
@@ -126,15 +126,15 @@ func (d *delegate) LocalState(join bool) []byte {
 		err  error
 	)
 	// renew cached value if ttl expires
-	if prv.Available == 0 || time.Since(prv.LastTime) > _ProtoTTL {
+	if prv.Available == 0 || time.Since(time.UnixMilli(prv.LastTimeMilli)) > _ProtoTTL {
 		info.DiskUsage, err = diskSpace(d.dataPath)
 		if err != nil {
 			return nil
 		}
-		info.LastTime = time.Now()
+		info.LastTimeMilli = time.Now().UnixMilli()
 	}
 
-	if !prv.LastTime.Equal(info.LastTime) {
+	if prv.LastTimeMilli != info.LastTimeMilli {
 		d.set(d.Name, info) // cache new value
 	}
 
@@ -159,7 +159,7 @@ func (d *delegate) MergeRemoteState(data []byte, join bool) {
 	if err := x.unmarshal(data); err != nil || x.Node == "" {
 		return
 	}
-	info := NodeInfo{x.DiskUsage, time.Now()}
+	info := NodeInfo{x.DiskUsage, time.Now().UnixMilli()}
 	d.set(x.Node, info)
 }
 
