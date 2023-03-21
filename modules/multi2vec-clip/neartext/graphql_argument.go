@@ -61,6 +61,10 @@ func (g *GraphQLArgumentsProvider) nearTextFields(prefix string) graphql.InputOb
 			Description: descriptions.Certainty,
 			Type:        graphql.Float,
 		},
+		"distance": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Distance,
+			Type:        graphql.Float,
+		},
 		"moveAwayFrom": &graphql.InputObjectFieldConfig{
 			Description: descriptions.VectorMovement,
 			Type: graphql.NewInputObject(
