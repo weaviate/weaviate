@@ -3,7 +3,7 @@ import json
 import sys
 import traceback
 
-client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
+client = weaviate.Client("http://localhost:8080")  # Replace with your endpoint
 
 try:
     # delete class "YourClassName" - THIS WILL DELETE ALL DATA IN THIS CLASS
