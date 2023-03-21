@@ -53,7 +53,7 @@ except weaviate.UnexpectedStatusCodeException as e:
 t_start = time.time()
 
 # add data to weaviate schema
-with client.batch(batch_size=1) as batch:
+with client.batch(batch_size=50) as batch:
     for i, path in enumerate(paths):
         with open(path, errors='ignore') as file: # ignoring 
             data = file.read()
@@ -62,8 +62,5 @@ with client.batch(batch_size=1) as batch:
                 "text": data # doc text
                 }
             batch.add_data_object(data_object=data_obj, class_name="News")
-            file.close()
-        break
-
-client.batch.create_objects() # push remaining docs
+    batch.create_objects() # push remaining docs
 print('time elapsed (s):', time.time() - t_start)

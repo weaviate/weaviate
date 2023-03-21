@@ -7,7 +7,7 @@ to run:
 - $ python3 batch_data.py #timeout error
 - $ python3 batchless.py 
 
-batch time: TBD
+batch time: 16'35" (1), 12'39" (50)
 batchless time: 56'14.5"
 
 checking for completion:
