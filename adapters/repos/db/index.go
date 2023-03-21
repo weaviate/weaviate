@@ -74,7 +74,7 @@ type Index struct {
 
 func (i *Index) ID() string {
     //GW
-    fmt.Println("ID adapters/repos/db/index.go!")
+    //fmt.Println("ID adapters/repos/db/index.go!")
     //GW
 
 	return indexID(i.Config.ClassName)

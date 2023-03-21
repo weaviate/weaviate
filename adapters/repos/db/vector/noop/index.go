@@ -143,6 +143,12 @@ func (i *Index) Add(id uint64, vector []float32) error {
     fmt.Println("NOOP Add Before!", i.db_path)
     //GW
 
+    if i.last_fvs_status != "" {
+        // This means import/training/loading is in progress
+    
+        return errors.Errorf("Import/training/load is in progress.  Cannot add new items while this is in progress.")
+    }
+
     farr := make([][]float32, 1)
     farr[0] = vector
     dim := int64( len(vector) )
@@ -210,13 +216,19 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
             if ( i.last_fvs_status == "" ) {
                 // Initiate gemini index training/re-training asynchronously
 
-                dataset_id, err := gemini.Fvs_import_dataset( "localhost", 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
+                fmt.Println("About to import dataset")
+
+                dataset_id, err := gemini.Fvs_import_dataset( "localhost", 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, true ) //i.verbose );
                 if err!=nil {
                     return nil, nil, errors.New("Gemini dataset import failed.")
                 } else {
                     i.dataset_id = dataset_id
+                    fmt.Println("Got dataset_id=", i.dataset_id)
                 }
             }
+                
+            fmt.Println("About to get train status", i.dataset_id)
+
 
             // Query the training status to get the 'last_fvs_status' field
             status, err := gemini.Fvs_train_status( "localhost", 7761, i.allocation_id, i.dataset_id, i.verbose )
@@ -224,17 +236,33 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
                 return nil, nil, errors.New("Could not get gemini index training status.")
             }
             i.last_fvs_status = status;
+            
+            fmt.Println("After train status", i.last_fvs_status)
 
             // At this point, we have an updated training status
-            if ( i.last_fvs_status == "Loaded" ) {
+            if ( i.last_fvs_status == "completed" ) {
+                fmt.Println("Training done!", i.last_fvs_status)
+
+                // Now load the dataset
+                status, err := gemini.Fvs_load_dataset( "localhost", 7761, i.allocation_id, i.dataset_id, true )
+                if err!=nil {
+                    return nil, nil, errors.New("Load dataset failed.")
+                }
+                fmt.Println("Load done!",status)
+                
                 i.stale = false;
+                i.last_fvs_status = ""
+                return nil, nil, errors.New("Async index build completed.  Next call should complete.")
+
             } else {
-                return nil, nil, errors.New("Index training in progress.  Please try again later.")
+                return nil, nil, errors.New("Asyc index build is in progress.  Please try again later.")
             }
         }
+            
+        fmt.Println("Before Fvs_search", i.last_fvs_status, i.dataset_id)
 
         // If we got here, we can proceed with the search
-        dist, inds, _, s_err := gemini.Fvs_search( "localhost", 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        dist, inds, _, s_err := gemini.Fvs_search( "localhost", 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, true) //i.verbose );
         if s_err!= nil {
             return nil, nil, errors.New("Gemini index search failed.")
         }

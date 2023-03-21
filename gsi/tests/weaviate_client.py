@@ -2,6 +2,7 @@ import weaviate
 import json
 import sys
 import traceback
+import time
 
 client = weaviate.Client("http://localhost:8080")  # Replace with your endpoint
 
@@ -79,13 +80,53 @@ print("Done adding...")
 
 nearText = {"concepts": ["biology"]}
 
-result = (
-    client.query
-    .get("Question", ["question", "answer", "category"])
-    .with_near_text(nearText)
-    .with_limit(2)
-    .do()
-)
+#result = (
+#    client.query
+#    .get("Question", ["question", "answer", "category"])
+#    .with_near_text(nearText)
+#    .with_limit(2)
+#    .do()
+#)
 
-print("QUERY RESULT")
-print(json.dumps(result, indent=4))
+def parse_result(result):
+    '''Parse a query result into something actionable.'''
+  
+    async_try_again = False
+    errors = []
+    data = None
+ 
+    if "errors" in result.keys():
+        errs = result["errors"]
+        for err in errs:
+            if "message" in err.keys():
+                mesg = err["message"]
+                if mesg.find("vector search: Async index build in progress."):
+                    async_try_again = True
+                elif mesg.find("vector search: Async index build completed.")>=0:
+                    async_try_again = True
+                else:
+                    errors.append(err)
+    elif "data" in result.keys():
+        data = result["data"]
+
+    return async_try_again, errors, data
+
+st_time = time.time()
+while True:
+    result = client.query.get("Question", ["question", "answer", "category"] ).with_near_text(nearText).with_limit(2).do()
+    # print(json.dumps(result, indent=4))
+    async_try_again, errors, data = parse_result(result)
+    if async_try_again:
+        time.sleep(1)
+        continue
+    elif errors:
+        print("Got errors", errors)
+        break
+    else:
+        print("Got data", data)
+        break
+
+e_time = time.time()
+print("Async delay=", e_time-st_time)
+
+print("Done.")
