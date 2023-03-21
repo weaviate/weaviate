@@ -15,6 +15,7 @@ export GEMINI_VERBOSE
 export GOPATH
 export PATH
 
-which dlv
+rm -fr /var/lib/weaviate/*
 
+which dlv
 dlv debug cmd/weaviate-server/main.go -- --host=0.0.0.0 --port=8081 --scheme=http

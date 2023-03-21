@@ -143,6 +143,12 @@ func (i *Index) Add(id uint64, vector []float32) error {
     fmt.Println("NOOP Add Before!", i.db_path)
     //GW
 
+    if i.last_fvs_status != nil {
+        // This means import/training/loading is in progress
+    
+        return errors.Errorf("Import/training/load is in progress.  Cannot add new items while this is in progress.")
+    }
+
     farr := make([][]float32, 1)
     farr[0] = vector
     dim := int64( len(vector) )
@@ -228,6 +234,7 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
             // At this point, we have an updated training status
             if ( i.last_fvs_status == "Loaded" ) {
                 i.stale = false;
+                i.last_fvs_status = nil
             } else {
                 return nil, nil, errors.New("Index training in progress.  Please try again later.")
             }
