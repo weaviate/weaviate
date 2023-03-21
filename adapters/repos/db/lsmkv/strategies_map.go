@@ -249,6 +249,21 @@ func (kv MapPair) Bytes() ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+type MapPairs []MapPair
+
+func (kvs MapPairs) Len() int {
+	return len(kvs)
+}
+
+func (kvs MapPairs) Less(i, j int) bool {
+	return binary.BigEndian.Uint64(kvs[i].Key)<binary.BigEndian.Uint64(kvs[i].Key)
+
+}
+
+func (kvs MapPairs) Swap(i, j int) {
+	kvs[i], kvs[j] = kvs[j], kvs[i]
+}
+
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	var read uint16
 

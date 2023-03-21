@@ -12,7 +12,7 @@
 package lsmkv
 
 import (
-	"bytes"
+
 	"context"
 	"fmt"
 	"os"
@@ -523,17 +523,201 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
 	// }()
 
-	if c.legacyRequireManualSorting {
-		// Sort to support segments which were stored in an unsorted fashion
-		for i := range segments {
-			sort.Slice(segments[i], func(a, b int) bool {
-				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
-			})
-		}
-	}
 
 	return newSortedMapMerger().do(segments)
 }
+
+
+
+
+func (b *Bucket) NaiveMapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
+
+	segments := []MapPair{}
+	// before := time.Now()
+	disk, err := b.disk.getCollectionBySegments(key)
+	if err != nil {
+		if err != nil && err != lsmkv.NotFound {
+			return nil, err
+		}
+	}
+
+	for i := range disk {
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+				return nil, err
+			}
+			segmentDecoded[j].Tombstone = v.tombstone
+		}
+		segments = append(segments, segmentDecoded...)
+	}
+
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
+
+	if b.flushing != nil {
+		v, err := b.flushing.getMap(key)
+		if err != nil {
+			if err != nil && err != lsmkv.NotFound {
+				return nil, err
+			}
+		}
+
+		segments = append(segments, v...)
+	}
+
+	// before = time.Now()
+	v, err := b.active.getMap(key)
+	if err != nil {
+		if err != nil && err != lsmkv.NotFound {
+			return nil, err
+		}
+	}
+	segments = append(segments, v...)
+	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// defer func() {
+	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	// }()
+
+
+	sortable_segments := MapPairs( segments)
+	sort.Sort(sortable_segments)
+
+	return sortable_segments, nil
+}
+
+
+func (b *Bucket) UnsortedMapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
+
+	segments := []MapPair{}
+	// before := time.Now()
+	disk, err := b.disk.getCollectionBySegments(key)
+	if err != nil {
+		if err != nil && err != lsmkv.NotFound {
+			return nil, err
+		}
+	}
+
+	for i := range disk {
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+				return nil, err
+			}
+			segmentDecoded[j].Tombstone = v.tombstone
+		}
+		segments = append(segments, segmentDecoded...)
+	}
+
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
+
+	if b.flushing != nil {
+		v, err := b.flushing.getMap(key)
+		if err != nil {
+			if err != nil && err != lsmkv.NotFound {
+				return nil, err
+			}
+		}
+
+		segments = append(segments, v...)
+	}
+
+	// before = time.Now()
+	v, err := b.active.getMap(key)
+	if err != nil {
+		if err != nil && err != lsmkv.NotFound {
+			return nil, err
+		}
+	}
+	segments = append(segments, v...)
+
+
+
+	return segments, nil
+}
+
+ func (b *Bucket) MapListWithCallback(key []byte, callback func(v MapPair), cfgs ...MapListOption) {
+	        b.flushLock.RLock()
+	        defer b.flushLock.RUnlock()
+	 
+	        c := MapListOptionConfig{}
+	        for _, cfg := range cfgs {
+	                cfg(&c)
+	        }
+	 
+	        // before := time.Now()
+	        disk, err := b.disk.getCollectionBySegments(key)
+	        if err != nil {
+	                if err != nil && err != lsmkv.NotFound {
+	                        return
+	                }
+	        }
+	 
+	        var element MapPair
+	        for i := range disk {
+	 
+	                for _, v := range disk[i] {
+	                        if err := element.FromBytes(v.value, false); err != nil {
+	                                return
+	                        }
+	                        element.Tombstone = v.tombstone
+	                }
+	                callback(element)
+	        }
+	 
+	        // fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+	 
+	        // before = time.Now()
+	        // fmt.Printf("--map-list: apend all disk segments took %s\n", time.Since(before))
+	 
+	        if b.flushing != nil {
+	                v, err := b.flushing.getMap(key)
+	                if err != nil {
+	                        if err != nil && err != lsmkv.NotFound {
+	                                return
+	                        }
+	                }
+	                for _, element := range v {
+	                        callback(element)
+	                }
+	        }
+	 
+	        // before = time.Now()
+	        v, err := b.active.getMap(key)
+	        if err != nil {
+	                if err != nil && err != lsmkv.NotFound {
+	                        return
+	                }
+	        }
+	        for _, element := range v {
+	                callback(element)
+	        }
+	 
+	 }
+	
+	
+
 
 // MapSet writes one [MapPair] into the map for the given row key. It is
 // agnostic of whether the row key already exists, as well as agnostic of
