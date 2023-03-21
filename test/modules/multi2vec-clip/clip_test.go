@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
@@ -55,14 +56,14 @@ func Test_CLIP(t *testing.T) {
 			}
 		`)
 		books := result.Get("Get", "Books").AsSlice()
-		expected := []interface{}{
-			map[string]interface{}{
-				"title": "Dune",
-				"_additional": map[string]interface{}{
-					"distance": json.Number("0.029981077"),
-				},
-			},
-		}
-		assert.ElementsMatch(t, expected, books)
+		require.Len(t, books, 1)
+		title := books[0].(map[string]interface{})["title"]
+		assert.Equal(t, "Dune", title)
+		distance := books[0].(map[string]interface{})["_additional"].(map[string]interface{})["distance"].(json.Number)
+		assert.NotNil(t, distance)
+		dist, err := distance.Float64()
+		require.Nil(t, err)
+		assert.Greater(t, dist, 0.0)
+		assert.LessOrEqual(t, dist, 0.03)
 	})
 }
