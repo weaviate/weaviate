@@ -71,7 +71,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		defer timer.ObserveDuration()
 	}
 
-	class.Class = upperCaseClassName(class.Class)
+	class.Class = schema.UpperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
@@ -119,7 +119,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	m.Lock()
 	defer m.Unlock()
 
-	class.Class = upperCaseClassName(class.Class)
+	class.Class = schema.UpperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
@@ -339,18 +339,6 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	class.ShardingConfig = parsed
 
 	return nil
-}
-
-func upperCaseClassName(name string) string {
-	if len(name) < 1 {
-		return name
-	}
-
-	if len(name) == 1 {
-		return strings.ToUpper(name)
-	}
-
-	return strings.ToUpper(string(name[0])) + name[1:]
 }
 
 func lowerCaseAllPropertyNames(props []*models.Property) []*models.Property {
