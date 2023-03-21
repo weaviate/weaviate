@@ -42,7 +42,7 @@ func TestDiskSpace(t *testing.T) {
 }
 
 func TestDelegateGetSet(t *testing.T) {
-	now := time.Now().UnixMilli()-1
+	now := time.Now().UnixMilli() - 1
 	st := State{
 		delegate: delegate{
 			Name:     "ABC",
@@ -117,4 +117,16 @@ func TestDelegateSort(t *testing.T) {
 	delegate.set("N4", NodeInfo{DiskUsage{Available: 4 * GB}, now})
 	got := delegate.sortCandidates([]string{"N1", "N0", "N2", "N4", "N3"})
 	assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)
+
+	delegate.set("N1", NodeInfo{DiskUsage{Available: GB - 10}, now})
+	// insert equivalent nodes "N2" and "N3"
+	delegate.set("N2", NodeInfo{DiskUsage{Available: GB + 128}, now})
+	delegate.set("N3", NodeInfo{DiskUsage{Available: GB + 512}, now})
+	delegate.set("N4", NodeInfo{DiskUsage{Available: 2 * GB}, now})
+	got = delegate.sortCandidates([]string{"N1", "N0", "N2", "N3", "N4"})
+	if got[1] == "N2" {
+		assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)
+	} else {
+		assert.Equal(t, []string{"N4", "N3", "N2", "N1", "N0"}, got)
+	}
 }

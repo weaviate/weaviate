@@ -205,12 +205,18 @@ func diskSpace(path string) (DiskUsage, error) {
 }
 
 // sortCandidates by the amount of free space in descending order
+//
+// Two nodes are considered equivalent if the difference between their
+// free spaces is less than 4KB.
+// The free space is just an rough estimate of the actual amount.
+// The Lower bound 4KB helps to mitigate the selection of same set of nodes
+// when selections happens concurrently on different initiator nodes.
 func (d *delegate) sortCandidates(names []string) []string {
 	d.Lock()
 	defer d.Unlock()
 	m := d.Cache
 	sort.Slice(names, func(i, j int) bool {
-		return m[names[j]].Available < m[names[i]].Available
+		return (m[names[j]].Available >> 12) < (m[names[i]].Available >> 12)
 	})
 	return names
 }
