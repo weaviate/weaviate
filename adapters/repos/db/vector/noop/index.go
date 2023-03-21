@@ -220,7 +220,7 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
 
                 dataset_id, err := gemini.Fvs_import_dataset( "localhost", 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, true ) //i.verbose );
                 if err!=nil {
-                    return nil, nil, errors.New("Gemini dataset import failed.")
+                    return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
                 } else {
                     i.dataset_id = dataset_id
                     fmt.Println("Got dataset_id=", i.dataset_id)

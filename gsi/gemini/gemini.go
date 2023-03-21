@@ -11,8 +11,9 @@ import (
     "io/ioutil"
     //"reflect"
     "strconv"
-    "errors"
+    //goruntime "runtime"
 
+    "github.com/pkg/errors"
     mmapgo "github.com/edsrzf/mmap-go"
     "encoding/binary"
     "golang.org/x/exp/mmap"
@@ -48,7 +49,7 @@ func Fvs_import_dataset( host string, port uint, allocation_token string, path s
     // form a request object
     request, rErr := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if rErr != nil {
-        return "", rErr
+        return "", errors.Wrap(rErr, "Fvs_import_dataset could not create new http request")
     }
     
     // add headers
@@ -62,7 +63,7 @@ func Fvs_import_dataset( host string, port uint, allocation_token string, path s
     client := &http.Client{}
     response, dErr := client.Do(request)
     if dErr != nil {
-        return "", dErr
+        return "", errors.Wrap( dErr, "client.Do failed at Fvs_import_dataset.")
     }
     defer response.Body.Close()
 
@@ -78,14 +79,19 @@ func Fvs_import_dataset( host string, port uint, allocation_token string, path s
     respData := map[string]interface{}{}
     juErr := json.Unmarshal( respbody, &respData)
     if juErr != nil {
-        return "", juErr
+        return "", errors.Wrap(juErr,"json.Unmarshal failed at Fvs_import_dataset.")
     }
     if verbose {
-        fmt.Println("Fvs_import_dataset: json resp=", respData, rErr)
+        fmt.Println("Fvs_import_dataset: json resp=", respData, juErr)
     }
 
     // reconstruct the dataset id
-    did := respData["datasetId"].(string)
+    did, ok := respData["datasetId"].(string)
+    fmt.Println("respData", did, ok)
+    if !ok {
+        return "", fmt.Errorf("response map does not have 'datasetId' key in Fvs_import_dataset.")
+    }
+    //TODO:  Check valid GUID format in 'did
     if verbose {
         fmt.Println("Fvs_import_dataset : dataset id=",did)
     }
@@ -104,7 +110,7 @@ func Fvs_train_status( host string, port uint, allocation_token string, dataset_
     // form a request object
     request, rErr := http.NewRequest("GET", url, nil)
     if rErr != nil {
-        return "error", rErr
+        return "error", errors.Wrap(rErr,"http.NewRequest failed in Fvs_train_status.")
     }
 
     // add headers
@@ -118,7 +124,7 @@ func Fvs_train_status( host string, port uint, allocation_token string, dataset_
     client := &http.Client{}
     response, dErr := client.Do(request)
     if dErr != nil {
-        return "error", dErr
+        return "", errors.Wrap(dErr,"client.Do failed in Fvs_train_status")
     }
     defer response.Body.Close()
 
@@ -134,15 +140,15 @@ func Fvs_train_status( host string, port uint, allocation_token string, dataset_
     respData := map[string]interface{}{}
     juErr := json.Unmarshal( respbody, &respData)
     if juErr != nil {
-        return "", juErr
+        return "", errors.Wrap( juErr, "json.Unmarshal failed in Fvs_train_status.")
     }
     if verbose {
-        fmt.Println("Fvs_train_status: json resp=", respData, rErr)
+        fmt.Println("Fvs_train_status: json resp=", respData, juErr)
     }
 
     // check http status
     if response.Status != "200 OK" {
-        return "error", errors.New("The resource is not valid.")
+        return "", fmt.Errorf("Invalid response from FVS server - %v", response.Status )
     }
 
     // reconstruct the queries id returned
@@ -177,7 +183,7 @@ func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_
                                 "asyncLoad": false }
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return "", err
+        return "", errors.Wrap(err, "json.Marshal failed in Fvs_load_dataset")
     }
     if verbose {
         fmt.Println("Fvs_load_dataset: body json=", jsonValue)
@@ -186,7 +192,7 @@ func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_
     // form a request object    
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {             
-        return "", err
+        return "", errors.Wrap(err, "http.NewRequest failed in Fvs_load_dataset" )
     }
 
     // add headers
@@ -200,7 +206,7 @@ func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return "", err
+        return "", errors.Wrap(err, "client.Do failed in Fvs_load_dataset.")
     }
     defer response.Body.Close()
 
@@ -216,7 +222,7 @@ func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_
     respData := map[string]interface{}{}
     rErr := json.Unmarshal( respbody, &respData)
     if rErr != nil {
-        return "", rErr
+        return "", errors.Wrap(rErr, "json.Unmarshal failed at Fvs_load_dataset.")
     }
     if verbose {
         fmt.Println("Fvs_load_dataset: json resp=", respData, rErr)
@@ -226,6 +232,7 @@ func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_
     if verbose {
         fmt.Println("Fvs_load_dataset: status=",status)
     }
+    // TODO: Should a status != "OK" be translated to an error?
  
     return status, nil
 }
@@ -243,7 +250,7 @@ func Fvs_import_queries( host string, port uint, allocation_token string, path s
                                 "queriesFilePath": path}
     jsonValue, jErr := json.Marshal(values)
     if jErr != nil {
-        return "", jErr
+        return "", errors.Wrap(jErr, "json.Marshal failed at Fvs_import_queries." )
     }
     if verbose {
         fmt.Println("Fvs_import_queries: body json=", jsonValue)
@@ -252,7 +259,7 @@ func Fvs_import_queries( host string, port uint, allocation_token string, path s
     // form a request object
     request, rErr := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if rErr != nil {
-        return "", rErr
+        return "", errors.Wrap(rErr, "http.NewRequest failed at Fvs_import_queries." )
     }
 
     // add headers
@@ -314,7 +321,7 @@ func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id 
                                 "datasetId": dataset_id}
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return nil
+        return errors.Wrap(err,"json.Marshal failed in Fvs_set_focus.")
     }
     if verbose {
         fmt.Println("Fvs_set_focus: body json=", jsonValue)
@@ -323,7 +330,7 @@ func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id 
     // form a request object
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {
-        return nil
+        return errors.Wrap(err,"http.NewRequest failed in Fvs_set_focus.")
     }
 
     // add headers
@@ -337,7 +344,7 @@ func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id 
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return nil
+        return errors.Wrap(err, "client.Do failed in Fvs_set_focus.")
     }
     defer response.Body.Close()
 
@@ -353,7 +360,7 @@ func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id 
     respData := map[string]interface{}{}
     rErr := json.Unmarshal( respbody, &respData)
     if rErr != nil {
-        return nil
+        return errors.Wrap(rErr, "json.Unmarshal failed at Fvs_set_focus.")
     }
     if verbose {
         fmt.Println("Fvs_set_focus: json resp=", respData, rErr)
@@ -380,7 +387,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
                                 "topk": 10 }
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return nil, nil, 0, err
+        return nil, nil, 0, errors.Wrap( err, "json.Marhal failed at Fvs_search.")
     }
     if verbose {
         fmt.Println("Fvs_search: body json=", jsonValue)
@@ -389,7 +396,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
     // form a request object
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {
-        return nil, nil, 0, err
+        return nil, nil, 0, errors.Wrap( err, "http.NewRequest failed at Fvs_search.")
     }
 
     // add headers
@@ -403,7 +410,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return nil, nil, 0, err
+        return nil, nil, 0, errors.Wrap(err,"client.Do failed in Fvs_search.")
     }
     defer response.Body.Close()
 
@@ -417,7 +424,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
 
     // check http status
     if response.Status != "200 OK" {
-        return nil, nil, 0, errors.New("Search failed.")
+        return nil, nil, 0, fmt.Errorf("Invalid response from FVS server - %v", response.Status)
     }
 
     // parse the json response
@@ -478,7 +485,7 @@ func Fvs_delete_queries( host string, port uint, allocation_token string, qid st
     // form a request object
     request, err := http.NewRequest("DELETE", url, nil)
     if err!=nil {
-        return "", err
+        return "", errors.Wrap( err, "http.NewRequest failed at Fvs_delete_queries." )
     }
 
     // add headers
@@ -490,7 +497,7 @@ func Fvs_delete_queries( host string, port uint, allocation_token string, qid st
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return "", err
+        return "", errors.Wrap(err, "client.Do failed in Fvs_delete_queries.")
     }
     defer response.Body.Close()
 
@@ -537,7 +544,7 @@ func Fvs_unload_dataset( host string, port uint, allocation_token string, datase
                                 "asyncUnload": false }
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return "", err
+        return "", errors.Wrap( err, "json.Marshal failed at Fvs_unload_dataset." )
     }
     if verbose {
         fmt.Println("Fvs_unload_dataset: body json=", jsonValue)
@@ -546,7 +553,7 @@ func Fvs_unload_dataset( host string, port uint, allocation_token string, datase
     // form a request object
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {
-        return "", err
+        return "", errors.Wrap( err, "http.NewRequest failed at Fvs_unload_dataset." )
     }
 
     // add headers
@@ -560,7 +567,7 @@ func Fvs_unload_dataset( host string, port uint, allocation_token string, datase
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return "", err
+        return "", errors.Wrap( err, "client.Do failed in Fvs_unload_dataset.")
     }
     defer response.Body.Close()
 
@@ -611,7 +618,7 @@ func Fvs_delete_dataset( host string, port uint, allocation_token string, datase
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return "", err
+        return "", errors.Wrap( err, "client.Do failed in Fvs_delete_dataset." )
     }
     defer response.Body.Close()
 
@@ -660,7 +667,7 @@ func Numpy_read_uint32_array(f *mmap.ReaderAt, arr [][]uint32, dim int64, index 
 
             _, err := f.ReadAt(bt, r_offset);
             if err != nil {
-                log.Fatalf("error reading file at offset: %d, %v", r_offset, err)
+                return 0, errors.Wrapf(err, "error reading file at offset: %d, %v", r_offset, err)
             }
 
             arr[j][i] = binary.LittleEndian.Uint32(bt)
@@ -688,7 +695,7 @@ func Numpy_read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, inde
 
             _, err := f.ReadAt(bt, r_offset);
             if err != nil {
-                log.Fatalf("error reading file at offset: %d, %v", r_offset, err)
+                fmt.Errorf("error reading file at offset: %d: %v", r_offset, err)
             }
 
             bits := binary.LittleEndian.Uint32(bt)
@@ -703,7 +710,7 @@ func Numpy_read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, inde
 }
 
 // Write a uint32 array to a file in numpy format
-func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) {
+func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count int64) error {
 
     preheader := []byte{0x93,0x4e,0x55,0x4d,0x50,0x59,0x01,0x00,0x76,0x00}
     fmt_header := "{'descr': '<i4', 'fortran_order': False, 'shape': (%d, %d), }"
@@ -716,7 +723,6 @@ func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count in
     if os.IsNotExist(err) {
         fexists = false
     }
-    //fmt.Println("exists =", fexists)
 
     // Get file descriptor
     var f *os.File = nil
@@ -724,18 +730,18 @@ func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count in
         // Open file
         f, err = os.OpenFile(fname, os.O_RDWR, 0755 )
         if err != nil {
-            log.Fatalf("error openingfile: %v", err)
+            return fmt.Errorf( "error openingfile: %v", err)
         }
     } else {
         // Create file
         f, err = os.Create(fname)
         if err != nil {
-            log.Fatalf("error creating file: %v", err)
+            return errors.Wrap(err, "error creating file in Numpy_append_uint32_array")
         }
         // Create header area
         err = f.Truncate(int64(128))
         if err != nil {
-            log.Fatalf("error resizing file for header: %v",  err)
+            return errors.Wrap(err, "error resizing file for header in Numpy_append_uint32_array")
         }
     }
     defer f.Close()
@@ -743,7 +749,7 @@ func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count in
     // Get file size
     fi, err := f.Stat()
     if err != nil {
-        log.Fatalf("error get file stats: %v", err)
+        return errors.Wrap(err, "error get file stats in Numpy_append_uint32_array." )
     }
     file_size := int64( fi.Size() )
 
@@ -756,13 +762,13 @@ func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count in
     new_size := file_size + dim*4*count
     err = f.Truncate(int64(new_size))
     if err != nil {
-        log.Fatalf("error resizing file: %v",  err)
+        return fmt.Errorf("error resizing file in Numpy_append_uint32_array: %v", err)
     }
 
     // Memory map the new file
     mem, err := mmapgo.Map(f, mmapgo.RDWR, 0 )
     if err != nil {
-        log.Fatalf("error mmapgo.Map: %v",  err)
+        return errors.Wrap(err, "error mmapgo.Map in Numpy_append_uint32_array")
     }
     defer mem.Unmap()
 
@@ -801,6 +807,8 @@ func Numpy_append_uint32_array(fname string, arr [][]uint32, dim int64, count in
 
     mem.Flush()
 
+    return nil
+
 }
 
 // Write a float32 array to a file in numpy format
@@ -817,7 +825,6 @@ func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count 
     if os.IsNotExist(err) {
         fexists = false
     }
-    //fmt.Println("exists =", fexists)
 
     // Get file descriptor
     var f *os.File = nil
@@ -825,18 +832,18 @@ func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count 
         // Open file
         f, err = os.OpenFile(fname, os.O_RDWR, 0755 )
         if err != nil {
-            log.Fatalf("error openingfile: %v", err)
+            return 0,0, errors.Wrap(err, "error openingfile in Numpy_append_float32_array.")
         }
     } else {
         // Create file
         f, err = os.Create(fname)
         if err != nil {
-            log.Fatalf("error creating file: %v", err)
+            return 0, 0, errors.Wrap( err, "error creating file in Numpy_append_float32_array." )
         }
         // Create header area
         err = f.Truncate(int64(128))
         if err != nil {
-            log.Fatalf("error resizing file for header: %v",  err)
+            return 0, 0, errors.Wrap( err, "error resizing file for header in Numpy_append_float32_array." )
         }
     }
     defer f.Close()
@@ -855,7 +862,6 @@ func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count 
 
     // Resize file
     new_size := prev_file_size + dim*4*count
-    //fmt.Printf("Truncate sizes %d %d\n", prev_file_size, new_size)
     err = f.Truncate(int64(new_size))
     if err != nil {
         log.Fatalf("error resizing file: %v",  err)
@@ -864,7 +870,7 @@ func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count 
     // Memory map the new file
     mem, err := mmapgo.Map(f, mmapgo.RDWR, 0 )
     if err != nil {
-        log.Fatalf("error mmapgo.Map: %v",  err)
+        return 0, 0, errors.Wrap( err, "error with mmapgo.Map in Numpy_append_float32_array")
     }
     defer mem.Unmap()
     // Create the new header
@@ -888,7 +894,6 @@ func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count 
 
     // fast-forward memmap index to the insert point
     idx = int(prev_file_size)
-    //fmt.Printf("insert idx %d\n", idx)
 
     // append the arrays
     for j := 0; j< int(count); j++ {
@@ -905,9 +910,6 @@ func Numpy_append_float32_array(fname string, arr [][]float32, dim int64, count 
             mem[idx+3] = bt[3]
             idx += 4
         }
-        //if (j==0) {
-        //    fmt.Println("") 
-        //}
     }
 
     mem.Flush()

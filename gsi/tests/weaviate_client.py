@@ -4,7 +4,7 @@ import sys
 import traceback
 import time
 
-client = weaviate.Client("http://localhost:8080")  # Replace with your endpoint
+client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
 
 try:
     # delete class "YourClassName" - THIS WILL DELETE ALL DATA IN THIS CLASS
@@ -94,16 +94,20 @@ def parse_result(result):
     async_try_again = False
     errors = []
     data = None
- 
+
+    print("RESULT->", result)
+
     if "errors" in result.keys():
         errs = result["errors"]
         for err in errs:
             if "message" in err.keys():
                 mesg = err["message"]
-                if mesg.find("vector search: Async index build in progress."):
+                if mesg.find("vector search: Async index build in progress.")>=0:
                     async_try_again = True
                 elif mesg.find("vector search: Async index build completed.")>=0:
                     async_try_again = True
+                elif mesg.find("vector search: Gemini dataset import failed.")>=0:
+                    errors.append("Gemini dataset import failed.")
                 else:
                     errors.append(err)
     elif "data" in result.keys():
@@ -116,15 +120,18 @@ while True:
     result = client.query.get("Question", ["question", "answer", "category"] ).with_near_text(nearText).with_limit(2).do()
     # print(json.dumps(result, indent=4))
     async_try_again, errors, data = parse_result(result)
+    print(async_try_again, errors, data)
+    break
     if async_try_again:
         time.sleep(1)
         continue
     elif errors:
-        print("Got errors", errors)
+        print("Got errors->", errors)
         break
     else:
-        print("Got data", data)
+        print("Got data->", data)
         break
+
 
 e_time = time.time()
 print("Async delay=", e_time-st_time)
