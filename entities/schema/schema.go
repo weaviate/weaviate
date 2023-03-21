@@ -12,6 +12,8 @@
 package schema
 
 import (
+	"strings"
+
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -50,4 +52,36 @@ func Empty() Schema {
 // Return one of the semantic schema's
 func (s *Schema) SemanticSchemaFor() *models.Schema {
 	return s.Objects
+}
+
+func UppercaseClassName(name string) string {
+	if len(name) < 1 {
+		return name
+	}
+
+	if len(name) == 1 {
+		return strings.ToUpper(name)
+	}
+
+	return strings.ToUpper(string(name[0])) + name[1:]
+}
+
+func LowercaseAllPropertyNames(props []*models.Property) []*models.Property {
+	for i, prop := range props {
+		props[i].Name = LowercaseFirstLetter(prop.Name)
+	}
+
+	return props
+}
+
+func LowercaseFirstLetter(name string) string {
+	if len(name) < 1 {
+		return name
+	}
+
+	if len(name) == 1 {
+		return strings.ToLower(name)
+	}
+
+	return strings.ToLower(string(name[0])) + name[1:]
 }
