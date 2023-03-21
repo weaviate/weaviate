@@ -44,7 +44,7 @@ func (m *Manager) addClassProperty(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	prop.Name = lowerCaseFirstLetter(prop.Name)
+	prop.Name = schema.LowerCaseFirstLetter(prop.Name)
 
 	if err := m.setNewPropDefaults(class, prop); err != nil {
 		return err

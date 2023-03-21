@@ -57,6 +57,8 @@ const (
 	ErrorInvalidCRefType string = "'cref' type '%s' does not exists"
 	// ErrorNotFoundInDatabase message
 	ErrorNotFoundInDatabase string = "%s: no object with id %s found"
+	// ErrorInvalidProperties message
+	ErrorInvalidProperties string = "properties of object %v must be of type map[string]interface"
 )
 
 type Validator struct {
