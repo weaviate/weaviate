@@ -24,8 +24,8 @@ func TestAutoschemaCasingClass(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
 
-	upperClassName := "RandomTestClass1234"
-	lowerClassName := "randomTestClass1234"
+	upperClassName := "RandomBlueTree"
+	lowerClassName := "randomBlueTree"
 
 	cases := []struct {
 		className1 string
@@ -58,7 +58,7 @@ func TestAutoschemaCasingProps(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
 
-	className := "RandomTestClass548468"
+	className := "RandomGreenBike"
 	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 	creator := c.Data().Creator()
 	_, err := creator.WithClassName(className).Do(ctx)
