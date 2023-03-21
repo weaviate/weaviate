@@ -70,7 +70,7 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 		return fmt.Errorf(validation.ErrorMissingClass)
 	}
 
-	object.Class = schema.UpperCaseClassName(object.Class)
+	object.Class = schema.UppercaseClassName(object.Class)
 
 	schemaClass, err := m.getClass(principal, object)
 	if err != nil {
@@ -116,7 +116,7 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 	for _, prop := range properties {
 		found := false
 		for _, classProp := range existingProperties {
-			if classProp.Name == schema.LowerCaseFirstLetter(prop.Name) {
+			if classProp.Name == schema.LowercaseFirstLetter(prop.Name) {
 				found = true
 				break
 			}

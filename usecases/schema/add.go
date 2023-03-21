@@ -71,8 +71,8 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		defer timer.ObserveDuration()
 	}
 
-	class.Class = schema.UpperCaseClassName(class.Class)
-	class.Properties = schema.LowerCaseAllPropertyNames(class.Properties)
+	class.Class = schema.UppercaseClassName(class.Class)
+	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err = m.validateCanAddClass(ctx, class, true)
@@ -119,8 +119,8 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	m.Lock()
 	defer m.Unlock()
 
-	class.Class = schema.UpperCaseClassName(class.Class)
-	class.Properties = schema.LowerCaseAllPropertyNames(class.Properties)
+	class.Class = schema.UppercaseClassName(class.Class)
+	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err := m.validateCanAddClass(ctx, class, false)

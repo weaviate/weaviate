@@ -54,7 +54,7 @@ func (s *Schema) SemanticSchemaFor() *models.Schema {
 	return s.Objects
 }
 
-func UpperCaseClassName(name string) string {
+func UppercaseClassName(name string) string {
 	if len(name) < 1 {
 		return name
 	}
@@ -66,15 +66,15 @@ func UpperCaseClassName(name string) string {
 	return strings.ToUpper(string(name[0])) + name[1:]
 }
 
-func LowerCaseAllPropertyNames(props []*models.Property) []*models.Property {
+func LowercaseAllPropertyNames(props []*models.Property) []*models.Property {
 	for i, prop := range props {
-		props[i].Name = LowerCaseFirstLetter(prop.Name)
+		props[i].Name = LowercaseFirstLetter(prop.Name)
 	}
 
 	return props
 }
 
-func LowerCaseFirstLetter(name string) string {
+func LowercaseFirstLetter(name string) string {
 	if len(name) < 1 {
 		return name
 	}
