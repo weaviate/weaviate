@@ -16,6 +16,10 @@ export GEMINI_DEBUG
 export GOPATH
 export PATH
 
+GOPATH="$HOME/go"
+GOROOT=/usr/local/go
+export PATH=$GOPATH:$GOROOT/bin:$PATH
+
 rm -fr /var/lib/weaviate/*
 
 cp go.mod.last go.mod
