@@ -35,6 +35,8 @@ const (
 	envTestQnATransformersImage = "TEST_QNA_TRANSFORMERS_IMAGE"
 	// envTestSUMTransformersImage adds ability to pass a custom image to module tests
 	envTestSUMTransformersImage = "TEST_SUM_TRANSFORMERS_IMAGE"
+	// envTestMulti2VecCLIPImage adds ability to pass a custom CLIP image to module tests
+	envTestMulti2VecCLIPImage = "TEST_MULTI2VEC_CLIP_IMAGE"
 )
 
 const (
@@ -62,6 +64,7 @@ type Compose struct {
 	withWeaviateCluster       bool
 	withSUMTransformers       bool
 	withCentroid              bool
+	withCLIP                  bool
 }
 
 func New() *Compose {
@@ -139,6 +142,12 @@ func (d *Compose) WithBackendAzure(container string) *Compose {
 func (d *Compose) WithSUMTransformers() *Compose {
 	d.withSUMTransformers = true
 	d.enableModules = append(d.enableModules, SUMTransformers)
+	return d
+}
+
+func (d *Compose) WithMulti2VecCLIP() *Compose {
+	d.withCLIP = true
+	d.enableModules = append(d.enableModules, Multi2VecCLIP)
 	return d
 }
 
@@ -256,6 +265,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	if d.withSUMTransformers {
 		image := os.Getenv(envTestSUMTransformersImage)
 		container, err := startSUMTransformers(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", SUMTransformers)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withCLIP {
+		image := os.Getenv(envTestMulti2VecCLIPImage)
+		container, err := startM2VClip(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", SUMTransformers)
 		}
