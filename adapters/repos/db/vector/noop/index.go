@@ -257,6 +257,14 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
                     fmt.Println("Gemini SearchByVector: About to import dataset with dataset_id=", i.dataset_id )
                 }
 
+		// TODO: Check that we have enough data.
+		// TODO: Note that his arbitrary number of 4001 was surfaced
+		// TODO: because we encountered a specific FVS error which indicated
+		// TODO: this constraint.  
+		if (i.count<4001) { 
+		    return nil, nil, fmt.Errorf("FVS requires a mininum of 4001 vectors in the dataset.")
+		}
+
                 //dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
                 dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
                 if err!=nil {
