@@ -71,8 +71,8 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 		defer timer.ObserveDuration()
 	}
 
-	class.Class = upperCaseClassName(class.Class)
-	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	class.Class = schema.UppercaseClassName(class.Class)
+	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err = m.validateCanAddClass(ctx, class, true)
@@ -119,8 +119,8 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 	m.Lock()
 	defer m.Unlock()
 
-	class.Class = upperCaseClassName(class.Class)
-	class.Properties = lowerCaseAllPropertyNames(class.Properties)
+	class.Class = schema.UppercaseClassName(class.Class)
+	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 	m.setClassDefaults(class)
 
 	err := m.validateCanAddClass(ctx, class, false)
@@ -339,38 +339,6 @@ func (m *Manager) parseShardingConfig(ctx context.Context,
 	class.ShardingConfig = parsed
 
 	return nil
-}
-
-func upperCaseClassName(name string) string {
-	if len(name) < 1 {
-		return name
-	}
-
-	if len(name) == 1 {
-		return strings.ToUpper(name)
-	}
-
-	return strings.ToUpper(string(name[0])) + name[1:]
-}
-
-func lowerCaseAllPropertyNames(props []*models.Property) []*models.Property {
-	for i, prop := range props {
-		props[i].Name = lowerCaseFirstLetter(prop.Name)
-	}
-
-	return props
-}
-
-func lowerCaseFirstLetter(name string) string {
-	if len(name) < 1 {
-		return name
-	}
-
-	if len(name) == 1 {
-		return strings.ToLower(name)
-	}
-
-	return strings.ToLower(string(name[0])) + name[1:]
 }
 
 func setInvertedConfigDefaults(class *models.Class) {
