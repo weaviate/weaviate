@@ -121,7 +121,7 @@ func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-func (r *fakeNodeResolver) AllNames() []string {
+func (r *fakeNodeResolver) Candidates() []string {
 	xs := make([]string, 0, len(r.M))
 	for k := range r.M {
 		xs = append(xs, k)
