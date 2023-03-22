@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -64,6 +65,13 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 			return "", NewErrInternal("could not generate id: %v", err)
 		}
 		return newID, nil
+	} else {
+		// IDs are always returned lowercase, but they are written
+		// to disk as uppercase, when provided that way. Here we
+		// ensure they are lowercase on disk as well, so things
+		// like filtering are not affected.
+		// See: https://github.com/weaviate/weaviate/issues/2647
+		id = strfmt.UUID(strings.ToLower(id.String()))
 	}
 
 	// only validate ID uniqueness if explicitly set
