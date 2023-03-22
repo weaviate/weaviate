@@ -36,6 +36,14 @@ func ClassTransformersVectorizerWithName(className string) *models.Class {
 	return class(className, "text2vec-transformers")
 }
 
+func ClassCLIPVectorizer() *models.Class {
+	c := class(defaultClassName, "multi2vec-clip")
+	c.ModuleConfig.(map[string]interface{})["multi2vec-clip"] = map[string]interface{}{
+		"textFields": []string{"title", "description"},
+	}
+	return c
+}
+
 func class(className, vectorizer string) *models.Class {
 	return &models.Class{
 		Class:      className,
