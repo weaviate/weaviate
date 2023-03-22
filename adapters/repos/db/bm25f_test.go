@@ -939,7 +939,7 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
-		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
