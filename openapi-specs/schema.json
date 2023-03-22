@@ -1620,7 +1620,7 @@
       "name": "Weaviate",
       "url": "https://github.com/weaviate"
     },
-    "description": "Cloud-native, modular vector search engine",
+    "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
     "version": "1.19.0-prealpha"
   },
