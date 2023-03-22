@@ -95,7 +95,7 @@ def parse_result(result):
     errors = []
     data = None
 
-    print("RESULT->", result)
+    ##print("RESULT->", result)
 
     if "errors" in result.keys():
         errs = result["errors"]
@@ -115,23 +115,28 @@ def parse_result(result):
 
     return async_try_again, errors, data
 
+consec_errs = 0
 st_time = time.time()
 while True:
     result = client.query.get("Question", ["question", "answer", "category"] ).with_near_text(nearText).with_limit(2).do()
     # print(json.dumps(result, indent=4))
     async_try_again, errors, data = parse_result(result)
     print(async_try_again, errors, data)
-    break
     if async_try_again:
         time.sleep(1)
         continue
     elif errors:
         print("Got errors->", errors)
-        break
-    else:
+        consec_errs += 1
+        if consec_errs > 5: 
+            print("Too many errors")
+            break
+    elif data:
         print("Got data->", data)
+        consec_errs = 0
+    else:
+        print("Unknown result!")
         break
-
 
 e_time = time.time()
 print("Async delay=", e_time-st_time)
