@@ -257,8 +257,8 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
                     fmt.Println("Gemini SearchByVector: About to import dataset with dataset_id=", i.dataset_id )
                 }
 
-                dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
-                //dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
+                //dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
+                dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
                 if err!=nil {
                     return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
 
@@ -279,9 +279,10 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
             status, err := gemini.Fvs_train_status( i.fvs_server, 7761, i.allocation_id, i.dataset_id, i.verbose )
             if err!=nil {
                 return nil, nil, errors.Wrap(err, "Could not get gemini index training status.")
-            }
-            if status=="" {
-                return nil, nil, errors.Wrap(err, "Gemini training status is not valid.")
+            } else if status == "error" {
+                return nil, nil, fmt.Errorf("Gemini training status returned 'error'.")
+            } else if status=="" {
+                return nil, nil, fmt.Errorf("Gemini training status is not valid.")
             }
             i.last_fvs_status = status; 
            
@@ -355,8 +356,8 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
             return nil, nil, errors.Errorf("Appending array to local file store did not yield expected result.")
         }       
         
-        dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
-        //dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
+        //dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
         if s_err!= nil {
             return nil, nil, errors.Wrap(s_err, "Gemini index search failed.")
         }
