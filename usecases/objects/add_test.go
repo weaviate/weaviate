@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -121,6 +122,26 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		assert.Equal(t, res.ID, uuidDuringCreation, "check that connector add ID and user response match")
 	})
 
+	t.Run("with an explicit (correct) uppercase id set", func(t *testing.T) {
+		reset()
+
+		ctx := context.Background()
+		id := strfmt.UUID("4A334D0B-6347-40A0-A5AE-339677B20EDE")
+		lowered := strfmt.UUID(strings.ToLower(id.String()))
+		object := &models.Object{
+			ID:     id,
+			Class:  "Foo",
+			Vector: []float32{0.1, 0.2, 0.3},
+		}
+		vectorRepo.On("Exists", "Foo", lowered).Return(false, nil).Once()
+		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			Return(nil, nil)
+
+		res, err := manager.AddObject(ctx, nil, object, nil)
+		require.Nil(t, err)
+		assert.Equal(t, res.ID, lowered, "check that id was lowered and added")
+	})
+
 	t.Run("with an explicit (correct) ID set and a property that doesn't exist", func(t *testing.T) {
 		resetAutoSchema(true)
 
@@ -168,7 +189,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		reset()
 
 		ctx := context.Background()
-		id := strfmt.UUID("5a1cd361-1e0d-4FOOOOOOO2ae-bd52-ee09cb5f31cc")
+		id := strfmt.UUID("5a1cd361-1e0d-4fooooooo2ae-bd52-ee09cb5f31cc")
 		class := &models.Object{
 			ID:    id,
 			Class: "Foo",
@@ -313,7 +334,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		reset()
 
 		ctx := context.Background()
-		id := strfmt.UUID("5a1cd361-1e0d-4FOOOOOOO2ae-bd52-ee09cb5f31cc")
+		id := strfmt.UUID("5a1cd361-1e0d-4f00000002ae-bd52-ee09cb5f31cc")
 		object := &models.Object{
 			ID:    id,
 			Class: "Foo",
