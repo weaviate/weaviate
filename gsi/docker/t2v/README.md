@@ -1,9 +1,17 @@
 
 # Build
 
-To build a t2v compatible container locally, edit and then run the file run_build.sh.
+To build a t2v compatible container locally, edit (as needed) and run the file run_build.sh.
 
 By default the script is trying to embed 'distilroberta' and will write a container called 'gsi-t2v' but you can change those settings.
+
+You should keep the defaults unless you really need to change them.
+
+# Test
+
+Edit (as needed) and run the docker-compose.yml file in this directory.
+
+Run the smoke_test.py file in this directory to test your container.
 
 # Troubleshooting
 
