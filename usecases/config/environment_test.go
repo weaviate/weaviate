@@ -281,7 +281,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_IGNORE_SCHEMA_SYNC": "true",
 			},
 			expectedResult: cluster.Config{
-				GossipBindPort:          7946,
+				GossipBindPort:          7949, //GW - 6
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
 			},
