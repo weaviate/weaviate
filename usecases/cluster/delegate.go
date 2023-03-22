@@ -32,7 +32,7 @@ const (
 	// _OpCodeDisk operation code for getting disk space
 	_OpCodeDisk _OpCode = 1
 	// _ProtoTTL used to decide when to update the cache
-	_ProtoTTL = time.Second * 20
+	_ProtoTTL = time.Second * 3
 )
 
 // spaceMsg is used to notify other nodes about current disk usage
