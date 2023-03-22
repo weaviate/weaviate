@@ -5,7 +5,7 @@ import requests
 
 class SmokeTest(unittest.TestCase):
     def _waitForStartup(self):
-        url = 'http://localhost:8000/.well-known/ready'
+        url = 'http://localhost:8080/.well-known/ready'
 
         for i in range(0, 100):
             try:
@@ -24,7 +24,7 @@ class SmokeTest(unittest.TestCase):
 
     def testVectorizing(self):
         self._waitForStartup()
-        url = 'http://localhost:8000/vectors/'
+        url = 'http://localhost:8080/vectors/'
         req_body = {'text': 'The London Eye is a ferris wheel at the River Thames.'}
 
         res = requests.post(url, json=req_body)
