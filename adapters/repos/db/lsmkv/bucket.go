@@ -115,8 +115,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
-		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
+	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
+		metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -144,7 +144,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	b.flushCycle = cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(cyclemanager.DefaultMemtableFlushInterval),
+		cyclemanager.MemtableFlushCycleTicker(),
 		b.flushAndSwitchIfThresholdsMet)
 	b.flushCycle.Start()
 
