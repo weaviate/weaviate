@@ -4,7 +4,7 @@ import sys
 import traceback
 import time
 
-MAX_ADDS = 100
+MAX_ADDS = 4001
 
 client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
 
@@ -141,6 +141,7 @@ while True:
     elif data:
         print("Got data->", data)
         consec_errs = 0
+        break
     else:
         print("Unknown result!")
         break
