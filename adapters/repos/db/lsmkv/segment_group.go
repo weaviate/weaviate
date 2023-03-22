@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -57,8 +56,7 @@ type SegmentGroup struct {
 	monitorCount bool
 }
 
-func newSegmentGroup(dir string,
-	compactionInterval time.Duration, logger logrus.FieldLogger,
+func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
 	monitorCount bool,
 ) (*SegmentGroup, error) {
@@ -134,7 +132,7 @@ func newSegmentGroup(dir string,
 	}
 
 	out.compactionCycle = cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(compactionInterval),
+		cyclemanager.CompactionCycleTicker(),
 		out.compactIfLevelsMatch)
 	out.compactionCycle.Start()
 
