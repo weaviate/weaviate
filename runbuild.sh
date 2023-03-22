@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# This script will help you build the weaivate executable locally (ie, without docker )
+# This script will help you build the weaivate executable locally (ie, without docker ).
+# I don't recommend that you run this unless you know what you are doing with golang.
 # Note that we may likely remove this script as a cleanup activity if/when we merge with main weaviate.
 
 GOPATH="$HOME/go"
