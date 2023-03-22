@@ -10,7 +10,7 @@ import (
     "bytes"
     "io/ioutil"
     //"reflect"
-    //"strconv"
+    "strconv"
     //goruntime "runtime"
 
     "github.com/pkg/errors"
@@ -453,11 +453,16 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         inner := dist[i].([]interface{}) 
         farr[i] = make([]float32, len(inner))
         for j:=0;j<len(inner);j++ {
-            //YOUR PROBLEM MIGHT BE HERE ff, fErr := strconv.ParseFloat(inner[j].(string),32)
-            //if fErr!= nil { 
-            //    return nil, nil, 0, errors.Wrap(fErr,"float32 extraction failed")
-            //}
-            farr[i][j] = float32(inner[j].(float64))
+            //
+            //YOUR PROBLEM MIGHT BE HERE 
+            //
+            // THIS WORKS WITH THE FVS SERVER
+            ff, fErr := strconv.ParseFloat(inner[j].(string),32)
+            if fErr!= nil { 
+                return nil, nil, 0, errors.Wrap(fErr,"float32 extraction failed")
+            }
+            farr[i][j] = float32(ff)
+            // THIS WORKS WITH FAKE_FVS farr[i][j] = float32(inner[j].(float64))
         }
     }
     if verbose {

@@ -4,6 +4,8 @@ import sys
 import traceback
 import time
 
+MAX_ADDS = 100
+
 client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
 
 try:
@@ -59,24 +61,31 @@ data = json.loads(resp.text)
 print( "data size", len(data) )
 
 # Prepare a batch process
-with client.batch as batch:
-    batch.batch_size=100
-    # Batch import all Questions
-    for i, d in enumerate(data):
-        print(f"importing question: {i+1}")
+count = 0
+while True:
+    with client.batch as batch:
+        batch.batch_size=100
+        # Batch import all Questions
+        for i, d in enumerate(data):
+            print(f"importing question: {i+1}")
 
-        properties = {
-            "answer": d["Answer"],
-            "question": d["Question"],
-            "category": d["Category"],
-        }
+            properties = {
+                "answer": d["Answer"],
+                "question": d["Question"],
+                "category": d["Category"],
+            }
 
-        resp = client.batch.add_data_object(properties, "Question")
-        print(resp)
-        
-        # break
+            resp = client.batch.add_data_object(properties, "Question")
+            print(resp)
+            count += 1
+            print("COUNT", count)
+            
+            # break
+    if count > MAX_ADDS:
+        break
 
 print("Done adding...")
+time.sleep(5)
 
 nearText = {"concepts": ["biology"]}
 
@@ -95,19 +104,17 @@ def parse_result(result):
     errors = []
     data = None
 
-    ##print("RESULT->", result)
+    print("RESULT->", result)
 
     if "errors" in result.keys():
         errs = result["errors"]
         for err in errs:
             if "message" in err.keys():
                 mesg = err["message"]
-                if mesg.find("vector search: Async index build in progress.")>=0:
+                if mesg.find("vector search: Async index build is in progress.")>=0:
                     async_try_again = True
                 elif mesg.find("vector search: Async index build completed.")>=0:
                     async_try_again = True
-                elif mesg.find("vector search: Gemini dataset import failed.")>=0:
-                    errors.append("Gemini dataset import failed.")
                 else:
                     errors.append(err)
     elif "data" in result.keys():

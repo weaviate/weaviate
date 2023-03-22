@@ -150,8 +150,8 @@ func (i *Index) Add(id uint64, vector []float32) error {
     }
 
     if i.last_fvs_status != "" {
-        // TODO: This means that an index build is in progress.
-        // TODO: We should consider cacheing the adds for a deferred
+        // TODO: This means that an async index build is in progress.
+        // TODO: In the future We should consider cacheing the adds for a deferred
         // TODO: index build when the current one is complete.
     
         return errors.Errorf("Async index build is in progress.  Cannot add new items while this is in progress.")
@@ -160,6 +160,7 @@ func (i *Index) Add(id uint64, vector []float32) error {
     // Get the float vector dimensions
     dim := int( len(vector) )
     // TODO: check any dim constraints
+
     if i.verbose {
         fmt.Println("Gemini Add: dimension=", dim)
     }
@@ -256,8 +257,8 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
                     fmt.Println("Gemini SearchByVector: About to import dataset with dataset_id=", i.dataset_id )
                 }
 
-                //dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
-                dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
+                dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
+                //dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
                 if err!=nil {
                     return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
 
@@ -309,7 +310,7 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
                 // Everything is now set for an actual search when this function is called next time
                 i.stale = false;
                 i.last_fvs_status = ""
-                return nil, nil, fmt.Errorf("Async index build completed.  Next call will run an actual search.")
+                return nil, nil, fmt.Errorf("Async index build completed.  Next API call will run the actual search.")
 
             } else {
                 return nil, nil, fmt.Errorf("Async index build is in progress.  Please try again later.")
@@ -354,8 +355,8 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
             return nil, nil, errors.Errorf("Appending array to local file store did not yield expected result.")
         }       
         
-        //dist, inds, _, s_err := gemini.Fvs_search( "localhost", 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
-        dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
+        dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        //dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
         if s_err!= nil {
             return nil, nil, errors.Wrap(s_err, "Gemini index search failed.")
         }
