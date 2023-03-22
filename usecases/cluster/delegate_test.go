@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/memberlist"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -130,4 +131,25 @@ func TestDelegateSort(t *testing.T) {
 	} else {
 		assert.Equal(t, []string{"N4", "N3", "N2", "N1", "N0"}, got)
 	}
+}
+
+func TestDelegateCleanUp(t *testing.T) {
+	st := State{
+		delegate: delegate{
+			Name:     "N0",
+			dataPath: ".",
+		},
+	}
+	st.delegate.init()
+	_, ok := st.delegate.get("N0")
+	assert.True(t, ok, "N0 must exist")
+	st.delegate.set("N1", NodeInfo{LastTimeMilli: 1})
+	st.delegate.set("N2", NodeInfo{LastTimeMilli: 2})
+	hanlder := events{&st.delegate}
+	hanlder.NotifyJoin(nil)
+	hanlder.NotifyUpdate(nil)
+	hanlder.NotifyLeave(&memberlist.Node{Name: "N0"})
+	hanlder.NotifyLeave(&memberlist.Node{Name: "N1"})
+	hanlder.NotifyLeave(&memberlist.Node{Name: "N2"})
+	assert.Empty(t, st.delegate.Cache)
 }
