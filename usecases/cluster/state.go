@@ -38,10 +38,13 @@ type Config struct {
 func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
+	if userConfig.Hostname != "" {
+		cfg.Name = userConfig.Hostname
+	}
 	state := State{
 		config: userConfig,
 		delegate: delegate{
-			Name:     userConfig.Hostname,
+			Name:     cfg.Name,
 			dataPath: dataPath,
 		},
 	}
@@ -50,10 +53,6 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
-	if userConfig.Hostname != "" {
-		cfg.Name = userConfig.Hostname
-	}
-
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}

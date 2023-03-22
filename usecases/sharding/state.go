@@ -222,10 +222,11 @@ func (s *State) IsShardLocal(name string) bool {
 // Shard 2: Node8, Node9, Node10, Node 11, Node 12
 // Shard 3: Node9, Node10, Node11, Node 12, Node 1
 func (s *State) initPhysical(names []string, replFactor int64) error {
-	it, err := cluster.NewNodeIterator(names, cluster.StartRandom)
+	it, err := cluster.NewNodeIterator(names, cluster.StartAfter)
 	if err != nil {
 		return err
 	}
+	it.SetStartNode(names[len(names)-1])
 
 	s.Physical = map[string]Physical{}
 
