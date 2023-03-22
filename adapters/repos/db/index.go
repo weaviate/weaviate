@@ -954,10 +954,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	sort []filters.Sort, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 
-    //GW
-    fmt.Println("objectVectorSearch adapters/repos/db/index.go!")
-    //GW
-
 
 	shardNames := i.getSchema.ShardingState(i.Config.ClassName.String()).
 		AllPhysicalShards()

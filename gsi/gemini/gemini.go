@@ -10,7 +10,7 @@ import (
     "bytes"
     "io/ioutil"
     //"reflect"
-    "strconv"
+    //"strconv"
     //goruntime "runtime"
 
     "github.com/pkg/errors"
@@ -440,7 +440,9 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
     if verbose {
         fmt.Println("Fvs_search: json resp=", respData, rErr)
     }
-    
+   
+    //goruntime.Breakpoint()
+ 
     // reconstruct the distances returned
     dist, ok := respData["distance"].([]interface{})
     if !ok {
@@ -451,39 +453,16 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         inner := dist[i].([]interface{}) 
         farr[i] = make([]float32, len(inner))
         for j:=0;j<len(inner);j++ {
-            ff, fErr := strconv.ParseFloat(inner[j].(string),32)
-            if fErr!= nil { 
-                return nil, nil, 0, fErr
-            }
-            farr[i][j] = float32(ff)
+            //YOUR PROBLEM MIGHT BE HERE ff, fErr := strconv.ParseFloat(inner[j].(string),32)
+            //if fErr!= nil { 
+            //    return nil, nil, 0, errors.Wrap(fErr,"float32 extraction failed")
+            //}
+            farr[i][j] = float32(inner[j].(float64))
         }
     }
     if verbose {
-        fmt.Println("Fvs search: reconstructed dists=", farr )
+        fmt.Println("Fvs_search: reconstructed dists=", farr )
     }
-
-    /*
-    // reconstruct the indices returned
-    inds, ok := respData["indices"].([]interface{})
-    if !ok {
-        return nil, nil, fmt.Errorf("response map does not have 'indices' key in Fvs_search.")
-    }
-    farr := make([][]float32, len(dist))
-    for i:=0 ;i<len(dist);i++ {
-        inner := dist[i].([]interface{}) 
-        farr[i] = make([]float32, len(inner))
-        for j:=0;j<len(inner);j++ {
-            ff, fErr := strconv.ParseFloat(inner[j].(string),32)
-            if fErr!= nil { 
-                return nil, nil, 0, fErr
-            }
-            farr[i][j] = float32(ff)
-        }
-    }
-    if verbose {
-        fmt.Println("Fvs search: reconstructed dists=", farr )
-    }
-    */
 
     // reconstruct the indices returned
     inds, ok := respData["indices"].([]interface{})
@@ -499,7 +478,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         }                       
     } 
     if verbose {
-        fmt.Println("Fvs search: reconstructed inds=", iarr )
+        fmt.Println("Fvs_search: reconstructed inds=", iarr )
     }
 
     // reconstruct the timing
@@ -509,7 +488,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         return nil, nil, 0, fmt.Errorf("response map does not have 'timing' key in Fvs_search.")
     }
     if verbose {
-        fmt.Println("Fvs search: reconstructed timing=", timing )
+        fmt.Println("Fvs_search: reconstructed timing=", timing )
     }
 
     return farr, iarr, timing, nil

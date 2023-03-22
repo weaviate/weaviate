@@ -10,11 +10,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import logging
 import json
 import uuid
+import numpy
+import random
 
 #
 # globals
 #
 DATASET_ID = None
+DS_FILE_PATH = None
 
 class S(BaseHTTPRequestHandler):
     def _set_response(self):
@@ -41,7 +44,7 @@ class S(BaseHTTPRequestHandler):
             self.wfile.write("GET request for {}".format(self.path).encode('utf-8'))
 
     def do_POST(self):
-        global DATASET_ID
+        global DATASET_ID, DS_FILE_PATH
 
         content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
         post_data = self.rfile.read(content_length) # <--- Gets the data itself
@@ -51,7 +54,16 @@ class S(BaseHTTPRequestHandler):
         
         print("path",str(self.path),"end")
         if str(self.path) == "/v1.0/dataset/import":
-            if not DATASET_ID: DATASET_ID = str(uuid.uuid1())
+            if not DATASET_ID: 
+                DATASET_ID = str(uuid.uuid1())
+            else: 
+                raise Exception("Already got a dataset_id")
+            body_dct = json.loads( post_data.decode('utf-8') )
+            DS_FILE_PATH = body_dct["dsFilePath"]
+            print("DS_FILE_PATH=",DS_FILE_PATH)
+            a = numpy.load(DS_FILE_PATH)
+            print(type(a))
+            print(a.shape)
             jsonret = json.dumps( {"datasetId":DATASET_ID } ).encode('utf-8')
             print("sending datasetid=", type(jsonret),jsonret)
             self.wfile.write( jsonret  )
@@ -60,7 +72,18 @@ class S(BaseHTTPRequestHandler):
             print("sending loaded=", type(jsonret),jsonret)
             self.wfile.write( jsonret  )
         elif DATASET_ID and str(self.path) == "/v1.0/dataset/search":
-            jsonret = json.dumps( {"status":"ok" } ).encode('utf-8')
+            body_dct = json.loads( post_data.decode('utf-8') )
+            Q_FILE_PATH = body_dct["queriesFilePath"]
+            print("Q_FILE_PATH=",Q_FILE_PATH)
+            q = numpy.load(Q_FILE_PATH)
+            #print(type(q))
+            #print(q.shape)
+            a = numpy.load(DS_FILE_PATH)
+            idx = int( random.random() * a.shape[0] )
+            vec = a[idx,:].tolist()
+            #print(idx, vec)
+            srch = { 'indices': [[idx]], 'distance':[[1.0]], 'search':5.0 } 
+            jsonret = json.dumps( srch ).encode('utf-8')
             print("sending search=", type(jsonret),jsonret)
             self.wfile.write( jsonret  )
         else:

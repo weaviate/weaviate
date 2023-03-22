@@ -64,9 +64,11 @@ type Index struct{
     // indicates the current training status from FVS
     last_fvs_status string
 
+    // fvs server
+    fvs_server  string
+
     // verbose printing for debugging
     verbose     bool
-
 
 }
 //GW
@@ -93,6 +95,14 @@ func NewIndex() *Index {
         fmt.Println("ERROR: Could not find GEMINI_ALLOCATIONID env var.") 
         return nil
     }
+    
+    // a valid gemini_fvs_server is required
+    fvs_server := os.Getenv("GEMINI_FVS_SERVER")
+    if fvs_server == "" {
+        fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
+        return nil
+    }
+    //TODO: Validate the server connection
 
     // a valid data_dir is required for gemini files
     data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
@@ -109,7 +119,7 @@ func NewIndex() *Index {
 
     idx := &Index{}
     idx.name        = strfmt.UUID(uuid.New().String())
-    idx.db_path     = fmt.Sprintf("/var/lib/weaviate/%s.npy", idx.name.String())
+    idx.db_path     = fmt.Sprintf("%s/dataset_%s.npy", data_dir, idx.name.String())
     idx.first_add   = true
     idx.dim         = 0
     idx.count       = 0
@@ -119,13 +129,19 @@ func NewIndex() *Index {
     idx.verbose     = gemini_verbose
     idx.stale       = true
     idx.last_fvs_status = ""
-    fmt.Println("NOOP GEMINI NewIndex path=", idx.db_path)
+    idx.fvs_server  = fvs_server
+
+    if idx.verbose {
+        fmt.Println("Gemini Index Contructor db_path=", idx.db_path)
+    }
+
     return idx
 
 }
 
 func (i *Index) Add(id uint64, vector []float32) error {
 
+    // sychronize this function
     i.idxLock.Lock()
     defer i.idxLock.Unlock()
 
@@ -148,10 +164,6 @@ func (i *Index) Add(id uint64, vector []float32) error {
         fmt.Println("Gemini Add: dimension=", dim)
     }
    
-    if i.verbose {
-        fmt.Println("Gemini Add: After Numpy_append")
-    }
-
     if (i.first_add) {
         // First time adding to this index
 
@@ -221,6 +233,7 @@ func (i *Index) Delete(id uint64) error {
 
 func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 
+    // sychronize this function
     i.idxLock.Lock()
     defer i.idxLock.Unlock()
 
@@ -243,7 +256,8 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
                     fmt.Println("Gemini SearchByVector: About to import dataset with dataset_id=", i.dataset_id )
                 }
 
-                dataset_id, err := gemini.Fvs_import_dataset( "localhost", 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
+                //dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
+                dataset_id, err := gemini.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
                 if err!=nil {
                     return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
 
@@ -261,7 +275,7 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
             }
 
             // Query the training status to populate the 'last_fvs_status' field
-            status, err := gemini.Fvs_train_status( "localhost", 7761, i.allocation_id, i.dataset_id, i.verbose )
+            status, err := gemini.Fvs_train_status( i.fvs_server, 7761, i.allocation_id, i.dataset_id, i.verbose )
             if err!=nil {
                 return nil, nil, errors.Wrap(err, "Could not get gemini index training status.")
             }
@@ -283,7 +297,7 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
 
                 // TODO: Now load the dataset
                 // TODO: Consider doing this asynchronously
-                status, err := gemini.Fvs_load_dataset( "localhost", 7761, i.allocation_id, i.dataset_id, true )
+                status, err := gemini.Fvs_load_dataset( i.fvs_server, 7761, i.allocation_id, i.dataset_id, i.verbose )
                 if err!=nil {
                     return nil, nil, errors.Wrap(err, "Load dataset failed.")
                 }
@@ -306,13 +320,53 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
         //goruntime.Breakpoint()
 
         if i.verbose { 
-            fmt.Println("Gemini: SearchByVector: About to perform Fvs_search", i.last_fvs_status, i.dataset_id)
+            fmt.Println("Gemini SearchByVector: About to perform Fvs_search", i.last_fvs_status, i.dataset_id)
+        }
+        
+        //
+        // If we got here, we can proceed with the actual search
+        //
+
+        // check dimensions match expected
+        dim := int( len(vector) )
+        if dim != i.dim {
+            return nil, nil, fmt.Errorf("Gemini SearchByVector: Got vector of dim=%d but expected %d", dim, i.dim )
         }
 
-        // If we got here, we can proceed with the actual search
-        dist, inds, _, s_err := gemini.Fvs_search( "localhost", 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        // Create a unique filename for the numpy query file
+        query_id := strfmt.UUID(uuid.New().String())
+        query_path := fmt.Sprintf("%s/queries_%s.npy", i.data_dir, query_id.String())
+        if i.verbose {
+            fmt.Println("Gemini SearchByVector: Before Numpy_append, temp query path=",query_path)
+        }
+
+        // Prepare the float array for saving to the file
+        farr := make([][]float32, 1)
+        farr[0] = vector
+
+        // TODO: Create a temp numpy file for the query array.
+        // TODO: Convert code to memory array when FVS api supports it.
+        query_count, _, err := gemini.Numpy_append_float32_array( query_path, farr, int64(dim), int64(1) )
+        if err!=nil {
+            return nil, nil, errors.Errorf("There was a problem adding to the query backing store file.")
+        }           
+        if query_count!=1 {
+            return nil, nil, errors.Errorf("Appending array to local file store did not yield expected result.")
+        }       
+        
+        //dist, inds, _, s_err := gemini.Fvs_search( "localhost", 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        dist, inds, timing, s_err := gemini.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
         if s_err!= nil {
             return nil, nil, errors.Wrap(s_err, "Gemini index search failed.")
+        }
+        if i.verbose {
+            fmt.Println("Gemini SearchByVector: search timing=",timing)
+        }
+
+        // Remove the temp file
+        rErr := os.Remove( query_path )
+        if rErr != nil {
+            return nil, nil, errors.Wrap(rErr, "Could not remove the temp queries file")
         }
 
         return inds[0], dist[0], nil
@@ -342,6 +396,7 @@ func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 
 func (i *Index) Drop(context.Context) error {
 
+    // sychronize this function
     i.idxLock.Lock()
     defer i.idxLock.Unlock()
 

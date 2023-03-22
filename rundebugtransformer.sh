@@ -11,11 +11,14 @@ export ENABLE_MODULES
 export TRANSFORMERS_INFERENCE_API
 export GEMINI_ALLOCATION_ID
 export GEMINI_DATA_DIRECTORY
+export GEMINI_FVS_SERVER
 export GEMINI_DEBUG
 export GOPATH
 export PATH
 
 rm -fr /var/lib/weaviate/*
+
+cp go.mod.last go.mod
 
 which dlv
 dlv debug cmd/weaviate-server/main.go -- --host=0.0.0.0 --port=8081 --scheme=http
