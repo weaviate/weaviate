@@ -121,7 +121,7 @@ type fakeNodes struct {
 	nodes []string
 }
 
-func (f fakeNodes) AllNames() []string {
+func (f fakeNodes) Candidates() []string {
 	return f.nodes
 }
 
@@ -171,6 +171,10 @@ type nodeResolver struct {
 
 func (r nodeResolver) AllNames() []string {
 	panic("node resolving not implemented yet")
+}
+
+func (r nodeResolver) Candidates() []string {
+	return nil
 }
 
 func (r nodeResolver) LocalName() string {
