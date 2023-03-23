@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -278,6 +279,11 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 			filter.Operator)
 	}
 
+	if s.onUUIDProp(className, props[0]) {
+		return s.extractUUIDFilter(props[0], filter.Value.Value, filter.Value.Type,
+			filter.Operator)
+	}
+
 	if s.onTokenizablePropValue(filter.Value.Type) {
 		property, err := s.schema.GetProperty(className, schema.PropertyName(props[0]))
 		if err != nil {
@@ -370,6 +376,33 @@ func (s *Searcher) extractGeoFilter(propName string, value interface{},
 		hasFrequency:  false,
 		prop:          propName,
 		operator:      operator,
+	}, nil
+}
+
+func (s *Searcher) extractUUIDFilter(propName string, value interface{},
+	valueType schema.DataType, operator filters.Operator,
+) (*propValuePair, error) {
+	if valueType != schema.DataTypeString {
+		return nil, fmt.Errorf("prop %q is of type uuid, the uuid to filter"+
+			"on must be specified as a string (e.g. valueString:<uuid>)", propName)
+	}
+
+	asStr, ok := value.(string)
+	if !ok {
+		return nil,
+			fmt.Errorf("expected to see uuid as string in filter, got %T", value)
+	}
+
+	parsed, err := uuid.Parse(asStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid string: %w", err)
+	}
+
+	return &propValuePair{
+		value:        parsed[:],
+		hasFrequency: false,
+		prop:         propName,
+		operator:     operator,
 	}, nil
 }
 
@@ -520,6 +553,24 @@ func (s *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
 	}
 
 	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
+}
+
+// Note: A UUID prop is a user-specified prop of type UUID. This has nothing to
+// do with the primary ID of an object which happens to always be a UUID in
+// Weaviate v1
+//
+// TODO: repeated calls to on... aren't too efficient because we iterate over
+// the schema each time, might be smarter to have a single method that
+// determines the type and then we switch based on the result. However, the
+// effect of that should be very small unless the schema is absolutely massive.
+func (s *Searcher) onUUIDProp(className schema.ClassName, propName string) bool {
+	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
+		return false
+	}
+
+	dt := schema.DataType(property.DataType[0])
+	return dt == schema.DataTypeUUID || dt == schema.DataTypeUUIDArray
 }
 
 func (s *Searcher) onInternalProp(propName string) bool {

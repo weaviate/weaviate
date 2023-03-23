@@ -52,6 +52,14 @@ func CreateSimpleSchema(vectorizer string) schema.Schema {
 							DataType: []string{"int"},
 						},
 						{
+							Name:     "uuidField",
+							DataType: []string{"uuid"},
+						},
+						{
+							Name:     "uuidArrayField",
+							DataType: []string{"uuid[]"},
+						},
+						{
 							Name:     "location",
 							DataType: []string{"geoCoordinates"},
 						},

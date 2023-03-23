@@ -142,3 +142,64 @@ func TestValidatePropertyLength(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateUUIDFilter(t *testing.T) {
+	tests := []struct {
+		name       string
+		schemaType schema.DataType
+		valid      bool
+		operator   Operator
+		value      int
+	}{
+		{
+			name:       "Valid datatype and operator",
+			schemaType: schema.DataTypeString,
+			valid:      true,
+			operator:   OperatorEqual,
+			value:      0,
+		},
+		{
+			name:       "Wrong data type (text)",
+			schemaType: schema.DataTypeText,
+			valid:      false,
+			operator:   OperatorEqual,
+			value:      0,
+		},
+		{
+			name:       "Wrong operator (Like)",
+			schemaType: schema.DataTypeString,
+			valid:      false,
+			operator:   OperatorLike,
+			value:      0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class: "Car",
+						Properties: []*models.Property{
+							{Name: "my_id", DataType: []string{string(schema.DataTypeUUID)}},
+							{Name: "my_idz", DataType: []string{string(schema.DataTypeUUIDArray)}},
+						},
+					},
+				},
+			}}
+			for _, prop := range []schema.PropertyName{"my_id", "my_idz"} {
+				cl := Clause{
+					Operator: tt.operator,
+					Value:    &Value{Value: tt.value, Type: tt.schemaType},
+					On:       &Path{Class: "Car", Property: prop},
+				}
+				err := validateClause(sch, &cl)
+				if tt.valid {
+					require.Nil(t, err)
+				} else {
+					require.NotNil(t, err)
+				}
+			}
+		})
+	}
+}

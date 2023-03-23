@@ -24,3 +24,10 @@ issues:
     - linters:
         - staticcheck
       text: "SA5011"
+    - linters:
+        - govet
+      text: "composites"
+run:
+  build-tags:
+    - integrationTest
+    - integrationTestSlow

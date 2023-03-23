@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql/language/ast"
@@ -93,6 +94,69 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedLocation, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+}
+
+func TestExtractUUIDField(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	expectedParams := dto.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "uuidField", IsPrimitive: true}},
+	}
+
+	id := uuid.New()
+
+	resolverReturn := []interface{}{
+		map[string]interface{}{
+			"uuidField": id,
+		},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(resolverReturn, nil).Once()
+
+	query := "{ Get { SomeAction { uuidField } } }"
+	result := resolver.AssertResolve(t, query)
+
+	expectedProps := map[string]interface{}{
+		"uuidField": id.String(),
+	}
+
+	assert.Equal(t, expectedProps, result.Get("Get", "SomeAction").Result.([]interface{})[0])
+}
+
+func TestExtractUUIDArrayField(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	expectedParams := dto.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "uuidArrayField", IsPrimitive: true}},
+	}
+
+	id1 := uuid.New()
+	id2 := uuid.New()
+
+	resolverReturn := []interface{}{
+		map[string]interface{}{
+			"uuidArrayField": []uuid.UUID{id1, id2},
+		},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(resolverReturn, nil).Once()
+
+	query := "{ Get { SomeAction { uuidArrayField } } }"
+	result := resolver.AssertResolve(t, query)
+
+	expectedProps := map[string]interface{}{
+		"uuidArrayField": []any{id1.String(), id2.String()},
+	}
+
+	assert.Equal(t, expectedProps, result.Get("Get", "SomeAction").Result.([]interface{})[0])
 }
 
 func TestExtractPhoneNumberField(t *testing.T) {
