@@ -34,7 +34,7 @@ import (
 func (db *DB) Aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	idx := db.GetIndex(schema.ClassName(params.ClassName))
+	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
