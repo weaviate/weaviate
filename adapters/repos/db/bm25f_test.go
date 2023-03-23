@@ -678,7 +678,7 @@ func TestBM25FCompare(t *testing.T) {
 
 	for _, shardName := range shardNames {
 		shard := idx.Shards[shardName]
-		t.Logf("------ BM25F --------\n")
+		t.Logf("------ BM25F new --------\n")
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "journey"}
 		addit := additional.Properties{}
 
@@ -689,7 +689,7 @@ func TestBM25FCompare(t *testing.T) {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
-		t.Logf("------ BM25 --------\n")
+		t.Logf("------ BM25 old --------\n")
 		kwr.Type = ""
 
 		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
@@ -964,7 +964,7 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
-		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results

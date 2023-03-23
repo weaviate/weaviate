@@ -682,8 +682,9 @@ func (b *Bucket) UnsortedMapList(key []byte, cfgs ...MapListOption) ([]MapPair, 
 	                                return
 	                        }
 	                        element.Tombstone = v.tombstone
+							callback(element)
 	                }
-	                callback(element)
+	                
 	        }
 	 
 	        // fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
