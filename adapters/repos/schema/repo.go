@@ -41,8 +41,8 @@ func NewRepo(baseDir string, logger logrus.FieldLogger) (*Repo, error) {
 		logger:  logger,
 	}
 
-//GW
-        fmt.Println("NewRepo before call to init adapters/repo/schema/repo.go !")
+	//GW
+        //fmt.Println("NewRepo before call to init adapters/repo/schema/repo.go !")
         //GW
 
 
@@ -55,8 +55,8 @@ func (r *Repo) DBPath() string {
 }
 
 func (r *Repo) init() error {
-//GW
-        fmt.Println("in init adapters/repo/schema/repo.go !")
+	//GW
+        //fmt.Println("in init adapters/repo/schema/repo.go !")
         //GW
 	if err := os.MkdirAll(r.baseDir, 0o777); err != nil {
 		return errors.Wrapf(err, "create root path directory at %s", r.baseDir)

@@ -20,17 +20,17 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	//GW
-    //GW"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-    "github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
-    //GW
+    	//GW"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+    	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
+    	//GW
 	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
-    //GW
+    	//GW
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	//GW hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
+    	//GW
 )
 
 // Index wraps another index to provide geo searches. This allows us to reuse
@@ -67,7 +67,7 @@ type Config struct {
 func NewIndex(config Config) (*Index, error) {
 	//GW vi, err := hnsw.New(hnsw.Config{
 	vi, err := gemini.New(gemini.Config{
-    //GW
+    	//GW
 		VectorForIDThunk:      config.CoordinatesForID.VectorForID,
 		ID:                    config.ID,
 		RootPath:              config.RootPath,
@@ -75,17 +75,17 @@ func NewIndex(config Config) (*Index, error) {
 		DistanceProvider:      distancer.NewGeoProvider(),
 	//GW}, hnswent.UserConfig{
 	}, geminient.UserConfig{
-    //GW
+    		//GW
 		MaxConnections:         64,
 		EFConstruction:         128,
 		//GWCleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
 		CleanupIntervalSeconds: geminient.DefaultCleanupIntervalSeconds,
-        //GW
+        	//GW
 	})
 	if err != nil {
 		//GW return nil, errors.Wrap(err, "underlying hnsw index")
 		return nil, errors.Wrap(err, "underlying gemini index")
-        //GW
+        	//GW
 	}
 
 	i := &Index{
@@ -114,14 +114,14 @@ func makeCommitLoggerFromConfig(config Config) gemini.MakeCommitLogger {
 //GW
 	//GWmakeCL := hnsw.MakeNoopCommitLogger
 	makeCL := gemini.MakeNoopCommitLogger
-    //GW
+    	//GW
 	if !config.DisablePersistence {
 		//GW makeCL = func() (hnsw.CommitLogger, error) {
 		makeCL = func() (gemini.CommitLogger, error) {
-        //GW
+        	//GW
 			//GW return hnsw.NewCommitLogger(config.RootPath, config.ID, 10*time.Second,
 			return gemini.NewCommitLogger(config.RootPath, config.ID, 10*time.Second,
-            //GW
+            		//GW
 				config.Logger)
 		}
 	}

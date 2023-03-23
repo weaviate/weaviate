@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-    //GW
-    //goruntime "runtime"
-    //GW
+    	//GW
+    	//goruntime "runtime"
+    	//GW
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -36,7 +36,7 @@ func (d *DB) init(ctx context.Context) error {
 	}
 
 	//GW
-        fmt.Println("DB INIT!")
+        //fmt.Println("DB INIT!")
         //GW
 
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
@@ -62,7 +62,7 @@ func (d *DB) init(ctx context.Context) error {
 			}
 
 			//GW
-        		fmt.Println("RIGHT Before New Index! adapters/repos/db/init.go")
+        		//fmt.Println("RIGHT Before New Index! adapters/repos/db/init.go")
         		//GW
 
             //GW

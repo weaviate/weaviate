@@ -31,20 +31,20 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
-    //GW
+    	//GW
 	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
-    //GW
+    	//GW
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-    //GW
+    	//GW
 	//GW hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
+    	//GW
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -132,13 +132,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	//GW		index.vectorIndexUserConfig)
 	//GW}
 
-    //GW	
+    	//GW	
     hnswUserConfig, ok := index.vectorIndexUserConfig.(geminient.UserConfig)
 	if !ok {
 		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
 			index.vectorIndexUserConfig)
 	}
-    //GW
+    	//GW
 
     //GW
     //runtime.Breakpoint()
@@ -146,12 +146,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if hnswUserConfig.Skip {
 		//GW
-        	fmt.Println("NOOP NEW INDEX adapters/repos/db/shard.go!")
+        	//fmt.Println("NOOP NEW INDEX adapters/repos/db/shard.go!")
         	//GW
 		s.vectorIndex = noop.NewIndex()
 	} else {
 		//GW
-        	fmt.Println("INIT VECTOR INDEX adapters/repos/db/shard.go!")
+        	//fmt.Println("INIT VECTOR INDEX adapters/repos/db/shard.go!")
         	//GW
 
 		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
@@ -169,10 +169,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 }
 
 func (s *Shard) initVectorIndex(
-//GW
-//GW    ctx context.Context, hnswUserConfig hnswent.UserConfig,
+	//GW
+	//GW    ctx context.Context, hnswUserConfig hnswent.UserConfig,
 	ctx context.Context, hnswUserConfig geminient.UserConfig,
-//GW
+	//GW
 ) error {
 	var distProv distancer.Provider
 
@@ -200,30 +200,30 @@ func (s *Shard) initVectorIndex(
         distProv = distancer.NewManhattanProvider()
     case geminient.DistanceHamming:
         distProv = distancer.NewHammingProvider()
-//GW
+	//GW
 	default:
 		return errors.Errorf("unrecognized distance metric %q,"+
 			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
 	}
 
 	//GW
-        fmt.Println("BEFORE HNSW NEW  adapters/repos/db/shard.go!")
+        //fmt.Println("BEFORE HNSW NEW  adapters/repos/db/shard.go!")
         //GW
 
-    //GW
+    	//GW
 	//GW vi, err := hnsw.New(hnsw.Config{
 	vi, err := gemini.New(gemini.Config{
-    //GW
+    	//GW
 		Logger:            s.index.logger,
 		RootPath:          s.index.Config.RootPath,
 		ID:                s.ID(),
 		ShardName:         s.name,
 		ClassName:         s.index.Config.ClassName.String(),
 		PrometheusMetrics: s.promMetrics,
-        //GW
+        	//GW
 		//GW MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 		MakeCommitLoggerThunk: func() (gemini.CommitLogger, error) {
-        //GW 
+        	//GW 
 			// Previously we had an interval of 10s in here, which was changed to
 			// 0.5s as part of gh-1867. There's really no way to wait so long in
 			// between checks: If you are running on a low-powered machine, the
@@ -237,10 +237,10 @@ func (s *Shard) initVectorIndex(
 			// to be done at startup, since the commit logs still contain too many
 			// redundancies. So as of now it seems there are only advantages to
 			// running the cleanup checks and work much more often.
-            //GW
+            		//GW
 			//GWreturn hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
 			return gemini.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-            //GW
+            		//GW
 				s.index.logger)
 		},
 		VectorForIDThunk: s.vectorByIndexID,
@@ -249,7 +249,7 @@ func (s *Shard) initVectorIndex(
 	if err != nil {
 		//GW return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 		return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
-        //GW
+        	//GW
 	}
 	s.vectorIndex = vi
 

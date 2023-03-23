@@ -128,7 +128,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 	modulesProvider ModulesProvider, metrics objectsMetrics,
 ) *Manager {
     //GW
-    fmt.Println("NewManager usecases/objects/manager.go")
+    //fmt.Println("NewManager usecases/objects/manager.go")
     //goruntime.Breakpoint() 
     //GW 
 	return &Manager{

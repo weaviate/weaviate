@@ -116,7 +116,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 ) (*Manager, error) {
 
 	//GW
-        fmt.Println("NEWMANAGER usecases/schema/manager.go !")
+        //fmt.Println("NEWMANAGER usecases/schema/manager.go !")
         //GW
 
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
@@ -197,7 +197,7 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 
 	//GW
-        fmt.Println("SCHEMA loadOrInitializeSchema Inside usecases/scheman/manager.go!")
+        //fmt.Println("SCHEMA loadOrInitializeSchema Inside usecases/scheman/manager.go!")
         //GW
 
 	schema, err := m.repo.LoadSchema(ctx)
@@ -209,7 +209,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 		schema = newSchema()
 	}
 	//GW
-        fmt.Println("SCHEMA beforeParseConfigs Inside usecases/scheman/manager.go!")
+        //fmt.Println("SCHEMA beforeParseConfigs Inside usecases/scheman/manager.go!")
         //GW
 
 	if err := m.parseConfigs(ctx, schema); err != nil {
@@ -234,8 +234,8 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
 	
-    //GW
-        fmt.Println("SCHEMA beforeStartupClusterSync Inside usecases/scheman/manager.go!")
+    	//GW
+        //fmt.Println("SCHEMA beforeStartupClusterSync Inside usecases/scheman/manager.go!")
         //GW
 
 	if err := m.startupClusterSync(ctx, schema); err != nil {

@@ -16,9 +16,9 @@ package main
 import (
 	"log"
 	"os"
-    //GW
-    "fmt"
-    //GW
+    	//GW
+    	//"fmt"
+    	//GW
 
 	"github.com/go-openapi/loads"
 	flags "github.com/jessevdk/go-flags"
@@ -33,8 +33,8 @@ import (
 func main() {
 
 
-//GW
-        fmt.Println("MAIN cmd/weaviate-server/main.go !")
+	//GW
+        //fmt.Println("MAIN cmd/weaviate-server/main.go !")
         //GW
 	swaggerSpec, err := loads.Embedded(rest.SwaggerJSON, rest.FlatSwaggerJSON)
 	if err != nil {
@@ -42,22 +42,22 @@ func main() {
 	}
 
 
-//GW
-        fmt.Println("BEFORE NewWeaviate cmd/weaviate-server/main.go !")
+	//GW
+        //fmt.Println("BEFORE NewWeaviate cmd/weaviate-server/main.go !")
         //GW
 	api := operations.NewWeaviateAPI(swaggerSpec)
 
-//GW
-        fmt.Println("BEFORE rest.NewServer cmd/weaviate-server/main.go !")
+	//GW
+        //fmt.Println("BEFORE rest.NewServer cmd/weaviate-server/main.go !")
         //GW
 	server := rest.NewServer(api)
-//GW
-        fmt.Println("AFTER rest.NewServer cmd/weaviate-server/main.go !")
+	//GW
+        //fmt.Println("AFTER rest.NewServer cmd/weaviate-server/main.go !")
         //GW
 	defer server.Shutdown()
 
-//GW
-        fmt.Println("BEFORE NewParser  cmd/weaviate-server/main.go !")
+	//GW
+        //fmt.Println("BEFORE NewParser  cmd/weaviate-server/main.go !")
         //GW
 	parser := flags.NewParser(server, flags.Default)
 	parser.ShortDescription = "Weaviate"
@@ -81,8 +81,8 @@ func main() {
 	}
 
 	server.ConfigureAPI()
-//GW
-        fmt.Println("BEFORE serve.Serve  cmd/weaviate-server/main.go !")
+	//GW
+        //fmt.Println("BEFORE serve.Serve  cmd/weaviate-server/main.go !")
         //GW
 
 	if err := server.Serve(); err != nil {

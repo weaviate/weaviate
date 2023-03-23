@@ -23,9 +23,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	//GW "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
+    	//GW
 	
-    //GW "github.com/weaviate/weaviate/usecases/config"
+    	//GW "github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -35,10 +35,10 @@ const (
 	errorVectorIndexType = "vector index config (%T) is not of type HNSW, " +
 		"but objects manager is restricted to HNSW"
 
-    //GW	
-    errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
+    	//GW	
+    	errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
 		"but objects manager is restricted to Gemini"
-    //GW
+    	//GW
 
 	warningVectorIgnored = "This vector will be ignored. If you meant to index " +
 		"the vector, make sure to set vectorIndexConfig.skip to 'false'. If the previous " +
@@ -53,8 +53,8 @@ const (
 )
 
 func (m *Provider) ValidateVectorizer(moduleName string) error {
-//GW
-        fmt.Println("ValidateVectorizer usecases/modules/vectorizer.go %s", moduleName)
+	//GW
+        //fmt.Println("ValidateVectorizer usecases/modules/vectorizer.go %s", moduleName)
         //GW
 	mod := m.GetByName(moduleName)
 	if mod == nil {
@@ -96,10 +96,10 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	logger logrus.FieldLogger,
 ) error {
 	//GW
-        fmt.Println("UpdateVector usecases/modules/vectorizer.go !")
+        //fmt.Println("UpdateVector usecases/modules/vectorizer.go !")
         //GW
 
-    //GW
+    	//GW
 	//GWhnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
 	//GWif !ok {
 	//GW	return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
@@ -109,18 +109,18 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	if !ok {
 		return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
 	}
-    //GW
-    //GW
+    	//GW
+    	//GW
 	//GW if class.Vectorizer == config.VectorizerModuleNone {
 	//GW	if hnswConfig.Skip && len(object.Vector) > 0 {
 	//GW		logger.WithField("className", object.Class).
 	//GW			Warningf(warningSkipVectorProvided)
 	//GW	}
-    //GW
+    	//GW
 	//GW	return nil
 	//GW}
-    //GW
-    //GW
+    	//GW
+    	//GW
 	//GW if hnswConfig.Skip {
 	//GW	logger.WithField("className", object.Class).
 	//GW		WithField("vectorizer", class.Vectorizer).

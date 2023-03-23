@@ -272,8 +272,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 			Info("no config file specified, using default or environment based")
 	}
 
-//GW
-      fmt.Println("LoadConfig usecases/config/config_handler.go !", configFileName)
+	//GW
+      	//fmt.Println("LoadConfig usecases/config/config_handler.go !", configFileName)
         //GW
 
 	// Read config file
@@ -319,8 +319,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
 
-//GW
-      fmt.Println("parseConfigFile usecases/config/config_handler.go !", name)
+	//GW
+      	//fmt.Println("parseConfigFile usecases/config/config_handler.go !", name)
         //GW
 
 	var config Config

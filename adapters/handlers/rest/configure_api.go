@@ -42,11 +42,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-    //GW
+    	//GW
 	//GW enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-    //GW
+    	//GW
 	entgemini "github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
+    	//GW
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
@@ -107,8 +107,8 @@ type explorer interface {
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
-//GW
-        fmt.Println("configureAPI adapters/handlers/rest/configure_api.go !")
+	//GW
+        //fmt.Println("configureAPI adapters/handlers/rest/configure_api.go !")
         //GW
 
 	ctx := context.Background()
@@ -117,9 +117,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 
-    //GW
-    //goruntime.Breakpoint()
-    //GW
+    	//GW
+    	//goruntime.Breakpoint()
+    	//GW
 	appState := startupRoutine(ctx)
 	setupGoProfiling(appState.ServerConfig.Config)
 
@@ -132,8 +132,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}()
 	}
 
-//GW
-        fmt.Println("before registerModules adapters/handlers/rest/configure_api.go !")
+	//GW
+        //fmt.Println("before registerModules adapters/handlers/rest/configure_api.go !")
         //GW
 
     //GW
@@ -356,8 +356,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context) *state.State {
 
-//GW
-        fmt.Println("startupRoutine adapters/handlers/rest/configure_api.go !")
+	//GW
+        //fmt.Println("startupRoutine adapters/handlers/rest/configure_api.go !")
         //GW
 
 	appState := &state.State{}
@@ -471,8 +471,8 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
 
-//GW
-        fmt.Println("registerModules FUNC adapters/handlers/rest/configure_api.go !")
+	//GW
+        //fmt.Println("registerModules FUNC adapters/handlers/rest/configure_api.go !")
         //GW
 	appState.Logger.
 		WithField("action", "startup").
@@ -487,13 +487,14 @@ func registerModules(appState *state.State) error {
 			enabledModules[strings.TrimSpace(module)] = true
 		}
         //GW
-        fmt.Println("registeredModules OK>0 adapters/handlers/rest/configure_api.go !")
+        //fmt.Println("registeredModules OK>0 adapters/handlers/rest/configure_api.go !")
         //GW
-	} else {
+	} 
+	//else {
         //GW
-        fmt.Println("registeredModules NONE>0 adapters/handlers/rest/configure_api.go !")
+        //fmt.Println("registeredModules NONE>0 adapters/handlers/rest/configure_api.go !")
         //GW
-    }
+    	//}
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
@@ -559,8 +560,8 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-//GW
-        fmt.Println("before enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !")
+	//GW
+        //fmt.Println("before enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !")
         //GW
     //GW
     //goruntime.Breakpoint()
@@ -573,11 +574,12 @@ func registerModules(appState *state.State) error {
 			WithField("module", "text2vec-openai").
 			Debug("enabled module")
         fmt.Println("after else  ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
-	} else {
-//GW
-        fmt.Println("after else not ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
+	} 
+	//else {
+	//GW
+        //fmt.Println("after else not ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
         //GW
-    }
+    	//}
 
 	if _, ok := enabledModules["qna-openai"]; ok {
 		appState.Modules.Register(modqnaopenai.New())
