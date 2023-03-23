@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"sync"
 	"testing"
 	"time"
 
@@ -117,14 +116,14 @@ func TestNestedReferences(t *testing.T) {
 	}
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -508,25 +507,6 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 	}
 }
 
-type testCounter struct {
-	sync.Mutex
-	count int
-}
-
-func (c *testCounter) Inc() {
-	c.Lock()
-	defer c.Unlock()
-
-	c.count = c.count + 1
-}
-
-func (c *testCounter) reset() {
-	c.Lock()
-	defer c.Unlock()
-
-	c.count = 0
-}
-
 func GetDimensionsFromRepo(repo *DB, className string) int {
 	if !repo.config.TrackVectorDimensions {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
@@ -579,15 +559,15 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	}
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -622,6 +602,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 				"name": "target item",
 			},
 		}, []float32{0.5}, nil)
+		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
 			ID:    target2ID,

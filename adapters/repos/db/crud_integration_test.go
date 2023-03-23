@@ -85,15 +85,15 @@ func TestCRUD(t *testing.T) {
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -256,11 +256,11 @@ func TestCRUD(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID, nil,
 			additional.Properties{})
 		require.Nil(t, err)
+		assert.Equal(t, expected, res.ObjectWithVector(false))
 
 		res, err = repo.Object(context.Background(), expected.Class, thingID, nil,
 			additional.Properties{}, nil)
 		require.Nil(t, err)
-
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 	})
 
@@ -1274,7 +1274,6 @@ func TestCRUD(t *testing.T) {
 			assert.Equal(t, expected, res)
 		})
 	})
-
 }
 
 func TestCRUD_Query(t *testing.T) {
@@ -1295,15 +1294,15 @@ func TestCRUD_Query(t *testing.T) {
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -1518,6 +1517,7 @@ func TestCRUD_Query(t *testing.T) {
 		}
 	})
 }
+
 func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	total := 100
 	individual := total / 4
@@ -1530,15 +1530,15 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -1686,7 +1686,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter: 60,
 		RootPath:                dirName,
 		// this is set really low to ensure that search
@@ -1695,9 +1695,9 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 		QueryMaximumResults:       1,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -1823,7 +1823,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter: 60,
 		RootPath:                dirName,
 		// this is set really low to ensure that search
@@ -1832,9 +1832,9 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		QueryMaximumResults:       1,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -1955,7 +1955,8 @@ func Test_PutPatchRestart(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
 	testClass := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
@@ -1971,16 +1972,16 @@ func Test_PutPatchRestart(t *testing.T) {
 	}
 
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(ctx)
-	defer repo.Shutdown(context.Background())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	defer repo.Shutdown(context.Background())
+	require.Nil(t, repo.WaitForStartup(ctx))
 	migrator := NewMigrator(repo, logger)
 
 	require.Nil(t,
@@ -2111,15 +2112,15 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 	require.Nil(t,
@@ -2242,16 +2243,16 @@ func TestOverwriteObjects(t *testing.T) {
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
 		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 	t.Run("create the class", func(t *testing.T) {
@@ -2337,16 +2338,16 @@ func TestIndexDigestObjects(t *testing.T) {
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
 		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 	t.Run("create the class", func(t *testing.T) {
@@ -2460,16 +2461,16 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
 		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))

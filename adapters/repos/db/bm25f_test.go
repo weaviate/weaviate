@@ -101,6 +101,18 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				DataType:      []string{string(schema.DataTypeBoolean)},
 				IndexInverted: truePointer(),
 			},
+			{
+				Name:          "multiTitles",
+				DataType:      []string{string(schema.DataTypeTextArray)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "multiStringFieldWord",
+				DataType:      []string{string(schema.DataTypeStringArray)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
 		},
 	}
 
@@ -116,13 +128,13 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
-	testData = append(testData, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F", "review": "none none none"})
-	testData = append(testData, map[string]interface{}{"title": "Why I dont like journey", "description": "This is about how we get somewhere"})
+	testData = append(testData, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F", "review": "none none none", "multiTitles": []string{"breakfast", "dinner"}})
+	testData = append(testData, map[string]interface{}{"title": "Why I dont like journey", "description": "This is about how we get somewhere", "multiTitles": []string{"going to a restaurant for dinner", "sandwiches and desert are a great lunch"}})
 	testData = append(testData, map[string]interface{}{"title": "My journeys in Journey", "description": "A journey story about journeying"})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Actually all about journey"})
 	testData = append(testData, map[string]interface{}{"title": "journey journey", "description": "journey journey journey"})
-	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey"})
-	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY"})
+	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey", "multiStringFieldWord": []string{"totally irrelevant:)", "we all MuuultiYell! together"}})
+	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY", "multiStringFieldWord": []string{"MuuultiYell!", "is fun"}})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(Offtopic!!!!"})
 	testData = append(testData, map[string]interface{}{"title": "none", "description": "other", "stringField": "YELLING IS FUN"})
 	testData = append(testData, map[string]interface{}{"title": "something", "description": "none none", "review": "none none none none none none"})
@@ -191,15 +203,15 @@ func TestBM25FJourney(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75)
@@ -212,7 +224,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("bm25f journey", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
@@ -236,7 +248,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f stringfield non-alpha", func(t *testing.T) {
 		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 		addit = additional.Properties{}
-		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit)
+		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
@@ -254,7 +266,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f stringfield caps", func(t *testing.T) {
 		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"stringField"}, Query: "YELLING IS FUN"}
 		addit := additional.Properties{}
-		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit)
+		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
@@ -270,7 +282,7 @@ func TestBM25FJourney(t *testing.T) {
 	// Check basic text search WITH CAPS
 	t.Run("bm25f text with caps", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		// Print results
 		t.Log("--- Start results for search with caps ---")
 		for _, r := range res {
@@ -285,7 +297,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 
 		require.Nil(t, err)
 		// Print results
@@ -303,7 +315,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Check search with two terms", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		t.Log("--- Start results for two-term search ---")
@@ -323,7 +335,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
 		// Check search with no properties (should include all properties)
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Check results in correct order
@@ -336,14 +348,14 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f non alphanums", func(t *testing.T) {
 		// Check search with no properties (should include all properties)
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 		require.Equal(t, uint64(7), res[0].DocID())
 	})
 
 	t.Run("First result has high score", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "about BM25F"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(0), res[0].DocID())
@@ -352,7 +364,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("More results than limit", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(4), res[0].DocID())
@@ -363,9 +375,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Len(t, res, 5) // four results have one of the terms
 	})
 
-	t.Run("Results from three properties", func(t *testing.T) {  //title, description, review
-		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "none" }
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+	t.Run("Results from three properties", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "none"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		t.Log("--- Start results for three property search, non-matching query ---")
@@ -382,13 +394,33 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Include additional explanations", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey", AdditionalExplanations: true}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// With additionalExplanations explainScore entry should be present
 		require.Contains(t, res[0].Object.Additional, "score")
 		require.Contains(t, res[0].Object.Additional, "explainScore")
 		//require.Contains(t, res[0].Object.Additional["explainScore"], "BM25")
+	})
+
+	t.Run("Array fields text", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTitles"}, Query: "dinner"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
+		require.Nil(t, err)
+
+		require.Len(t, res, 2)
+		require.Equal(t, uint64(0), res[0].DocID())
+		require.Equal(t, uint64(1), res[1].DocID())
+	})
+
+	t.Run("Array fields string", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiStringFieldWord"}, Query: "MuuultiYell!"}
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
+		require.Nil(t, err)
+
+		require.Len(t, res, 2)
+		require.Equal(t, uint64(6), res[0].DocID())
+		require.Equal(t, uint64(5), res[1].DocID())
 	})
 }
 
@@ -397,15 +429,15 @@ func TestBM25FSingleProp(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
@@ -416,7 +448,7 @@ func TestBM25FSingleProp(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 	require.Nil(t, err)
 	// Check results in correct order
 	require.Equal(t, uint64(3), res[0].DocID())
@@ -432,15 +464,15 @@ func TestBM25FWithFilters(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
@@ -480,7 +512,7 @@ func TestBM25FWithFilters(t *testing.T) {
 
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil)
 
 	require.Nil(t, err)
 	require.True(t, len(res) == 1)
@@ -492,15 +524,15 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupClassForFilterScoringTest(t, repo, schemaGetter, logger, 1.2, 0.75)
@@ -529,9 +561,9 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 	}
 
 	addit := additional.Properties{}
-	filtered, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit)
+	filtered, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil)
 	require.Nil(t, err)
-	unfiltered, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+	unfiltered, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 	require.Nil(t, err)
 
 	t.Log("--- Start results filtered ---")
@@ -560,15 +592,15 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
@@ -579,7 +611,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 
 	// Print results
 	t.Log("--- Start results for boosted search ---")
@@ -626,15 +658,15 @@ func TestBM25FCompare(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
@@ -651,6 +683,7 @@ func TestBM25FCompare(t *testing.T) {
 		addit := additional.Properties{}
 
 		withBM25Fobjs, withBM25Fscores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
 
 		for i, r := range withBM25Fobjs {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
@@ -660,12 +693,12 @@ func TestBM25FCompare(t *testing.T) {
 		kwr.Type = ""
 
 		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
 
 		for i, r := range objs {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
-		require.Nil(t, err)
 		require.Equal(t, len(withBM25Fobjs), len(objs))
 		for i := range objs {
 			t.Logf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
@@ -782,15 +815,15 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 			Classes: []*models.Class{},
 		},
 	}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(context.TODO())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
 	classNone := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "none")
@@ -801,7 +834,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
-		res, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit)
+		res, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
@@ -824,14 +857,14 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 
 	t.Run("Results without stopwords", func(t *testing.T) {
 		kwrNoStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "example losing business"}
-		resNoStopwords, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit)
+		resNoStopwords, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		classEn := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
 		idxEn := repo.GetIndex(schema.ClassName(classEn))
 		require.NotNil(t, idxEn)
 		kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}
-		resStopwords, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit)
+		resStopwords, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		require.Equal(t, len(resNoStopwords), len(resStopwords))
@@ -842,7 +875,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		}
 
 		kwrStopwordsDuplicate := &searchparams.KeywordRanking{Type: "bm25", Query: "on an example on losing the business on"}
-		resStopwordsDuplicate, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit)
+		resStopwordsDuplicate, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, nil)
 		require.Nil(t, err)
 		require.Equal(t, len(resNoStopwords), len(resStopwordsDuplicate))
 		for i, resNo := range resNoStopwords {
@@ -850,5 +883,98 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 			require.Equal(t, resNo.DocID(), resYes.DocID())
 			require.Equal(t, resNo.Score(), resYes.Score())
 		}
+	})
+}
+
+func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) string {
+	className := "MultiProps"
+	class := &models.Class{
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
+		Class:               className,
+
+		Properties: []*models.Property{
+			{
+				Name:          "document",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+			{
+				Name:          "title",
+				DataType:      []string{string(schema.DataTypeText)},
+				Tokenization:  "word",
+				IndexInverted: truePointer(),
+			},
+		},
+	}
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
+
+	migrator := NewMigrator(repo, logger)
+	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+
+	testData := []map[string]interface{}{}
+	testData = append(testData, map[string]interface{}{"document": "test", "title": "pepper"})
+	testData = append(testData, map[string]interface{}{"document": "banana", "title": "pepper"})
+	testData = append(testData, map[string]interface{}{"document": "apple", "title": "banana taste great"})
+	testData = append(testData, map[string]interface{}{"document": "banana burger", "title": "test"})
+	testData = append(testData, map[string]interface{}{"document": "carotte", "title": "great"})
+
+	for i, data := range testData {
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+
+		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
+		vector := []float32{1, 3, 5, 0.4}
+		err := repo.PutObject(context.Background(), obj, vector, nil)
+		require.Nil(t, err)
+	}
+	return className
+}
+
+func TestBM25F_SortMultiProp(t *testing.T) {
+	t.Skip("Currently failing")
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter.schema = schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{},
+		},
+	}
+	repo, err := New(logger, Config{
+		MemtablesFlushIdleAfter:   60,
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	idx := repo.GetIndex(schema.ClassName(MultiPropClass(t, repo, schemaGetter, logger, 0.5, 0.75)))
+	require.NotNil(t, idx)
+
+	addit := additional.Properties{}
+
+	t.Run("single term", func(t *testing.T) {
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
+		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit)
+		require.Nil(t, err)
+
+		// Print results
+		t.Log("--- Start results for boosted search ---")
+		for _, r := range res {
+			t.Logf("Result id: %v, score: %v, \n", r.DocID(), r.Score())
+		}
+
+		// Document 1 is a result for both terms
+		require.Len(t, res, 1)
+		require.Equal(t, uint64(1), res[0].DocID())
 	})
 }

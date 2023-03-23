@@ -58,15 +58,15 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	migrator := NewMigrator(repo, logger)
 	defer repo.Shutdown(testCtx())
 
@@ -103,7 +103,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	t.Run("updating the first 5 elements", func(t *testing.T) {
 		// The idea is that the first 5 elements can be found with a boolProp==true
-		// search, however, the bug occured if those items all had received an
+		// search, however, the bug occurred if those items all had received an
 		// update
 
 		for i := 0; i < 5; i++ {
@@ -146,7 +146,7 @@ func mustNewUUID() strfmt.UUID {
 }
 
 func extractIDs(in []search.Result) []strfmt.UUID {
-	out := make([]strfmt.UUID, len(in), len(in))
+	out := make([]strfmt.UUID, len(in))
 	for i, res := range in {
 		out[i] = res.ID
 	}
@@ -173,15 +173,15 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 		}},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 	migrator := NewMigrator(repo, logger)
 

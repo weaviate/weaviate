@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package acceptance_with_go_client
+package auth_tests
 
 import (
 	"context"

@@ -892,20 +892,10 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 	b.flushLock.RLock()
-
-	// to check the current size of the WAL to
-	// see if the threshold has been reached
-	stat, err := b.active.commitlog.file.Stat()
-	if err != nil {
-		b.logger.WithField("action", "lsm_wal_stat").
-			WithField("path", b.dir).
-			WithError(err).
-			Fatal("flush and switch failed")
-	}
-
+	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
-	walTooLarge := uint64(stat.Size()) >= b.walThreshold
-	dirtyButIdle := (b.active.Size() > 0 || stat.Size() > 0) &&
+	walTooLarge := uint64(commitLogSize) >= b.walThreshold
+	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
 		b.active.IdleDuration() >= b.flushAfterIdle
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 

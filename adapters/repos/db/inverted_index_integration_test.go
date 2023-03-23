@@ -64,15 +64,15 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
@@ -184,14 +184,14 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 	migrator := NewMigrator(repo, logger)
 
@@ -302,15 +302,15 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 	migrator := NewMigrator(repo, logger)
 

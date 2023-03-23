@@ -253,7 +253,7 @@ func (i *Index) IncomingCreateShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, nil)
+	s, err := NewShard(ctx, nil, shardName, i, nil, i.centralJobQueue)
 	if err != nil {
 		return err
 	}
@@ -497,7 +497,7 @@ func (i *Index) fetchObjects(ctx context.Context,
 
 	objs, err := shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
 	if err != nil {
-		return nil, fmt.Errorf("shard %q read repair multi get objects: %w", shard.ID(), err)
+		return nil, fmt.Errorf("shard %q replication multi get objects: %w", shard.ID(), err)
 	}
 
 	resp := make([]objects.Replica, len(ids))

@@ -37,6 +37,8 @@ type Object struct {
 	Object            models.Object `json:"object"`
 	Vector            []float32     `json:"vector"`
 	VectorLen         int           `json:"-"`
+	BelongsToNode     string        `json:"-"`
+	BelongsToShard    string        `json:"-"`
 	docID             uint64
 }
 
@@ -780,21 +782,11 @@ func (ko *Object) DeepCopyDangerous() *Object {
 	}
 }
 
-func DocIDsFromSearchResults(sr []search.Result) ([]uint64, error) {
-	ids := make([]uint64, len(sr))
-	for i, res := range sr {
-		obj := FromObject(res.Object(), res.Vector)
-		b, err := obj.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-		id, err := DocIDFromBinary(b)
-		if err != nil {
-			return nil, err
-		}
-		ids[i] = id
+func AddOwnership(objs []*Object, node, shard string) {
+	for i := range objs {
+		objs[i].BelongsToNode = node
+		objs[i].BelongsToShard = shard
 	}
-	return ids, nil
 }
 
 func deepCopyVector(orig []float32) []float32 {

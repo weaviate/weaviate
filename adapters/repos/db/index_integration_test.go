@@ -15,27 +15,24 @@
 package db
 
 import (
-	"os"
-	"strings"
-
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func getIndexFilenames(dirName string, className string) ([]string, error) {
-	filenames := []string{}
-	infos, err := os.ReadDir(dirName)
-	if err != nil {
-		return filenames, err
-	}
-	for _, i := range infos {
-		if strings.Contains(i.Name(), className) {
-			filenames = append(filenames, i.Name())
-		}
-	}
-	return filenames, nil
-}
-
 // TODO: gh-1599 reenable
+
+//func getIndexFilenames(dirName string, className string) ([]string, error) {
+//	filenames := []string{}
+//	infos, err := os.ReadDir(dirName)
+//	if err != nil {
+//		return filenames, err
+//	}
+//	for _, i := range infos {
+//		if strings.Contains(i.Name(), className) {
+//			filenames = append(filenames, i.Name())
+//		}
+//	}
+//	return filenames, nil
+//}
 
 // func TestIndex_DropIndex(t *testing.T) {
 // 	rand.Seed(time.Now().UnixNano())

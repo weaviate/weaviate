@@ -539,9 +539,9 @@ func (b *BM25Searcher) wand(
 		}
 
 		if prop.Tokenization == "word" {
-			if prop.DataType[0] == "text" {
+			if prop.DataType[0] == "text" || prop.DataType[0] == "text[]" {
 				propertyNamesText = append(propertyNamesText, property)
-			} else if prop.DataType[0] == "string" {
+			} else if prop.DataType[0] == "string" || prop.DataType[0] == "string[]" {
 				propertyNamesString = append(propertyNamesString, property)
 			} else {
 				return nil, nil, fmt.Errorf("cannot handle datatype %v", prop.DataType[0])
@@ -708,20 +708,20 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	for {
-		results.pivot(worstDist)
-
-		id, score, ok := results.scoreNext(averagePropLength, b.config)
-		if !ok {
-			return topKHeap // nothing left to score
+		if results.completelyExhausted() || results.pivot(worstDist) {
+			return topKHeap
 		}
+
+		id, score := results.scoreNext(averagePropLength, b.config)
 
 		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
 			topKHeap.Insert(id, float32(score))
 			for topKHeap.Len() > limit {
 				topKHeap.Pop()
-
-				// only update the worst distance when the queue is full, otherwise results can be missing if the first
-				// entry that is checked already has a very high score
+			}
+			// only update the worst distance when the queue is full, otherwise results can be missing if the first
+			// entry that is checked already has a very high score
+			if topKHeap.Len() >= limit {
 				worstDist = float64(topKHeap.Top().Dist)
 			}
 		}
@@ -730,7 +730,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (term, *haxmap.Map[uint64, int], error) {
 	termResult := term{queryTerm: query}
-	uniqueDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
@@ -749,9 +749,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			m = make([]lsmkv.MapPair, 0, len(preM))
 			for _, val := range preM {
 				docID := binary.BigEndian.Uint64(val.Key)
-				uniqueDocIDs.Set(docID)
 				if filterDocIds.Contains(docID) {
 					m = append(m, val)
+				} else {
+					filteredDocIDs.Set(docID)
 				}
 			}
 		} else {
@@ -839,13 +840,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 	termResult.data = docMapPairs
 
-	var n float64
+	n := float64(len(docMapPairs))
 	if filterDocIds != nil {
-		n = float64(uniqueDocIDs.GetCardinality())
-	} else {
-		n = float64(len(docMapPairs))
+		n += float64(filteredDocIDs.GetCardinality())
 	}
-
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
 
 	termResult.posPointer = 0
@@ -895,14 +893,27 @@ func (t *term) advanceAtLeast(minID uint64) {
 
 type terms []term
 
-func (t terms) pivot(minScore float64) {
-	minID, pivotPoint := t.findMinID(minScore)
+func (t terms) completelyExhausted() bool {
+	for i := range t {
+		if !t[i].exhausted {
+			return false
+		}
+	}
+	return true
+}
+
+func (t terms) pivot(minScore float64) bool {
+	minID, pivotPoint, abort := t.findMinID(minScore)
+	if abort {
+		return true
+	}
 	if pivotPoint == 0 {
-		return
+		return false
 	}
 
 	t.advanceAllAtLeast(minID)
 	sort.Sort(t)
+	return false
 }
 
 func (t terms) advanceAllAtLeast(minID uint64) {
@@ -911,17 +922,20 @@ func (t terms) advanceAllAtLeast(minID uint64) {
 	}
 }
 
-func (t terms) findMinID(minScore float64) (uint64, int) {
+func (t terms) findMinID(minScore float64) (uint64, int, bool) {
 	cumScore := float64(0)
 
 	for i, term := range t {
+		if term.exhausted {
+			continue
+		}
 		cumScore += term.idf
 		if cumScore >= minScore {
-			return term.idPointer, i
+			return term.idPointer, i, false
 		}
 	}
 
-	panic(fmt.Sprintf("score of %f is unreachable", minScore))
+	return 0, 0, true
 }
 
 func (t terms) findFirstNonExhausted() (int, bool) {
@@ -934,11 +948,11 @@ func (t terms) findFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64, bool) {
+func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	pos, ok := t.findFirstNonExhausted()
 	if !ok {
 		// done, nothing left to score
-		return 0, 0, false
+		return 0, 0
 	}
 
 	id := t[pos].idPointer
@@ -953,7 +967,7 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 
 	sort.Sort(t) // pointer was advanced in scoreAndAdvance
 
-	return id, cumScore, true
+	return id, cumScore
 }
 
 // provide sort interface
