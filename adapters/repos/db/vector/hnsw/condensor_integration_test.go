@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestCondensor(t *testing.T) {
@@ -34,11 +35,13 @@ func TestCondensor(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
-	perfect, err := NewCommitLogger(rootPath, "perfect", 0, logger)
+	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer perfect.Shutdown(ctx)
 
@@ -148,15 +151,18 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	control, err := NewCommitLogger(rootPath, "control", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -240,15 +246,18 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	control, err := NewCommitLogger(rootPath, "control", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -337,15 +346,18 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	control, err := NewCommitLogger(rootPath, "control", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
@@ -430,7 +442,8 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 

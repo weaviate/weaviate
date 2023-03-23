@@ -38,3 +38,55 @@ func MemtableFlushCycleTicker() CycleTicker {
 	return NewExpTicker(memtableFlushMinInterval, memtableFlushMaxInterval,
 		memtableFlushBase, memtableFlushSteps)
 }
+
+const (
+	geoCommitLoggerMinInterval = 10 * time.Second
+	geoCommitLoggerMaxInterval = 60 * time.Second
+	geoCommitLoggerBase        = uint(2)
+	geoCommitLoggerSteps       = uint(4)
+)
+
+// 10s . 13.3s .. 20s .... 33.3s ........ 60s
+func GeoCommitLoggerCycleTicker() CycleTicker {
+	return NewExpTicker(geoCommitLoggerMinInterval, geoCommitLoggerMaxInterval,
+		geoCommitLoggerBase, geoCommitLoggerSteps)
+}
+
+const (
+	hnswCommitLoggerMinInterval = 500 * time.Millisecond
+	hnswCommitLoggerMaxInterval = 10 * time.Second
+	hnswCommitLoggerBase        = uint(2)
+	hnswCommitLoggerSteps       = uint(5)
+)
+
+// 500ms . 806ms .. 1.42s .... 2.65s ........ 5.1s ................10s
+func HnswCommitLoggerCycleTicker() CycleTicker {
+	return NewExpTicker(hnswCommitLoggerMinInterval, hnswCommitLoggerMaxInterval,
+		hnswCommitLoggerBase, hnswCommitLoggerSteps)
+}
+
+type TickerProvider func() CycleTicker
+
+func FixedIntervalTickerProvider(interval time.Duration) TickerProvider {
+	return func() CycleTicker {
+		return NewFixedIntervalTicker(interval)
+	}
+}
+
+func SeriesTickerProvider(intervals []time.Duration) TickerProvider {
+	return func() CycleTicker {
+		return NewSeriesTicker(intervals)
+	}
+}
+
+func LinearTickerProvider(minInterval, maxInterval time.Duration, steps uint) TickerProvider {
+	return func() CycleTicker {
+		return NewLinearTicker(minInterval, maxInterval, steps)
+	}
+}
+
+func ExpTickerProvider(minInterval, maxInterval time.Duration, base, steps uint) TickerProvider {
+	return func() CycleTicker {
+		return NewExpTicker(minInterval, maxInterval, base, steps)
+	}
+}

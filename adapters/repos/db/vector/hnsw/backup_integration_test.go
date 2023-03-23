@@ -40,8 +40,7 @@ func TestBackup_Integration(t *testing.T) {
 		RootPath: dirName,
 		ID:       indexID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
-				logrus.New())
+			return NewCommitLogger(dirName, indexID, logrus.New())
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
