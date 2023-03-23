@@ -250,11 +250,13 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 	candidates := map[uint64]*storobj.Object{}
 
 	highestScore := float32(-100000)
+	lowestScore := float32(-100000)  // lowest score in the results hash
 	
 	
 
 	for  {
-		threshHold := highestScore/float32(len(results))
+
+		threshHold := lowestScore/float32(len(results))
 		// find the heap with the largest score
 		maxScore := float64(-100000000000)
 		maxScoreIndex := -1
@@ -270,6 +272,12 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 		item := results[maxScoreIndex].data.Pop()
 
 		candidate, exists := candidates[item.id]
+		if item.Score>float64(highestScore) {
+			highestScore = float32(item.Score)
+		}
+		if item.Score<float64(lowestScore) {
+			lowestScore = float32(item.Score)
+		}
 
 		if !exists {
 		binary.LittleEndian.PutUint64(buf, item.id)
