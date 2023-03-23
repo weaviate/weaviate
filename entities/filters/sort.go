@@ -13,8 +13,8 @@ package filters
 
 // Sort contains path and order (asc, desc) information
 type Sort struct {
-	Path  []string
-	Order string
+	Path  []string `json:"path"`
+	Order string   `json:"order"`
 }
 
 // ExtractSortFromArgs gets the sort parameters

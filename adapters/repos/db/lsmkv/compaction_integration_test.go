@@ -1395,10 +1395,8 @@ func Test_CompactionMapStrategy_RemoveUnnecessary(t *testing.T) {
 	size := 100
 
 	type kv struct {
-		key           []byte
-		values        []MapPair
-		secondaryKeys [][]byte
-		delete        bool
+		key    []byte
+		values []MapPair
 	}
 
 	key := []byte("my-key")
@@ -1518,11 +1516,6 @@ func Test_CompactionReplaceStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	// In this situation after the compaction the object has to exist
 	size := 100
 
-	type kv struct {
-		key   []byte
-		value []byte
-	}
-
 	key := []byte("my-key")
 
 	var bucket *Bucket
@@ -1587,18 +1580,11 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 	// after compaction on 4 and 8 segments scenario.
 	maxSize := 10
 
-	type kv struct {
-		key           []byte
-		value         []byte
-		secondaryKeys [][]byte
-		delete        bool
-	}
-
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {
 			var bucket *Bucket
 
-			key := []byte(fmt.Sprintf("key-original"))
+			key := []byte("key-original")
 			keySecondary := []byte(fmt.Sprintf("secondary-key-%02d", size-1))
 
 			dirName := t.TempDir()
@@ -1666,12 +1652,6 @@ func Test_Compaction_FrequentPutDeleteOperations_WithSecondaryKeys(t *testing.T)
 func Test_CompactionSetStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	// In this test we are testing that the compaction works well for set collection
 	maxSize := 10
-
-	type kv struct {
-		key    []byte
-		values [][]byte
-		delete bool
-	}
 
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {
@@ -1763,15 +1743,8 @@ func Test_CompactionMapStrategy_FrequentPutDeleteOperations(t *testing.T) {
 	// In this test we are testing that the compaction works well for map collection
 	maxSize := 10
 
-	type kv struct {
-		key           []byte
-		values        []MapPair
-		secondaryKeys [][]byte
-		delete        bool
-	}
-
 	key := []byte("my-key")
-	mapKey := []byte(fmt.Sprintf("value-1"))
+	mapKey := []byte("value-1")
 
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {

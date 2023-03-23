@@ -12,8 +12,8 @@
 package filters
 
 type Cursor struct {
-	After string
-	Limit int
+	After string `json:"after"`
+	Limit int    `json:"limit"`
 }
 
 // ExtractCursorFromArgs gets the limit key out of a map. Not specific to

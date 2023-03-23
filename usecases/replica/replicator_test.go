@@ -157,7 +157,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		err := rep.PutObject(ctx, shard, obj, All)
-		assert.ErrorIs(t, err, errBroadcast)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -171,7 +171,7 @@ func TestReplicatorPutObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
 		err := rep.PutObject(ctx, shard, obj, All)
-		assert.ErrorIs(t, err, errBroadcast)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("Commit", func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 		err := rep.MergeObject(ctx, shard, merge, All)
-		assert.ErrorIs(t, err, errBroadcast)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -234,7 +234,7 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f.WClient.On("Abort", ctx, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
 		err := rep.MergeObject(ctx, shard, merge, All)
-		assert.ErrorIs(t, err, errBroadcast)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("Commit", func(t *testing.T) {
@@ -276,7 +276,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 
 		err := rep.DeleteObject(ctx, shard, uuid, All)
 		assert.NotNil(t, err)
-		assert.ErrorIs(t, err, errBroadcast)
+		assert.ErrorIs(t, err, errReplicas)
 	})
 
 	t.Run("SuccessWithConsistencyLevelAll", func(t *testing.T) {
@@ -367,7 +367,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, false, All)
 		assert.Equal(t, len(result), 2)
 		for _, r := range result {
-			assert.ErrorIs(t, r.Err, errBroadcast)
+			assert.ErrorIs(t, r.Err, errReplicas)
 		}
 	})
 
@@ -541,7 +541,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 
 		errs := rep.PutObjects(ctx, shard, objs, All)
 		assert.Equal(t, 3, len(errs))
-		assert.ErrorIs(t, errs[0], errBroadcast)
+		assert.ErrorIs(t, errs[0], errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -556,7 +556,7 @@ func TestReplicatorPutObjects(t *testing.T) {
 		errs := rep.PutObjects(ctx, shard, objs, All)
 		assert.Equal(t, 3, len(errs))
 		for _, err := range errs {
-			assert.ErrorIs(t, err, errBroadcast)
+			assert.ErrorIs(t, err, errReplicas)
 		}
 	})
 
@@ -634,7 +634,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 
 		errs := rep.AddReferences(ctx, shard, refs, All)
 		assert.Equal(t, 2, len(errs))
-		assert.ErrorIs(t, errs[0], errBroadcast)
+		assert.ErrorIs(t, errs[0], errReplicas)
 	})
 
 	t.Run("PhaseOneUnsuccessfulResponse", func(t *testing.T) {
@@ -650,7 +650,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		errs := rep.AddReferences(ctx, shard, refs, All)
 		assert.Equal(t, 2, len(errs))
 		for _, err := range errs {
-			assert.ErrorIs(t, err, errBroadcast)
+			assert.ErrorIs(t, err, errReplicas)
 		}
 	})
 
@@ -705,8 +705,8 @@ func (f fakeFactory) newReplicator() *Replicator {
 		shardingState,
 		nodeResolver,
 		struct {
-			RClient
-			WClient
+			rClient
+			wClient
 		}{f.RClient, f.WClient}, f.log)
 }
 
