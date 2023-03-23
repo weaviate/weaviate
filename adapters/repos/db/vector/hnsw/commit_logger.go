@@ -40,20 +40,36 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func NewCommitLogger(rootPath, name string,
-	maintainenceInterval time.Duration, logger logrus.FieldLogger,
+func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		rootPath:             rootPath,
-		id:                   name,
-		maintainenceInterval: maintainenceInterval,
-		condensor:            NewMemoryCondensor(logger),
-		logger:               logger,
+		rootPath:  rootPath,
+		id:        name,
+		condensor: NewMemoryCondensor(logger),
+		logger:    logger,
 
 		// both can be overwritten using functional options
 		maxSizeIndividual: defaultCommitLogSize / 5,
 		maxSizeCombining:  defaultCommitLogSize,
+
+		// Previously we had an interval of 10s in here, which was changed to
+		// 0.5s as part of gh-1867. There's really no way to wait so long in
+		// between checks: If you are running on a low-powered machine, the
+		// interval will simply find that there is no work and do nothing in
+		// each iteration. However, if you are running on a very powerful
+		// machine within 10s you could have potentially created two units of
+		// work, but we'll only be handling one every 10s. This means
+		// uncombined/uncondensed hnsw commit logs will keep piling up can only
+		// be processes long after the initial insert is complete. This also
+		// means that if there is a crash during importing a lot of work needs
+		// to be done at startup, since the commit logs still contain too many
+		// redundancies. So as of now it seems there are only advantages to
+		// running the cleanup checks and work much more often.
+		//
+		// update: switched to dynamic intervals with values between 500ms and 10s
+		// introduced to address https://github.com/weaviate/weaviate/issues/2783
+		cycleTicker: cyclemanager.HnswCommitLoggerCycleTicker,
 	}
 
 	for _, o := range opts {
@@ -67,12 +83,8 @@ func NewCommitLogger(rootPath, name string,
 		return nil, err
 	}
 
-	l.switchLogCycle = cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(l.maintainenceInterval),
-		l.startSwitchLogs)
-	l.condenseCycle = cyclemanager.New(
-		cyclemanager.NewFixedIntervalTicker(l.maintainenceInterval),
-		l.startCombineAndCondenseLogs)
+	l.switchLogCycle = cyclemanager.New(l.cycleTicker(), l.startSwitchLogs)
+	l.condenseCycle = cyclemanager.New(l.cycleTicker(), l.startCombineAndCondenseLogs)
 
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 	l.Start()
@@ -245,17 +257,17 @@ type hnswCommitLogger struct {
 	// buffer
 	sync.Mutex
 
-	rootPath             string
-	id                   string
-	condensor            condensor
-	logger               logrus.FieldLogger
-	maxSizeIndividual    int64
-	maxSizeCombining     int64
-	commitLogger         *commitlog.Logger
-	maintainenceInterval time.Duration
+	rootPath          string
+	id                string
+	condensor         condensor
+	logger            logrus.FieldLogger
+	maxSizeIndividual int64
+	maxSizeCombining  int64
+	commitLogger      *commitlog.Logger
 
 	switchLogCycle *cyclemanager.CycleManager
 	condenseCycle  *cyclemanager.CycleManager
+	cycleTicker    cyclemanager.TickerProvider
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions

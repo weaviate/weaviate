@@ -11,6 +11,8 @@
 
 package hnsw
 
+import "github.com/weaviate/weaviate/entities/cyclemanager"
+
 type CommitlogOption func(l *hnswCommitLogger) error
 
 func WithCommitlogThreshold(size int64) CommitlogOption {
@@ -23,6 +25,13 @@ func WithCommitlogThreshold(size int64) CommitlogOption {
 func WithCommitlogThresholdForCombining(size int64) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.maxSizeCombining = size
+		return nil
+	}
+}
+
+func WithCommitlogCycleTicker(cycleTicker cyclemanager.TickerProvider) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.cycleTicker = cycleTicker
 		return nil
 	}
 }

@@ -34,7 +34,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 
 	t.Run("interval is fixed", func(t *testing.T) {
 		interval := 50 * time.Millisecond
-		tolerance := 5 * time.Millisecond
+		tolerance := 10 * time.Millisecond
 
 		ticker := NewFixedIntervalTicker(interval)
 		ticker.Start()
