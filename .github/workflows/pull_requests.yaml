@@ -35,10 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Scan for Vulnerabilities in Code
-        uses: Templum/govulncheck-action@v0.0.8
+        uses: Templum/govulncheck-action@v0.10.0
         with:
           go-version: 1.19
-          vulncheck-version: latest
           package: ./...
           fail-on-vuln: true
   Unit-Tests:
