@@ -1,13 +1,21 @@
-import weaviate
 import json
 import sys
 import traceback
 import time
+import weaviate
 
+#
+# Configuration
+#
+
+# Maximum number of documents to add
 MAX_ADDS = 4001
 
+# The weaviate client with connection info
 client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
 
+
+# In case the weaviate class already exists from previous test, let's try to delete it here.
 try:
     # delete class "YourClassName" - THIS WILL DELETE ALL DATA IN THIS CLASS
     client.schema.delete_class("Question")  # Replace with your class name
@@ -15,15 +23,9 @@ except:
     traceback.print_exc()
 
 schema = client.schema.get()
-print(json.dumps(schema, indent=4))
+print("Updated schema:", json.dumps(schema, indent=4))
 
-#class_obj = {
-#    "class": "Question",
-#    "vectorizer": "text2vec-openai"  # Or "text2vec-cohere" or "text2vec-huggingface"
-#}
-
-
-# we will create the class "Question"
+# We will create this class "Question"
 class_obj = {
     "class": "Question",
     "description": "Information from a Jeopardy! question",  # description of the class
@@ -46,23 +48,23 @@ class_obj = {
     ]
 }
 
+# create the class at weaviate
 client.schema.create_class(class_obj)
 
+# print the schema
 schema = client.schema.get()
-print(json.dumps(schema, indent=4))
+print("Updated schema: ", json.dumps(schema, indent=4))
 
-
-# ===== import data =====
-# Load data
+# Load the NLP sample data
 import requests
 url = 'https://raw.githubusercontent.com/weaviate-tutorials/quickstart/main/data/jeopardy_tiny.json'
 resp = requests.get(url)
 data = json.loads(resp.text)
 print( "data size", len(data) )
 
-# Prepare a batch process
+# Prepare a batch process for sending data to weaviate
 count = 0
-while True:
+while True: # lets loop until we exceed the MAX configured above
     with client.batch as batch:
         batch.batch_size=100
         # Batch import all Questions
@@ -76,26 +78,15 @@ while True:
             }
 
             resp = client.batch.add_data_object(properties, "Question")
-            print(resp)
             count += 1
-            print("COUNT", count)
             
-            # break
     if count > MAX_ADDS:
         break
+    print("Uploading %d documents so far..." % count)
 
-print("Done adding...")
+print("Done adding documents.  Let's prepare to search...")
 time.sleep(5)
 
-nearText = {"concepts": ["biology"]}
-
-#result = (
-#    client.query
-#    .get("Question", ["question", "answer", "category"])
-#    .with_near_text(nearText)
-#    .with_limit(2)
-#    .do()
-#)
 
 def parse_result(result):
     '''Parse a query result into something actionable.'''
@@ -104,7 +95,7 @@ def parse_result(result):
     errors = []
     data = None
 
-    print("RESULT->", result)
+    #print("RESULT->", result)
 
     if "errors" in result.keys():
         errs = result["errors"]
@@ -122,31 +113,38 @@ def parse_result(result):
 
     return async_try_again, errors, data
 
+
+nearText = {"concepts": ["biology"]}
 consec_errs = 0
 st_time = time.time()
+
+# Now let's perform a bunch of searches
 while True:
+
+    print("Sending a search request now...")
     result = client.query.get("Question", ["question", "answer", "category"] ).with_near_text(nearText).with_limit(2).do()
-    # print(json.dumps(result, indent=4))
     async_try_again, errors, data = parse_result(result)
-    print(async_try_again, errors, data)
+
+    #print(async_try_again, errors, data)
     if async_try_again:
-        time.sleep(1)
+        print("FVS is building an index.  It's asked us to try the search again later...")
+        time.sleep(2)
         continue
     elif errors:
-        print("Got errors->", errors)
+        print("We got errors->", errors)
         consec_errs += 1
         if consec_errs > 5: 
-            print("Too many errors")
+            print("Too many errors.  Let's stop.")
             break
     elif data:
-        print("Got data->", data)
+        print("We Got data->", data)
         consec_errs = 0
         break
     else:
-        print("Unknown result!")
+        print("Unknown result! Let's stop")
         break
 
 e_time = time.time()
-print("Async delay=", e_time-st_time)
+print("Total time building index and performing search=", e_time-st_time)
 
 print("Done.")
