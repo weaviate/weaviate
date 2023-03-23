@@ -235,6 +235,9 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 		return makePropertyField(class, property, booleanPropertyFields)
 	case schema.DataTypeDateArray:
 		return makePropertyField(class, property, datePropertyFields)
+	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
+		// not aggregatable
+		return nil, nil
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
 	sch "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -269,6 +270,10 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "inCity",
 				DataType: []string{"City"},
+			},
+			{
+				Name:     "airportId",
+				DataType: []string{"uuid"},
 			},
 		},
 	})
@@ -620,7 +625,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport1,
 		Properties: map[string]interface{}{
-			"code": "10000",
+			"code":      "10000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000010000").String(),
 			"phone": map[string]interface{}{
 				"input": "+311234567",
 			},
@@ -635,7 +641,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport2,
 		Properties: map[string]interface{}{
-			"code": "20000",
+			"code":      "20000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000020000").String(),
 			"inCity": []interface{}{
 				map[string]interface{}{
 					"beacon": crossref.NewLocalhost("City", rotterdam).String(),
@@ -647,7 +654,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport3,
 		Properties: map[string]interface{}{
-			"code": "30000",
+			"code":      "30000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000030000").String(),
 			"inCity": []interface{}{
 				map[string]interface{}{
 					"beacon": crossref.NewLocalhost("City", dusseldorf).String(),
@@ -659,7 +667,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport4,
 		Properties: map[string]interface{}{
-			"code": "40000",
+			"code":      "40000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000040000").String(),
 			"inCity": []interface{}{
 				map[string]interface{}{
 					"beacon": crossref.NewLocalhost("City", berlin).String(),
@@ -667,15 +676,6 @@ func addTestDataCityAirport(t *testing.T) {
 			},
 		},
 	})
-
-	// wait for consistency
-	assertGetObjectEventually(t, airport1)
-	assertGetObjectEventually(t, airport2)
-	assertGetObjectEventually(t, airport3)
-	assertGetObjectEventually(t, airport4)
-
-	// give cache some time to become hot
-	time.Sleep(2 * time.Second)
 }
 
 func addTestDataCompanies(t *testing.T) {

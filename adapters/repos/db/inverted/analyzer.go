@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
@@ -132,6 +133,28 @@ func (a *Analyzer) Int(in int64) ([]Countable, error) {
 			Data: data,
 		},
 	}, nil
+}
+
+// UUID requires no analysis, so it's just dumping the raw binary representation
+func (a *Analyzer) UUID(in uuid.UUID) ([]Countable, error) {
+	return []Countable{
+		{
+			Data: in[:],
+		},
+	}, nil
+}
+
+// UUID array requires no analysis, so it's just dumping the raw binary
+// representation of each contained element
+func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
+	out := make([]Countable, len(in))
+	for i := range in {
+		out[i] = Countable{
+			Data: in[i][:],
+		}
+	}
+
+	return out, nil
 }
 
 // Int array requires no analysis, so it's actually just a simple conversion to a

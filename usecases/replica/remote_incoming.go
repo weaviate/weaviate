@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-type RemoteReplicaIncomingRepo interface {
+type RemoteIncomingRepo interface {
 	// Write endpoints
 	ReplicateObject(ctx context.Context, indexName, shardName,
 		requestID string, object *storobj.Object) SimpleResponse
@@ -49,10 +49,10 @@ type RemoteReplicaIncomingRepo interface {
 }
 
 type RemoteReplicaIncoming struct {
-	repo RemoteReplicaIncomingRepo
+	repo RemoteIncomingRepo
 }
 
-func NewRemoteReplicaIncoming(repo RemoteReplicaIncomingRepo) *RemoteReplicaIncoming {
+func NewRemoteReplicaIncoming(repo RemoteIncomingRepo) *RemoteReplicaIncoming {
 	return &RemoteReplicaIncoming{
 		repo: repo,
 	}

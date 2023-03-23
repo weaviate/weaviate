@@ -256,11 +256,11 @@ func TestCRUD(t *testing.T) {
 		res, err := repo.ObjectByID(context.Background(), thingID, nil,
 			additional.Properties{})
 		require.Nil(t, err)
+		assert.Equal(t, expected, res.ObjectWithVector(false))
 
 		res, err = repo.Object(context.Background(), expected.Class, thingID, nil,
 			additional.Properties{}, nil)
 		require.Nil(t, err)
-
 		assert.Equal(t, expected, res.ObjectWithVector(false))
 	})
 
@@ -1955,7 +1955,8 @@ func Test_PutPatchRestart(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	ctx, _ := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
 	testClass := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),

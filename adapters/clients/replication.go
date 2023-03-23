@@ -54,7 +54,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomMarshal(c.timeoutUnit*20, req, nil, &resp)
+	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, &resp)
 	return resp, err
 }
 
@@ -111,7 +111,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomMarshal(c.timeoutUnit*90, req, nil, &resp)
+	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, &resp)
 	return resp, err
 }
 
@@ -294,7 +294,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 	return c.retry(ctx, 9, try)
 }
 
-func (c *replicationClient) doCustomMarshal(timeout time.Duration,
+func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, resp encoding.BinaryUnmarshaler,
 ) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
