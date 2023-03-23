@@ -9,21 +9,31 @@ import weaviate
 #
 
 # Maximum number of documents to add
-MAX_ADDS = 4001
+MAX_ADDS = 20
+
+# Maximum number of (sucessful) searches to perform
+MAX_SEARCHES = 1
+
+# Set to True to print events and responses verbosely
+VERBOSE=False
+
+
+#
+# Sanity check
+#
 
 # The weaviate client with connection info
 client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
-
 
 # In case the weaviate class already exists from previous test, let's try to delete it here.
 try:
     # delete class "YourClassName" - THIS WILL DELETE ALL DATA IN THIS CLASS
     client.schema.delete_class("Question")  # Replace with your class name
 except:
-    traceback.print_exc()
+    if VERBOSE: traceback.print_exc()
 
 schema = client.schema.get()
-print("Updated schema:", json.dumps(schema, indent=4))
+if VERBOSE: print("Updated schema:", json.dumps(schema, indent=4))
 
 # We will create this class "Question"
 class_obj = {
@@ -49,27 +59,30 @@ class_obj = {
 }
 
 # create the class at weaviate
+print("Updating the Weaviate schema...")
 client.schema.create_class(class_obj)
 
 # print the schema
 schema = client.schema.get()
-print("Updated schema: ", json.dumps(schema, indent=4))
+if VERBOSE: print("Updated schema: ", json.dumps(schema, indent=4))
 
 # Load the NLP sample data
+print("Downloading jeopardy data...")
 import requests
 url = 'https://raw.githubusercontent.com/weaviate-tutorials/quickstart/main/data/jeopardy_tiny.json'
 resp = requests.get(url)
 data = json.loads(resp.text)
-print( "data size", len(data) )
+if VERBOSE: print( "data size", len(data) )
 
 # Prepare a batch process for sending data to weaviate
+print("Uploading documents to Weaviate (max of around %d docs)" % MAX_ADDS)
 count = 0
 while True: # lets loop until we exceed the MAX configured above
     with client.batch as batch:
         batch.batch_size=100
         # Batch import all Questions
         for i, d in enumerate(data):
-            print(f"importing question: {i+1}")
+            if VERBOSE: print(f"importing question: {i+1}")
 
             properties = {
                 "answer": d["Answer"],
@@ -82,11 +95,10 @@ while True: # lets loop until we exceed the MAX configured above
             
     if count > MAX_ADDS:
         break
-    print("Uploading %d documents so far..." % count)
+    if VERBOSE: print("Batch uploading %d documents so far..." % count)
 
-print("Done adding documents.  Let's prepare to search...")
+print("Done adding %d total documents to Weaviate.  Let's prepare to search..." % count )
 time.sleep(5)
-
 
 def parse_result(result):
     '''Parse a query result into something actionable.'''
@@ -116,10 +128,11 @@ def parse_result(result):
 
 nearText = {"concepts": ["biology"]}
 consec_errs = 0
+sucessful_searches = 0
 st_time = time.time()
 
 # Now let's perform a bunch of searches
-while True:
+while sucessful_searches< MAX_SEARCHES:
 
     print("Sending a search request now...")
     result = client.query.get("Question", ["question", "answer", "category"] ).with_near_text(nearText).with_limit(2).do()
@@ -134,17 +147,18 @@ while True:
         print("We got errors->", errors)
         consec_errs += 1
         if consec_errs > 5: 
-            print("Too many errors.  Let's stop.")
+            print("Too many errors.  Let's stop...")
             break
     elif data:
-        print("We Got data->", data)
+        print("Sucesful search, data->", data)
         consec_errs = 0
+        sucessful_searches += 1
         break
     else:
-        print("Unknown result! Let's stop")
+        print("Unknown result! Let's stop here...")
         break
 
 e_time = time.time()
-print("Total time building index and performing search=", e_time-st_time)
+print("Total time performing the %d search(es) with async index building=" % sucessful_searches, e_time-st_time,"seconds")
 
 print("Done.")

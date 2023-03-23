@@ -14,6 +14,11 @@ import numpy
 import random
 
 #
+# configuration
+#
+VERBOSE = False
+
+#
 # globals
 #
 DATASET_ID = None
@@ -26,19 +31,19 @@ class S(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        logging.info("GET request,\nPath: %s\nHeaders:\n%s\n", str(self.path), str(self.headers))
+        if VERBOSE: logging.info("GET request,\nPath: %s\nHeaders:\n%s\n", str(self.path), str(self.headers))
         self._set_response()
 
-        print("path",str(self.path),"end")
+        if VERBOSE: print("path",str(self.path),"end")
         if DATASET_ID and str(self.path).find("/v1.0/dataset/train/status")>=0:
             parts = str(self.path).split("/")
             if parts[-1]==DATASET_ID:
                 jsonret = json.dumps( {"datasetStatus": "completed"} ).encode('utf-8')
-                print("sending training status=", type(jsonret),jsonret)
+                if VERBOSE: print("sending training status=", type(jsonret),jsonret)
                 self.wfile.write( jsonret  )
             else:
                 jsonret = json.dumps( {"status": "invalid dataset id"} ).encode('utf-8')
-                print("sending training status=", type(jsonret),jsonret)
+                if VERBOSE: print("sending training status=", type(jsonret),jsonret)
                 self.wfile.write( jsonret  )
         else:
             self.wfile.write("GET request for {}".format(self.path).encode('utf-8'))
@@ -52,7 +57,7 @@ class S(BaseHTTPRequestHandler):
                 str(self.path), str(self.headers), post_data.decode('utf-8'))
         self._set_response()
         
-        print("path",str(self.path),"end")
+        if VERBOSE: print("path",str(self.path),"end")
         if str(self.path) == "/v1.0/dataset/import":
             if not DATASET_ID: 
                 DATASET_ID = str(uuid.uuid1())
@@ -60,31 +65,28 @@ class S(BaseHTTPRequestHandler):
                 raise Exception("Already got a dataset_id")
             body_dct = json.loads( post_data.decode('utf-8') )
             DS_FILE_PATH = body_dct["dsFilePath"]
-            print("DS_FILE_PATH=",DS_FILE_PATH)
+            if VERBOSE: print("DS_FILE_PATH=",DS_FILE_PATH)
             a = numpy.load(DS_FILE_PATH)
-            print(type(a))
-            print(a.shape)
+            if VERBOSE: print(type(a))
+            if VERBOSE: print(a.shape)
             jsonret = json.dumps( {"datasetId":DATASET_ID } ).encode('utf-8')
-            print("sending datasetid=", type(jsonret),jsonret)
+            if VERBOSE: print("sending datasetid=", type(jsonret),jsonret)
             self.wfile.write( jsonret  )
         elif DATASET_ID and str(self.path) == "/v1.0/dataset/load":
             jsonret = json.dumps( {"status":"ok" } ).encode('utf-8')
-            print("sending loaded=", type(jsonret),jsonret)
+            if VERBOSE: print("sending loaded=", type(jsonret),jsonret)
             self.wfile.write( jsonret  )
         elif DATASET_ID and str(self.path) == "/v1.0/dataset/search":
             body_dct = json.loads( post_data.decode('utf-8') )
             Q_FILE_PATH = body_dct["queriesFilePath"]
-            print("Q_FILE_PATH=",Q_FILE_PATH)
+            if VERBOSE: print("Q_FILE_PATH=",Q_FILE_PATH)
             q = numpy.load(Q_FILE_PATH)
-            #print(type(q))
-            #print(q.shape)
             a = numpy.load(DS_FILE_PATH)
             idx = int( random.random() * a.shape[0] )
             vec = a[idx,:].tolist()
-            #print(idx, vec)
             srch = { 'indices': [[idx]], 'distance':[[1.0]], 'search':5.0 } 
             jsonret = json.dumps( srch ).encode('utf-8')
-            print("sending search=", type(jsonret),jsonret)
+            if VERBOSE: print("sending search=", type(jsonret),jsonret)
             self.wfile.write( jsonret  )
         else:
             self.wfile.write("POST request for {}".format(self.path).encode('utf-8'))
