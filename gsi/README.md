@@ -16,7 +16,7 @@ Currently, Gemini-enabled Weaviate is provided by a custom Weaviate container.  
 To build Gemini-enabled Weaviate container, following these directions:
 
 * login to a machine with docker and Gemini FVS installed
-* clone this repository and cd to the top-level directory.  if you already have it cloned, make sure to pull the latest master branch and make sure you are in master locally.
+* clone this repository and cd to the top-level directory.  if you already have it cloned, make sure to fetch the latest branches and pull them in.
 * run the script './rundockerbuild.sh
 * if successful, it will create a container called 'gsi/weaviate'
 * if it's not sucessful, see the troubleshooting section below for possible resolutions
