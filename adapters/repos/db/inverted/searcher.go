@@ -99,7 +99,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		s.recursivelyLogChildren(pv.children)
 	}
 
-	dbm, err := pv.mergeDocIDs()
+	dbm, err := pv.mergeDocIDs(s.logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
@@ -249,7 +249,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	dbm, err := pv.mergeDocIDs()
+	dbm, err := pv.mergeDocIDs(s.logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}

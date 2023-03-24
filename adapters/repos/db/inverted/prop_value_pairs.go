@@ -14,8 +14,10 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"math/rand"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -122,7 +124,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipCache bool) err
 	return nil
 }
 
-func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
+func (pv *propValuePair) mergeDocIDs(logger logrus.FieldLogger) (*docBitmap, error) {
 	if pv.operator.OnValue() {
 		return &pv.docIDs, nil
 	}
@@ -134,9 +136,11 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		return nil, fmt.Errorf("no children for operator: %s", pv.operator.Name())
 	}
 
+	// we have children
+
 	dbms := make([]*docBitmap, len(pv.children))
 	for i, child := range pv.children {
-		dbm, err := child.mergeDocIDs()
+		dbm, err := child.mergeDocIDs(logger)
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc bitmap of child %d", i)
 		}
@@ -157,10 +161,51 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	checksums := make([][]byte, len(pv.children))
 	checksums[0] = dbms[0].checksum
 
+	truncate := 20
+
+	logID := rand.Int()
+
+	l := logger.WithFields(logrus.Fields{
+		"debug_filter":   true,
+		"operator":       pv.operator.Name(),
+		"children_count": len(dbms),
+		"log_id":         logID,
+	})
+	for i, bm := range dbms {
+		l = l.WithField(fmt.Sprintf("child_%d_docid_count", i), bm.docIDs.GetCardinality())
+		l = l.WithField(fmt.Sprintf("child_%d_docid_max", i), bm.docIDs.Maximum())
+		l = l.WithField(fmt.Sprintf("child_%d_docid_min", i), bm.docIDs.Minimum())
+		if i == truncate {
+			break
+		}
+	}
+	l.Infof("before merge - detailed results truncated to %d elements (log_id=%d)", truncate, logID)
+
+	l = logger.WithFields(logrus.Fields{
+		"debug_filter":   true,
+		"operator":       pv.operator.Name(),
+		"children_count": len(dbms),
+		"log_id":         logID,
+	})
 	for i := 1; i < len(dbms); i++ {
 		mergeFn(dbms[i].docIDs)
+
+		if i < truncate {
+			l = l.WithFields(logrus.Fields{
+				fmt.Sprintf("round_%d_merge_status_docid_count", i): mergeRes.GetCardinality(),
+				fmt.Sprintf("round_%d_merge_status_docid_max", i):   mergeRes.Maximum(),
+				fmt.Sprintf("round_%d_merge_status_docid_min", i):   mergeRes.Minimum(),
+			})
+		}
+
 		checksums[i] = dbms[i].checksum
 	}
+	l = l.WithFields(logrus.Fields{
+		"final_merge_status_docid_count": mergeRes.GetCardinality(),
+		"final_merge_status_docid_max":   mergeRes.Maximum(),
+		"final_merge_status_docid_min":   mergeRes.Minimum(),
+	})
+	l.Infof("merging (intermdiary results truncated to %d) + final result (log_id=%d)", truncate, logID)
 
 	return &docBitmap{
 		docIDs:   roaringset.Condense(mergeRes),
