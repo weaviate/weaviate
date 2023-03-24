@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -164,6 +166,14 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			fmt.Println(err)
+			debug.PrintStack()
+		}
+	}()
+
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf("shard was built with an older version of " +
