@@ -896,6 +896,13 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
+	i.logger.WithFields(logrus.Fields{
+		"debug_filter":    true,
+		"limit":           limit,
+		"reference_query": additional.ReferenceQuery,
+		"shards":          len(shardNames),
+	}).Info("in db.objectSearch")
+
 	return outObjects, outScores, nil
 }
 
