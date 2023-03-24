@@ -80,6 +80,12 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
+	s.logger.WithFields(logrus.Fields{
+		"debug_filter": true,
+		"class":        className,
+		"limit":        limit,
+		"operator":     filter.Root.Operator.Name(),
+	}).Info("starting object search")
 	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -89,10 +95,20 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
+	if len(pv.children) > 0 {
+		s.recursivelyLogChildren(pv.children)
+	}
+
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
+
+	s.logger.WithFields(logrus.Fields{
+		"debug_filter": true,
+		"doc_id_count": dbm.docIDs.GetCardinality(),
+		"doc_ids":      dbm.docIDs.ToArray(),
+	}).Info("final result in doc id searcher after all merging")
 
 	allowList := helpers.NewAllowListFromBitmap(dbm.docIDs)
 	var it docIDsIterator
@@ -107,6 +123,27 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	}
 
 	return s.objectsByDocID(it, additional)
+}
+
+func (s *Searcher) recursivelyLogChildren(children []*propValuePair) {
+	l := s.logger.WithFields(logrus.Fields{
+		"debug_filter": true,
+	})
+
+	for i, child := range children {
+		if len(child.children) > 0 {
+			s.recursivelyLogChildren(child.children)
+			continue
+		}
+
+		l = l.WithFields(logrus.Fields{
+			fmt.Sprintf("child_%d_count", i):  child.docIDs.docIDs.GetCardinality(),
+			fmt.Sprintf("child_%d_docids", i): child.docIDs.docIDs.ToArray(),
+			"prop":                            string(child.prop),
+			"operator":                        child.operator.Name(),
+		})
+		l.Infof("multi-clause filter before merge")
+	}
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,

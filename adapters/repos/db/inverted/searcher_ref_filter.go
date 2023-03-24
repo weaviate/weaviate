@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -131,6 +132,15 @@ func (r *refFilterExtractor) fetchIDs(ctx context.Context) ([]classUUIDPair, err
 	for i, elem := range res {
 		out[i] = classUUIDPair{class: elem.ClassName, id: elem.ID}
 	}
+
+	filterM, _ := json.Marshal(r.filter)
+
+	r.logger.WithFields(logrus.Fields{
+		"debug_filter":         true,
+		"filter":               string(filterM),
+		"class_and_uuid_pairs": out,
+	}).Infof("completed sub-search on class %s->%s", r.filter.On.Class,
+		r.filter.On.Child.Class)
 
 	return out, nil
 }

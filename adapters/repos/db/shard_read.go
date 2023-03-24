@@ -218,7 +218,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		objs, err := s.objectList(ctx, limit, sort, cursor, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
-	objs, err := inverted.NewSearcher(s.index.logger, s.store,
+	objs, err := inverted.NewSearcher(s.index.logger.WithField("shard", s.ID()), s.store,
 		s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache,
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
 		s.index.stopwords, s.versioner.Version()).
