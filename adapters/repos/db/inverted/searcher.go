@@ -107,7 +107,8 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	s.logger.WithFields(logrus.Fields{
 		"debug_filter": true,
 		"doc_id_count": dbm.docIDs.GetCardinality(),
-		"doc_ids":      dbm.docIDs.ToArray(),
+		"doc_ids_min":  dbm.docIDs.Minimum(),
+		"doc_ids_max":  dbm.docIDs.Maximum(),
 	}).Info("final result in doc id searcher after all merging")
 
 	allowList := helpers.NewAllowListFromBitmap(dbm.docIDs)
@@ -137,10 +138,11 @@ func (s *Searcher) recursivelyLogChildren(children []*propValuePair) {
 		}
 
 		l = l.WithFields(logrus.Fields{
-			fmt.Sprintf("child_%d_count", i):  child.docIDs.docIDs.GetCardinality(),
-			fmt.Sprintf("child_%d_docids", i): child.docIDs.docIDs.ToArray(),
-			"prop":                            string(child.prop),
-			"operator":                        child.operator.Name(),
+			fmt.Sprintf("child_%d_count", i):     child.docIDs.docIDs.GetCardinality(),
+			fmt.Sprintf("child_%d_docid_min", i): child.docIDs.docIDs.Minimum(),
+			fmt.Sprintf("child_%d_docid_max", i): child.docIDs.docIDs.Maximum(),
+			"prop":                               string(child.prop),
+			"operator":                           child.operator.Name(),
 		})
 		l.Infof("multi-clause filter before merge")
 	}
