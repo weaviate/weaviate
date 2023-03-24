@@ -7,7 +7,7 @@
 
 ## Overview
 
-Weaviate is an **open source ​vector search engine** that is robust, scalable, cloud-native, and fast. 
+Weaviate is an **open source vector database** that is robust, scalable, cloud-native, and fast. 
 
 If you just want to get started, great! Try:
 - the [quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart) if you are looking to use Weaviate, or
@@ -126,9 +126,7 @@ You can also use its GraphQL API to retrieve objects and properties.
 <a href="https://weaviate.io/developers/weaviate/current/" target="_blank"><img src="https://weaviate.io/img/site/weaviate-demo.gif?i=9" alt="Demo of Weaviate" width="100%"></a>
 
 
-## Additional material
-
-### Reading
+## Learn more
 
 - [Weaviate is an open-source search engine powered by ML, vectors, graphs, and GraphQL (ZDNet)](https://www.zdnet.com/article/weaviate-an-open-source-search-engine-powered-by-machine-learning-vectors-graphs-and-graphql/)
 - [Weaviate, an ANN Database with CRUD support (DB-Engines.com)](https://db-engines.com/en/blog_post/87)
