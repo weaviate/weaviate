@@ -132,10 +132,10 @@ func (s *Searcher) recursivelyLogChildren(children []*propValuePair) {
 	})
 
 	for i, child := range children {
-		if len(child.children) > 0 {
-			s.recursivelyLogChildren(child.children)
-			continue
-		}
+		// if len(child.children) > 0 {
+		// 	s.recursivelyLogChildren(child.children)
+		// 	continue
+		// }
 
 		l = l.WithFields(logrus.Fields{
 			fmt.Sprintf("child_%d_count", i):     child.docIDs.docIDs.GetCardinality(),
