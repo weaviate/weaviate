@@ -226,6 +226,7 @@ func FromEnv(config *Config) error {
 	}
 
     //GW
+    goruntime.Breakpoint()
     config.DefaultVectorIndexType = "hnsw"
     if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v !="" {
         // TODO: Should probably check for valid strings

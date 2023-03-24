@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
     //GW
-    //goruntime "runtime"
+    goruntime "runtime"
     //GW
 
 	"github.com/go-openapi/strfmt"
@@ -142,8 +142,9 @@ func NewIndex(ctx context.Context, config IndexConfig,
 		}
 
 		//GW
-        	fmt.Println("BEFORE NEW SHARD adapters/repos/db/index.go!")
-        	//GW
+        fmt.Println("BEFORE NEW SHARD adapters/repos/db/index.go!")
+        goruntime.Breakpoint()
+        //GW
 
 		shard, err := NewShard(ctx, promMetrics, shardName, index, class)
 		if err != nil {

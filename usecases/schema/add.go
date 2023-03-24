@@ -211,9 +211,8 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	if class.VectorIndexType == "" {
         //GW MAJOR CHANGE
-        //GW GET INDEX TYPE FROM API OR ENV
-		class.VectorIndexType = "hnsw"
-		//class.VectorIndexType = "gemini"
+		//class.VectorIndexType = "hnsw"
+        class.VectorIndexType = m.config.DefaultVectorIndexType
         //GW
 	}
 
