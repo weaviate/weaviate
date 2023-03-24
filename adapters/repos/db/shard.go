@@ -147,8 +147,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
         case hnswent.UserConfig:
 
+            hnswUserConfig := index.vectorIndexUserConfig.(hnswent.UserConfig)
+
             if hnswUserConfig.Skip {
                 s.vectorIndex = noop.NewIndex()
+
             } else {
 
                 if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
@@ -163,73 +166,40 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
             }
 
 	        return s, nil
-
-        default:
-
-            return fmt.Errorf("Supported vectorInddexUserConfig type.")
-
-}
-
-func (s *Shard) initVectorIndex(
-	//GW
-	//GW    ctx context.Context, hnswUserConfig hnswent.UserConfig,
-	//GW ctx context.Context, hnswUserConfig geminient.UserConfig,
-    ctx context.Context, vectorIndexUserConfig schema.VectorIndexConfig ) {
-
-    switch vectorIndexUserConfig.(type) {
-    
-        case hnswent.UserConfig:
-	        hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
-	        if !ok {
-	            return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-	                index.vectorIndexUserConfig)
-            }
-
-	
+        
         case geminient.UserConfig:
-            geminiUserConfig, ok := index.vectorIndexUserConfig.(geminient.UserConfig)
-            if !ok {
-                return nil, errors.Errorf("gemini vector index: config is not gemini.UserConfig: %T",
-                    index.vectorIndexUserConfig)
+            
+            geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
+
+            if geminiUserConfig.Skip {
+                s.vectorIndex = noop.NewIndex()
+
+            } else {
+
+                if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
+                    return nil, fmt.Errorf("init vector index: %w", err)
+                }
+
+                defer s.vectorIndex.PostStartup()
             }
 
+            if err := s.initNonVector(ctx, class); err != nil {
+                return nil, errors.Wrapf(err, "init shard %q", s.ID())
+            }
+
+	        return s, nil
+
         default:
-            return nil, errors.Errorf("unsupported vectorIndexUserConfig type.")
+
+            return s, fmt.Errorf("Supported vectorInddexUserConfig type.")
+
     }
-
-    //GW
-    //runtime.Breakpoint()
-    //GW
-    /*
-	if hnswUserConfig.Skip {
-		//GW
-        	//fmt.Println("NOOP NEW INDEX adapters/repos/db/shard.go!")
-        	//GW
-		s.vectorIndex = noop.NewIndex()
-	} else {
-		//GW
-        	//fmt.Println("INIT VECTOR INDEX adapters/repos/db/shard.go!")
-        	//GW
-
-		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-			return nil, fmt.Errorf("init vector index: %w", err)
-		}
-
-		defer s.vectorIndex.PostStartup()
-	}
-
-	if err := s.initNonVector(ctx, class); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q", s.ID())
-	}
-
-	return s, nil
 }
 
 func (s *Shard) initVectorIndex(
-	//GW
-	//GW    ctx context.Context, hnswUserConfig hnswent.UserConfig,
+	ctx context.Context, hnswUserConfig hnswent.UserConfig,
 	//GW ctx context.Context, hnswUserConfig geminient.UserConfig,
-    ctx context.Context, vectorIndexUserConfig schema.VectorIndexConfig,
+    //ctx context.Context, vectorIndexUserConfig schema.VectorIndexConfig
 	//GW
 ) error {
 
@@ -290,56 +260,56 @@ func (s *Shard) initVectorIndex(
             s.vectorIndex = vi
             return nil
 
+        case geminient.UserConfig:
+
+            gemini UserConfig := vectorIndexUserConfig.(geminient.UserConfig)
+
+            vi, err := gemini.New(gemini.Config{
+                //GW
+                //GW Logger:            s.index.logger,
+                RootPath:          s.index.Config.RootPath,
+                ID:                s.ID(),
+                ShardName:         s.name,
+                ClassName:         s.index.Config.ClassName.String(),
+                PrometheusMetrics: s.promMetrics,
+                    //GW
+                //GW MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+                //GW MakeCommitLoggerThunk: func() (gemini.CommitLogger, error) {
+                    //GW
+                    // Previously we had an interval of 10s in here, which was changed to
+                    // 0.5s as part of gh-1867. There's really no way to wait so long in
+                    // between checks: If you are running on a low-powered machine, the
+                    // interval will simply find that there is no work and do nothing in
+                    // each iteration. However, if you are running on a very powerful
+                    // machine within 10s you could have potentially created two units of
+                    // work, but we'll only be handling one every 10s. This means
+                    // uncombined/uncondensed hnsw/gemini commit logs will keep piling up can only
+                    // be processes long after the initial insert is complete. This also
+                    // means that if there is a crash during importing a lot of work needs
+                    // to be done at startup, since the commit logs still contain too many
+                    // redundancies. So as of now it seems there are only advantages to
+                    // running the cleanup checks and work much more often.
+                            //GW
+                    //GWreturn hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+                    //GW return gemini.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+                            //GW
+                    //GW    s.index.logger)
+                //GW },
+                //GW VectorForIDThunk: s.vectorByIndexID,
+                //GW DistanceProvider: distProv,
+            }, geminiUserConfig)
+
+            if err != nil {
+                return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
+            }
+            s.vectorIndex = vi
+
+            return nil
+
         default:
             return fmt.Errorf("Unsupported vectorIndexUserConfig.")
     }
 
-
-/*
-	//GW vi, err := hnsw.New(hnsw.Config{
-	vi, err := gemini.New(gemini.Config{
-    	//GW
-		//GW Logger:            s.index.logger,
-		RootPath:          s.index.Config.RootPath,
-		ID:                s.ID(),
-		ShardName:         s.name,
-		ClassName:         s.index.Config.ClassName.String(),
-		PrometheusMetrics: s.promMetrics,
-        	//GW
-		//GW MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-		//GW MakeCommitLoggerThunk: func() (gemini.CommitLogger, error) {
-        	//GW 
-			// Previously we had an interval of 10s in here, which was changed to
-			// 0.5s as part of gh-1867. There's really no way to wait so long in
-			// between checks: If you are running on a low-powered machine, the
-			// interval will simply find that there is no work and do nothing in
-			// each iteration. However, if you are running on a very powerful
-			// machine within 10s you could have potentially created two units of
-			// work, but we'll only be handling one every 10s. This means
-			// uncombined/uncondensed hnsw/gemini commit logs will keep piling up can only
-			// be processes long after the initial insert is complete. This also
-			// means that if there is a crash during importing a lot of work needs
-			// to be done at startup, since the commit logs still contain too many
-			// redundancies. So as of now it seems there are only advantages to
-			// running the cleanup checks and work much more often.
-            		//GW
-			//GWreturn hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-			//GW return gemini.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-            		//GW
-			//GW	s.index.logger)
-		//GW },
-		//GW VectorForIDThunk: s.vectorByIndexID,
-		//GW DistanceProvider: distProv,
-	}, hnswUserConfig)
-	if err != nil {
-		//GW return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-		return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
-        	//GW
-	}
-	s.vectorIndex = vi
-
-	return nil
-*/
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
