@@ -214,7 +214,7 @@ func (s *Shard) initVectorIndex(
 	//GW vi, err := hnsw.New(hnsw.Config{
 	vi, err := gemini.New(gemini.Config{
     	//GW
-		Logger:            s.index.logger,
+		//GW Logger:            s.index.logger,
 		RootPath:          s.index.Config.RootPath,
 		ID:                s.ID(),
 		ShardName:         s.name,
@@ -222,7 +222,7 @@ func (s *Shard) initVectorIndex(
 		PrometheusMetrics: s.promMetrics,
         	//GW
 		//GW MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-		MakeCommitLoggerThunk: func() (gemini.CommitLogger, error) {
+		//GW MakeCommitLoggerThunk: func() (gemini.CommitLogger, error) {
         	//GW 
 			// Previously we had an interval of 10s in here, which was changed to
 			// 0.5s as part of gh-1867. There's really no way to wait so long in
@@ -239,12 +239,12 @@ func (s *Shard) initVectorIndex(
 			// running the cleanup checks and work much more often.
             		//GW
 			//GWreturn hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-			return gemini.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+			//GW return gemini.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
             		//GW
-				s.index.logger)
-		},
-		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distProv,
+			//GW	s.index.logger)
+		//GW },
+		//GW VectorForIDThunk: s.vectorByIndexID,
+		//GW DistanceProvider: distProv,
 	}, hnswUserConfig)
 	if err != nil {
 		//GW return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

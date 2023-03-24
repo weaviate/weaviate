@@ -14,174 +14,72 @@ package gemini
 import (
 	"context"
 	"fmt"
-	"io"
-	"math"
-	"math/rand"
-	"sync"
-	"time"
-    //GW
-    goruntime "runtime"
-    //GW
+    "sync"
+    "os"
+    //"log"
+    //goruntime "runtime"
+
+    "github.com/go-openapi/strfmt"
+    "github.com/google/uuid"
+    gemmod "example.com/gemini"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/schema"
+
     //GW
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/storobj"
-    //GW
-	ent "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+    ent "github.com/weaviate/weaviate/entities/vectorindex/gemini"
     //GW
 )
 
-type gemini struct {
-	// global lock to prevent concurrent map read/write, etc.
-	sync.RWMutex
+//GW type Index struct{}
+type gemini struct{
 
-	// certain operations related to deleting, such as finding a new entrypoint
-	// can only run sequentially, this separate lock helps assuring this without
-	// blocking the general usage of the gemini index
-	deleteLock *sync.Mutex
+    // global lock to prevent concurrent map read/write, etc.
+    sync.RWMutex
+    idxLock     *sync.RWMutex
 
-	tombstoneLock *sync.RWMutex
+    // a globally unique name for this index
+    name        strfmt.UUID
 
-	// prevents tombstones cleanup to be performed in parallel with index reset operation
-	resetLock *sync.Mutex
-	// indicates whether reset operation occurred or not - if so tombstones cleanup method
-	// is aborted as it makes no sense anymore
-	resetCtx       context.Context
-	resetCtxCancel context.CancelFunc
+    // the file backing store for this index
+    db_path     string
 
-	// make sure the very first insert happens just once, otherwise we
-	// accidentally overwrite previous entrypoints on parallel imports on an
-	// empty graph
-	initialInsertOnce *sync.Once
+    // a boolean which indicates the first add to the index
+    first_add   bool
 
-	// Each node should not have more edges than this number
-	maximumConnections int
+    // the floating point array dimensions of this index
+    dim         int
 
-	// Nodes in the lowest level have a separate (usually higher) max connection
-	// limit
-	maximumConnectionsLayerZero int
+    // the current record size of this index
+    count       int
 
-	// the current maximum can be smaller than the configured maximum because of
-	// the exponentially decaying layer function. The initial entry is started at
-	// layer 0, but this has the chance to grow with every subsequent entry
-	currentMaximumLayer int
+    // the allocation_id required by gemini
+    allocation_id   string
+    
+    // the gemini dataset_id 
+    dataset_id   string
 
-	// this is a point on the highest level, if we insert a new point with a
-	// higher level it will become the new entry point. Note tat the level of
-	// this point is always currentMaximumLayer
-	entryPointID uint64
+    // the local filesystem directory required by gemini
+    data_dir  string
 
-	// ef parameter used in construction phases, should be higher than ef during querying
-	efConstruction int
+    // indicates that the index needs retraining
+    stale       bool
 
-	// ef at search time
-	ef int64
+    // indicates the current training status from FVS
+    last_fvs_status string
 
-	// only used if ef=-1
-	efMin    int64
-	efMax    int64
-	efFactor int64
+    // fvs server
+    fvs_server  string
 
-	// on filtered searches with less than n elements, perform flat search
-	flatSearchCutoff int64
+    // verbose printing for debugging
+    verbose     bool
 
-	levelNormalizer float64
+    // determines if we do a min records count
+    min_records_check   bool
 
-	nodes []*vertex
-
-	vectorForID      VectorForID
-	multiVectorForID MultiVectorForID
-
-	cache cache
-
-	commitLog CommitLogger
-
-	// a lookup of current tombstones (i.e. nodes that have received a tombstone,
-	// but have not been cleaned up yet) Cleanup is the process of removal of all
-	// outgoing edges to the tombstone as well as deleting the tombstone itself.
-	// This process should happen periodically.
-	tombstones map[uint64]struct{}
-
-	// used for cancellation of the tombstone cleanup goroutine
-	cleanupInterval       time.Duration
-	tombstoneCleanupCycle *cyclemanager.CycleManager
-
-	// // for distributed spike, can be used to call a insertExternal on a different graph
-	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
-
-	id       string
-	rootPath string
-
-	logger            logrus.FieldLogger
-	distancerProvider distancer.Provider
-
-	pools *pools
-
-	forbidFlat bool // mostly used in testing scenarios where we want to use the index even in scenarios where we typically wouldn't
-
-	metrics       *Metrics
-	insertMetrics *insertMetrics
-
-	randFunc func() float64 // added to temporarily get rid on flakiness in tombstones related tests. to be removed after fixing WEAVIATE-179
-
-	// The deleteVsInsertLock makes sure that there are no concurrent delete and
-	// insert operations happening. It uses an RW-Mutex with:
-	//
-	// RLock -> Insert operations, this means any number of import operations can
-	// happen concurrently.
-	//
-	// Lock -> Delete operation. This means only a single delete operation can
-	// occur at a time, no insert operation can occur simultaneously with a
-	// delete. Since the delete is cheap (just marking the node as deleted), the
-	// single-threadedness of deletes is not a big problem.
-	//
-	// This lock was introduced as part of
-	// https://github.com/weaviate/weaviate/issues/2194
-	//
-	// See
-	// https://github.com/weaviate/weaviate/pull/2191#issuecomment-1242726787
-	// where we ran performance tests to make sure introducing this lock has no
-	// negative impact on performance.
-	deleteVsInsertLock sync.RWMutex
 }
+//GW
 
-type CommitLogger interface {
-	ID() string
-	Start()
-	AddNode(node *vertex) error
-	SetEntryPointWithMaxLayer(id uint64, level int) error
-	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
-	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
-	AddTombstone(nodeid uint64) error
-	RemoveTombstone(nodeid uint64) error
-	DeleteNode(nodeid uint64) error
-	ClearLinks(nodeid uint64) error
-	ClearLinksAtLevel(nodeid uint64, level uint16) error
-	Reset() error
-	Drop(ctx context.Context) error
-	Flush() error
-	Shutdown(ctx context.Context) error
-	RootPath() string
-	SwitchCommitLogs(bool) error
-	MaintenanceInProgress() bool
-}
-
-type BufferedLinksLogger interface {
-	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
-	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
-	Close() error // Close should Flush and Close
-}
-
-type MakeCommitLogger func() (CommitLogger, error)
-
-type (
-	VectorForID      func(ctx context.Context, id uint64) ([]float32, error)
-	MultiVectorForID func(ctx context.Context, ids []uint64) ([][]float32, []error)
-)
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
@@ -190,398 +88,531 @@ type (
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
 func New(cfg Config, uc ent.UserConfig) (*gemini, error) {
+    //GW
+    fmt.Println("HNSW New!")
+    //GW
 
-	//GW
-    goruntime.Breakpoint()
-	fmt.Println("GEMINI New!")
-	//GW
+    fmt.Println("stuff", cfg, uc)
 
-	if err := cfg.Validate(); err != nil {
-		return nil, errors.Wrap(err, "invalid config")
-	}
+    index := &gemini{}
+    return index, nil
 
-	if cfg.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		cfg.Logger = logger
-	}
+    //return NewIndex(), nil
 
-	normalizeOnRead := false
-	if cfg.DistanceProvider.Type() == "cosine-dot" {
-		normalizeOnRead = true
-	}
+    /*
+    if err := cfg.Validate(); err != nil {
+        return nil, errors.Wrap(err, "invalid config")
+    }
 
-	vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead, defaultDeletionInterval)
+    if cfg.Logger == nil {
+        logger := logrus.New()
+        logger.Out = io.Discard
+        cfg.Logger = logger
+    }
 
-	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
-	index := &gemini{
-		maximumConnections: uc.MaxConnections,
+    normalizeOnRead := false
+    if cfg.DistanceProvider.Type() == "cosine-dot" {
+        normalizeOnRead = true
+    }
 
-		// inspired by original paper and other implementations
-		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
+    vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+        cfg.Logger, normalizeOnRead, defaultDeletionInterval)
 
-		// inspired by c++ implementation
-		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:    uc.EFConstruction,
-		flatSearchCutoff:  int64(uc.FlatSearchCutoff),
-		nodes:             make([]*vertex, initialSize),
-		cache:             vectorCache,
-		vectorForID:       vectorCache.get,
-		multiVectorForID:  vectorCache.multiGet,
-		id:                cfg.ID,
-		rootPath:          cfg.RootPath,
-		tombstones:        map[uint64]struct{}{},
-		logger:            cfg.Logger,
-		distancerProvider: cfg.DistanceProvider,
-		deleteLock:        &sync.Mutex{},
-		tombstoneLock:     &sync.RWMutex{},
-		resetLock:         &sync.Mutex{},
-		resetCtx:          resetCtx,
-		resetCtxCancel:    resetCtxCancel,
-		initialInsertOnce: &sync.Once{},
-		cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
+    resetCtx, resetCtxCancel := context.WithCancel(context.Background())
+    index := &hnsw{
+        maximumConnections: uc.MaxConnections,
 
-		ef:       int64(uc.EF),
-		efMin:    int64(uc.DynamicEFMin),
-		efMax:    int64(uc.DynamicEFMax),
-		efFactor: int64(uc.DynamicEFFactor),
+        // inspired by original paper and other implementations
+        maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
-		metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
+        // inspired by c++ implementation
+        levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
+        efConstruction:    uc.EFConstruction,
+        flatSearchCutoff:  int64(uc.FlatSearchCutoff),
+        nodes:             make([]*vertex, initialSize),
+        cache:             vectorCache,
+        vectorForID:       vectorCache.get,
+        multiVectorForID:  vectorCache.multiGet,
+        id:                cfg.ID,
+        rootPath:          cfg.RootPath,
+        tombstones:        map[uint64]struct{}{},
+        logger:            cfg.Logger,
+        distancerProvider: cfg.DistanceProvider,
+        deleteLock:        &sync.Mutex{},
+        tombstoneLock:     &sync.RWMutex{},
+        resetLock:         &sync.Mutex{},
+        resetCtx:          resetCtx,
+        resetCtxCancel:    resetCtxCancel,
+        initialInsertOnce: &sync.Once{},
+        cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
 
-		randFunc: rand.Float64,
-	}
+        ef:       int64(uc.EF),
+        efMin:    int64(uc.DynamicEFMin),
+        efMax:    int64(uc.DynamicEFMax),
+        efFactor: int64(uc.DynamicEFFactor),
 
-	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
-	index.insertMetrics = newInsertMetrics(index.metrics)
+        metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 
-	if err := index.init(cfg); err != nil {
-		return nil, errors.Wrapf(err, "init index %q", index.id)
-	}
+        randFunc: rand.Float64,
+    }
 
-	return index, nil
+    index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
+    index.insertMetrics = newInsertMetrics(index.metrics)
+
+    if err := index.init(cfg); err != nil {
+        return nil, errors.Wrapf(err, "init index %q", index.id)
+    }
+
+    return index, nil
+    */
 }
 
-// TODO: use this for incoming replication
-// func (h *gemini) insertFromExternal(nodeId, targetLevel int, neighborsAtLevel map[int][]uint32) {
-// 	defer m.addBuildingReplication(time.Now())
 
-// 	// randomly introduce up to 50ms delay to account for network slowness
-// 	time.Sleep(time.Duration(rand.Intn(500)) * time.Millisecond)
+//GW func NewIndex() *Index {
+func NewIndex() *gemini {
+	//GW return &Index{}
 
-// 	var node *geminiVertex
-// 	h.RLock()
-// 	total := len(h.nodes)
-// 	if total > nodeId {
-// 		node = h.nodes[nodeId] // it could be that we implicitly added this node already because it was referenced
-// 	}
-// 	h.RUnlock()
+    //goruntime.Breakpoint()
+   
+    // get special verbose/debug flag if present 
+    gemini_verbose := false
+    gemini_debug_flag := os.Getenv("GEMINI_DEBUG")
+    if gemini_debug_flag == "true" {
+        gemini_verbose = true
+    }
 
-// 	if node == nil {
-// 		node = &geminiVertex{
-// 			id:          nodeId,
-// 			connections: make(map[int][]uint32),
-// 			level:       targetLevel,
-// 		}
-// 	} else {
-// 		node.level = targetLevel
-// 	}
+    // a valid gemini_allocation_id is required
+    allocation_id := os.Getenv("GEMINI_ALLOCATION_ID")
+    if allocation_id == "" {
+        fmt.Println("ERROR: Could not find GEMINI_ALLOCATIONID env var.") 
+        return nil
+    }
+    //TODO: Check valid GUID format 
+    
+    // a valid gemini_fvs_server is required
+    fvs_server := os.Getenv("GEMINI_FVS_SERVER")
+    if fvs_server == "" {
+        fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
+        return nil
+    }
+    //TODO: Validate the server connection here
 
-// 	if total == 0 {
-// 		h.Lock()
-// 		h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
-// 		h.entryPointID = node.id
-// 		h.currentMaximumLayer = 0
-// 		node.connections = map[int][]uint32{}
-// 		node.level = 0
-// 		// h.nodes = make([]*genimiVertex, 100000)
-// 		h.commitLog.AddNode(node)
-// 		h.nodes[node.id] = node
-// 		h.Unlock()
-// 		return
-// 	}
+    // a valid data_dir is required for gemini files
+    data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
+    fmt.Println("NOOP NewIndex", data_dir)
+    if data_dir == "" {
+        fmt.Println("ERROR: Could not find GEMINI_DATA_DIRECTORY env var.") 
+        return nil
+    }
+    _, err := os.Stat(data_dir)
+    if os.IsNotExist(err) {
+        fmt.Println("The GEMINI_DATA_DIRECTORY %s is not valid (%v)", data_dir, err)
+        return nil
+    }
 
-// 	currentMaximumLayer := h.currentMaximumLayer
-// 	h.Lock()
-// 	h.nodes[nodeId] = node
-// 	h.commitLog.AddNode(node)
-// 	h.Unlock()
+    // possibly override min records check 
+    min_records_check := true
+    min_records_check_flag := os.Getenv("GEMINI_MIN_RECORDS_CHECK")
+    if min_records_check_flag == "false" {
+        min_records_check = false
+    }
 
-// 	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
-// 		neighbors := neighborsAtLevel[level]
+    //idx := &Index{}
+    idx := &gemini{}
+    idx.name        = strfmt.UUID(uuid.New().String())
+    idx.db_path     = fmt.Sprintf("%s/dataset_%s.npy", data_dir, idx.name.String())
+    idx.first_add   = true
+    idx.dim         = 0
+    idx.count       = 0
+    idx.allocation_id = allocation_id
+    idx.data_dir    = data_dir
+    idx.idxLock     = &sync.RWMutex{}
+    idx.verbose     = gemini_verbose
+    idx.stale       = true
+    idx.last_fvs_status = ""
+    idx.fvs_server  = fvs_server
+    idx.min_records_check   = min_records_check
 
-// 		for _, neighborID := range neighbors {
-// 			h.RLock()
-// 			neighbor := h.nodes[neighborID]
-// 			if neighbor == nil {
-// 				// due to everything being parallel it could be that the linked neighbor
-// 				// doesn't exist yet
-// 				h.nodes[neighborID] = &geminiVertex{
-// 					id:          int(neighborID),
-// 					connections: make(map[int][]uint32),
-// 				}
-// 				neighbor = h.nodes[neighborID]
-// 			}
-// 			h.RUnlock()
+    if idx.verbose {
+        fmt.Println("Gemini Index Contructor db_path=", idx.db_path)
+    }
 
-// 			neighbor.linkAtLevel(level, uint32(nodeId), h.commitLog)
-// 			node.linkAtLevel(level, uint32(neighbor.id), h.commitLog)
+    return idx
 
-// 			neighbor.RLock()
-// 			currentConnections := neighbor.connections[level]
-// 			neighbor.RUnlock()
-
-// 			maximumConnections := h.maximumConnections
-// 			if level == 0 {
-// 				maximumConnections = h.maximumConnectionsLayerZero
-// 			}
-
-// 			if len(currentConnections) <= maximumConnections {
-// 				// nothing to do, skip
-// 				continue
-// 			}
-
-// 			// TODO: support both neighbor selection algos
-// 			updatedConnections := h.selectNeighborsSimpleFromId(nodeId, currentConnections, maximumConnections)
-
-// 			neighbor.Lock()
-// 			h.commitLog.ReplaceLinksAtLevel(neighbor.id, level, updatedConnections)
-// 			neighbor.connections[level] = updatedConnections
-// 			neighbor.Unlock()
-// 		}
-// 	}
-
-// 	if targetLevel > h.currentMaximumLayer {
-// 		h.Lock()
-// 		h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
-// 		h.entryPointID = nodeId
-// 		h.currentMaximumLayer = targetLevel
-// 		h.Unlock()
-// 	}
-
-// }
-
-func (h *gemini) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
-	entryPointID uint64, nodeVec []float32,
-) (uint64, error) {
-	// in case the new target is lower than the current max, we need to search
-	// each layer for a better candidate and update the candidate
-	for level := currentMaxLevel; level > targetLevel; level-- {
-		eps := priorityqueue.NewMin(1)
-		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
-		if err != nil {
-			return 0, errors.Wrapf(err,
-				"calculate distance between insert node and entry point at level %d", level)
-		}
-		if !ok {
-			continue
-		}
-
-		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil)
-		if err != nil {
-			return 0,
-				errors.Wrapf(err, "update candidate: search layer at level %d", level)
-		}
-		if res.Len() > 0 {
-			// if we could find a new entrypoint, use it
-			// in case everything was tombstoned, stick with the existing one
-			elem := res.Pop()
-			n := h.nodeByID(elem.ID)
-			if n != nil && !n.isUnderMaintenance() {
-				// but not if the entrypoint is under maintenance
-				entryPointID = elem.ID
-			}
-		}
-
-		h.pools.pqResults.Put(res)
-	}
-
-	return entryPointID, nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+// func (i *Index) Add(id uint64, vector []float32) error {
+func (i *gemini) Add(id uint64, vector []float32) error {
+
+    // sychronize this function
+    i.idxLock.Lock()
+    defer i.idxLock.Unlock()
+
+    if i.verbose {
+        fmt.Println("Gemini Add: Start")
+    }
+
+    if i.last_fvs_status != "" {
+        // TODO: This means that an async index build is in progress.
+        // TODO: In the future We should consider cacheing the adds for a deferred
+        // TODO: index build when the current one is complete.
+    
+        return errors.Errorf("Async index build is in progress.  Cannot add new items while this is in progress.")
+    }
+
+    // Get the float vector dimensions
+    dim := int( len(vector) )
+    // TODO: check any dim constraints
+
+    if i.verbose {
+        fmt.Println("Gemini Add: dimension=", dim)
+    }
+   
+    if (i.first_add) {
+        // First time adding to this index
+
+        // Prepare the float array for saving
+        farr := make([][]float32, 1)
+        farr[0] = vector
+
+        // Append vector to the numpy file store via memmapping 
+        new_count, _, err := gemmod.Numpy_append_float32_array( i.db_path, farr, int64(dim), int64(1) )
+        if err!=nil {
+            return errors.Errorf("There was a problem adding to the index backing store file.")
+        }
+        if new_count!=1 {
+            return errors.Errorf("Appending array to local file store did not yield expected result.")
+        }
+
+        i.first_add = false
+        i.count = 1
+        i.dim = dim
+
+    } else {
+        // Not the first time adding to this index
+
+        if dim != i.dim {
+            return errors.Errorf("Vector has dim=%d but expected %d", dim, i.dim )
+        }
+
+        // Prepare the float array for saving
+        farr := make([][]float32, 1)
+        farr[0] = vector
+
+        // Append vector to the numpy file store via memmapping 
+        new_count, _, err := gemmod.Numpy_append_float32_array( i.db_path, farr, int64(dim), int64(1) )
+        if err!=nil {
+            return errors.Errorf("There was a problem adding to the index backing store file.")
+        }
+
+        if (new_count!=(i.count+1)) {
+            errs := fmt.Sprintf("Add size mismatch - expected %d but got %d", i.count+1, new_count )
+            return errors.Errorf(errs)
+        } 
+            
+        i.count = new_count
+    }
+
+    // Always set the current index (if any) to stale so
+    // that we immediately initiate building it on demand
+    i.stale = true
+	
+    return nil
+
+	//GW // silently ignore
+	//GW return nil
 }
 
-func (h *gemini) distBetweenNodes(a, b uint64) (float32, bool, error) {
-	// TODO: introduce single search/transaction context instead of spawning new
-	// ones
-	vecA, err := h.vectorForID(context.Background(), a)
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", a)
-		}
-	}
+//GW func (i *Index) Delete(id uint64) error {
+func (i *gemini) Delete(id uint64) error {
 
-	if len(vecA) == 0 {
-		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
-	}
+    if i.verbose {
+        fmt.Println("Gemini SearchByVector: Delete")
+    }
 
-	vecB, err := h.vectorForID(context.Background(), b)
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", b)
-		}
-	}
+    return errors.New("Delete is not supported.")
 
-	if len(vecB) == 0 {
-		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
-	}
-
-	return h.distancerProvider.SingleDist(vecA, vecB)
+	//GW // silently ignore
+	//GW return nil
 }
 
-func (h *gemini) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
-	// TODO: introduce single search/transaction context instead of spawning new
-	// ones
-	vecA, err := h.vectorForID(context.Background(), node)
-	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", node)
+//GW func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (i *gemini) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+
+    // sychronize this function
+    i.idxLock.Lock()
+    defer i.idxLock.Unlock()
+
+    if i.verbose {
+        fmt.Println("Gemini SearchByVector: Start")
+    }
+
+    if (i.count==0) {
+	    return nil, nil, errors.Errorf("No items in the gemini index.")
+
+    } else {
+
+        if  i.stale  {
+            // Build/rebuild the index or check on an async build status
+
+            if  i.last_fvs_status == ""  {
+                // Initiate the index build asynchronously
+               
+                if i.verbose { 
+                    fmt.Println("Gemini SearchByVector: About to import dataset with dataset_id=", i.dataset_id )
+                }
+
+		// TODO: Check that we have enough data.
+		// TODO: Note that his arbitrary number of 4001 was surfaced
+		// TODO: because we encountered a specific FVS error which indicated
+		// TODO: this constraint.  
+		if (i.min_records_check && i.count<4001) { 
+		    return nil, nil, fmt.Errorf("FVS requires a mininum of 4001 vectors in the dataset.")
 		}
-	}
 
-	if len(vecA) == 0 {
-		return 0, false, fmt.Errorf(
-			"got a nil or zero-length vector at docID %d", node)
-	}
+                //dataset_id, err := gemmod.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
+                dataset_id, err := gemmod.Fvs_import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
+                if err!=nil {
+                    return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
 
-	if len(vecB) == 0 {
-		return 0, false, fmt.Errorf(
-			"got a nil or zero-length vector as search vector")
-	}
+                } else {
+                    i.dataset_id = dataset_id
+                
+                    if i.verbose {            
+                        fmt.Println("Gemini SearchByVector: Got dataset_id=", i.dataset_id)
+                    }
+                }
+            }
+               
+            if i.verbose { 
+                fmt.Println("Gemini SearchByVector: about to get train status for dataet_id=", i.dataset_id)
+            }
 
-	return h.distancerProvider.SingleDist(vecA, vecB)
+            // Query the training status to populate the 'last_fvs_status' field
+            status, err := gemmod.Fvs_train_status( i.fvs_server, 7761, i.allocation_id, i.dataset_id, i.verbose )
+            if err!=nil {
+                return nil, nil, errors.Wrap(err, "Could not get gemini index training status.")
+            } else if status == "error" {
+                return nil, nil, fmt.Errorf("Gemini training status returned 'error'.")
+            } else if status=="" {
+                return nil, nil, fmt.Errorf("Gemini training status is not valid.")
+            }
+            i.last_fvs_status = status; 
+           
+            if i.verbose { 
+                fmt.Println("Gemini SearchByVector: After train status=", i.last_fvs_status)
+            }
+
+            // At this point, we have an updated training status
+            if ( i.last_fvs_status == "completed" ) {
+
+                if i.verbose {
+                    fmt.Println("Gemini SearchByVector: Training done, status=", i.last_fvs_status)
+                }
+
+                // TODO: Now load the dataset
+                // TODO: Consider doing this asynchronously
+                status, err := gemmod.Fvs_load_dataset( i.fvs_server, 7761, i.allocation_id, i.dataset_id, i.verbose )
+                if err!=nil {
+                    return nil, nil, errors.Wrap(err, "Load dataset failed.")
+                }
+
+                if i.verbose {
+                    fmt.Println("Gemini SearchByVector: Load done, status=",status)
+                }
+               
+                // Everything is now set for an actual search when this function is called next time
+                i.stale = false;
+                i.last_fvs_status = ""
+                return nil, nil, fmt.Errorf("Async index build completed.  Next API call will run the actual search.")
+
+            } else {
+                return nil, nil, fmt.Errorf("Async index build is in progress.  Please try again later.")
+
+            }
+        }
+           
+        //goruntime.Breakpoint()
+
+        if i.verbose { 
+            fmt.Println("Gemini SearchByVector: About to perform Fvs_search", i.last_fvs_status, i.dataset_id)
+        }
+        
+        //
+        // If we got here, we can proceed with the actual search
+        //
+
+        // check dimensions match expected
+        dim := int( len(vector) )
+        if dim != i.dim {
+            return nil, nil, fmt.Errorf("Gemini SearchByVector: Got vector of dim=%d but expected %d", dim, i.dim )
+        }
+
+        // Create a unique filename for the numpy query file
+        query_id := strfmt.UUID(uuid.New().String())
+        query_path := fmt.Sprintf("%s/queries_%s.npy", i.data_dir, query_id.String())
+        if i.verbose {
+            fmt.Println("Gemini SearchByVector: Before Numpy_append, temp query path=",query_path)
+        }
+
+        // Prepare the float array for saving to the file
+        farr := make([][]float32, 1)
+        farr[0] = vector
+
+        // TODO: Create a temp numpy file for the query array.
+        // TODO: Convert code to memory array when FVS api supports it.
+        query_count, _, err := gemmod.Numpy_append_float32_array( query_path, farr, int64(dim), int64(1) )
+        if err!=nil {
+            return nil, nil, errors.Errorf("There was a problem adding to the query backing store file.")
+        }           
+        if query_count!=1 {
+            return nil, nil, errors.Errorf("Appending array to local file store did not yield expected result.")
+        }       
+        
+        //dist, inds, timing, s_err := gemmod.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        dist, inds, timing, s_err := gemmod.Fvs_search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
+        if s_err!= nil {
+            return nil, nil, errors.Wrap(s_err, "Gemini index search failed.")
+        }
+        if i.verbose {
+            fmt.Println("Gemini SearchByVector: search timing=",timing)
+        }
+
+        // Remove the temp file
+        rErr := os.Remove( query_path )
+        if rErr != nil {
+            return nil, nil, errors.Wrap(rErr, "Could not remove the temp queries file")
+        }
+
+        return inds[0], dist[0], nil
+
+    }
+
+    //GW
+	//GWreturn nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+    //GW
 }
 
-func (h *gemini) Stats() {
-	fmt.Printf("levels: %d\n", h.currentMaximumLayer)
+//GW func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (i *gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 
-	perLevelCount := map[int]uint{}
-
-	for _, node := range h.nodes {
-		if node == nil {
-			continue
-		}
-		l := node.level
-		if l == 0 && len(node.connections) == 0 {
-			// filter out allocated space without nodes
-			continue
-		}
-		c, ok := perLevelCount[l]
-		if !ok {
-			perLevelCount[l] = 0
-		}
-
-		perLevelCount[l] = c + 1
-	}
-
-	for level, count := range perLevelCount {
-		fmt.Printf("unique count on level %d: %d\n", level, count)
-	}
+    if i.verbose {
+        fmt.Println("Gemini SearchByVectorDistance: Start")
+    }
+	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (h *gemini) isEmpty() bool {
-	h.RLock()
-	defer h.RUnlock()
+//GW func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
+func (i *gemini) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 
-	return h.isEmptyUnsecured()
+    if i.verbose {	
+        fmt.Println("Gemini UpdateUserConfig: Start")
+    }	
+	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
 }
 
-func (h *gemini) isEmptyUnsecured() bool {
-	for _, node := range h.nodes {
-		if node != nil {
-			return false
-		}
-	}
-	return true
+//GW func (i *Index) Drop(context.Context) error {
+func (i *gemini) Drop(context.Context) error {
+
+    // sychronize this function
+    i.idxLock.Lock()
+    defer i.idxLock.Unlock()
+
+    if i.verbose {
+        fmt.Println("Gemini Drop: Start")
+    }
+
+    err := os.Remove( i.db_path )
+    if (err!=nil) {
+        return errors.Errorf("Could not remove the file backing store of this index.")
+    } else {
+	    return nil
+    }
 }
 
-func (h *gemini) nodeByID(id uint64) *vertex {
-	h.RLock()
-	defer h.RUnlock()
+//func (i *Index) Flush() error {
+func (i *gemini) Flush() error {
 
-	if id >= uint64(len(h.nodes)) {
-		// See https://github.com/weaviate/weaviate/issues/1838 for details.
-		// This could be after a crash recovery when the object store is "further
-		// ahead" than the gemini index and we receive a delete request
-		return nil
-	}
-
-	return h.nodes[id]
-}
-
-func (h *gemini) Drop(ctx context.Context) error {
-	// cancel tombstone cleanup goroutine
-
-	// if the interval is 0 we never started a cleanup cycle, therefore there is
-	// no loop running that could receive our cancel and we would be stuck. Thus,
-	// only cancel if we know it's been started.
-	if h.cleanupInterval != 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-
-		if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-			return errors.Wrap(err, "gemini drop")
-		}
-	}
-
-	// cancel vector cache goroutine
-	h.cache.drop()
-
-	// cancel commit logger last, as the tombstone cleanup cycle might still
-	// write while it's still running
-	err := h.commitLog.Drop(ctx)
-	if err != nil {
-		return errors.Wrap(err, "commit log drop")
-	}
+    if i.verbose {
+        fmt.Println("Gemini Flush: Start")
+    }
 
 	return nil
 }
 
-func (h *gemini) Shutdown(ctx context.Context) error {
-	if err := h.tombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return errors.Wrap(err, "gemini shutdown")
-	}
+//GW func (i *Index) Shutdown(context.Context) error {
+func (i *gemini) Shutdown(context.Context) error {
 
-	if err := h.commitLog.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "gemini shutdown")
-	}
-
-	h.cache.drop()
+    if i.verbose {
+        fmt.Println("Gemini Shutdown: Start")
+    }
 
 	return nil
 }
 
-func (h *gemini) Flush() error {
-	return h.commitLog.Flush()
+//GW func (i *Index) PauseMaintenance(context.Context) error {
+func (i *gemini) PauseMaintenance(context.Context) error {
+
+    if i.verbose {
+        fmt.Println("Gemini PauseMaintenance: Start")
+    }
+
+	return nil
 }
 
-func (h *gemini) Entrypoint() uint64 {
-	h.RLock()
-	defer h.RUnlock()
+//GW func (i *Index) SwitchCommitLogs(context.Context) error {
+func (i *gemini) SwitchCommitLogs(context.Context) error {
+    
+    if i.verbose {
+        fmt.Println("Gemini SwitchCommitLogs: Start")
+    }
 
-	return h.entryPointID
+	return nil
+}
+
+//GW func (i *Index) ListFiles(context.Context) ([]string, error) {
+func (i *gemini) ListFiles(context.Context) ([]string, error) {
+
+    if i.verbose {
+        fmt.Println("Gemini ListFiles: Start")
+    }
+
+	return nil, nil
+}
+
+//GW func (i *Index) ResumeMaintenance(context.Context) error {
+func (i *gemini) ResumeMaintenance(context.Context) error {
+    
+    if i.verbose {
+        fmt.Println("Gemini ResumeMaintenance: Start")
+    }
+
+	return nil
+}
+
+//GWfunc (i *Index) ValidateBeforeInsert(vector []float32) error {
+func (i *gemini) ValidateBeforeInsert(vector []float32) error {
+
+    if i.verbose {
+        fmt.Println("Gemini ValidateBeforeInsert: Start")
+    }
+
+	return nil
+}
+
+//GW func (i *Index) PostStartup() {
+func (i *gemini) PostStartup() {
+    
+    if i.verbose {
+        fmt.Println("Gemini PostStartup: Start")
+    }
+}
+
+//GW func (i *Index) Dump(labels ...string) {
+func (i *gemini) Dump(labels ...string) {
+    
+    if i.verbose {
+        fmt.Println("Gemini Dump: Start")
+    }
+
 }

@@ -12,25 +12,25 @@
 package gemini
 
 import (
-	"github.com/sirupsen/logrus"
+	//GW "github.com/sirupsen/logrus"
 	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
+	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
     //GW
-	"github.com/weaviate/weaviate/entities/errorcompounder"
+	//GW"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// Config for a new HSNW index, this contains information that is derived
+// Config for a new Gemini index, this contains information that is derived
 // internally, e.g. by the shard. All User-settable config is specified in
 // Config.UserConfig
 type Config struct {
 	// internal
 	RootPath              string
 	ID                    string
-	MakeCommitLoggerThunk MakeCommitLogger
-	VectorForIDThunk      VectorForID
-	Logger                logrus.FieldLogger
-	DistanceProvider      distancer.Provider
+	//GW MakeCommitLoggerThunk MakeCommitLogger
+	//GW VectorForIDThunk      VectorForID
+	//GW Logger                logrus.FieldLogger
+	//GW DistanceProvider      distancer.Provider
 	PrometheusMetrics     *monitoring.PrometheusMetrics
 
 	// metadata for monitoring
@@ -38,6 +38,7 @@ type Config struct {
 	ClassName string
 }
 
+/*
 func (c Config) Validate() error {
 	ec := &errorcompounder.ErrorCompounder{}
 
@@ -63,3 +64,4 @@ func (c Config) Validate() error {
 
 	return ec.ToError()
 }
+*/
