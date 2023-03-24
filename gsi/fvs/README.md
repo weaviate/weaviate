@@ -29,6 +29,9 @@ To reproduce the benchmarks shown above, do the following:
   * [run_benchmarks_deep10M_q10.sh](run_benchmarks_deep10M_q10.sh)
   * [run_benchmarks_deep10M_q100.sh](run_benchmarks_deep10M_q100.sh)
   * [run_benchmarks_deep10M_q1000.sh](run_benchmarks_deep10M_q1000.sh)
+  * [run_benchmarks_deep20M_q10.sh](run_benchmarks_deep20M_q10.sh)
+  * [run_benchmarks_deep20M_q100.sh](run_benchmarks_deep20M_q100.sh)
+  * [run_benchmarks_deep20M_q1000.sh](run_benchmarks_deep20M_q1000.sh)
 * to plot your data, use the following [notebook](benchmarks_analysis.ipynb)
 
 Notes:
@@ -38,4 +41,16 @@ Notes:
 ## Datasets
 
 To create the various benchmark datasets used in these benchmarks, edit and run the 'make_datasets.py' python script in this directory.
+
+## Index Build/Train Time
+
+To reproduce the training time plots shown below, do the following:
+* use the following [notebook](training_time_analysis.ipynb)
+
+<img align="left" src="results/deep1B_1_train_time.png">
+<img align="right" src="results/deep1B_2_train_time.png">
+<img align="left" src="results/deep1B_5_train_time.png">
+<img align="right" src="results/deep1B_10_train_time.png">
+<img align="left" src="results/deep1B_20_train_time.png">
+
 
