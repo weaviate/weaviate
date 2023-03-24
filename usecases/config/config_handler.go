@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+    goruntime "runtime"
 
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
@@ -92,6 +93,9 @@ type Config struct {
 	MaximumConcurrentGetRequests     int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+    // GW - MAJOR CHANGE
+    DefaultVectorIndexType          string          `json:"default_vector_index_type" yaml:"default_vector_index_type"`
+    //GW
 }
 
 type moduleProvider interface {
@@ -279,6 +283,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Read config file
 	file, err := os.ReadFile(configFileName)
 	_ = err // explicitly ignore
+
+    //GW
+    goruntime.Breakpoint()
+    //GW
 
 	if len(file) > 0 {
 		config, err := f.parseConfigFile(file, configFileName)

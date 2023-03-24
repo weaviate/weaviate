@@ -9,6 +9,8 @@ export DEFAULT_VECTORIZER_MODULE
 export CLUSTER_HOSTNAME
 export ENABLE_MODULES
 export TRANSFORMERS_INFERENCE_API
+
+export MODULES_PATH
 export GEMINI_ALLOCATION_ID
 export GEMINI_DATA_DIRECTORY
 export GEMINI_FVS_SERVER
@@ -19,6 +21,7 @@ export PATH
 
 GOPATH="$HOME/go"
 GOROOT=/usr/local/go
+
 export PATH=$GOPATH:$GOROOT/bin:$PATH
 
 rm -fr /var/lib/weaviate/*

@@ -30,8 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
-    //GW
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
     //GW
@@ -130,19 +129,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
     runtime.Breakpoint()
     //GW
 
-    //GW hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
-    //GW if !ok {
-    //GW    return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-    //GW        index.vectorIndexUserConfig)
-    //GW}
-    //GW
-    //GW hnswUserConfig, ok := index.vectorIndexUserConfig.(geminient.UserConfig)
-    //GW if !ok {
-    //GW    return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-    //GW        index.vectorIndexUserConfig)
-    //GW}
-    //GW
-
     switch index.vectorIndexUserConfig.(type) {
 
         case hnswent.UserConfig:
@@ -196,11 +182,18 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
     }
 }
 
+/*
 func (s *Shard) initVectorIndex(
-	ctx context.Context, hnswUserConfig hnswent.UserConfig,
+	//ctx context.Context, hnswUserConfig hnswent.UserConfig,
 	//GW ctx context.Context, hnswUserConfig geminient.UserConfig,
-    //ctx context.Context, vectorIndexUserConfig schema.VectorIndexConfig
-	//GW
+    ctx context.Context, 
+    //GW vectorIndexUserConfig schema.VectorIndexConfig
+    vectorIndexUserConfig hnswent.UserConfig
+) error {
+*/
+func (s *Shard) initVectorIndex(
+    ctx context.Context,
+    vectorIndexUserConfig schema.VectorIndexConfig,
 ) error {
 
     switch vectorIndexUserConfig.(type) {
@@ -262,7 +255,7 @@ func (s *Shard) initVectorIndex(
 
         case geminient.UserConfig:
 
-            gemini UserConfig := vectorIndexUserConfig.(geminient.UserConfig)
+            geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
 
             vi, err := gemini.New(gemini.Config{
                 //GW

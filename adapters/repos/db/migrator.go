@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 	"time"
-    //goruntime "runtime"
+    goruntime "runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -42,7 +42,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 
 
     //GW
-    //goruntime.Breakpoint()
+    goruntime.Breakpoint()
     //GW
 
 	idx, err := NewIndex(ctx,

@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"strings"
     //GW
-    //goruntime "runtime"
+    goruntime "runtime"
     //GW
 
 	"github.com/pkg/errors"
@@ -201,7 +201,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
     //GW
     fmt.Println("setClassDefaults usecases/schema/add.go")
-    //goruntime.Breakpoint()
+    goruntime.Breakpoint()
     //GW
     
 
@@ -211,8 +211,9 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 
 	if class.VectorIndexType == "" {
         //GW MAJOR CHANGE
-		//class.VectorIndexType = "hnsw"
-		class.VectorIndexType = "gemini"
+        //GW GET INDEX TYPE FROM API OR ENV
+		class.VectorIndexType = "hnsw"
+		//class.VectorIndexType = "gemini"
         //GW
 	}
 

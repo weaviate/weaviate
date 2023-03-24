@@ -16,7 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-    //goruntime "runtime"
+    goruntime "runtime"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -164,13 +164,13 @@ func FromEnv(config *Config) error {
 	}
 
     //GW
-    //goruntime.Breakpoint()
+    goruntime.Breakpoint()
     //GW
 
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
 //GW MAJOR
-        config.ModulesPath = "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
+        //config.ModulesPath = "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
 //GW
     }
 
@@ -224,6 +224,17 @@ func FromEnv(config *Config) error {
 	} else {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
+
+    //GW
+    config.DefaultVectorIndexType = "hnsw"
+    if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v !="" {
+        // TODO: Should probably check for valid strings
+        config.DefaultVectorIndexType = v
+    }
+    if v := os.Getenv("MODULES_PATH"); v != "" {
+        config.ModulesPath = v // "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
+    }
+    //GW
 
 	return nil
 }

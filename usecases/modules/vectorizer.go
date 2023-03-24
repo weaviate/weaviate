@@ -99,17 +99,40 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
         //fmt.Println("UpdateVector usecases/modules/vectorizer.go !")
         //GW
 
-    	//GW
-	//GWhnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
-	//GWif !ok {
-	//GW	return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
-	//GW}
+    //GW
+    switch class.VectorIndexConfig.(type) {
 
-	_, ok := class.VectorIndexConfig.(gemini.UserConfig)
-	if !ok {
-		return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
-	}
-    	//GW
+        case hnsw.UserConfig:
+
+	        hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
+	        if !ok {
+	            return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+	        }
+
+            if class.Vectorizer == config.VectorizerModuleNone {
+                if hnswConfig.Skip && len(object.Vector) > 0 {
+                    logger.WithField("className", object.Class).
+                        Warningf(warningSkipVectorProvided)
+                }
+                return nil
+            }
+
+            if hnswConfig.Skip {
+                logger.WithField("className", object.Class).
+                    WithField("vectorizer", class.Vectorizer).
+    //GW        Warningf(warningSkipVectorGenerated, class.Vectorizer)
+    //GW}
+
+            break
+
+        case gemini.UserConfig:
+	
+            geminiConfig, ok := class.VectorIndexConfig.(gemini.UserConfig)
+	        if !ok {
+		        return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
+	        }
+
+
     	//GW
 	//GW if class.Vectorizer == config.VectorizerModuleNone {
 	//GW	if hnswConfig.Skip && len(object.Vector) > 0 {

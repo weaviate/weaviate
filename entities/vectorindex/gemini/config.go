@@ -38,8 +38,8 @@ const (
 	DefaultDynamicEFMax           = 500
 	DefaultDynamicEFFactor        = 8
 	DefaultVectorCacheMaxObjects  = 1e12
-	//GW DefaultSkip                   = false
-	DefaultSkip                   = true
+	DefaultSkip                   = false
+	//GW DefaultSkip                   = true
 	//GW
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine

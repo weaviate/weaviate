@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+    goruntime "runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -122,8 +123,9 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 ) (*Manager, error) {
 
 	//GW
-        //fmt.Println("NEWMANAGER usecases/schema/manager.go !")
-        //GW
+    fmt.Println("NEWMANAGER usecases/schema/manager.go !")
+    goruntime.Breakpoint()
+    //GW
 
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
