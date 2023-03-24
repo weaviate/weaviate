@@ -52,7 +52,8 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair, skipCache bool,
 ) (docBitmap, error) {
-	out := newUnitializedDocBitmap()
+	// out := newUnitializedDocBitmap()
+	out := newDocBitmap()
 	var hashBucket *lsmkv.Bucket
 	var err error
 
@@ -65,14 +66,14 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 
 	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false)
 	var hashes [][]byte
-	i := 0
+	// i := 0
 	var readFn RoaringSetReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
-		if i == 0 {
-			out.docIDs = docIDs
-		} else {
-			out.docIDs.Or(docIDs)
-		}
-		i++
+		// if i == 0 {
+		// 	out.docIDs = docIDs
+		// } else {
+		out.docIDs.Or(docIDs)
+		// }
+		// i++
 
 		if !skipCache {
 			currHash, err := hashBucket.Get(k)
@@ -99,10 +100,10 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return out, errors.Wrap(err, "read row")
 	}
 
-	if i == 0 {
-		// no rows were read, initially an empty bitmap
-		out = newDocBitmap()
-	}
+	// if i == 0 {
+	// 	// no rows were read, initially an empty bitmap
+	// 	out = newDocBitmap()
+	// }
 
 	if !skipCache {
 		out.checksum = combineChecksums(hashes, pv.operator)
