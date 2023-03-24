@@ -12,6 +12,7 @@
 package inverted
 
 import (
+	"arena"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -429,13 +430,13 @@ func (b *BM25Searcher) createTermHeap(config schema.BM25Config, averagePropLengt
 	return termResult, nil
 }
 
-func (b *BM25Searcher) fetchFullObject(docId uint64) (*storobj.Object, error) {
+func (b *BM25Searcher) fetchFullObject(item *docPointerWithScore) (*storobj.Object, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
 	}
 	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, docId)
+	binary.LittleEndian.PutUint64(buf, item.id)
 	objectByte, err := objectsBucket.GetBySecondary(0, buf)
 	if err != nil {
 		return nil, err
@@ -447,6 +448,7 @@ func (b *BM25Searcher) fetchFullObject(docId uint64) (*storobj.Object, error) {
 	}
 
 	obj.Object.Additional = map[string]interface{}{}
+	obj.Object.Additional["score"] = item.Score
 
 	return obj, nil
 }
@@ -594,52 +596,62 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		return a.Score > b.Score
 	})
 
-	finalCandidates := map[uint64]*docPointerWithScore{}
+	finalCandidates := NewCustomMap(10000000)
 	//Iterate over all results, merge them into finalCandidates, and add them to the heap
 	for _, termResult := range results {
-		termResult.data.ForEach (func(docId uint64, docPointer *docPointerWithScore) bool {
-			if _, ok := finalCandidates[docId]; !ok {
-				finalCandidates[docId] = docPointer
-				
+		resMap := termResult.data
+
+		resMap.ForEach(func(docId uint64, docPointer *docPointerWithScore) bool {
+			if old_dp, ok := finalCandidates.Get(docId); !ok {
+				finalCandidates.Set(docId, docPointer)
+
 			} else {
-				finalCandidates[docId].Score += docPointer.Score
-				
+				old_dp.Score += docPointer.Score
+				finalCandidates.Set(docId, old_dp)
+
 			}
+
 			return true
 		})
 	}
 
-	for _, docPointer := range finalCandidates {
+	finalCandidates.ForEach(func(docId uint64, docPointer *docPointerWithScore) bool {
 		scoreHeap.Push(docPointer)
+		return true
+	})
+
+	finalCandidates.Free()
+	for _, termResult := range results {
+		termResult.data.Free()
 	}
 
-	
 	// create the final results
-	objects := make([]*storobj.Object,0, limit)
-	scores := make([]float32, 0,limit)
-	for i := 0; i < limit && scoreHeap.Len()>0; i++ {
+	objects := make([]*storobj.Object, 0, limit)
+	scores := make([]float32, 0, limit)
+	for i := 0; i < limit && scoreHeap.Len() > 0; i++ {
 		if scoreHeap.Len() == 0 {
 			break
 		}
 		item := scoreHeap.Pop()
-		
-		object,err := b.fetchFullObject(item.id)
+
+		object, err := b.fetchFullObject(item)
 		if err != nil {
 			return nil, nil, err
 		}
-		objects= append(objects, object)
+		objects = append(objects, object)
 		scores = append(scores, float32(item.Score))
-		
+
 	}
 
 	return objects, scores, nil
 }
+
 type hashable interface {
-	constraints.Integer | constraints.Float | constraints.Complex | ~string | uintptr 
+	constraints.Integer | constraints.Float | constraints.Complex | ~string | uintptr
 }
 
-type 	GoMap[K hashable, V any] struct {
-	m  map[K]V
+type GoMap[K hashable, V any] struct {
+	m map[K]V
 }
 
 // New returns a new HashMap instance with an optional specific initialization size
@@ -651,18 +663,19 @@ func NewGoMap[K hashable, V any](size uintptr) *GoMap[K, V] {
 // ForEach iterates over key-value pairs and executes the lambda provided for each such pair
 // lambda must return `true` to continue iteration and `false` to break iteration
 func (m *GoMap[K, V]) ForEach(lambda func(K, V) bool) {
-	for k,v := range m.m {
-		if !lambda(k,v) {
+	for k, v := range m.m {
+		if !lambda(k, v) {
 			break
 		}
 	}
 }
+
 // Set tries to update an element if key is present else it inserts a new element
 func (m *GoMap[K, V]) Set(key K, value V) {
 	m.m[key] = value
 }
 
-//Get returns the value for the given key
+// Get returns the value for the given key
 func (m *GoMap[K, V]) Get(key K) (V, bool) {
 	v, ok := m.m[key]
 	return v, ok
@@ -673,11 +686,110 @@ func (m *GoMap[K, V]) Len() int {
 	return len(m.m)
 }
 
+// Let's make our own map to compare
+type docIdPointer struct {
+	id      uint64
+	pointer *docPointerWithScore
+}
+
+type Pair struct {
+	Car *docIdPointer
+	Cdr *Pair
+}
+
+func cons(arr *arena.Arena, car *docIdPointer, cdr *Pair) *Pair {
+	p := arena.New[Pair](arr)
+	p.Car = car
+	p.Cdr = cdr
+	return p
+}
+
+type CustomMap struct {
+	Data       []*Pair
+	length     int
+	numBuckets int
+	arena      *arena.Arena
+}
+
+// New returns a new HashMap instance with an optional specific initialization size
+func NewCustomMap(size uintptr) *CustomMap {
+
+	m := &CustomMap{}
+	m.arena = arena.NewArena()
+	m.Data = arena.MakeSlice[*Pair](m.arena, int(size), int(size))
+	m.numBuckets = int(size)
+
+	return m
+}
+func (m *CustomMap) Free() {
+	m.arena.Free()
+}
+
+// ForEach iterates over key-value pairs and executes the lambda provided for each such pair
+// lambda must return `true` to continue iteration and `false` to break iteration
+func (m *CustomMap) ForEach(lambda func(uint64, *docPointerWithScore) bool) {
+	for _, bucket := range m.Data {
+		if bucket != nil {
+			for v := bucket; v != nil; v = v.Cdr {
+				if !lambda(v.Car.id, v.Car.pointer) {
+					break
+				}
+			}
+		}
+	}
+}
+
+// Set tries to update an element if key is present else it inserts a new element
+func (m *CustomMap) Set(key uint64, value *docPointerWithScore) {
+	index := key % uint64(m.numBuckets)
+
+	//Attempt to find the key in the bucket, and overwrite it if it exists.  If it doesn't exist, append it to the bucket
+	bucket := m.Data[index]
+	item := arena.New[docIdPointer](m.arena)
+	item.id = key
+	item.pointer = value
+
+	if bucket != nil {
+		for v := bucket; v != nil; v = v.Cdr {
+			if v.Car.id == key {
+
+				newBucket := cons(m.arena, item, v)
+				m.Data[index] = newBucket
+				return
+			}
+		}
+	} else {
+
+		m.Data[index] = cons(m.arena, item, nil)
+		m.length++
+	}
+}
+
+// Get returns the value for the given key
+func (m *CustomMap) Get(key uint64) (*docPointerWithScore, bool) {
+	index := key % uint64(m.numBuckets)
+	bucket := m.Data[index]
+	if bucket != nil {
+		for v := bucket; v != nil; v = v.Cdr {
+			if v.Car.id == key {
+				return v.Car.pointer, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// Len returns the number of elements in the map
+func (m *CustomMap) Len() int {
+	return m.length
+}
+
 func (b *BM25Searcher) createTermMaps(config schema.BM25Config, averagePropLength float64, N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (termMap, error) {
 	termResult := termMap{queryTerm: query}
 
-	docMapPairsMap := NewGoMap[uint64, *docPointerWithScore](100000)
-	docMapPairsArray := make([]docPointerWithScore, 0, 100000)
+	//docMapPairsMap := NewGoMap[uint64, *docPointerWithScore](10000)
+	docMapPairsMap := NewCustomMap(10000000)
+	docMapPairsArray := make([]docPointerWithScore, 0, 1000000)
 
 	for _, propName := range propertyNames {
 		propBoost := propertyBoosts[propName]
@@ -761,7 +873,7 @@ type termMap struct {
 
 	idPointer   uint64
 	posPointer  uint64
-	data        *GoMap[uint64, *docPointerWithScore]
+	data        *CustomMap
 	exhausted   bool
 	queryTerm   string
 	propLengths map[string]int
