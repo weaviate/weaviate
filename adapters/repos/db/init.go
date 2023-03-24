@@ -36,8 +36,8 @@ func (d *DB) init(ctx context.Context) error {
 	}
 
 	//GW
-        //fmt.Println("DB INIT!")
-        //GW
+    fmt.Println("DB INIT!")
+    //GW
 
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
@@ -57,6 +57,9 @@ func (d *DB) init(ctx context.Context) error {
 					},
 				}
 			}
+            //GW
+            //goruntime.Breakpoint()
+            //GW
 			if err := replica.ValidateConfig(class); err != nil {
 				return fmt.Errorf("replication config: %w", err)
 			}

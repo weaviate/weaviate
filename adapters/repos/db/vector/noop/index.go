@@ -70,6 +70,9 @@ type Index struct{
     // verbose printing for debugging
     verbose     bool
 
+    // determines if we do a min records count
+    min_records_check   bool
+
 }
 //GW
 
@@ -81,11 +84,7 @@ func NewIndex() *Index {
     // get special verbose/debug flag if present 
     gemini_verbose := false
     gemini_debug_flag := os.Getenv("GEMINI_DEBUG")
-    if gemini_debug_flag == "" {
-        gemini_verbose = false
-    } else if gemini_debug_flag == "false" {
-        gemini_verbose = false
-    } else {
+    if gemini_debug_flag == "true" {
         gemini_verbose = true
     }
 
@@ -95,6 +94,7 @@ func NewIndex() *Index {
         fmt.Println("ERROR: Could not find GEMINI_ALLOCATIONID env var.") 
         return nil
     }
+    //TODO: Check valid GUID format 
     
     // a valid gemini_fvs_server is required
     fvs_server := os.Getenv("GEMINI_FVS_SERVER")
@@ -102,7 +102,7 @@ func NewIndex() *Index {
         fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
         return nil
     }
-    //TODO: Validate the server connection
+    //TODO: Validate the server connection here
 
     // a valid data_dir is required for gemini files
     data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
@@ -115,6 +115,13 @@ func NewIndex() *Index {
     if os.IsNotExist(err) {
         fmt.Println("The GEMINI_DATA_DIRECTORY %s is not valid (%v)", data_dir, err)
         return nil
+    }
+
+    // possibly override min records check 
+    min_records_check := true
+    min_records_check_flag := os.Getenv("GEMINI_MIN_RECORDS_CHECK")
+    if min_records_check_flag == "false" {
+        min_records_check = false
     }
 
     idx := &Index{}
@@ -130,6 +137,7 @@ func NewIndex() *Index {
     idx.stale       = true
     idx.last_fvs_status = ""
     idx.fvs_server  = fvs_server
+    idx.min_records_check   = min_records_check
 
     if idx.verbose {
         fmt.Println("Gemini Index Contructor db_path=", idx.db_path)
@@ -261,7 +269,7 @@ func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList)
 		// TODO: Note that his arbitrary number of 4001 was surfaced
 		// TODO: because we encountered a specific FVS error which indicated
 		// TODO: this constraint.  
-		if (i.count<4001) { 
+		if (i.min_records_check && i.count<4001) { 
 		    return nil, nil, fmt.Errorf("FVS requires a mininum of 4001 vectors in the dataset.")
 		}
 

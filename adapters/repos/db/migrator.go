@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+    //goruntime "runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -38,6 +39,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	if err := replica.ValidateConfig(class); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
+
+
+    //GW
+    //goruntime.Breakpoint()
+    //GW
 
 	idx, err := NewIndex(ctx,
 		IndexConfig{

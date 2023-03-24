@@ -338,13 +338,19 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
     //GW
     //goruntime.Breakpoint()
     if class.VectorIndexType == "hnsw" {
-        parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+        //GW
+        ///parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+        parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
+        //GW
         if err != nil {
             return errors.Wrap(err, "parse vector index config")
         }
         class.VectorIndexConfig = parsed
     } else if class.VectorIndexType == "gemini" {
-        parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+        //GW
+        //parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+        parsed, err := m.vectorConfigParser(class.VectorIndexConfig)
+        //GW
         if err != nil {
             return errors.Wrap(err, "parse vector index config")
         }

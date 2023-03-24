@@ -149,4 +149,4 @@ require (
 
 go 1.19
 
-replace example.com/gemini => /home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/gemini
+replace example.com/gemini => /Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/gsi/gemini

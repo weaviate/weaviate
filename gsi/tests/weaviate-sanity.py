@@ -12,7 +12,7 @@ import weaviate
 MAX_ADDS = 20
 
 # Maximum number of (sucessful) searches to perform
-MAX_SEARCHES = 1
+MAX_SEARCHES = 20000
 
 # Set to True to print events and responses verbosely
 VERBOSE=False
@@ -153,7 +153,8 @@ while sucessful_searches< MAX_SEARCHES:
         print("Sucesful search, data->", data)
         consec_errs = 0
         sucessful_searches += 1
-        break
+        if sucessful_searches % 100 == 0:
+            print("Total searches so far=%d" % sucessful_searches)
     else:
         print("Unknown result! Let's stop here...")
         break
