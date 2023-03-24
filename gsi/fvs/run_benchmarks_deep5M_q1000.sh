@@ -5,19 +5,19 @@
 #
 
 # Write/append the benchmark results to this file
-OUTPUT="results/benchmarks-deep1M-q10.csv"
+OUTPUT="results/benchmarks-deep5M-q1000.csv"
 
 # Set a valid allocation id
 ALLOCATION_ID="fd283b38-3e4a-11eb-a205-7085c2c5e516"
 
 # Path to dataset numpy file
-DATASET="/mnt/nas1/fvs_benchmark_datasets/deep-1M.npy"
+DATASET="/mnt/nas1/fvs_benchmark_datasets/deep-5M.npy"
 
 # Path to queries numpy file
-QUERIES="/mnt/nas1/fvs_benchmark_datasets/deep-queries-10.npy"
+QUERIES="/mnt/nas1/fvs_benchmark_datasets/deep-queries-1000.npy"
 
 ## Path to the ground truth numpy file
-GROUNDTRUTH="/mnt/nas1/fvs_benchmark_datasets/deep-1M-gt-10.npy"
+GROUNDTRUTH="/mnt/nas1/fvs_benchmark_datasets/deep-5M-gt-1000.npy"
 
 #
 # Check the arguments and the system before running the benchmarks.
