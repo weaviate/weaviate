@@ -1,5 +1,5 @@
 
-JOB STARTED AROUND 7pm Friday PST, APU12, Deep50M, q10
+JOB STARTED AROUND 7pm Friday PST, APU12, Deep50M, q10 ( NOT SURE THE PROBLEM )
 
 $ ./run_benchmarks_deep50M_q10.sh
 Copy dataset to /home/public/ ...
@@ -33,4 +33,31 @@ Reason: BAD REQUEST
 HTTP response headers: HTTPHeaderDict({'Server': 'Werkzeug/2.2.2 Python/3.11.1', 'Date': 'Sat, 25 Mar 2023 06:47:12 GMT', 'Content-Type': 'application/json', 'Content-Length': '141', 'Access-Control-Allow-Origin': '*', 'Connection': 'close'})
 HTTP response body: b'{"detail": "neural_matrix_id: 6a214b2e-cac8-11ed-98a8-0242ac1c000d is invalid", "status": 400, "title": "Bad Request", "type": "about:blank"}'
 
+
+JOB STATED 9am PT SAT APU11, Deep50, q10 ( WRONG ALLOCATION ID )
+./run_benchmarks_deep50M_q10.sh
+Importing the dataset. Training with nbit=768 ...
+Traceback (most recent call last):
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/gemini_fvs.py", line 251, in <module>
+    run_benchmark(args)
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/gemini_fvs.py", line 100, in run_benchmark
+    response = gsi_datasets_apis.controllers_dataset_controller_import_dataset(
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/swagger_client/api/datasets_api.py", line 677, in controllers_dataset_controller_import_dataset
+    (data) = self.controllers_dataset_controller_import_dataset_with_http_info(body, allocation_token, **kwargs)  # noqa: E501
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/swagger_client/api/datasets_api.py", line 748, in controllers_dataset_controller_import_dataset_with_http_info
+    return self.api_client.call_api(
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/swagger_client/api_client.py", line 316, in call_api
+    return self.__call_api(resource_path, method,
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/swagger_client/api_client.py", line 148, in __call_api
+    response_data = self.request(
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/swagger_client/api_client.py", line 358, in request
+    return self.rest_client.POST(url,
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/swagger_client/rest.py", line 263, in POST
+    return self.request("POST", url,
+  File "/home/gwilliams/Projects/Weaviate/github.fork/weaviate/gsi/fvs/swagger_client/rest.py", line 222, in request
+    raise ApiException(http_resp=r)
+swagger_client.rest.ApiException: (400)
+Reason: BAD REQUEST
+HTTP response headers: HTTPHeaderDict({'Server': 'Werkzeug/2.2.2 Python/3.11.1', 'Date': 'Sat, 25 Mar 2023 15:45:51 GMT', 'Content-Type': 'application/json', 'Content-Length': '115', 'Access-Control-Allow-Origin': '*', 'Connection': 'close'})
+HTTP response body: b'{"detail": "You are not authorized for this request", "status": 400, "title": "Bad Request", "type": "about:blank"}'
 
