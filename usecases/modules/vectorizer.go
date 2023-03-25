@@ -22,9 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-    //GW
 	"github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
     "github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -35,10 +33,8 @@ const (
 	errorVectorIndexType = "vector index config (%T) is not of type HNSW, " +
 		"but objects manager is restricted to HNSW"
 
-    	//GW	
-    	errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
+    errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
 		"but objects manager is restricted to Gemini"
-    	//GW
 
 	warningVectorIgnored = "This vector will be ignored. If you meant to index " +
 		"the vector, make sure to set vectorIndexConfig.skip to 'false'. If the previous " +
@@ -53,9 +49,7 @@ const (
 )
 
 func (m *Provider) ValidateVectorizer(moduleName string) error {
-	//GW
-        //fmt.Println("ValidateVectorizer usecases/modules/vectorizer.go %s", moduleName)
-        //GW
+
 	mod := m.GetByName(moduleName)
 	if mod == nil {
 		return errors.Errorf("no module with name %q present", moduleName)
@@ -95,11 +89,7 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	//GW
-    //fmt.Println("UpdateVector usecases/modules/vectorizer.go !")
-    //GW
 
-    //GW
     switch class.VectorIndexConfig.(type) {
 
         case hnsw.UserConfig:
@@ -138,7 +128,6 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 
             return fmt.Errorf("Unsupported vector index config.")
     }
-    //GW
 
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {

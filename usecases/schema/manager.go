@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-    goruntime "runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -43,7 +42,7 @@ type Manager struct {
 	moduleConfig            ModuleConfig
 	cluster                 *cluster.TxManager
 	clusterState            clusterState
-    //GW - major change
+    //GW - MAJOR CHANGE
 	vectorConfigParser        VectorConfigParser
     //GW
 	invertedConfigValidator InvertedConfigValidator
@@ -121,11 +120,6 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, scaleoutManager scaleOut,
 ) (*Manager, error) {
-
-	//GW
-    fmt.Println("NEWMANAGER usecases/schema/manager.go !")
-    goruntime.Breakpoint()
-    //GW
 
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
@@ -206,10 +200,6 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 
-	//GW
-        //fmt.Println("SCHEMA loadOrInitializeSchema Inside usecases/scheman/manager.go!")
-        //GW
-
 	schema, err := m.repo.LoadSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
@@ -218,9 +208,6 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	if schema == nil {
 		schema = newSchema()
 	}
-	//GW
-        //fmt.Println("SCHEMA beforeParseConfigs Inside usecases/scheman/manager.go!")
-        //GW
 
 	if err := m.parseConfigs(ctx, schema); err != nil {
 		return errors.Wrap(err, "load schema")
@@ -244,10 +231,6 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
 	
-    	//GW
-        //fmt.Println("SCHEMA beforeStartupClusterSync Inside usecases/scheman/manager.go!")
-        //GW
-
 	if err := m.startupClusterSync(ctx, schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}

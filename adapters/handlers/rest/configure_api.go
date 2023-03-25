@@ -43,9 +43,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-    //GW
 	entgemini "github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
@@ -106,19 +104,12 @@ type explorer interface {
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
-	//GW
-        //fmt.Println("configureAPI adapters/handlers/rest/configure_api.go !")
-        //GW
-
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 
-    	//GW
-    	//goruntime.Breakpoint()
-    	//GW
 	appState := startupRoutine(ctx)
 	setupGoProfiling(appState.ServerConfig.Config)
 
@@ -130,14 +121,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			http.ListenAndServe(":2112", mux)
 		}()
 	}
-
-	//GW
-        //fmt.Println("before registerModules adapters/handlers/rest/configure_api.go !")
-        //GW
-
-    //GW
-    //goruntime.Breakpoint()
-    //GW
 
 	err := registerModules(appState)
 	if err != nil {
@@ -233,14 +216,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-    //
-    goruntime.Breakpoint()
-    //
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(clusterHttpClient)
     
-    // GW
     if appState.ServerConfig.Config.DefaultVectorIndexType == "hnsw" {
 
 	    schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
@@ -276,7 +255,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
             Fatal("could not initialize schema manager with unsupported vector index")
         os.Exit(1)
     }
-    // GW  
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
@@ -290,17 +268,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger)
 
 	backupManager := backup.NewManager(appState.Logger, appState.Authorizer,
-		//GW schemaManager, 
         appState.SchemaManager,
-        //GW
         repo, appState.Modules)
 	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)
 
-	//GW vectorRepo.SetSchemaGetter(schemaManager)
-	//GW explorer.SetSchemaGetter(schemaManager)
-	//GW appState.Modules.SetSchemaGetter(schemaManager)
 	vectorRepo.SetSchemaGetter(appState.SchemaManager)
 	explorer.SetSchemaGetter(appState.SchemaManager)
 	appState.Modules.SetSchemaGetter(appState.SchemaManager)
@@ -315,57 +288,42 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	objectsManager := objects.NewManager(appState.Locks,
-		//GW schemaManager, 
         appState.SchemaManager,
-        //GW
         appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorRepo, appState.Modules,
 		objects.NewMetrics(appState.Metrics))
 	batchObjectsManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, 
-        //GW schemaManager, 
         appState.SchemaManager,
-        //GW
         appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 
 	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorRepo, explorer, 
-        //GW schemaManager,
         appState.SchemaManager,
-        //GW
 		appState.Modules, traverser.NewMetrics(appState.Metrics),
 		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
 
 	classifier := classification.New(
-        //GW schemaManager, 
         appState.SchemaManager,
-        //GW
         classifierRepo, vectorRepo, appState.Authorizer,
 		appState.Logger, appState.Modules)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
-	//GW schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 	appState.SchemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	setupSchemaHandlers(api, 
-        //GW schemaManager)
         appState.SchemaManager)
-        //GW
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger, appState.Modules)
 	setupObjectBatchHandlers(api, batchObjectsManager)
 	setupGraphQLHandlers(api, appState)
 	setupMiscHandlers(api, appState.ServerConfig, 
-        //GW schemaManager, 
         appState.SchemaManager,
-        //GW
         appState.Modules)
 	setupClassificationHandlers(api, classifier)
 	setupBackupHandlers(api, backupScheduler)
 	setupNodesHandlers(api, 
-        //GW schemaManager, 
         appState.SchemaManager,
-        //GW
         repo, appState)
 
 	api.ServerShutdown = func() {
@@ -394,7 +352,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	// manually update schema once
-	//GW schema := schemaManager.GetSchemaSkipAuth()
 	schema := appState.SchemaManager.GetSchemaSkipAuth()
 	updateSchemaCallback(schema)
 
@@ -412,15 +369,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine(ctx context.Context) *state.State {
 
-	//GW
-        //fmt.Println("startupRoutine adapters/handlers/rest/configure_api.go !")
-        //GW
-
 	appState := &state.State{}
-
-    //GW 
-    //goruntime.Breakpoint()
-    //GW
 
 	logger := logger()
 	appState.Logger = logger
@@ -431,22 +380,12 @@ func startupRoutine(ctx context.Context) *state.State {
 	// Load the config using the flags
 	serverConfig := &config.WeaviateConfig{}
 
-    //GW 
-    //goruntime.Breakpoint()
-    //GW
-
 	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
-
-    //GW
-    //if appState.ServerConfig.ModulesPath == "" {
-    //    appState.ServerConfig.ModulesPath = "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate"
-    //}
-
 
 	logger.WithFields(logrus.Fields{
 		"action":                    "startup",
@@ -527,9 +466,6 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
 func registerModules(appState *state.State) error {
 
-	//GW
-        //fmt.Println("registerModules FUNC adapters/handlers/rest/configure_api.go !")
-        //GW
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("start registering modules")
@@ -542,15 +478,7 @@ func registerModules(appState *state.State) error {
 		for _, module := range modules {
 			enabledModules[strings.TrimSpace(module)] = true
 		}
-        //GW
-        //fmt.Println("registeredModules OK>0 adapters/handlers/rest/configure_api.go !")
-        //GW
 	} 
-	//else {
-        //GW
-        //fmt.Println("registeredModules NONE>0 adapters/handlers/rest/configure_api.go !")
-        //GW
-    	//}
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
@@ -616,13 +544,6 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	//GW
-        //fmt.Println("before enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !")
-        //GW
-    //GW
-    //goruntime.Breakpoint()
-    //GW
-
 	if _, ok := enabledModules["text2vec-openai"]; ok {
 		appState.Modules.Register(modopenai.New())
 		appState.Logger.
@@ -631,11 +552,6 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
         fmt.Println("after else  ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
 	} 
-	//else {
-	//GW
-        //fmt.Println("after else not ok enabledModules text2vec-openai adapters/handlers/rest/configure_api.go !", ok)
-        //GW
-    	//}
 
 	if _, ok := enabledModules["qna-openai"]; ok {
 		appState.Modules.Register(modqnaopenai.New())

@@ -109,6 +109,7 @@ func (s *Store) bucketDir(bucketName string) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}

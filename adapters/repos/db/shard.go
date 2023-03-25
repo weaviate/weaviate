@@ -32,8 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
-    //GW
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -41,9 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-    //GW 
 	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -125,10 +121,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
     
-    //GW
-    runtime.Breakpoint()
-    //GW
-
     switch index.vectorIndexUserConfig.(type) {
 
         case hnswent.UserConfig:
@@ -182,15 +174,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
     }
 }
 
-/*
-func (s *Shard) initVectorIndex(
-	//ctx context.Context, hnswUserConfig hnswent.UserConfig,
-	//GW ctx context.Context, hnswUserConfig geminient.UserConfig,
-    ctx context.Context, 
-    //GW vectorIndexUserConfig schema.VectorIndexConfig
-    vectorIndexUserConfig hnswent.UserConfig
-) error {
-*/
 func (s *Shard) initVectorIndex(
     ctx context.Context,
     vectorIndexUserConfig schema.VectorIndexConfig,
@@ -258,38 +241,11 @@ func (s *Shard) initVectorIndex(
             geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
 
             vi, err := gemini.New(gemini.Config{
-                //GW
-                //GW Logger:            s.index.logger,
                 RootPath:          s.index.Config.RootPath,
                 ID:                s.ID(),
                 ShardName:         s.name,
                 ClassName:         s.index.Config.ClassName.String(),
                 PrometheusMetrics: s.promMetrics,
-                    //GW
-                //GW MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-                //GW MakeCommitLoggerThunk: func() (gemini.CommitLogger, error) {
-                    //GW
-                    // Previously we had an interval of 10s in here, which was changed to
-                    // 0.5s as part of gh-1867. There's really no way to wait so long in
-                    // between checks: If you are running on a low-powered machine, the
-                    // interval will simply find that there is no work and do nothing in
-                    // each iteration. However, if you are running on a very powerful
-                    // machine within 10s you could have potentially created two units of
-                    // work, but we'll only be handling one every 10s. This means
-                    // uncombined/uncondensed hnsw/gemini commit logs will keep piling up can only
-                    // be processes long after the initial insert is complete. This also
-                    // means that if there is a crash during importing a lot of work needs
-                    // to be done at startup, since the commit logs still contain too many
-                    // redundancies. So as of now it seems there are only advantages to
-                    // running the cleanup checks and work much more often.
-                            //GW
-                    //GWreturn hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-                    //GW return gemini.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-                            //GW
-                    //GW    s.index.logger)
-                //GW },
-                //GW VectorForIDThunk: s.vectorByIndexID,
-                //GW DistanceProvider: distProv,
             }, geminiUserConfig)
 
             if err != nil {
@@ -306,6 +262,7 @@ func (s *Shard) initVectorIndex(
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+
 	err := s.initDBFile(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())

@@ -15,9 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-    	//GW
-    	//goruntime "runtime"
-    	//GW
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -34,10 +31,6 @@ func (d *DB) init(ctx context.Context) error {
 	if err := os.MkdirAll(d.config.RootPath, 0o777); err != nil {
 		return errors.Wrapf(err, "create root path directory at %s", d.config.RootPath)
 	}
-
-	//GW
-    fmt.Println("DB INIT!")
-    //GW
 
 	objects := d.schemaGetter.GetSchemaSkipAuth().Objects
 	if objects != nil {
@@ -57,20 +50,10 @@ func (d *DB) init(ctx context.Context) error {
 					},
 				}
 			}
-            //GW
-            //goruntime.Breakpoint()
-            //GW
+
 			if err := replica.ValidateConfig(class); err != nil {
 				return fmt.Errorf("replication config: %w", err)
 			}
-
-			//GW
-        		//fmt.Println("RIGHT Before New Index! adapters/repos/db/init.go")
-        		//GW
-
-            //GW
-            //goruntime.Breakpoint()
-            //GW
 
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                 schema.ClassName(class.Class),

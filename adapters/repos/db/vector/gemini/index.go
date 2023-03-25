@@ -16,8 +16,6 @@ import (
 	"fmt"
     "sync"
     "os"
-    //"log"
-    //goruntime "runtime"
 
     "github.com/go-openapi/strfmt"
     "github.com/google/uuid"
@@ -25,13 +23,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/schema"
-
-    //GW
     ent "github.com/weaviate/weaviate/entities/vectorindex/gemini"
-    //GW
 )
 
-//GW type Index struct{}
 type gemini struct{
 
     // global lock to prevent concurrent map read/write, etc.
@@ -78,28 +72,10 @@ type gemini struct{
     min_records_check   bool
 
 }
-//GW
 
-
-// New creates a new HNSW index, the commit logger is provided through a thunk
-// (a function which can be deferred). This is because creating a commit logger
-// opens files for writing. However, checking whether a file is present, is a
-// criterium for the index to see if it has to recover from disk or if its a
-// truly new index. So instead the index is initialized, with un-biased disk
-// checks first and only then is the commit logger created
+/*
 func New(cfg Config, uc ent.UserConfig) (*gemini, error) {
-    //GW
-    fmt.Println("HNSW New!")
-    //GW
 
-    fmt.Println("stuff", cfg, uc)
-
-    index := &gemini{}
-    return index, nil
-
-    //return NewIndex(), nil
-
-    /*
     if err := cfg.Validate(); err != nil {
         return nil, errors.Wrap(err, "invalid config")
     }
@@ -164,16 +140,11 @@ func New(cfg Config, uc ent.UserConfig) (*gemini, error) {
     }
 
     return index, nil
-    */
 }
+*/
 
+func New(cfg Config, uc ent.UserConfig) (*gemini, error) {
 
-//GW func NewIndex() *Index {
-func NewIndex() *gemini {
-	//GW return &Index{}
-
-    //goruntime.Breakpoint()
-   
     // get special verbose/debug flag if present 
     gemini_verbose := false
     gemini_debug_flag := os.Getenv("GEMINI_DEBUG")
@@ -184,8 +155,8 @@ func NewIndex() *gemini {
     // a valid gemini_allocation_id is required
     allocation_id := os.Getenv("GEMINI_ALLOCATION_ID")
     if allocation_id == "" {
-        fmt.Println("ERROR: Could not find GEMINI_ALLOCATIONID env var.") 
-        return nil
+        fmt.Println("ERROR: Could not find GEMINI_ALLOCATION_ID env var.") 
+        return nil, fmt.Errorf("Could not find GEMINI_ALLOCATION_ID env var." )
     }
     //TODO: Check valid GUID format 
     
@@ -193,21 +164,20 @@ func NewIndex() *gemini {
     fvs_server := os.Getenv("GEMINI_FVS_SERVER")
     if fvs_server == "" {
         fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
-        return nil
+        return nil, fmt.Errorf("Could not find GEMINI_FVS_SERVER env var." )
     }
     //TODO: Validate the server connection here
 
     // a valid data_dir is required for gemini files
     data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
-    fmt.Println("NOOP NewIndex", data_dir)
     if data_dir == "" {
         fmt.Println("ERROR: Could not find GEMINI_DATA_DIRECTORY env var.") 
-        return nil
+        return nil, fmt.Errorf("Could not find GEMINI_DATA_DIRECTORY env var." )
     }
     _, err := os.Stat(data_dir)
     if os.IsNotExist(err) {
         fmt.Println("The GEMINI_DATA_DIRECTORY %s is not valid (%v)", data_dir, err)
-        return nil
+        return nil, errors.Wrapf(err, "The GEMINI_DATA_DIRECTORY %s is not valid", data_dir )
     }
 
     // possibly override min records check 
@@ -217,7 +187,6 @@ func NewIndex() *gemini {
         min_records_check = false
     }
 
-    //idx := &Index{}
     idx := &gemini{}
     idx.name        = strfmt.UUID(uuid.New().String())
     idx.db_path     = fmt.Sprintf("%s/dataset_%s.npy", data_dir, idx.name.String())
@@ -237,7 +206,7 @@ func NewIndex() *gemini {
         fmt.Println("Gemini Index Contructor db_path=", idx.db_path)
     }
 
-    return idx
+    return idx, nil
 
 }
 
@@ -313,17 +282,13 @@ func (i *gemini) Add(id uint64, vector []float32) error {
         i.count = new_count
     }
 
-    // Always set the current index (if any) to stale so
-    // that we immediately initiate building it on demand
+    // By setting to true, next search kicks off an async index build/train
     i.stale = true
 	
     return nil
 
-	//GW // silently ignore
-	//GW return nil
 }
 
-//GW func (i *Index) Delete(id uint64) error {
 func (i *gemini) Delete(id uint64) error {
 
     if i.verbose {
@@ -332,11 +297,8 @@ func (i *gemini) Delete(id uint64) error {
 
     return errors.New("Delete is not supported.")
 
-	//GW // silently ignore
-	//GW return nil
 }
 
-//GW func (i *Index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 func (i *gemini) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 
     // sychronize this function
@@ -432,8 +394,6 @@ func (i *gemini) SearchByVector(vector []float32, k int, allow helpers.AllowList
             }
         }
            
-        //goruntime.Breakpoint()
-
         if i.verbose { 
             fmt.Println("Gemini SearchByVector: About to perform Fvs_search", i.last_fvs_status, i.dataset_id)
         }
@@ -487,13 +447,8 @@ func (i *gemini) SearchByVector(vector []float32, k int, allow helpers.AllowList
         return inds[0], dist[0], nil
 
     }
-
-    //GW
-	//GWreturn nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
-    //GW
 }
 
-//GW func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 func (i *gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
 
     if i.verbose {
@@ -502,7 +457,6 @@ func (i *gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-//GW func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 func (i *gemini) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 
     if i.verbose {	
@@ -511,7 +465,7 @@ func (i *gemini) UpdateUserConfig(updated schema.VectorIndexConfig) error {
 	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
 }
 
-//GW func (i *Index) Drop(context.Context) error {
+
 func (i *gemini) Drop(context.Context) error {
 
     // sychronize this function
@@ -530,7 +484,6 @@ func (i *gemini) Drop(context.Context) error {
     }
 }
 
-//func (i *Index) Flush() error {
 func (i *gemini) Flush() error {
 
     if i.verbose {
@@ -540,7 +493,6 @@ func (i *gemini) Flush() error {
 	return nil
 }
 
-//GW func (i *Index) Shutdown(context.Context) error {
 func (i *gemini) Shutdown(context.Context) error {
 
     if i.verbose {
@@ -550,7 +502,6 @@ func (i *gemini) Shutdown(context.Context) error {
 	return nil
 }
 
-//GW func (i *Index) PauseMaintenance(context.Context) error {
 func (i *gemini) PauseMaintenance(context.Context) error {
 
     if i.verbose {
@@ -560,7 +511,6 @@ func (i *gemini) PauseMaintenance(context.Context) error {
 	return nil
 }
 
-//GW func (i *Index) SwitchCommitLogs(context.Context) error {
 func (i *gemini) SwitchCommitLogs(context.Context) error {
     
     if i.verbose {
@@ -570,7 +520,6 @@ func (i *gemini) SwitchCommitLogs(context.Context) error {
 	return nil
 }
 
-//GW func (i *Index) ListFiles(context.Context) ([]string, error) {
 func (i *gemini) ListFiles(context.Context) ([]string, error) {
 
     if i.verbose {
@@ -580,7 +529,6 @@ func (i *gemini) ListFiles(context.Context) ([]string, error) {
 	return nil, nil
 }
 
-//GW func (i *Index) ResumeMaintenance(context.Context) error {
 func (i *gemini) ResumeMaintenance(context.Context) error {
     
     if i.verbose {
@@ -590,7 +538,6 @@ func (i *gemini) ResumeMaintenance(context.Context) error {
 	return nil
 }
 
-//GWfunc (i *Index) ValidateBeforeInsert(vector []float32) error {
 func (i *gemini) ValidateBeforeInsert(vector []float32) error {
 
     if i.verbose {
@@ -600,7 +547,6 @@ func (i *gemini) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
-//GW func (i *Index) PostStartup() {
 func (i *gemini) PostStartup() {
     
     if i.verbose {
@@ -608,11 +554,9 @@ func (i *gemini) PostStartup() {
     }
 }
 
-//GW func (i *Index) Dump(labels ...string) {
 func (i *gemini) Dump(labels ...string) {
     
     if i.verbose {
         fmt.Println("Gemini Dump: Start")
     }
-
 }

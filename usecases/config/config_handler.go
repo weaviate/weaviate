@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-    goruntime "runtime"
 
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
@@ -276,17 +275,9 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 			Info("no config file specified, using default or environment based")
 	}
 
-	//GW
-      	//fmt.Println("LoadConfig usecases/config/config_handler.go !", configFileName)
-        //GW
-
 	// Read config file
 	file, err := os.ReadFile(configFileName)
 	_ = err // explicitly ignore
-
-    //GW
-    goruntime.Breakpoint()
-    //GW
 
 	if len(file) > 0 {
 		config, err := f.parseConfigFile(file, configFileName)
@@ -326,10 +317,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 }
 
 func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
-
-	//GW
-      	//fmt.Println("parseConfigFile usecases/config/config_handler.go !", name)
-        //GW
 
 	var config Config
 

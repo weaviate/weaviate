@@ -39,8 +39,6 @@ const (
 	DefaultDynamicEFFactor        = 8
 	DefaultVectorCacheMaxObjects  = 1e12
 	DefaultSkip                   = false
-	//GW DefaultSkip                   = true
-	//GW
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine
 )
@@ -58,9 +56,6 @@ type UserConfig struct {
 	VectorCacheMaxObjects  int    `json:"vectorCacheMaxObjects"`
 	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
 	Distance               string `json:"distance"`
-//GW
-
-//GW
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -90,17 +85,9 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 
-	//GW
-        fmt.Println("Gemini Parse User Config 1!")
-        //GW
-
 	if input == nil {
 		return uc, nil
 	}
-
-	//GW
-        fmt.Println("Gemini Parse User Config 2!")
-        //GW
 
 	asMap, ok := input.(map[string]interface{})
 	if !ok || asMap == nil {
@@ -160,10 +147,6 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	}); err != nil {
 		return uc, err
 	}
-
-	//GW
-        fmt.Println("SKIP BEFORE entities/vectorindex/gemini/config.go !")
-        //GW
 
 	if err := optionalBoolFromMap(asMap, "skip", func(v bool) {
 		uc.Skip = v
