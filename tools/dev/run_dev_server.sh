@@ -42,7 +42,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      ENABLE_MODULES="text2vec-contextionary,cross-ranker-transformers" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       go_run ./cmd/weaviate-server \
