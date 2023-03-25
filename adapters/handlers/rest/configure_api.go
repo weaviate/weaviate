@@ -46,6 +46,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modcrossrankertransformers "github.com/weaviate/weaviate/modules/cross-ranker-transformers"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
@@ -520,6 +521,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "text2vec-transformers").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules["cross-ranker-transformers"]; ok {
+		appState.Modules.Register(modcrossrankertransformers.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", "cross-ranker-transformers").
 			Debug("enabled module")
 	}
 
