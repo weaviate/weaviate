@@ -11,4 +11,4 @@ GOPATH="$HOME/go"
 GOROOT=/usr/local/go
 export PATH=$GOPATH:$GOROOT/bin:$PATH 
 
-cd .. && go build -o ./weaviate-server ./cmd/weaviate-server
+cd .. && go build -o ./weaviate-server -modfile=gsi/go.mod ./cmd/weaviate-server
