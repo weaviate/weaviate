@@ -239,7 +239,6 @@ func (s *Shard) initVectorIndex(
         case geminient.UserConfig:
 
             geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
-
             vi, err := gemini.New(gemini.Config{
                 RootPath:          s.index.Config.RootPath,
                 ID:                s.ID(),
@@ -247,7 +246,6 @@ func (s *Shard) initVectorIndex(
                 ClassName:         s.index.Config.ClassName.String(),
                 PrometheusMetrics: s.promMetrics,
             }, geminiUserConfig)
-
             if err != nil {
                 return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
             }
