@@ -5,10 +5,7 @@ import (
     "fmt"
     "time"
 
-    //"golang.org/x/exp/mmap"
-
-    //"example.com/greetings"
-    "example.com/gemini"
+    "github.com/gsi/weaviate"
 )
 
 func main() {

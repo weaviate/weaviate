@@ -6,7 +6,7 @@
 set -e
 set -x
 
-NO_CACHE_FLAG=--no-cache
+NO_CACHE_FLAG="" #--no-cache
 export NO_CACHE_FLAG
 
 cd .. && DOCKER_BUILDKIT=0 docker build $NO_CACHE_FLAG -f gsi/docker/Dockerfile.gemini -t gsi/weaviate .

@@ -43,7 +43,7 @@ require (
 )
 
 require (
-	example.com/gemini v0.0.0-00010101000000-000000000000
+	github.com/weaviate/gemini_plugin v0.0.0-00010101000000-000000000000
 	github.com/coreos/go-oidc/v3 v3.4.0
 	github.com/tailor-inc/graphql v0.1.0
 	golang.org/x/text v0.7.0
@@ -149,4 +149,4 @@ require (
 
 go 1.19
 
-replace example.com/gemini => ./gsi/gemini
+replace github.com/gsi/weaviate/gemini_plugin => ./gsi/weaviate_gemini_plugin

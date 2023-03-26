@@ -14,7 +14,7 @@ package gemini
 import (
 	"context"
 
-    geminiplugin "example.com/gemini"
+    geminiplugin "github.com/gsi/weaviate/gemini_plugin"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -23,7 +23,7 @@ import (
 
 type gemini struct{
 
-    // plugin object
+    // gemini plugin struct pointer
     plugin *geminiplugin.Gemini
 }
 

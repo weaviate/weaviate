@@ -20,11 +20,11 @@ import (
 )
 
 
-func Fvs_import_dataset( host string, port uint, allocation_token string, path string, bits uint, verbose bool ) (string, error) {
+func Import_dataset( host string, port uint, allocation_token string, path string, bits uint, verbose bool ) (string, error) {
     // form the rest url        
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/import", host, port)
     if verbose {                
-        fmt.Println("Fvs_import_dataset: url=", url)
+        fmt.Println("Fvs: Import_dataset: url=", url)
     }                           
                                 
     // create the post json payload
@@ -43,13 +43,13 @@ func Fvs_import_dataset( host string, port uint, allocation_token string, path s
         return "", jErr
     }
     if verbose {
-        fmt.Println("Fvs_import_dataset: body json=", jsonValue)
+        fmt.Println("Fvs: Import_dataset: body json=", jsonValue)
     }
         
     // form a request object
     request, rErr := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if rErr != nil {
-        return "", errors.Wrap(rErr, "Fvs_import_dataset could not create new http request")
+        return "", errors.Wrap(rErr, "Fvs: Import_dataset could not create new http request.")
     }
     
     // add headers
@@ -57,60 +57,60 @@ func Fvs_import_dataset( host string, port uint, allocation_token string, path s
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
-    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+    request.Header.Set("User-Agent", "weaviate_gemini_plugin")
 
     // perform the request
     client := &http.Client{}
     response, dErr := client.Do(request)
     if dErr != nil {
-        return "", errors.Wrap( dErr, "client.Do failed at Fvs_import_dataset.")
+        return "", errors.Wrap( dErr, "client.Do failed at Fvs Import_dataset.")
     }
     defer response.Body.Close()
 
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_import_dataset: response Status:", response.Status)
-        fmt.Println("Fvs_import_dataset: response Headers:", response.Header)
-        fmt.Println("Fvs_import_dataset: response Body:", string(respbody))
+        fmt.Println("Fvs: Import_dataset: response status=", response.Status)
+        fmt.Println("Fvs: Import_dataset: response headers=", response.Header)
+        fmt.Println("Fvs: Import_dataset: response body=", string(respbody))
     }
 
     // parse the json response
     respData := map[string]interface{}{}
     juErr := json.Unmarshal( respbody, &respData)
     if juErr != nil {
-        return "", errors.Wrap(juErr,"json.Unmarshal failed at Fvs_import_dataset.")
+        return "", errors.Wrap(juErr,"json.Unmarshal failed at Import_dataset.")
     }
     if verbose {
-        fmt.Println("Fvs_import_dataset: json resp=", respData, juErr)
+        fmt.Println("Fvs: Import_dataset: json resp=", respData, juErr)
     }
 
     // reconstruct the dataset id
     did, ok := respData["datasetId"].(string)
     if !ok {
-        return "", fmt.Errorf("response map does not have 'datasetId' key in Fvs_import_dataset.")
+        return "", fmt.Errorf("Response map does not have 'datasetId' key in Import_dataset.")
     }
     //TODO:  Check valid GUID format in 'did' string
 
     if verbose {
-        fmt.Println("Fvs_import_dataset : dataset id=",did)
+        fmt.Println("Fvs: Import_dataset : dataset id=",did)
     }
 
     return did, nil
 
 }
 
-func Fvs_train_status( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+func Train_status( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/train/status/%s", host, port, dataset_id)
     if verbose {
-        fmt.Println("Fvs_train_status: url=", url)
+        fmt.Println("Fvs: Train_status: url=", url)
     }
 
     // form a request object
     request, rErr := http.NewRequest("GET", url, nil)
     if rErr != nil {
-        return "error", errors.Wrap(rErr,"http.NewRequest failed in Fvs_train_status.")
+        return "error", errors.Wrap(rErr,"http.NewRequest failed in Fvs Train_status.")
     }
 
     // add headers
@@ -118,32 +118,32 @@ func Fvs_train_status( host string, port uint, allocation_token string, dataset_
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
-    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+    request.Header.Set("User-Agent", "weaviate_gemini_plugin")
 
     // perform the request
     client := &http.Client{}
     response, dErr := client.Do(request)
     if dErr != nil {
-        return "", errors.Wrap(dErr,"client.Do failed in Fvs_train_status")
+        return "", errors.Wrap(dErr,"client.Do failed in Fvs Train_status")
     }
     defer response.Body.Close()
 
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_train_status: response Status:", response.Status)
-        fmt.Println("Fvs_train_status: response Headers:", response.Header)
-        fmt.Println("Fvs_train_status: response Body:", string(respbody))
+        fmt.Println("Fvs: Train_status: response status=", response.Status)
+        fmt.Println("Fvs: Train_status: response headers=", response.Header)
+        fmt.Println("Fvs: Train_status: response body=", string(respbody))
     }
 
     // parse the json response
     respData := map[string]interface{}{}
     juErr := json.Unmarshal( respbody, &respData)
     if juErr != nil {
-        return "", errors.Wrap( juErr, "json.Unmarshal failed in Fvs_train_status.")
+        return "", errors.Wrap( juErr, "json.Unmarshal failed in Fvs Train_status.")
     }
     if verbose {
-        fmt.Println("Fvs_train_status: json resp=", respData, juErr)
+        fmt.Println("Fvs: Train_status: json resp=", respData, juErr)
     }
 
     // check http status
@@ -154,21 +154,21 @@ func Fvs_train_status( host string, port uint, allocation_token string, dataset_
     // reconstruct the queries id returned
     status, ok := respData["datasetStatus"].(string)
     if !ok {
-        return "", fmt.Errorf("response map does not have 'datasetStatus' key in Fvs_train_status.")
+        return "", fmt.Errorf("Response map does not have 'datasetStatus' key in Fvs Train_status.")
     }
     if verbose {
-        fmt.Println("Fvs_train_status: status=",status)
+        fmt.Println("Fvs: Train_status: status=",status)
     }
     // TODO: Should we convert status to an error if it represents an error?
 
     return status, nil
 }
 
-func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string,error) {
+func Load_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string,error) {
     // form the rest url        
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/load", host, port)
     if verbose {
-        fmt.Println("Fvs_load_dataset: url=", url)
+        fmt.Println("Fvs: Load_dataset: url=", url)
     }
 
     // create the post json payload
@@ -187,16 +187,16 @@ func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_
                                 "asyncLoad": false }
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return "", errors.Wrap(err, "json.Marshal failed in Fvs_load_dataset")
+        return "", errors.Wrap(err, "json.Marshal failed in Fvs Load_dataset")
     }
     if verbose {
-        fmt.Println("Fvs_load_dataset: body json=", jsonValue)
+        fmt.Println("Fvs: Load_dataset: body json=", jsonValue)
     }
    
     // form a request object    
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {             
-        return "", errors.Wrap(err, "http.NewRequest failed in Fvs_load_dataset" )
+        return "", errors.Wrap(err, "http.NewRequest failed in Fvs Load_dataset" )
     }
 
     // add headers
@@ -204,48 +204,48 @@ func Fvs_load_dataset( host string, port uint, allocation_token string, dataset_
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
-    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+    request.Header.Set("User-Agent", "weaviate_gemini_plugin")
 
     // perform the request
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return "", errors.Wrap(err, "client.Do failed in Fvs_load_dataset.")
+        return "", errors.Wrap(err, "client.Do failed in Fvs Load_dataset.")
     }
     defer response.Body.Close()
 
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_load_dataset: response Status:", response.Status)
-        fmt.Println("Fvs_load_dataset: response Headers:", response.Header)
-        fmt.Println("Fvs_load_dataset: response Body:", string(respbody))
+        fmt.Println("Fvs: Load_dataset: response status=", response.Status)
+        fmt.Println("Fvs: Load_dataset: response headers=", response.Header)
+        fmt.Println("Fvs: Load_dataset: response body=", string(respbody))
     }
 
     // parse the json response
     respData := map[string]interface{}{}
     rErr := json.Unmarshal( respbody, &respData)
     if rErr != nil {
-        return "", errors.Wrap(rErr, "json.Unmarshal failed at Fvs_load_dataset.")
+        return "", errors.Wrap(rErr, "json.Unmarshal failed at Fvs Load_dataset.")
     }
     if verbose {
-        fmt.Println("Fvs_load_dataset: json resp=", respData, rErr)
+        fmt.Println("Fvs: Load_dataset: json resp=", respData, rErr)
     }
 
     status := respData["status"].(string)
     if verbose {
-        fmt.Println("Fvs_load_dataset: status=",status)
+        fmt.Println("Fvs: Load_dataset: status=",status)
     }
     // TODO: Should a status != "OK" be translated to an error?
  
     return status, nil
 }
 
-func Fvs_import_queries( host string, port uint, allocation_token string, path string, verbose bool ) (string, error) {
+func Import_queries( host string, port uint, allocation_token string, path string, verbose bool ) (string, error) {
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/import", host, port)
     if verbose {
-        fmt.Println("Fvs_import_queries: url=", url)
+        fmt.Println("Fvs: Import_queries: url=", url)
     }
     
     // create the post json payload
@@ -254,16 +254,16 @@ func Fvs_import_queries( host string, port uint, allocation_token string, path s
                                 "queriesFilePath": path}
     jsonValue, jErr := json.Marshal(values)
     if jErr != nil {
-        return "", errors.Wrap(jErr, "json.Marshal failed at Fvs_import_queries." )
+        return "", errors.Wrap(jErr, "json.Marshal failed at Fvs Import_queries." )
     }
     if verbose {
-        fmt.Println("Fvs_import_queries: body json=", jsonValue)
+        fmt.Println("Fvs: Import_queries: body json=", jsonValue)
     }
   
     // form a request object
     request, rErr := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if rErr != nil {
-        return "", errors.Wrap(rErr, "http.NewRequest failed at Fvs_import_queries." )
+        return "", errors.Wrap(rErr, "http.NewRequest failed at Fvs Import_queries." )
     }
 
     // add headers
@@ -271,7 +271,7 @@ func Fvs_import_queries( host string, port uint, allocation_token string, path s
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
-    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+    request.Header.Set("User-Agent", "weaviate_gemini_plugin")
 
     // perform the request
     client := &http.Client{}
@@ -284,9 +284,9 @@ func Fvs_import_queries( host string, port uint, allocation_token string, path s
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_import_queries: response Status:", response.Status)
-        fmt.Println("Fvs_import_queries: response Headers:", response.Header)
-        fmt.Println("Fvs_import_queries: response Body:", string(respbody))
+        fmt.Println("Fvs: Import_queries: response status=", response.Status)
+        fmt.Println("Fvs: Import_queries: response headers=", response.Header)
+        fmt.Println("Fvs: Import_queries: response body=", string(respbody))
     }
 
     // parse the json response
@@ -296,26 +296,26 @@ func Fvs_import_queries( host string, port uint, allocation_token string, path s
         return "", juErr
     }
     if verbose {
-        fmt.Println("Fvs_import_queries: json resp=", respData, rErr)
+        fmt.Println("Fvs: Import_queries: json resp=", respData, rErr)
     }
 
     // reconstruct the queries id returned
     aq := respData["addedQuery"].(map[string]interface{})
     qid := aq["id"].(string)
     if verbose {
-        fmt.Println("Fvs_import_queries : query id=",qid)
+        fmt.Println("Fvs: Import_queries : query id=",qid)
     }
 
     return qid, nil
 
 }
 
-func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id string, verbose bool ) error {
+func Set_focus( host string, port uint, allocation_token string, dataset_id string, verbose bool ) error {
 
    // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/focus", host, port)
     if verbose {
-        fmt.Println("Fvs_set_focust: url=", url)
+        fmt.Println("Fvs: Set_focust: url=", url)
     }
 
     // create the post json payload
@@ -325,16 +325,16 @@ func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id 
                                 "datasetId": dataset_id}
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return errors.Wrap(err,"json.Marshal failed in Fvs_set_focus.")
+        return errors.Wrap(err,"json.Marshal failed in Fvs Set_focus.")
     }
     if verbose {
-        fmt.Println("Fvs_set_focus: body json=", jsonValue)
+        fmt.Println("Fvs: Set_focus: body json=", jsonValue)
     }
   
     // form a request object
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {
-        return errors.Wrap(err,"http.NewRequest failed in Fvs_set_focus.")
+        return errors.Wrap(err,"http.NewRequest failed in Fvs Set_focus.")
     }
 
     // add headers
@@ -342,44 +342,44 @@ func Fvs_set_focus( host string, port uint, allocation_token string, dataset_id 
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
-    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+    request.Header.Set("User-Agent", "weaviate_gemini_plugin")
 
     // perform the request
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return errors.Wrap(err, "client.Do failed in Fvs_set_focus.")
+        return errors.Wrap(err, "client.Do failed in Fvs Set_focus.")
     }
     defer response.Body.Close()
 
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_set_focus: response Status:", response.Status)
-        fmt.Println("Fvs_set_focus: response Headers:", response.Header)
-        fmt.Println("Fvs_set_focus: response Body:", string(respbody))
+        fmt.Println("Fvs: Set_focus: response status=", response.Status)
+        fmt.Println("Fvs: Set_focus: response headers=", response.Header)
+        fmt.Println("Fvs: Set_focus: response body=", string(respbody))
     }
 
     // parse the json response
     respData := map[string]interface{}{}
     rErr := json.Unmarshal( respbody, &respData)
     if rErr != nil {
-        return errors.Wrap(rErr, "json.Unmarshal failed at Fvs_set_focus.")
+        return errors.Wrap(rErr, "json.Unmarshal failed at Fvs Set_focus.")
     }
     if verbose {
-        fmt.Println("Fvs_set_focus: json resp=", respData, rErr)
+        fmt.Println("Fvs: Set_focus: json resp=", respData, rErr)
     }
 
     return nil
 
 }
 
-func Fvs_search( host string, port uint, allocation_token string, dataset_id string, path string, topk uint, verbose bool) ([][]float32, [][]uint64, float32, error) {
+func Search( host string, port uint, allocation_token string, dataset_id string, path string, topk uint, verbose bool) ([][]float32, [][]uint64, float32, error) {
 
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/search", host, port)
     if verbose {
-        fmt.Println("Fvs_search: url=", url)
+        fmt.Println("Fvs: Search: url=", url)
     }
    
     // compose the post body
@@ -391,16 +391,16 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
                                 "topk": 10 }
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return nil, nil, 0, errors.Wrap( err, "json.Marhal failed at Fvs_search.")
+        return nil, nil, 0, errors.Wrap( err, "json.Marhal failed at Fvs Search.")
     }
     if verbose {
-        fmt.Println("Fvs_search: body json=", jsonValue)
+        fmt.Println("Fvs: Search: body json=", jsonValue)
     }
 
     // form a request object
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {
-        return nil, nil, 0, errors.Wrap( err, "http.NewRequest failed at Fvs_search.")
+        return nil, nil, 0, errors.Wrap( err, "http.NewRequest failed at Fvs Search.")
     }
 
     // add headers
@@ -408,22 +408,22 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
-    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+    request.Header.Set("User-Agent", "weaviate_gemini_plugin")
 
     // perform the request
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return nil, nil, 0, errors.Wrap(err,"client.Do failed in Fvs_search.")
+        return nil, nil, 0, errors.Wrap(err,"client.Do failed in Fvs Search.")
     }
     defer response.Body.Close()
 
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_search: response Status:", response.Status)
-        fmt.Println("Fvs_search: response Headers:", response.Header)
-        fmt.Println("Fvs_search: response Body:", string(respbody))
+        fmt.Println("Fvs: Search: response status=", response.Status)
+        fmt.Println("Fvs: Search: response headers=", response.Header)
+        fmt.Println("Fvs: Search: response body=", string(respbody))
     }
 
     // check http status
@@ -435,10 +435,10 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
     respData := map[string]interface{}{}
     rErr := json.Unmarshal( respbody, &respData)
     if rErr != nil {
-        return nil, nil, 0, errors.Wrap(rErr,"json.Unmarshal failed at Fvs_search.")
+        return nil, nil, 0, errors.Wrap(rErr,"json.Unmarshal failed at Fvs Search.")
     }
     if verbose {
-        fmt.Println("Fvs_search: json resp=", respData, rErr)
+        fmt.Println("Fvs: Search: json resp=", respData, rErr)
     }
    
     //goruntime.Breakpoint()
@@ -446,7 +446,7 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
     // reconstruct the distances returned
     dist, ok := respData["distance"].([]interface{})
     if !ok {
-        return nil, nil, 0, fmt.Errorf("response map does not have 'distance' key in Fvs_search.")
+        return nil, nil, 0, fmt.Errorf("Response map does not have 'distance' key in Fvs Search.")
     }
     farr := make([][]float32, len(dist))
     for i:=0 ;i<len(dist);i++ {
@@ -473,13 +473,13 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         }
     }
     if verbose {
-        fmt.Println("Fvs_search: reconstructed dists=", farr )
+        fmt.Println("Fvs: Search: reconstructed dists=", farr )
     }
 
     // reconstruct the indices returned
     inds, ok := respData["indices"].([]interface{})
     if !ok {
-        return nil, nil, 0, fmt.Errorf("response map does not have 'indices' key in Fvs_search.")
+        return nil, nil, 0, fmt.Errorf("Response map does not have 'indices' key in Fvs Search.")
     }
     iarr := make([][]uint64, len(inds))
     for i:=0 ;i<len(inds);i++ {
@@ -490,30 +490,30 @@ func Fvs_search( host string, port uint, allocation_token string, dataset_id str
         }                       
     } 
     if verbose {
-        fmt.Println("Fvs_search: reconstructed inds=", iarr )
+        fmt.Println("Fvs: Search: reconstructed inds=", iarr )
     }
 
     // reconstruct the timing
     timing64, ok := respData["search"].(float64)
     timing := float32(timing64)
     if !ok {
-        return nil, nil, 0, fmt.Errorf("response map does not have 'timing' key in Fvs_search.")
+        return nil, nil, 0, fmt.Errorf("Response map does not have 'timing' key in Fvs Search.")
     }
     if verbose {
-        fmt.Println("Fvs_search: reconstructed timing=", timing )
+        fmt.Println("Fvs: Search: reconstructed timing=", timing )
     }
 
     return farr, iarr, timing, nil
 }
 
-func Fvs_delete_queries( host string, port uint, allocation_token string, qid string, verbose bool) (string, error) {
+func Delete_queries( host string, port uint, allocation_token string, qid string, verbose bool) (string, error) {
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/remove/%s", host, port, qid)
    
     // form a request object
     request, err := http.NewRequest("DELETE", url, nil)
     if err!=nil {
-        return "", errors.Wrap( err, "http.NewRequest failed at Fvs_delete_queries." )
+        return "", errors.Wrap( err, "http.NewRequest failed at Fvs Delete_queries." )
     }
 
     // add headers
@@ -532,9 +532,9 @@ func Fvs_delete_queries( host string, port uint, allocation_token string, qid st
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_delete_queries: response Status:", response.Status)
-        fmt.Println("Fvs_delete_queries: response Headers:", response.Header)
-        fmt.Println("Fvs_delete_queries: response Body:", string(respbody))
+        fmt.Println("Fvs: Delete_queries: response status=", response.Status)
+        fmt.Println("Fvs: Delete_queries: response headers=", response.Header)
+        fmt.Println("Fvs: Delete_queries: response body=", string(respbody))
     }
 
     // parse the json response
@@ -544,24 +544,24 @@ func Fvs_delete_queries( host string, port uint, allocation_token string, qid st
         return "", rErr
     }
     if verbose {
-        fmt.Println("Fvs_delete_queries: json resp=", respData, rErr)
+        fmt.Println("Fvs: Delete_queries: json resp=", respData, rErr)
     }
 
     // TODO:  Not sure what the response is all about
     //status := respData["status"].(string)
     //if verbose {
-    //    fmt.Println("Fvs_delete_queries: status=",status)
+    //    fmt.Println("Fvs: Delete_queries: status=",status)
     //}
 
     return "ok", nil
 }
 
-func Fvs_unload_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+func Unload_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
 
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/unload", host, port)
     if verbose {
-        fmt.Println("Fvs_unload_dataset: url=", url)
+        fmt.Println("Fvs: Unload_dataset: url=", url)
     }
     
     // create the post json payload
@@ -572,16 +572,16 @@ func Fvs_unload_dataset( host string, port uint, allocation_token string, datase
                                 "asyncUnload": false }
     jsonValue, err := json.Marshal(values)
     if err != nil {
-        return "", errors.Wrap( err, "json.Marshal failed at Fvs_unload_dataset." )
+        return "", errors.Wrap( err, "json.Marshal failed at Fvs Unload_dataset." )
     }
     if verbose {
-        fmt.Println("Fvs_unload_dataset: body json=", jsonValue)
+        fmt.Println("Fvs: Unload_dataset: body json=", jsonValue)
     }
   
     // form a request object
     request, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonValue))
     if err != nil {
-        return "", errors.Wrap( err, "http.NewRequest failed at Fvs_unload_dataset." )
+        return "", errors.Wrap( err, "http.NewRequest failed at Fvs Unload_dataset." )
     }
 
     // add headers
@@ -589,22 +589,22 @@ func Fvs_unload_dataset( host string, port uint, allocation_token string, datase
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
-    request.Header.Set("User-Agent", "Swagger-Codegen/1.0.0/python")
+    request.Header.Set("User-Agent", "weaviate_gemini_plugin")
 
     // perform the request
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return "", errors.Wrap( err, "client.Do failed in Fvs_unload_dataset.")
+        return "", errors.Wrap( err, "client.Do failed in Fvs Unload_dataset.")
     }
     defer response.Body.Close()
 
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_unload_dataset: response Status:", response.Status)
-        fmt.Println("Fvs_unload_dataset: response Headers:", response.Header)
-        fmt.Println("Fvs_unload_dataset: response Body:", string(respbody))
+        fmt.Println("Fvs: Unload_dataset: response status=", response.Status)
+        fmt.Println("Fvs: Unload_dataset: response headers=", response.Header)
+        fmt.Println("Fvs: Unload_dataset: response body=", string(respbody))
     }
 
     // parse the json response
@@ -614,12 +614,12 @@ func Fvs_unload_dataset( host string, port uint, allocation_token string, datase
         return "", rErr
     }
     if verbose {
-        fmt.Println("Fvs_unload_dataset: json resp=", respData, rErr)
+        fmt.Println("Fvs: Unload_dataset: json resp=", respData, rErr)
     }
 
     status := respData["status"].(string)
     if verbose {
-        fmt.Println("Fvs_unload_dataset: status=",status)
+        fmt.Println("Fvs: Unload_dataset: status=",status)
     }
 
     return status, nil
@@ -627,7 +627,7 @@ func Fvs_unload_dataset( host string, port uint, allocation_token string, datase
 
 }
 
-func Fvs_delete_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+func Delete_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/remove/%s", host, port, dataset_id)
   
@@ -646,16 +646,16 @@ func Fvs_delete_dataset( host string, port uint, allocation_token string, datase
     client := &http.Client{}
     response, err := client.Do(request)
     if err != nil {
-        return "", errors.Wrap( err, "client.Do failed in Fvs_delete_dataset." )
+        return "", errors.Wrap( err, "client.Do failed in Fvs Delete_dataset." )
     }
     defer response.Body.Close()
 
     // retrieve response
     respbody, _ := ioutil.ReadAll(response.Body)
     if verbose {
-        fmt.Println("Fvs_delete_dataset: response Status:", response.Status)
-        fmt.Println("Fvs_delete_dataset: response Headers:", response.Header)
-        fmt.Println("Fvs_delete_dataset: response Body:", string(respbody))
+        fmt.Println("Fvs: Delete_dataset: response status=", response.Status)
+        fmt.Println("Fvs: Delete_dataset: response headers=", response.Header)
+        fmt.Println("Fvs: Delete_dataset: response body=", string(respbody))
     }
 
     // parse the json response
@@ -665,12 +665,12 @@ func Fvs_delete_dataset( host string, port uint, allocation_token string, datase
         return "", rErr
     }
     if verbose {
-        fmt.Println("Fvs_delete_dataset: json resp=", respData, rErr)
+        fmt.Println("Fvs: Delete_dataset: json resp=", respData, rErr)
     }
 
     status := respData["status"].(string)
     if verbose {
-        fmt.Println("Fvs_delete_dataset: status=",status)
+        fmt.Println("Fvs: Delete_dataset: status=",status)
     }
 
     return status, nil
