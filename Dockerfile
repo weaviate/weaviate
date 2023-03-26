@@ -10,15 +10,9 @@ RUN apk add bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
-#COPY go.mod .
-#COPY go.sum .
-#GW
-#RUN pwd && echo "hello"
-#RUN ls -als
-#RUN go mod edit -replace example.com/gemini=/go/src/github.com/weaviate/gsi/gemini
-#RUN go mod tidy
-#GW
-#RUN go mod download
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
 
 ###############################################################################
 # This image builds the weaviate server
@@ -27,17 +21,6 @@ ARG TARGETARCH
 ARG GITHASH="unknown"
 ARG EXTRA_BUILD_ARGS=""
 COPY . .
-#GW
-COPY go.mod.docker go.mod
-RUN pwd
-#RUN ls /go/src/github.com/weaviate
-RUN ls /go/src/github.com/weaviate/weaviate
-#RUN pwd && echo "hello"
-#RUN ls -als
-#WORKS - RUN go mod edit -replace example.com/gemini=/go/src/github.com/weaviate/weaviate/gsi/gemini
-RUN go mod edit -replace example.com/gemini=./gsi/gemini
-RUN go mod tidy
-#GW
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' \
       -o /weaviate-server ./cmd/weaviate-server
@@ -55,4 +38,4 @@ ENTRYPOINT ["/bin/weaviate"]
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN apk add --no-cache --upgrade ca-certificates openssl
 RUN mkdir ./modules
-CMD [ "--host", "0.0.0.0", "--port", "8081", "--scheme", "http"]
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
