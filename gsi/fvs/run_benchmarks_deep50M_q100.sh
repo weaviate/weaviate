@@ -8,7 +8,7 @@
 OUTPUT="results/benchmarks-deep50M-q100.csv"
 
 # Set a valid allocation id
-ALLOCATION_ID= "fd283b38-3e4a-11eb-a205-7085c2c5e516" #"0b391a1a-b916-11ed-afcb-0242ac1c0002"
+ALLOCATION_ID="fd283b38-3e4a-11eb-a205-7085c2c5e516" #"0b391a1a-b916-11ed-afcb-0242ac1c0002"
 
 # Path to dataset numpy file
 DATASET="/mnt/nas1/fvs_benchmark_datasets/deep-50M.npy"
