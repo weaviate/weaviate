@@ -8,7 +8,7 @@ set -e
 set -x
 
 GOPATH="$HOME/go"
-GOROOT=/usr/local/bin/go
+GOROOT=/usr/local/bin
 export PATH=$GOPATH:$GOROOT/bin:$PATH 
 
 cd .. && go build -o ./weaviate-server -modfile=gsi/go.mod ./cmd/weaviate-server/main.go

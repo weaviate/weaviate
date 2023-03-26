@@ -33,7 +33,7 @@ services:
       GEMINI_DEBUG: 'false'
       GEMINI_MIN_RECORDS_CHECK: 'false'
   t2v-transformers:
-    image: semitechnologies/transformers-inference:sentence-transformers-msmarco-distilroberta-base-v2
+    image: gsi/t2v #semitechnologies/transformers-inference:sentence-transformers-msmarco-distilroberta-base-v2
 #    network_mode: host
     ports:
      - "8080:8080"
