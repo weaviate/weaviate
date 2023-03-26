@@ -808,33 +808,49 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 	cap := perShardLimit * int64(len(shardNames))
 
+	shardResultLock := sync.Mutex{}
 	outObjects := make([]*storobj.Object, 0, cap)
 	outScores := make([]float32, 0, cap)
+	eg := errgroup.Group{}
 
 	for _, shardName := range shardNames {
-		local := i.getSchema.
-			ShardingState(i.Config.ClassName.String()).
-			IsShardLocal(shardName)
+		shardName := shardName
 
-		var objs []*storobj.Object
-		var scores []float32
-		var err error
+		eg.Go(func() error {
+			local := i.getSchema.
+				ShardingState(i.Config.ClassName.String()).
+				IsShardLocal(shardName)
 
-		if local {
-			shard := i.Shards[shardName]
-			objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
+			var objs []*storobj.Object
+			var scores []float32
+			var err error
+
+			if local {
+				shard := i.Shards[shardName]
+				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
+				if err != nil {
+					return errors.Wrapf(err, "shard %s", shard.ID())
+				}
+			} else {
+				objs, scores, err = i.remote.SearchShard(
+					ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, additional)
+				if err != nil {
+					return errors.Wrapf(err, "remote shard %s", shardName)
+				}
 			}
-		} else {
-			objs, scores, err = i.remote.SearchShard(
-				ctx, shardName, nil, limit, filters, keywordRanking, sort, cursor, additional)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
-			}
-		}
-		outObjects = append(outObjects, objs...)
-		outScores = append(outScores, scores...)
+
+			shardResultLock.Lock()
+			outObjects = append(outObjects, objs...)
+			outScores = append(outScores, scores...)
+			shardResultLock.Unlock()
+
+			return nil
+		})
+
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
 	}
 
 	if len(outObjects) == len(outScores) {
