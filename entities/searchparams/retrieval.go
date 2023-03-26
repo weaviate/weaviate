@@ -25,6 +25,17 @@ type KeywordRanking struct {
 	AdditionalExplanations bool     `json:"additionalExplanations"`
 }
 
+func (kr KeywordRanking) Clone() KeywordRanking {
+	out := KeywordRanking{
+		Type:                   kr.Type,
+		Query:                  kr.Query,
+		AdditionalExplanations: kr.AdditionalExplanations,
+	}
+	out.Properties = make([]string, len(kr.Properties))
+	copy(out.Properties, kr.Properties)
+	return out
+}
+
 type WeightedSearchResult struct {
 	SearchParams interface{} `json:"searchParams"`
 	Weight       float64     `json:"weight"`
