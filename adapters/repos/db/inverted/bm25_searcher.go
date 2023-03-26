@@ -79,10 +79,14 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 }
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int,
-	keywordRanking *searchparams.KeywordRanking,
+	keywordRankingOriginal *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
+	// The callstack below can modify the keyword params, we need to act on a
+	// copy otherwise we risk a race condition.
+	keywordRanking := keywordRankingOriginal.Clone()
+
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
 		if !schema.PropertyIsIndexed(b.schema.Objects, string(className), property) {
@@ -104,13 +108,17 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 
 // Objects returns a list of full objects
 func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowList, limit int,
-	keywordRanking *searchparams.KeywordRanking,
+	keywordRankingOriginal *searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, []float32, error) {
-	if keywordRanking == nil {
+	if keywordRankingOriginal == nil {
 		return nil, nil, errors.New("keyword ranking cannot be nil in bm25 search")
 	}
+
+	// The callstack below can modify the keyword params, we need to act on a
+	// copy otherwise we risk a race condition.
+	keywordRanking := keywordRankingOriginal.Clone()
 
 	class, err := schema.GetClassByName(b.schema.Objects, string(className))
 	if err != nil {
@@ -132,7 +140,7 @@ func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowLi
 }
 
 func (b *BM25Searcher) wand(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params *searchparams.KeywordRanking, limit int,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
