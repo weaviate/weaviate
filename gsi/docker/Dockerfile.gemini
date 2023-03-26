@@ -20,10 +20,6 @@ COPY . .
 # Overwrite go.mod with gsi specific one
 COPY gsi/go.mod .
 COPY gsi/go.sum .
-#WORKS - RUN go mod edit -replace example.com/gemini=/go/src/github.com/weaviate/weaviate/gsi/gemini
-#RUN go mod edit -replace example.com/gemini=./gsi/gemini
-#RUN go mod tidy
-#GW
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' \
       -o /weaviate-server ./cmd/weaviate-server
