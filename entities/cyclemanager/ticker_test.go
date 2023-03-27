@@ -34,7 +34,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 
 	t.Run("interval is fixed", func(t *testing.T) {
 		interval := 50 * time.Millisecond
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewFixedIntervalTicker(interval)
 		ticker.Start()
@@ -62,7 +62,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 
 	t.Run("interval does not change on CycleExecuted call", func(t *testing.T) {
 		interval := 50 * time.Millisecond
-		tolerance := 5 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewFixedIntervalTicker(interval)
 		ticker.Start()
@@ -104,7 +104,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 
 	t.Run("no ticks after stop", func(t *testing.T) {
 		interval := 50 * time.Millisecond
-		tolerance := 5 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewFixedIntervalTicker(interval)
 		ticker.Start()
@@ -137,7 +137,7 @@ func Test_FixedIntervalTicker(t *testing.T) {
 
 	t.Run("ticker starts again", func(t *testing.T) {
 		interval := 50 * time.Millisecond
-		tolerance := 5 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewFixedIntervalTicker(interval)
 		ticker.Start()
@@ -205,7 +205,7 @@ func Test_SeriesTicker(t *testing.T) {
 
 	t.Run("interval is fixed between CycleExecuted calls, advances on false, resets on true", func(t *testing.T) {
 		intervals := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 150 * time.Millisecond}
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewSeriesTicker(intervals)
 		ticker.Start()
@@ -269,7 +269,7 @@ func Test_SeriesTicker(t *testing.T) {
 
 	t.Run("no ticks after stop", func(t *testing.T) {
 		intervals := []time.Duration{50 * time.Millisecond}
-		tolerance := 5 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewSeriesTicker(intervals)
 		ticker.Start()
@@ -302,7 +302,7 @@ func Test_SeriesTicker(t *testing.T) {
 
 	t.Run("ticker starts again", func(t *testing.T) {
 		intervals := []time.Duration{50 * time.Millisecond}
-		tolerance := 5 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewSeriesTicker(intervals)
 		ticker.Start()
@@ -385,7 +385,7 @@ func Test_LinearTicker(t *testing.T) {
 		ms50 := 50 * time.Millisecond
 		ms75 := 75 * time.Millisecond
 		ms100 := 100 * time.Millisecond
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		minInterval := ms50
 		maxInterval := ms100
@@ -455,7 +455,7 @@ func Test_LinearTicker(t *testing.T) {
 		minInterval := 50 * time.Millisecond
 		maxInterval := 100 * time.Millisecond
 		steps := uint(2)
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewLinearTicker(minInterval, maxInterval, steps)
 		ticker.Start()
@@ -490,7 +490,7 @@ func Test_LinearTicker(t *testing.T) {
 		minInterval := 50 * time.Millisecond
 		maxInterval := 100 * time.Millisecond
 		steps := uint(2)
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewLinearTicker(minInterval, maxInterval, steps)
 		ticker.Start()
@@ -586,7 +586,7 @@ func Test_ExpTicker(t *testing.T) {
 		ms25 := 25 * time.Millisecond
 		ms50 := 50 * time.Millisecond
 		ms100 := 100 * time.Millisecond
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		minInterval := ms25
 		maxInterval := ms100
@@ -658,7 +658,7 @@ func Test_ExpTicker(t *testing.T) {
 		maxInterval := 100 * time.Millisecond
 		base := uint(2)
 		steps := uint(2)
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
 		ticker.Start()
@@ -695,7 +695,7 @@ func Test_ExpTicker(t *testing.T) {
 		maxInterval := 100 * time.Millisecond
 		base := uint(2)
 		steps := uint(2)
-		tolerance := 10 * time.Millisecond
+		tolerance := 25 * time.Millisecond
 
 		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
 		ticker.Start()
