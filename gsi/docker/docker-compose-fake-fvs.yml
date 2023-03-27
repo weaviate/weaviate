@@ -10,7 +10,6 @@ services:
     - --scheme
     - http
     image: gsi/weaviate
-#    network_mode: host
     ports:
     - 8081:8081
     volumes:
@@ -24,7 +23,6 @@ services:
       DEFAULT_VECTORIZER_MODULE: 'text2vec-transformers'
       ENABLE_MODULES: 'text2vec-transformers'
       TRANSFORMERS_INFERENCE_API: 'http://t2v-transformers:8080'
-      #TRANSFORMERS_INFERENCE_API: 'http://localhost:8080'
       CLUSTER_HOSTNAME: 'node1'
       DEFAULT_VECTOR_INDEX_TYPE: 'gemini'
       GEMINI_ALLOCATION_ID: '0b391a1a-b916-11ed-afcb-0242ac1c0002'
@@ -34,12 +32,10 @@ services:
       GEMINI_MIN_RECORDS_CHECK: 'false'
   t2v-transformers:
     image: gsi/t2v #semitechnologies/transformers-inference:sentence-transformers-msmarco-distilroberta-base-v2
-#    network_mode: host
     ports:
      - "8080:8080"
     environment:
-      ENABLE_CUDA: 0 # set to 1 to enable
-      # NVIDIA_VISIBLE_DEVICES: all # enable if running with CUDA 
+      ENABLE_CUDA: 0 
   fake_fvs:
     image: gsi/fake_fvs
     ports:
