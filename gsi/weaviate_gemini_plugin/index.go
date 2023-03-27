@@ -69,76 +69,6 @@ type Gemini struct{
 
 }
 
-/*
-func New(cfg Config, uc ent.UserConfig) (*gemini, error) {
-
-    if err := cfg.Validate(); err != nil {
-        return nil, errors.Wrap(err, "invalid config")
-    }
-
-    if cfg.Logger == nil {
-        logger := logrus.New()
-        logger.Out = io.Discard
-        cfg.Logger = logger
-    }
-
-    normalizeOnRead := false
-    if cfg.DistanceProvider.Type() == "cosine-dot" {
-        normalizeOnRead = true
-    }
-
-    vectorCache := newShardedLockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-        cfg.Logger, normalizeOnRead, defaultDeletionInterval)
-
-    resetCtx, resetCtxCancel := context.WithCancel(context.Background())
-    index := &hnsw{
-        maximumConnections: uc.MaxConnections,
-
-        // inspired by original paper and other implementations
-        maximumConnectionsLayerZero: 2 * uc.MaxConnections,
-
-        // inspired by c++ implementation
-        levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
-        efConstruction:    uc.EFConstruction,
-        flatSearchCutoff:  int64(uc.FlatSearchCutoff),
-        nodes:             make([]*vertex, initialSize),
-        cache:             vectorCache,
-        vectorForID:       vectorCache.get,
-        multiVectorForID:  vectorCache.multiGet,
-        id:                cfg.ID,
-        rootPath:          cfg.RootPath,
-        tombstones:        map[uint64]struct{}{},
-        logger:            cfg.Logger,
-        distancerProvider: cfg.DistanceProvider,
-        deleteLock:        &sync.Mutex{},
-        tombstoneLock:     &sync.RWMutex{},
-        resetLock:         &sync.Mutex{},
-        resetCtx:          resetCtx,
-        resetCtxCancel:    resetCtxCancel,
-        initialInsertOnce: &sync.Once{},
-        cleanupInterval:   time.Duration(uc.CleanupIntervalSeconds) * time.Second,
-
-        ef:       int64(uc.EF),
-        efMin:    int64(uc.DynamicEFMin),
-        efMax:    int64(uc.DynamicEFMax),
-        efFactor: int64(uc.DynamicEFFactor),
-
-        metrics: NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
-
-        randFunc: rand.Float64,
-    }
-
-    index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
-    index.insertMetrics = newInsertMetrics(index.metrics)
-
-    if err := index.init(cfg); err != nil {
-        return nil, errors.Wrapf(err, "init index %q", index.id)
-    }
-
-    return index, nil
-}
-*/
-
 func New() (*Gemini, error) {
 
     // get special verbose/debug flag if present 
@@ -154,7 +84,8 @@ func New() (*Gemini, error) {
         fmt.Println("ERROR: Could not find GEMINI_ALLOCATION_ID env var.") 
         return nil, fmt.Errorf("Could not find GEMINI_ALLOCATION_ID env var." )
     }
-    //TODO: Check valid GUID format 
+
+    //TODO: Check valid allocation id (GUID) format 
     
     // a valid gemini_fvs_server is required
     fvs_server := os.Getenv("GEMINI_FVS_SERVER")
@@ -162,6 +93,7 @@ func New() (*Gemini, error) {
         fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
         return nil, fmt.Errorf("Could not find GEMINI_FVS_SERVER env var." )
     }
+
     //TODO: Validate the server connection here
 
     // a valid data_dir is required for gemini files
