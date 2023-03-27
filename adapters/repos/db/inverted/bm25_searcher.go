@@ -16,9 +16,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
-
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -196,15 +195,15 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 	lengthAllResults := textLength + stringLength + fullQueryLength
 	results := make([]termHeap, lengthAllResults)
 
-	//var eg errgroup.Group
+	// var eg errgroup.Group
 	if len(propertyNamesText) > 0 {
 		for i := range queryTextTerms {
 			queryTerm := queryTextTerms[i]
 			j := i
-			//eg.Go(func() error {
+			// eg.Go(func() error {
 			termResult, err := b.createTermHeap(b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j], params.AdditionalExplanations)
 			if err != nil {
-				//return err
+				// return err
 			} else {
 				results[j] = termResult
 			}
@@ -219,10 +218,10 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 			ind := i
 			j := ind + textLength
 
-			//eg.Go(func() error {
+			// eg.Go(func() error {
 			termResult, err := b.createTermHeap(b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind], params.AdditionalExplanations)
 			if err != nil {
-				//return err
+				// return err
 			} else {
 				results[j] = termResult
 			}
@@ -233,10 +232,10 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 
 	if len(propertyNamesFullQuery) > 0 {
 		lengthPreviousResults := stringLength + textLength
-		//eg.Go(func() error {
+		// eg.Go(func() error {
 		termResult, err := b.createTermHeap(b.config, averagePropLength, N, filterDocIds, params.Query, propertyNamesFullQuery, propertyBoosts, 1, params.AdditionalExplanations)
 		if err != nil {
-			//return err
+			// return err
 		} else {
 			results[lengthPreviousResults] = termResult
 		}
@@ -275,10 +274,10 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 
 	for {
 
-		//threshHold := lowestScore / float32(len(results))
+		// threshHold := lowestScore / float32(len(results))
 		// find the heap with the largest score
 		maxScore := float64(-100000000000)
-		//maxFreq := -10000000
+		// maxFreq := -10000000
 
 		maxScoreIndex := -1
 		for i, val := range results {
@@ -311,7 +310,6 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 			object.Object.Additional["score"] = float32(item.Score)
 			if params.AdditionalExplanations {
 				// add score explanation
-
 			}
 
 			candidates[item.id] = object
@@ -360,7 +358,7 @@ func (b *BM25Searcher) scoreHeap(ctx context.Context, filterDocIds helpers.Allow
 		objects = objects[:limit]
 	}
 
-	//Sort the objects by score
+	// Sort the objects by score
 	sort.Slice(objects, func(i, j int) bool {
 		return objects[i].Object.Additional["score"].(float32) < objects[j].Object.Additional["score"].(float32)
 	})
@@ -377,9 +375,7 @@ func (b *BM25Searcher) createTermHeap(config schema.BM25Config, averagePropLengt
 	termResult := termHeap{queryTerm: query}
 
 	docMapPairsHeap := NewHeap[*docPointerWithScore](func(a, b *docPointerWithScore) bool {
-
 		return a.id < b.id
-
 	})
 	for _, propName := range propertyNames {
 		propBoost := propertyBoosts[propName]
@@ -402,7 +398,6 @@ func (b *BM25Searcher) createTermHeap(config schema.BM25Config, averagePropLengt
 				}
 				docMapPairsHeap.Push(dmp)
 			}
-
 		})
 
 	}
@@ -545,15 +540,15 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 
 	ar := arena.NewArena()
 
-	//var eg errgroup.Group
+	// var eg errgroup.Group
 	if len(propertyNamesText) > 0 {
 		for i := range queryTextTerms {
 			queryTerm := queryTextTerms[i]
 			j := i
-			//eg.Go(func() error {
+			// eg.Go(func() error {
 			termResult, err := b.createTermMaps(ar, b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j], params.AdditionalExplanations)
 			if err != nil {
-				//return err
+				// return err
 			} else {
 				results[j] = termResult
 			}
@@ -568,10 +563,10 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 			ind := i
 			j := ind + textLength
 
-			//eg.Go(func() error {
+			// eg.Go(func() error {
 			termResult, err := b.createTermMaps(ar, b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind], params.AdditionalExplanations)
 			if err != nil {
-				//return err
+				// return err
 			} else {
 				results[j] = termResult
 			}
@@ -582,10 +577,10 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 
 	if len(propertyNamesFullQuery) > 0 {
 		lengthPreviousResults := stringLength + textLength
-		//eg.Go(func() error {
+		// eg.Go(func() error {
 		termResult, err := b.createTermMaps(ar, b.config, averagePropLength, N, filterDocIds, params.Query, propertyNamesFullQuery, propertyBoosts, 1, params.AdditionalExplanations)
 		if err != nil {
-			//return err
+			// return err
 		} else {
 			results[lengthPreviousResults] = termResult
 		}
@@ -609,14 +604,13 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 	})
 
 	finalCandidates := NewCustomMapWithArena(ar, 10000000)
-	//Iterate over all results, merge them into finalCandidates, and add them to the heap
+	// Iterate over all results, merge them into finalCandidates, and add them to the heap
 	for _, termResult := range results {
 		resMap := termResult.data
 
 		resMap.ForEach(func(docId uint64, docPointer *docPointerWithScore) bool {
 			if old_dp, ok := finalCandidates.Get(docId); !ok {
 				finalCandidates.Set(docId, docPointer)
-
 			} else {
 				old_dp.Score += docPointer.Score
 				finalCandidates.Set(docId, old_dp)
@@ -634,7 +628,6 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 
 	defer func() {
 		go finalCandidates.Free()
-		
 	}()
 
 	// create the final results
@@ -661,9 +654,9 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config, averagePropLength float64, N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (termMap, error) {
 	termResult := termMap{queryTerm: query}
 
-	//docMapPairsMap := NewGoMap[uint64, *docPointerWithScore](10000)
+	// docMapPairsMap := NewGoMap[uint64, *docPointerWithScore](10000)
 	docMapPairsMap := NewCustomMapWithArena(ar, 1000000)
-	docMapPairsArray := arena.MakeSlice[docPointerWithScore](ar, 0, 1000000) //make([]docPointerWithScore, 0, 1000000)
+	docMapPairsArray := arena.MakeSlice[docPointerWithScore](ar, 0, 1000000) // make([]docPointerWithScore, 0, 1000000)
 
 	for _, propName := range propertyNames {
 		propBoost := propertyBoosts[propName]
@@ -672,8 +665,10 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 		if bucket == nil {
 			return termResult, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		
-		bucket.MapListWithCallback([]byte(query), func(val lsmkv.MapPair) {
+
+		kps, _ := bucket.MapList([]byte(query))
+		// bucket.MapListWithCallback([]byte(query), func(val lsmkv.MapPair) {
+		for _, val := range kps {
 			docID := binary.BigEndian.Uint64(val.Key)
 			if filterDocIds == nil || filterDocIds.Contains(docID) {
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
@@ -694,7 +689,7 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 				}
 			}
 
-		})
+		} //)
 
 	}
 
@@ -704,7 +699,6 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 
 	for i, item := range docMapPairsArray {
 		docMapPairsArray[i].Score = calcScore(config, averagePropLength, &item, termResult.idf)
-
 	}
 
 	termResult.data = docMapPairsMap
@@ -714,7 +708,6 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 }
 
 func calcScore(config schema.BM25Config, averagePropLength float64, item *docPointerWithScore, idf float64) float64 {
-
 	freq := float64(item.frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(item.propLength)/averagePropLength))
 	score := idf * tf

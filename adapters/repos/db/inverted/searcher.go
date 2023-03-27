@@ -662,5 +662,5 @@ type docPointerWithScore struct {
 	id         uint64
 	frequency  float32
 	propLength float32
-	Score 	float64
+	Score      float64
 }

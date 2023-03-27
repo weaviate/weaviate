@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package inverted
 
 // Functions and data structures to support different methods in caclulating BM25 scores
@@ -5,13 +16,12 @@ package inverted
 // The current wand implementation is a hybrid approach, this file supports using heaps or maps for storing and processing the results
 
 import (
-	 "arena"
-	 "golang.org/x/exp/constraints"
+	"arena"
+
+	"golang.org/x/exp/constraints"
 )
 
-
 // Heap implementation, using types rather than interfaces to avoid the overhead of interface calls
-
 
 type PropertyHeaps struct {
 	MapPairs *Heap[*docPointerWithScore]
@@ -33,7 +43,6 @@ type termHeap struct {
 	UniqueCount int
 }
 
-
 // Using generics or types
 
 // First version wraps go's built in map type, as a comparison
@@ -53,9 +62,6 @@ type termMap struct {
 	propCounts  map[string]int
 	UniqueCount int
 }
-
-
-
 
 type hashable interface {
 	constraints.Integer | constraints.Float | constraints.Complex | ~string | uintptr
@@ -124,7 +130,6 @@ type CustomMap struct {
 
 // New returns a new HashMap instance with an optional specific initialization size
 func NewCustomMap(size uintptr) *CustomMap {
-
 	m := &CustomMap{}
 	m.arena = arena.NewArena()
 	m.Data = arena.MakeSlice[*Pair](m.arena, int(size), int(size))
@@ -134,8 +139,7 @@ func NewCustomMap(size uintptr) *CustomMap {
 }
 
 // New returns a new HashMap instance with an optional specific initialization size
-func NewCustomMapWithArena(ar *arena.Arena,size uintptr) *CustomMap {
-
+func NewCustomMapWithArena(ar *arena.Arena, size uintptr) *CustomMap {
 	m := &CustomMap{}
 	m.arena = ar
 	m.Data = arena.MakeSlice[*Pair](m.arena, int(size), int(size))
@@ -143,7 +147,6 @@ func NewCustomMapWithArena(ar *arena.Arena,size uintptr) *CustomMap {
 
 	return m
 }
-
 
 func (m *CustomMap) Free() {
 	m.arena.Free()
@@ -167,7 +170,7 @@ func (m *CustomMap) ForEach(lambda func(uint64, *docPointerWithScore) bool) {
 func (m *CustomMap) Set(key uint64, value *docPointerWithScore) {
 	index := key % uint64(m.numBuckets)
 
-	//Attempt to find the key in the bucket, and overwrite it if it exists.  If it doesn't exist, append it to the bucket
+	// Attempt to find the key in the bucket, and overwrite it if it exists.  If it doesn't exist, append it to the bucket
 	bucket := m.Data[index]
 	item := arena.New[docIdPointer](m.arena)
 	item.id = key

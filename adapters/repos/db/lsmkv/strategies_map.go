@@ -256,8 +256,7 @@ func (kvs MapPairs) Len() int {
 }
 
 func (kvs MapPairs) Less(i, j int) bool {
-	return binary.BigEndian.Uint64(kvs[i].Key)<binary.BigEndian.Uint64(kvs[i].Key)
-
+	return binary.BigEndian.Uint64(kvs[i].Key) < binary.BigEndian.Uint64(kvs[i].Key)
 }
 
 func (kvs MapPairs) Swap(i, j int) {
