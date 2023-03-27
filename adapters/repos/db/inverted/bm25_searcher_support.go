@@ -132,6 +132,19 @@ func NewCustomMap(size uintptr) *CustomMap {
 
 	return m
 }
+
+// New returns a new HashMap instance with an optional specific initialization size
+func NewCustomMapWithArena(ar *arena.Arena,size uintptr) *CustomMap {
+
+	m := &CustomMap{}
+	m.arena = ar
+	m.Data = arena.MakeSlice[*Pair](m.arena, int(size), int(size))
+	m.numBuckets = int(size)
+
+	return m
+}
+
+
 func (m *CustomMap) Free() {
 	m.arena.Free()
 }

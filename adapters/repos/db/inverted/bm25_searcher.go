@@ -12,10 +12,11 @@
 package inverted
 
 import (
-	
+	"arena"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
 
 	"math"
 	"sort"
@@ -96,11 +97,20 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	if err != nil {
 		return nil, nil, err
 	}
-
-	//objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
-	objs, scores, err := b.scoreMap(ctx, filterDocIds, class, keywordRanking, limit)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "wand")
+	var objs []*storobj.Object
+	var scores []float32
+	if os.Getenv("ENABLE_EXPERIMENTAL_BM25_MAP") != "" {
+		objs, scores, err = b.scoreMap(ctx, filterDocIds, class, keywordRanking, limit)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "wand")
+		}
+	} else if os.Getenv("ENABLE_EXPERIMENTAL_BM25_HEAP") != "" {
+		objs, scores, err = b.scoreHeap(ctx, filterDocIds, class, keywordRanking, limit)
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "wand")
+		}
+	} else {
+		objs, scores, err = b.wand(ctx, filterDocIds, class, keywordRanking, limit)
 	}
 
 	return objs, scores, nil
@@ -533,13 +543,15 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 	lengthAllResults := textLength + stringLength + fullQueryLength
 	results := make([]termMap, lengthAllResults)
 
+	ar := arena.NewArena()
+
 	//var eg errgroup.Group
 	if len(propertyNamesText) > 0 {
 		for i := range queryTextTerms {
 			queryTerm := queryTextTerms[i]
 			j := i
 			//eg.Go(func() error {
-			termResult, err := b.createTermMaps(b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j], params.AdditionalExplanations)
+			termResult, err := b.createTermMaps(ar, b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesText, propertyBoosts, duplicateTextBoost[j], params.AdditionalExplanations)
 			if err != nil {
 				//return err
 			} else {
@@ -557,7 +569,7 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 			j := ind + textLength
 
 			//eg.Go(func() error {
-			termResult, err := b.createTermMaps(b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind], params.AdditionalExplanations)
+			termResult, err := b.createTermMaps(ar, b.config, averagePropLength, N, filterDocIds, queryTerm, propertyNamesString, propertyBoosts, duplicateStringBoost[ind], params.AdditionalExplanations)
 			if err != nil {
 				//return err
 			} else {
@@ -571,7 +583,7 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 	if len(propertyNamesFullQuery) > 0 {
 		lengthPreviousResults := stringLength + textLength
 		//eg.Go(func() error {
-		termResult, err := b.createTermMaps(b.config, averagePropLength, N, filterDocIds, params.Query, propertyNamesFullQuery, propertyBoosts, 1, params.AdditionalExplanations)
+		termResult, err := b.createTermMaps(ar, b.config, averagePropLength, N, filterDocIds, params.Query, propertyNamesFullQuery, propertyBoosts, 1, params.AdditionalExplanations)
 		if err != nil {
 			//return err
 		} else {
@@ -596,7 +608,7 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		return a.Score > b.Score
 	})
 
-	finalCandidates := NewCustomMap(10000000)
+	finalCandidates := NewCustomMapWithArena(ar, 10000000)
 	//Iterate over all results, merge them into finalCandidates, and add them to the heap
 	for _, termResult := range results {
 		resMap := termResult.data
@@ -620,10 +632,10 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		return true
 	})
 
-	finalCandidates.Free()
-	for _, termResult := range results {
-		termResult.data.Free()
-	}
+	defer func() {
+		go finalCandidates.Free()
+		
+	}()
 
 	// create the final results
 	objects := make([]*storobj.Object, 0, limit)
@@ -646,13 +658,12 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 	return objects, scores, nil
 }
 
-
-func (b *BM25Searcher) createTermMaps(config schema.BM25Config, averagePropLength float64, N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (termMap, error) {
+func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config, averagePropLength float64, N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (termMap, error) {
 	termResult := termMap{queryTerm: query}
 
 	//docMapPairsMap := NewGoMap[uint64, *docPointerWithScore](10000)
-	docMapPairsMap := NewCustomMap(10000000)
-	docMapPairsArray := make([]docPointerWithScore, 0, 1000000)
+	docMapPairsMap := NewCustomMapWithArena(ar, 1000000)
+	docMapPairsArray := arena.MakeSlice[docPointerWithScore](ar, 0, 1000000) //make([]docPointerWithScore, 0, 1000000)
 
 	for _, propName := range propertyNames {
 		propBoost := propertyBoosts[propName]
@@ -661,6 +672,7 @@ func (b *BM25Searcher) createTermMaps(config schema.BM25Config, averagePropLengt
 		if bucket == nil {
 			return termResult, fmt.Errorf("could not find bucket for property %v", propName)
 		}
+		
 		bucket.MapListWithCallback([]byte(query), func(val lsmkv.MapPair) {
 			docID := binary.BigEndian.Uint64(val.Key)
 			if filterDocIds == nil || filterDocIds.Contains(docID) {
