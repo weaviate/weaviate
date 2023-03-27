@@ -31,6 +31,7 @@ type DistanceLookUpTable struct {
 	calculated [][]atomic.Bool
 	distances  [][]float32
 	center     [][]float32
+	flatCenter []float32
 }
 
 func NewDistanceLookUpTable(segments int, centroids int, center []float32) *DistanceLookUpTable {
@@ -50,6 +51,7 @@ func NewDistanceLookUpTable(segments int, centroids int, center []float32) *Dist
 		distances:  distances,
 		calculated: calculated,
 		center:     parsedCenter,
+		flatCenter: center,
 	}
 }
 
@@ -307,6 +309,10 @@ func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {
 
 func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	return d.pq.Distance(x, d.lut), true, nil
+}
+
+func (d *PQDistancer) DistanceF(x []float32) (float32, bool, error) {
+	return d.pq.distance.SingleDist(x, d.lut.flatCenter)
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) {

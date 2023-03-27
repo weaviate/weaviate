@@ -152,6 +152,7 @@ type hnsw struct {
 	compressActionLock     *sync.RWMutex
 	className              string
 	shardName              string
+	VectorForIDThunk       VectorForID
 }
 
 type CommitLogger interface {
@@ -255,6 +256,7 @@ func New(cfg Config, uc ent.UserConfig) (*hnsw, error) {
 		randFunc:           rand.Float64,
 		compressActionLock: &sync.RWMutex{},
 		className:          cfg.ClassName,
+		VectorForIDThunk:   cfg.VectorForIDThunk,
 	}
 
 	index.tombstoneCleanupCycle = cyclemanager.New(index.cleanupInterval, index.tombstoneCleanup)
