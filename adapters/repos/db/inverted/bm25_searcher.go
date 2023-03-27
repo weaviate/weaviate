@@ -79,7 +79,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema
 }
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList, className schema.ClassName, limit int,
-	keywordRanking *searchparams.KeywordRanking,
+	keywordRanking searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	objectByIndexID func(index uint64) *storobj.Object,
 ) ([]*storobj.Object, []float32, error) {
@@ -104,14 +104,10 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 
 // Objects returns a list of full objects
 func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowList, limit int,
-	keywordRanking *searchparams.KeywordRanking,
+	keywordRanking searchparams.KeywordRanking,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, []float32, error) {
-	if keywordRanking == nil {
-		return nil, nil, errors.New("keyword ranking cannot be nil in bm25 search")
-	}
-
 	class, err := schema.GetClassByName(b.schema.Objects, string(className))
 	if err != nil {
 		return nil, []float32{}, errors.Wrap(err, "get class by name")
@@ -132,7 +128,7 @@ func (b *BM25Searcher) Objects(ctx context.Context, filterDocIds helpers.AllowLi
 }
 
 func (b *BM25Searcher) wand(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params *searchparams.KeywordRanking, limit int,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
