@@ -41,7 +41,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Cloud-native, modular vector search engine",
+    "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
@@ -4323,7 +4323,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Cloud-native, modular vector search engine",
+    "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
