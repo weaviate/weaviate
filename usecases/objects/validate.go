@@ -21,7 +21,7 @@ import (
 // ValidateObject without adding it to the database. Can be used in UIs for
 // async validation before submitting
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
-	class *models.Object, repl *additional.ReplicationProperties,
+	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
 	err := m.authorizer.Authorize(principal, "validate", "objects")
 	if err != nil {
@@ -34,7 +34,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	}
 	defer unlock()
 
-	err = m.validateObject(ctx, principal, class, repl)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, obj, repl)
 	if err != nil {
 		return NewErrInvalidUserInput("invalid object: %v", err)
 	}
