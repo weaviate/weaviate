@@ -207,7 +207,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*WeaviateAPI Cloud-native, modular vector search engine */
+/*WeaviateAPI Cloud-native, modular vector database */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context

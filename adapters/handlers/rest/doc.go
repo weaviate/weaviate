@@ -13,7 +13,7 @@
 
 // Package rest Weaviate
 //
-//	Cloud-native, modular vector search engine
+//	Cloud-native, modular vector database
 //	Schemes:
 //	  https
 //	Host: localhost
