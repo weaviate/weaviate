@@ -147,19 +147,19 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
         
         case geminient.UserConfig:
             
-            geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
+            //geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
 
-            if geminiUserConfig.Skip {
-                s.vectorIndex = noop.NewIndex()
+            //if geminiUserConfig.Skip {
+            //    s.vectorIndex = noop.NewIndex()
+            //
+            //} else {
 
-            } else {
-
-                if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
+                if err := s.initVectorIndex(ctx, geminient.UserConfig{}); err != nil {
                     return nil, fmt.Errorf("init vector index: %w", err)
                 }
 
                 defer s.vectorIndex.PostStartup()
-            }
+            //}
 
             if err := s.initNonVector(ctx, class); err != nil {
                 return nil, errors.Wrapf(err, "init shard %q", s.ID())
@@ -239,13 +239,8 @@ func (s *Shard) initVectorIndex(
         case geminient.UserConfig:
 
             geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
-            vi, err := gemini.New(gemini.Config{
-                RootPath:          s.index.Config.RootPath,
-                ID:                s.ID(),
-                ShardName:         s.name,
-                ClassName:         s.index.Config.ClassName.String(),
-                PrometheusMetrics: s.promMetrics,
-            }, geminiUserConfig)
+
+            vi, err := gemini.New( gemini.Config{}, geminiUserConfig )
             if err != nil {
                 return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
             }
