@@ -662,7 +662,6 @@ func Test_ExpTicker(t *testing.T) {
 
 		ticker := NewExpTicker(minInterval, maxInterval, base, steps)
 		ticker.Start()
-		ticker.Start()
 
 		t0 := time.Now()
 		val1 := <-ticker.C()

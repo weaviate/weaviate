@@ -38,18 +38,18 @@ func NewCommitLogCombiner(rootPath, id string, threshold int64,
 	}
 }
 
-func (c *CommitLogCombiner) Do() (error, bool) {
+func (c *CommitLogCombiner) Do() (bool, error) {
 	executed := false
 	for {
 		// fileNames will already be in order
 		fileNames, err := getCommitFileNames(c.rootPath, c.id)
 		if err != nil {
-			return errors.Wrap(err, "obtain files names"), executed
+			return executed, errors.Wrap(err, "obtain files names")
 		}
 
 		ok, err := c.combineFirstMatch(fileNames)
 		if err != nil {
-			return err, executed
+			return executed, err
 		}
 
 		if ok {
@@ -59,7 +59,7 @@ func (c *CommitLogCombiner) Do() (error, bool) {
 
 		break
 	}
-	return nil, executed
+	return executed, nil
 }
 
 func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) {

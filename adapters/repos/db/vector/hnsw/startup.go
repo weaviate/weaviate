@@ -153,7 +153,7 @@ func (h *hnsw) restoreFromDisk() error {
 }
 
 func (h *hnsw) tombstoneCleanup(shouldBreak cyclemanager.ShouldBreakFunc) bool {
-	err, executed := h.cleanUpTombstonedNodes(shouldBreak)
+	executed, err := h.cleanUpTombstonedNodes(shouldBreak)
 	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
 			WithError(err).Error("tombstone cleanup errord")
