@@ -15,6 +15,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
@@ -47,6 +50,7 @@ func TestUpdatingPropertiesWithNil(t *testing.T) {
 					Name:     tt.prop1,
 					DataType: []string{string(schema.DataTypeString)},
 				}},
+				InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true},
 			}
 			require.Nil(t, classCreator.WithClass(&class).Do(ctx))
 
@@ -62,6 +66,25 @@ func TestUpdatingPropertiesWithNil(t *testing.T) {
 			objAfterUpdate, err := getter.WithID(string(obj.Object.ID)).WithClassName(className).Do(ctx)
 			require.Nil(t, err)
 			require.Len(t, objAfterUpdate[0].Properties, 0)
+
+			// test that II has been updated:
+			// a) no results for when filtering for old value
+			// b) one result when filtering for null values
+			filter := filters.Where()
+			filter.WithValueString("SomeText")
+			filter.WithOperator(filters.Equal)
+			filter.WithPath([]string{lowerPropName})
+			resultFilter, err := c.GraphQL().Get().WithClassName(className).WithWhere(filter).WithFields(graphql.Field{Name: "_additional", Fields: []graphql.Field{{Name: "id"}}}).Do(ctx)
+			require.Nil(t, err)
+			require.Len(t, resultFilter.Data["Get"].(map[string]interface{})[className], 0)
+
+			filter = filters.Where()
+			filter.WithValueBoolean(true)
+			filter.WithOperator("IsNull") // replace with real operator after updating go client
+			filter.WithPath([]string{lowerPropName})
+			resultFilter, err = c.GraphQL().Get().WithClassName(className).WithWhere(filter).WithFields(graphql.Field{Name: "_additional", Fields: []graphql.Field{{Name: "id"}}}).Do(ctx)
+			require.Nil(t, err)
+			require.Len(t, resultFilter.Data["Get"].(map[string]interface{})[className], 1)
 
 			// Property is still part of the class
 			schemaClass, err := c.Schema().ClassGetter().WithClassName(className).Do(ctx)
