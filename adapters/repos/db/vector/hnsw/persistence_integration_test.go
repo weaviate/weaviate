@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -36,7 +37,8 @@ func TestHnswPersistence(t *testing.T) {
 	indexID := "integrationtest"
 
 	logger, _ := test.NewNullLogger()
-	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
+	cl, clErr := NewCommitLogger(dirName, indexID, logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -104,7 +106,8 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	indexID := "integrationtest_corrupt"
 
 	logger, _ := test.NewNullLogger()
-	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
+	cl, clErr := NewCommitLogger(dirName, indexID, logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -208,7 +211,8 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	dirName := t.TempDir()
 	indexID := "integrationtest_deletion"
 	logger, _ := test.NewNullLogger()
-	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
+	cl, clErr := NewCommitLogger(dirName, indexID, logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -287,7 +291,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	makeCL := func() (CommitLogger, error) {
-		return NewCommitLogger(dirName, indexID, 0, logger)
+		return NewCommitLogger(dirName, indexID, logger,
+			WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	}
 	index, err := New(Config{
 		RootPath:              dirName,

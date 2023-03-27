@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestMmapCondensor(t *testing.T) {
@@ -30,10 +31,12 @@ func TestMmapCondensor(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 
-	perfect, err := NewCommitLogger(rootPath, "perfect", 0, logger)
+	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
@@ -138,10 +141,11 @@ func TestMmapCondensor(t *testing.T) {
 
 // func TestCondensorWithoutEntrypoint(t *testing.T) {
 // 	rand.Seed(time.Now().UnixNano())
-// 	rootPath := t.TmpDir()
+// 	rootPath := t.TempDir()
 
 // 	logger, _ := test.NewNullLogger()
-// 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
+// 	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+// 		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 // 	require.Nil(t, err)
 
 // 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {

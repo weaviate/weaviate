@@ -17,11 +17,8 @@ package lsmkv
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"math/rand"
-	"os"
-	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,7 +37,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	values := make([][]byte, amount)
 
 	walThreshold := uint64(4096)
-	tolerance := 0.5
+	tolerance := 4.
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		WithStrategy(StrategyReplace),
@@ -61,62 +58,59 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	})
 
 	t.Run("check switchover during insertion", func(t *testing.T) {
-		var (
-			done        = make(chan bool)
-			origWalFile string
-		)
+		// Importing data for over 10s with 1.6ms break between each object
+		// should result in ~100kB of commitlog data in total.
+		// With couple of flush attempts happening during this 10s period,
+		// and with threshold set to 4kB, first .wal size should be much smaller than 100kb
+		// when commitlog switched to new .wal file.
+		ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
+
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
 		go func() {
 			for {
-				select {
-				case <-done:
-					return
-				default:
-					for i := range keys {
-						err := bucket.Put(keys[i], values[i])
-						assert.Nil(t, err)
-						// the pause was adjusted from 1ms to 10ms in this test as part of
-						// https://github.com/weaviate/weaviate/issues/2776 which also
-						// changed the cyclemanage's default flush interval from 100ms to
-						// 500ms. With the previous value the test was too fast. It would
-						// write all the data (and therefore cross the threshold) before
-						// the memtable could ever flush.
-						time.Sleep(10 * time.Millisecond)
+				for i := range keys {
+					if i%100 == 0 && ctxTimeout.Err() != nil {
+						wg.Done()
+						return
 					}
+					assert.Nil(t, bucket.Put(keys[i], values[i]))
+					time.Sleep(1600 * time.Microsecond)
 				}
 			}
 		}()
 
+		var firstWalFile string
+		var firstWalSize int64
 	out:
 		for {
-			entries, err := os.ReadDir(dirName)
-			require.Nil(t, err)
-
-			for _, entry := range entries {
-				info, err := entry.Info()
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				require.Nil(t, err)
-
-				entrySize := info.Size()
-				entryName := info.Name()
-
-				if filepath.Ext(entryName) == ".wal" {
-					if !isSizeWithinTolerance(t, uint64(entrySize), walThreshold, tolerance) {
-						t.Fatalf("WAL size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
-							entrySize, walThreshold, tolerance*100)
-					}
-
-					// Set the name of the first WAL file created
-					if origWalFile == "" {
-						origWalFile = entryName
-					} else if entryName != origWalFile {
-						// If a new WAL is detected, the switch over was successful
-						done <- true
-						break out
-					}
-				}
+			time.Sleep(time.Millisecond)
+			if ctxTimeout.Err() != nil {
+				t.Fatalf("Import finished without flushing in the meantime. Size of first WAL file was (%d)", firstWalSize)
 			}
+
+			bucket.flushLock.RLock()
+			walFile := bucket.active.commitlog.path
+			walSize := bucket.active.commitlog.Size()
+			bucket.flushLock.RUnlock()
+
+			if firstWalFile == "" {
+				firstWalFile = walFile
+			}
+
+			if firstWalFile == walFile {
+				firstWalSize = walSize
+			} else {
+				// new path found; flush must have occurred - stop import and exit loop
+				cancelTimeout()
+				break out
+			}
+		}
+
+		wg.Wait()
+		if !isSizeWithinTolerance(t, uint64(firstWalSize), walThreshold, tolerance) {
+			t.Fatalf("WAL size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
+				firstWalSize, walThreshold, tolerance*100)
 		}
 	})
 
@@ -139,7 +133,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	values := make([][]byte, amount)
 
 	memtableThreshold := uint64(4096)
-	tolerance := float64(0.5)
+	tolerance := 4.
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		WithStrategy(StrategyReplace),
@@ -158,31 +152,59 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	})
 
 	t.Run("check switchover during insertion", func(t *testing.T) {
-		done := make(chan bool)
+		// Importing data for over 10s with 0.8ms break between each object
+		// should result in ~100kB of memtable data.
+		// With couple of flush attempts happening during this 10s period,
+		// and with threshold set to 4kB, first memtable size should be much smaller than 100kb
+		// when memtable flushed and replaced with new one
+		ctxTimeout, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
 
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
 		go func() {
 			for {
-				select {
-				case <-done:
-					return
-				default:
-					for i := range keys {
-						err := bucket.Put(keys[i], values[i])
-						assert.Nil(t, err)
-						time.Sleep(time.Microsecond)
+				for i := range keys {
+					if i%100 == 0 && ctxTimeout.Err() != nil {
+						wg.Done()
+						return
 					}
+					assert.Nil(t, bucket.Put(keys[i], values[i]))
+					time.Sleep(800 * time.Microsecond)
 				}
 			}
 		}()
 
-		// give the bucket time to fill up beyond threshold
-		time.Sleep(time.Millisecond)
+		var firstMemtablePath string
+		var firstMemtableSize uint64
+	out:
+		for {
+			time.Sleep(time.Millisecond)
+			if ctxTimeout.Err() != nil {
+				t.Fatalf("Import finished without flushing in the meantime. Size of first memtable was (%d)", firstMemtableSize)
+			}
 
-		if !isSizeWithinTolerance(t, bucket.active.Size(), memtableThreshold, tolerance) {
-			t.Fatalf("memtable size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
-				bucket.active.Size(), memtableThreshold, tolerance)
-		} else {
-			done <- true
+			bucket.flushLock.RLock()
+			activePath := bucket.active.path
+			activeSize := bucket.active.Size()
+			bucket.flushLock.RUnlock()
+
+			if firstMemtablePath == "" {
+				firstMemtablePath = activePath
+			}
+
+			if firstMemtablePath == activePath {
+				firstMemtableSize = activeSize
+			} else {
+				// new path found; flush must have occurred - stop import and exit loop
+				cancelTimeout()
+				break out
+			}
+		}
+
+		wg.Wait()
+		if !isSizeWithinTolerance(t, uint64(firstMemtableSize), memtableThreshold, tolerance) {
+			t.Fatalf("Memtable size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
+				firstMemtableSize, memtableThreshold, tolerance*100)
 		}
 	})
 
@@ -193,7 +215,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 }
 
 func isSizeWithinTolerance(t *testing.T, detectedSize uint64, threshold uint64, tolerance float64) bool {
-	return float64(detectedSize) <= float64(threshold)*(tolerance+1)
+	return detectedSize > 0 && float64(detectedSize) <= float64(threshold)*(tolerance+1)
 }
 
 func TestMemtableFlushesIfIdle(t *testing.T) {
@@ -216,12 +238,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("wait until idle threshold has passed", func(t *testing.T) {
-			// This threshold was adjusted as part of
-			// https://github.com/weaviate/weaviate/issues/2776 because the interval
-			// to check thresholds is now 500ms (from previously 100ms). With the old
-			// sleep here, a cycle would never have run regardless of the setting.
-			// Now there's a buffer of 250ms.
-			time.Sleep(750 * time.Millisecond)
+			// First flush attempt should occur after ~100ms after creating bucket.
+			// Buffer of 200ms guarantees, flush will be called during sleep period.
+			time.Sleep(200 * time.Millisecond)
 		})
 
 		t.Run("assert no segments exist even after passing the idle threshold", func(t *testing.T) {
@@ -260,12 +279,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("wait until idle threshold has passed", func(t *testing.T) {
-			// This threshold was adjusted as part of
-			// https://github.com/weaviate/weaviate/issues/2776 because the interval
-			// to check thresholds is now 500ms (from previously 100ms). With the old
-			// sleep here, a cycle would never have run regardless of the setting.
-			// Now there's a buffer of 250ms.
-			time.Sleep(750 * time.Millisecond)
+			// First flush attempt should occur after ~100ms after creating bucket.
+			// Buffer of 200ms guarantees, flush will be called during sleep period.
+			time.Sleep(200 * time.Millisecond)
 		})
 
 		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
@@ -324,6 +340,9 @@ func TestMemtableFlushesIfIdle(t *testing.T) {
 		})
 
 		t.Run("wait until idle threshold has passed", func(t *testing.T) {
+			// At that point 2 flush attempt have already occurred.
+			// 3rd attempt should occur after ~930ms after creating bucket.
+			// Buffer of 500ms guarantees, flush will be called during sleep period.
 			time.Sleep(500 * time.Millisecond)
 		})
 
