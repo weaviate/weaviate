@@ -355,15 +355,21 @@ func filterClasses(classes, excludes []string) []string {
 	if len(excludes) == 0 {
 		return classes
 	}
-	cs := classes[:0]
-	xmap := make(map[string]struct{}, len(excludes))
-	for _, c := range excludes {
-		xmap[c] = struct{}{}
-	}
+	m := make(map[string]struct{}, len(classes))
 	for _, c := range classes {
-		if _, ok := xmap[c]; !ok {
-			cs = append(cs, c)
+		m[c] = struct{}{}
+	}
+	for _, x := range excludes {
+		delete(m, x)
+	}
+	if len(classes) != len(m) {
+		classes = classes[:len(m)]
+		i := 0
+		for k := range m {
+			classes[i] = k
+			i++
 		}
 	}
-	return cs
+
+	return classes
 }
