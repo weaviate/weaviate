@@ -131,7 +131,7 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 			require.Nil(t, err)
 
 			updater := c.Data().Updater()
-			err = updater.WithClassName(className).WithID(objId).WithProperties(map[string]string{tt.prop1: "other"}).Do(ctx)
+			err = updater.WithClassName(className).WithID(objId).WithProperties(map[string]string{tt.prop2: "other"}).Do(ctx)
 			require.Nil(t, err)
 
 			// two objects should have been added (with one update
