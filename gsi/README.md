@@ -14,9 +14,9 @@ The features of this plugin include:
 
 ## Gemini Fast Vector Search
 
-The Weaviate Gemini Plugin interfaces directly with GSI's Fast Vector Search library.
+The Weaviate Gemini Plugin interfaces directly with GSI's Fast Vector Search (FVS) REST web service.
 
-We benchmarked an FVS system with 4 Gemini APU hardware acceleration boards.  Please see this README for those detailed results.
+We benchmarked an FVS system with 4 Gemini APU hardware acceleration boards.  Please see this README for those detailed results.  We've provided code and instructions so you can reproduce these results on your system.
 
 ## Gemini Plugin vs Weaviate's Native HNSW
 
