@@ -175,11 +175,11 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassigns
 // edges that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) error {
-	err, _ := h.cleanUpTombstonedNodes(shouldBreak)
+	_, err := h.cleanUpTombstonedNodes(shouldBreak)
 	return err
 }
 
-func (h *hnsw) cleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) (error, bool) {
+func (h *hnsw) cleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) (bool, error) {
 	h.metrics.StartCleanup(1)
 	defer h.metrics.EndCleanup(1)
 
@@ -194,33 +194,33 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldBreak cyclemanager.ShouldBreakFunc) 
 	executed := false
 	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
 	if !ok {
-		return nil, executed
+		return executed, nil
 	}
 
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
-		return err, executed
+		return executed, err
 	} else if !ok {
-		return nil, executed
+		return executed, nil
 	}
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
-		return err, executed
+		return executed, err
 	} else if !ok {
-		return nil, executed
+		return executed, nil
 	}
 
 	if ok, err := h.removeTombstonesAndNodes(deleteList, breakCleanUpTombstonedNodes); err != nil {
-		return err, executed
+		return executed, err
 	} else if !ok {
-		return nil, executed
+		return executed, nil
 	}
 
 	if _, err := h.resetIfEmpty(); err != nil {
-		return err, executed
+		return executed, err
 	}
 
-	return nil, executed
+	return executed, nil
 }
 
 func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
