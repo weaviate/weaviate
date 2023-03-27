@@ -46,11 +46,11 @@ func TestSchemaCasingClass(t *testing.T) {
 			class := &models.Class{Class: tt.className1, Vectorizer: "none"}
 			require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-			// try to create class again lowercase. This should fail as it already exists
+			// try to create class again with other casing. This should fail as it already exists
 			class2 := &models.Class{Class: tt.className2, Vectorizer: "none"}
 			require.NotNil(t, c.Schema().ClassCreator().WithClass(class2).Do(ctx))
 
-			// create object with lower and upper case class names. Both should succeed
+			// create object with both casing as class name. Both should succeed
 			_, err := c.Data().Creator().WithClassName(tt.className1).Do(ctx)
 			require.Nil(t, err)
 			_, err = c.Data().Creator().WithClassName(tt.className2).Do(ctx)
