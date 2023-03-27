@@ -9,7 +9,6 @@ import (
     "encoding/json"
     "bytes"
     "io/ioutil"
-    //"reflect"
     "strconv"
     //goruntime "runtime"
 
@@ -19,6 +18,29 @@ import (
     "golang.org/x/exp/mmap"
 )
 
+// Import_dataset defaults
+const (
+    DefaultSearchType           = "flat"
+    DefaultTrainInd             = true
+    DefaultGridTrain            = false
+    DefaultNBits                = 768
+    DefaultQBits                = 768
+    DefaultTargetAccuracy       = 100
+    DefaultMDUnique             = false
+    DefaultConvertToDataset     = false
+)
+
+const (
+    DefaultTypicalNQueries      = 10
+    DefaultMaxNQueries          = 3100
+    DefaultNormalize            = false
+    DefaultCentroidsHammingK    = 5000
+    DefaultCentroidsRerank      = 4000
+    DefaultHammingK             = 3200
+    DefaultTopK                 = 1000
+    DefaultBitmasksInd          = false
+    DefaultAsyncLoad            = false
+)
 
 func Import_dataset( host string, port uint, allocation_token string, path string, bits uint, verbose bool ) (string, error) {
     // form the rest url        
@@ -29,15 +51,15 @@ func Import_dataset( host string, port uint, allocation_token string, path strin
                                 
     // create the post json payload
     //{"dsFilePath": "/home/public/deep-1M.npy", "searchType": "flat", "trainInd": true, "gridTrain": false, "nbits": 768, "qbits": 768, "targetAccuracy": 100, "mdUnique": false, "convertToDataset": false}
-    values := map[string]interface{}{ "dsFilePath": path,
-                                    "searchType": "flat",
-                                    "trainInd": true,
-                                    "gridTrain": false,
-                                    "nbits": bits,
-                                    "qbits": 768,
-                                    "targetAccuracy": 100,
-                                    "mdUnique": false,
-                                    "convertToDataset": false }
+    values := map[string]interface{}{ "dsFilePath":     path,
+                                    "searchType":       DefaultSearchType,
+                                    "trainInd":         DefaultTrainInd,
+                                    "gridTrain":        DefaultGridTrain,
+                                    "nbits":            bits,
+                                    "qbits":            DefaultQBits,
+                                    "targetAccuracy":   DefaultTargetAccuracy,
+                                    "mdUnique":         DefaultMDUnique,
+                                    "convertToDataset": DefaultConvertToDataset }
     jsonValue, jErr := json.Marshal(values)
     if jErr != nil {
         return "", jErr
@@ -174,17 +196,17 @@ func Load_dataset( host string, port uint, allocation_token string, dataset_id s
     // create the post json payload
     //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "7e3a75f6-9996-4ffe-9cb1-84f7e5d0366b", "typicalNQueries": 10, "maxNQueries": 3100, "normalize": false, "centroidsHammingK": 5000, "centroidsRerank": 4000, "hammingK": 3200, "topk": 1000, "bitmasksInd": false, "asyncLoad": false}
     values := map[string]interface{}{
-                                "allocationId": allocation_token,
-                                "datasetId": dataset_id,
-                                "typicalNQueries": 10,
-                                "maxNQueries": 3100,
-                                "normalize": false,
-                                "centroidsHammingK": 5000,
-                                "centroidsRerank": 4000,
-                                "hammingK": 3200,
-                                "topk": 1000,
-                                "bitmasksInd": false,
-                                "asyncLoad": false }
+                                "allocationId":         allocation_token,
+                                "datasetId":            dataset_id,
+                                "typicalNQueries":      DefaultTypicalNQueries,
+                                "maxNQueries":          DefaultMaxNQueries,
+                                "normalize":            DefaultNormalize,
+                                "centroidsHammingK":    DefaultCentroidsHammingK,
+                                "centroidsRerank":      DefaultCentroidsRerank,
+                                "hammingK":             DefaultHammingK,
+                                "topk":                 DefaultTopK,
+                                "bitmasksInd":          DefaultBitmasksInd, 
+                                "asyncLoad":            DefaultAsyncLoad }
     jsonValue, err := json.Marshal(values)
     if err != nil {
         return "", errors.Wrap(err, "json.Marshal failed in Fvs Load_dataset")
@@ -385,10 +407,10 @@ func Search( host string, port uint, allocation_token string, dataset_id string,
     // compose the post body
     //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "c37e9f7c-7ed0-4029-bbd7-353264614432", "queriesFilePath": "/home/public/deep-queries-10.npy", "topk": 10} 
     values := map[string]interface{}{
-                                "allocationId": allocation_token,
-                                "datasetId": dataset_id, 
-                                "queriesFilePath": path,
-                                "topk": 10 }
+                                "allocationId":     allocation_token,
+                                "datasetId":        dataset_id, 
+                                "queriesFilePath":  path,
+                                "topk":             topk }
     jsonValue, err := json.Marshal(values)
     if err != nil {
         return nil, nil, 0, errors.Wrap( err, "json.Marhal failed at Fvs Search.")
