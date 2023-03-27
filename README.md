@@ -3,7 +3,7 @@
 [![Build Status](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml/badge.svg?branch=master)](https://github.com/weaviate/weaviate/actions/workflows/.github/workflows/pull_requests.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/weaviate/weaviate)](https://goreportcard.com/report/github.com/weaviate/weaviate)
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
-[![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw)
+[![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://weaviate.io/slack)
 
 ## Overview
 
@@ -81,7 +81,7 @@ Both our [📝 blogs](https://weaviate.io/blog) and [🎙️ podcasts](https://w
 
 ## Join our community!
 
-Also, we invite you to join our [Slack](https://join.slack.com/t/weaviate/shared_invite/zt-goaoifjr-o8FuVz9b1HLzhlUfyfddhw) community. There, you can meet other Weaviate users and members of the Weaviate team to talk all things Weaviate and AI (and other topics!).
+Also, we invite you to join our [Slack](https://weaviate.io/slack) community. There, you can meet other Weaviate users and members of the Weaviate team to talk all things Weaviate and AI (and other topics!).
 
 You can also say hi to us below:
 - [Twitter](https://twitter.com/weaviate_io)
