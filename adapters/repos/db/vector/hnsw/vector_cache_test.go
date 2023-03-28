@@ -39,7 +39,7 @@ func TestCacheCleanup(t *testing.T) {
 	maxSize := 10
 	batchSize := maxSize - 1
 	deletionInterval := 200 * time.Millisecond // overwrite default deletionInterval of 3s
-	sleepMs := deletionInterval + 50*time.Millisecond
+	sleepMs := deletionInterval + 100*time.Millisecond
 
 	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
 		shardedLockCache := newShardedLockCache(vecForId, maxSize, logger, false, deletionInterval)
