@@ -46,6 +46,7 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 		delegate: delegate{
 			Name:     cfg.Name,
 			dataPath: dataPath,
+			log:      logger,
 		},
 	}
 	if err := state.delegate.init(); err != nil {

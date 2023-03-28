@@ -18,6 +18,7 @@ import (
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -158,9 +159,11 @@ func TestDelegateCleanUp(t *testing.T) {
 func TestDelegateLocalState(t *testing.T) {
 	now := time.Now().UnixMilli() - 1
 	errAny := errors.New("any error")
+	logger, _ := test.NewNullLogger()
 	d := delegate{
 		Name:      "N0",
 		dataPath:  ".",
+		log:       logger,
 		Cache:     map[string]NodeInfo{},
 		diskUsage: func(path string) (DiskUsage, error) { return DiskUsage{}, errAny },
 	}
