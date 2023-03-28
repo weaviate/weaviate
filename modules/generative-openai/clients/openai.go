@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weaviate/weaviate/modules/generative-openai/additional/models"
 	"io"
 	"net/http"
 	"net/url"
@@ -156,11 +157,19 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Errorf(errorMessage)
 	}
 
+	usageResponse := resBody.Usage
+	usage := models.Usage{
+		PromptTokens:     usageResponse.PromptTokens,
+		CompletionTokens: usageResponse.CompletionTokens,
+		TotalTokens:      usageResponse.TotalTokens,
+	}
+
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
 		trimmedResponse := strings.Trim(textResponse, "\n")
 		return &ent.GenerateResult{
 			Result: &trimmedResponse,
+			Usage:  &usage,
 		}, nil
 	}
 
@@ -170,11 +179,13 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		trimmedResponse := strings.Trim(textResponse, "\n")
 		return &ent.GenerateResult{
 			Result: &trimmedResponse,
+			Usage:  &usage,
 		}, nil
 	}
 
 	return &ent.GenerateResult{
 		Result: nil,
+		Usage:  nil,
 	}, nil
 }
 
@@ -263,8 +274,15 @@ type message struct {
 }
 
 type generateResponse struct {
+	Usage   usage `json:"usage,omitempty"`
 	Choices []choice
 	Error   *openAIApiError `json:"error,omitempty"`
+}
+
+type usage struct {
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
 }
 
 type choice struct {

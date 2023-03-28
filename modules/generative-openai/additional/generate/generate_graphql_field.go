@@ -13,7 +13,6 @@ package generate
 
 import (
 	"fmt"
-
 	"github.com/tailor-inc/graphql"
 )
 
@@ -58,6 +57,14 @@ func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Fi
 				"singleResult":  &graphql.Field{Type: graphql.String},
 				"groupedResult": &graphql.Field{Type: graphql.String},
 				"error":         &graphql.Field{Type: graphql.String},
+				"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalGenerateUsage", classname),
+					Fields: graphql.Fields{
+						"promptTokens":     &graphql.Field{Type: graphql.Int},
+						"completionTokens": &graphql.Field{Type: graphql.Int},
+						"totalTokens":      &graphql.Field{Type: graphql.Int},
+					},
+				})},
 			},
 		}),
 	}

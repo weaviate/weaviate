@@ -120,6 +120,7 @@ func (p *GenerateProvider) setCombinedResult(in []search.Result, i int, generate
 	ap["generate"] = &generativemodels.GenerateResult{
 		GroupedResult: result,
 		Error:         err,
+		Usage:         generateResult.Usage,
 	}
 
 	in[i].AdditionalProperties = ap
@@ -139,14 +140,24 @@ func (p *GenerateProvider) setIndividualResult(in []search.Result, i int, genera
 	if ap["generate"] != nil {
 		ap["generate"] = &generativemodels.GenerateResult{
 			GroupedResult: ap["generate"].(*generativemodels.GenerateResult).GroupedResult,
+			Usage:         ap["generate"].(*generativemodels.GenerateResult).Usage,
 			SingleResult:  result,
 			Error:         err,
 		}
 	} else {
-		ap["generate"] = &generativemodels.GenerateResult{
-			SingleResult: result,
-			Error:        err,
+		if i == 0 {
+			ap["generate"] = &generativemodels.GenerateResult{
+				SingleResult: result,
+				Usage:        generateResult.Usage,
+				Error:        err,
+			}
+		} else {
+			ap["generate"] = &generativemodels.GenerateResult{
+				SingleResult: result,
+				Error:        err,
+			}
 		}
+
 	}
 
 	in[i].AdditionalProperties = ap

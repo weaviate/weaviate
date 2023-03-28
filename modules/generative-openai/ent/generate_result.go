@@ -11,6 +11,9 @@
 
 package ent
 
+import "github.com/weaviate/weaviate/modules/generative-openai/additional/models"
+
 type GenerateResult struct {
 	Result *string
+	Usage  *models.Usage
 }
