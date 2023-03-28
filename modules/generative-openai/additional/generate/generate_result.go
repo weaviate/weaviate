@@ -91,7 +91,7 @@ func (p *GenerateProvider) getTextProperties(result search.Result, properties []
 	textProperties := map[string]string{}
 	schema := result.Object().Properties.(map[string]interface{})
 	for property, value := range schema {
-		if properties != nil {
+		if len(properties) > 0 {
 			if p.containsProperty(property, properties) {
 				if valueString, ok := value.(string); ok {
 					textProperties[property] = valueString
@@ -153,9 +153,6 @@ func (p *GenerateProvider) setIndividualResult(in []search.Result, i int, genera
 }
 
 func (p *GenerateProvider) containsProperty(property string, properties []string) bool {
-	if len(properties) == 0 {
-		return true
-	}
 	for i := range properties {
 		if properties[i] == property {
 			return true
