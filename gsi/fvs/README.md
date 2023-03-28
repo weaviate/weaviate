@@ -32,6 +32,8 @@ To reproduce the benchmarks shown above, do the following:
   * [run_benchmarks_deep20M_q10.sh](run_benchmarks_deep20M_q10.sh)
   * [run_benchmarks_deep20M_q100.sh](run_benchmarks_deep20M_q100.sh)
   * [run_benchmarks_deep20M_q1000.sh](run_benchmarks_deep20M_q1000.sh)
+  * [run_benchmarks_deep50M_q10.sh](run_benchmarks_deep50M_q10.sh)
+  * [run_benchmarks_deep50M_q100.sh](run_benchmarks_deep50M_q100.sh)
 * to plot your data, use the following [notebook](benchmarks_analysis.ipynb)
 
 Notes:
@@ -52,5 +54,6 @@ To reproduce the training time plots shown below, do the following:
 <img align="left" src="results/deep1B_5_train_time.png">
 <img align="right" src="results/deep1B_10_train_time.png">
 <img align="left" src="results/deep1B_20_train_time.png">
+<img align="right" src="results/deep1B_50_train_time.png">
 
 
