@@ -39,6 +39,7 @@ type querySummary struct {
 	Query          string
 	MatchingIds    []int
 	MatchingCorpus []lib.CorpusData
+	Explanations []string
 }
 
 var queryCmd = &cobra.Command{
@@ -97,7 +98,7 @@ var queryCmd = &cobra.Command{
 			bm25.WithQuery(query.Query)
 
 			bm25Query := client.GraphQL().Get().WithClassName(className).
-				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id }"}, graphql.Field{Name: propNameWithId})
+				WithLimit(100).WithBM25(bm25).WithFields(graphql.Field{Name: "_additional { id explainScore }"}, graphql.Field{Name: propNameWithId})
 
 			if FilterObjectPercentage > 0 {
 				filter := filters.Where()
@@ -121,15 +122,17 @@ var queryCmd = &cobra.Command{
 			qs := querySummary{Id: query.Id, Query: query.Query}
 
 			if len(query.MatchingIds) > 0 && len(ds.Queries.PropertyWithId) > 0 {
-				resultIds := result.Data["Get"].(map[string]interface{})[className].([]interface{})
-				matched, err := scores.AddResult(query.MatchingIds, resultIds, propNameWithId)
+				results := result.Data["Get"].(map[string]interface{})[className].([]interface{})
+				//fmt.Printf("resultIds: %+v\n", results)
+				matched, err , explanations:= scores.AddResult(query.MatchingIds, results, propNameWithId)
 				if err != nil {
 					return err
 				}
 
-				for _, id := range matched {
+				for i, id := range matched {
 					qs.MatchingIds = append(qs.MatchingIds, id)
 					qs.MatchingCorpus = append(qs.MatchingCorpus, corpusMap[id])
+					qs.Explanations = append(qs.Explanations, string(explanations[i]))
 				}
 				querySumm[query.Id] = qs
 				logMsg += fmt.Sprintf("nDCG score: %.04f", scores.CurrentNDCG())
@@ -172,8 +175,9 @@ var queryCmd = &cobra.Command{
 			fmt.Printf("Query %d: %s\n", qs.Id, qs.Query)
 			//fmt.Printf("Matching ids: %v\n", qs.MatchingIds)
 			fmt.Printf("Matching corpus: %v\n",qs.MatchingIds )
-			for _, c := range qs.MatchingCorpus {
+			for i, c := range qs.MatchingCorpus {
 				fmt.Printf("Match: %v, %v\n", c.Id, c.Text)
+				fmt.Printf("Explanation: %v\n", qs.Explanations[i])
 			}
 		}
 	}
