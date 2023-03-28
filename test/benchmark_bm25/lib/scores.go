@@ -24,25 +24,33 @@ type Scores struct {
 	numQueries int
 }
 
-func (n *Scores) AddResult(matchingIds []int, resultIds []interface{}, propNameWithId string) error {
+func (n *Scores) AddResult(matchingIds []int, resultIds []interface{}, propNameWithId string) ([]int, error) {
 	IDCG := 0.
 	for j := 0; j < len(matchingIds); j++ {
 		IDCG += 1. / math.Log(float64(j+2.))
 	}
 
+	matched := []int{}
+
 	DCG := 0.
 	for rank, resultId := range resultIds {
 		id, err := strconv.Atoi(resultId.(map[string]interface{})[propNameWithId].(string))
+		if err != nil {
+			return nil, err
+		}
 		for _, matchigId := range matchingIds {
-			if err != nil {
-				return err
-			}
+			m := false
 			if id == matchigId {
 				if rank == 0 {
 					n.hitsAt1 += 1
+					m = true
 				}
 				if rank < 5 {
 					n.hitsAt5 += 1
+					m = true
+				}
+				if m {
+					matched = append(matched, id)
 				}
 				DCG += 1 / math.Log(float64(rank+2))
 
@@ -51,7 +59,7 @@ func (n *Scores) AddResult(matchingIds []int, resultIds []interface{}, propNameW
 	}
 	n.NDCG += DCG / IDCG
 	n.numQueries += 1
-	return nil
+	return matched, nil
 }
 
 func (n *Scores) CurrentNDCG() float64 {

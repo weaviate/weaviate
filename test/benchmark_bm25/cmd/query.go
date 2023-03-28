@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
@@ -30,6 +31,14 @@ func init() {
 	queryCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
 	queryCmd.PersistentFlags().IntVarP(&QueriesCount, "count", "c", DefaultQueriesCount, "run only the specified amount of queries, negative numbers mean unlimited")
 	queryCmd.PersistentFlags().IntVarP(&FilterObjectPercentage, "filter", "f", DefaultFilterObjectPercentage, "The given percentage of objects are filtered out. Off by default, use <=0 to disable")
+	queryCmd.PersistentFlags().BoolVarP(&DumpResults, "dump-results", "d", false, "Print results for inspection")
+}
+
+type querySummary struct {
+	Id             int
+	Query          string
+	MatchingIds    []int
+	MatchingCorpus []lib.CorpusData
 }
 
 var queryCmd = &cobra.Command{
@@ -63,9 +72,19 @@ var queryCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		corpus := lib.LoadCorpus(ds)
+
+		// Put the corpus into a hashtable
+		corpusMap := map[int]lib.CorpusData{}
+		for _, v := range corpus {
+			corpusMap[v.Id] = v
+		}
+
 		log.Print("queries parsed")
 
 		times := []time.Duration{}
+		querySumm := map[int]querySummary{}
 
 		log.Print("start querying")
 
@@ -99,11 +118,20 @@ var queryCmd = &cobra.Command{
 
 			logMsg := fmt.Sprintf("completed %d/%d queries.", i, len(q))
 
+			qs := querySummary{Id: query.Id, Query: query.Query}
+
 			if len(query.MatchingIds) > 0 && len(ds.Queries.PropertyWithId) > 0 {
 				resultIds := result.Data["Get"].(map[string]interface{})[className].([]interface{})
-				if err := scores.AddResult(query.MatchingIds, resultIds, propNameWithId); err != nil {
+				matched, err := scores.AddResult(query.MatchingIds, resultIds, propNameWithId)
+				if err != nil {
 					return err
 				}
+
+				for _, id := range matched {
+					qs.MatchingIds = append(qs.MatchingIds, id)
+					qs.MatchingCorpus = append(qs.MatchingCorpus, corpusMap[id])
+				}
+				querySumm[query.Id] = qs
 				logMsg += fmt.Sprintf("nDCG score: %.04f", scores.CurrentNDCG())
 			}
 			if i%1000 == 0 && i > 0 {
@@ -124,6 +152,31 @@ var queryCmd = &cobra.Command{
 		stat := lib.AnalyzeLatencies(times)
 		stat.PrettyPrint()
 		scores.PrettyPrint()
+
+		// Put all the query summaries into an array and sort it
+		querySummaries := []querySummary{}
+		for _, v := range querySumm {
+			querySummaries = append(querySummaries, v)
+		}
+		sort.Slice(querySummaries, func(i, j int) bool {
+			return querySummaries[i].Id < querySummaries[j].Id
+		})
+		
+		if DumpResults {
+		// Loop over querySummaries and print it neatly
+		fmt.Println("Query results:")
+		for _, qs := range querySummaries {
+			if len(qs.MatchingIds) == 0 {
+				continue
+			}
+			fmt.Printf("Query %d: %s\n", qs.Id, qs.Query)
+			//fmt.Printf("Matching ids: %v\n", qs.MatchingIds)
+			fmt.Printf("Matching corpus: %v\n",qs.MatchingIds )
+			for _, c := range qs.MatchingCorpus {
+				fmt.Printf("Match: %v, %v\n", c.Id, c.Text)
+			}
+		}
+	}
 
 		return nil
 	},

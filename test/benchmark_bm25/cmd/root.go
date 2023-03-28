@@ -25,6 +25,7 @@ var (
 	QueriesCount           int
 	MultiplyProperties     int
 	FilterObjectPercentage int
+	DumpResults            bool
 )
 
 const (
