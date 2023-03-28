@@ -101,12 +101,12 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	}
 
 	meta, err := store.Meta(ctx, req.ID, false)
-	if err != nil || meta.Error != "" {
+	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
-		if meta.Error != "" {
-			err = errors.New(meta.Error)
-		}
 		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+	}
+	if err != nil || meta.Error != "" {
+		return reqStat{}, errors.New(meta.Error)
 	}
 
 	return reqStat{
@@ -117,7 +117,11 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	}, nil
 }
 
-// Backup is called by the User
+// backup checks if the node is ready to back up (can commit phase)
+//
+// Moreover it starts a goroutine in the background which waits for the
+// next instruction from the coordinator (second phase).
+// It will start the backup as soon as it receives an ack, or abort otherwise
 func (b *backupper) backup(ctx context.Context,
 	store nodeStore, req *Request,
 ) (CanCommitResponse, error) {
@@ -136,7 +140,7 @@ func (b *backupper) backup(ctx context.Context,
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
-
+	// waits for ack from coordinator in order to processed with the backup
 	go func() {
 		defer b.lastOp.reset()
 		if err := b.waitForCoordinator(expiration, id); err != nil {
