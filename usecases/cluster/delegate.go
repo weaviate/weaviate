@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/memberlist"
+	"github.com/sirupsen/logrus"
 )
 
 // _OpCode represents the type of supported operation
@@ -90,11 +91,12 @@ func (d *spaceMsg) unmarshal(data []byte) error {
 
 // delegate implements the memberList delegate interface
 type delegate struct {
-	Name     string
-	dataPath string
-	sync.Mutex
+	Name      string
+	dataPath  string
 	diskUsage func(path string) (DiskUsage, error)
-	Cache     map[string]NodeInfo
+	log       logrus.FieldLogger
+	sync.Mutex
+	Cache map[string]NodeInfo
 }
 
 // init must be called first to initialize the cache
@@ -131,6 +133,7 @@ func (d *delegate) LocalState(join bool) []byte {
 	if prv.Available == 0 || time.Since(time.UnixMilli(prv.LastTimeMilli)) >= _ProtoTTL {
 		info.DiskUsage, err = d.diskUsage(d.dataPath)
 		if err != nil {
+			d.log.WithField("action", "delegate.local_state.disk_usage").Error(err)
 			return nil
 		}
 		info.LastTimeMilli = time.Now().UnixMilli()
@@ -147,6 +150,7 @@ func (d *delegate) LocalState(join bool) []byte {
 	}
 	bytes, err := x.marshal()
 	if err != nil {
+		d.log.WithField("action", "delegate.local_state.marshal").Error(err)
 		return nil
 	}
 	return bytes
@@ -159,6 +163,8 @@ func (d *delegate) LocalState(join bool) []byte {
 func (d *delegate) MergeRemoteState(data []byte, join bool) {
 	var x spaceMsg
 	if err := x.unmarshal(data); err != nil || x.Node == "" {
+		d.log.WithField("action", "delegate.merge_remote.unmarshal").
+			WithField("data", string(data)).Error(err)
 		return
 	}
 	info := NodeInfo{x.DiskUsage, time.Now().UnixMilli()}
