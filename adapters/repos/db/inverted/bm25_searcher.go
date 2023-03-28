@@ -425,7 +425,7 @@ func (b *BM25Searcher) createTermHeap(config schema.BM25Config, averagePropLengt
 	})
 
 	for i, item := range docPointers {
-		docPointers[i].Score = calcScore(config, averagePropLength, item, termResult.idf)
+		docPointers[i].Score, _ = calcScore(config, averagePropLength, item, termResult.idf)
 		scoreHeap.Push(item)
 	}
 
@@ -603,7 +603,7 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		return a.Score > b.Score
 	})
 
-	finalCandidates := NewCustomMapWithArena(ar, 10000000)
+	finalCandidates := NewCustomMapWithArena(ar, uintptr(limit))
 	// Iterate over all results, merge them into finalCandidates, and add them to the heap
 	for _, termResult := range results {
 		resMap := termResult.data
@@ -613,6 +613,7 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 				finalCandidates.Set(docId, docPointer)
 			} else {
 				old_dp.Score += docPointer.Score
+				old_dp.ExplainScore = append(old_dp.ExplainScore, docPointer.ExplainScore...)
 				finalCandidates.Set(docId, old_dp)
 
 			}
@@ -643,6 +644,8 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		if err != nil {
 			return nil, nil, err
 		}
+		object.Object.Additional["explainScore"] = strings.Join(item.ExplainScore, "\n")+"\n"+fmt.Sprintf("Total score: %v", item.Score)
+		//fmt.Printf("%+v\n", object)
 		objects = append(objects, object)
 		scores = append(scores, float32(item.Score))
 
@@ -698,7 +701,11 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
 
 	for i, item := range docMapPairsArray {
-		docMapPairsArray[i].Score = calcScore(config, averagePropLength, &item, termResult.idf)
+		dmp := docMapPairsArray
+		dmp[i].ExplainScore = append(docMapPairsArray[i].ExplainScore, fmt.Sprintf("Query term: %v\nfreq: %v, proplen: %v", query, dmp[i].frequency, dmp[i].propLength))
+		score, explain := calcScore(config, averagePropLength, &item, termResult.idf)
+		dmp[i].Score = score
+		dmp[i].ExplainScore = append(docMapPairsArray[i].ExplainScore, explain)
 	}
 
 	termResult.data = docMapPairsMap
@@ -707,11 +714,12 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 	return termResult, nil
 }
 
-func calcScore(config schema.BM25Config, averagePropLength float64, item *docPointerWithScore, idf float64) float64 {
+func calcScore(config schema.BM25Config, averagePropLength float64, item *docPointerWithScore, idf float64) (float64, string) {
 	freq := float64(item.frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(item.propLength)/averagePropLength))
 	score := idf * tf
-	return score
+	explain := fmt.Sprintf("%v = (idf) %v * (tf) %v/(%v + %v*(1-%v+%v*%v/%v))", score, idf, freq, freq, config.K1, config.B, config.B, item.propLength, averagePropLength)
+	return score, explain
 }
 
 // Objects returns a list of full objects

@@ -179,9 +179,7 @@ func (m *CustomMap) Set(key uint64, value *docPointerWithScore) {
 	if bucket != nil {
 		for v := bucket; v != nil; v = v.Cdr {
 			if v.Car.id == key {
-
-				newBucket := cons(m.arena, item, v)
-				m.Data[index] = newBucket
+				v.Car = item
 				return
 			}
 		}

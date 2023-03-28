@@ -663,4 +663,5 @@ type docPointerWithScore struct {
 	frequency  float32
 	propLength float32
 	Score      float64
+	ExplainScore []string
 }

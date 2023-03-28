@@ -826,7 +826,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 				// Collect all keys starting with "BM25F" and add them to the Additional
 				if keywordRanking.AdditionalExplanations {
-					explainScore := ""
+					explainScore := oo.Object.Additional["explainScore"]
 					for k, v := range oo.Object.Additional {
 						if strings.HasPrefix(k, "BM25F") {
 
