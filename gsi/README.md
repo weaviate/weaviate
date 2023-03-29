@@ -50,7 +50,7 @@ This codebase contains all the Gemini Plugin code, so build and deploy the conta
 
 The following environmental variables are unique to Gemini Plugin configuration at the server:
 * GEMINI_ALLOCATION_ID - This must be set to a valid allocation id.  Please consult your onboarding instructions or reach out to your GSI support contact for more information.
-* GEMINI_DATA_DIRECTORY - This directory must exist and live under "/home/public" (it's an FVS requirement.)
+* GEMINI_DATA_DIRECTORY - This directory must exist and live under "/home/public" (it's an FVS requirement.)  In addition to the FVS API, this directory is critical for data transfer from the Gemini Plugin.
 * GEMINI_FVS_SERVER - This is the server address of your FVS server.  Typically, its value should be 'localhost' since the FVS server would typically be co-located with your Weaviate server instance.
 * GEMINI_DEBUG - By default the value is 'false' (lower-casee.)  Set to 'true' to see more Gemini Plugin log messages printed to the console.  This is useful when debugging Gemini Plugin configuration issues.
 
