@@ -78,7 +78,7 @@ We benchmarked a system with 4 Gemini APU hardware acceleration boards.  Please 
 
 ## Index Training
 
-The algorithm that powers the Gemini Plugin (via the FVS) requires an index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the application adds vectors. The Gemini Plugin launches its index training operation when the application invokes its first "search" operation.  The training opperation runs asynchronously and in the background, and therefore does not block the application.  The application immediately receives a message that indicates training has started.  Weaviate developers should take note of this and should modify their application's flow accordingly when using the Gemini Plugin.  
+The algorithm that powers the Gemini Plugin (via the FVS) requires an index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the application adds vectors. The Gemini Plugin launches its index training operation when the application invokes its first "search" operation.  The training operation subsequently runs asynchronously and in the background, and therefore does not block the application.  The application immediately receives a message that indicates that the asynchronous training operation has started.  Weaviate developers should take note of this and should consider modifying their application's contrrol flow accordingly when using the Gemini Plugin.
 
 Ideally, an application that leverages the Gemini Plugin should be structured as follows:
 * add all the objects that need to be vectorized first via the relevant Weaviate API calls.
