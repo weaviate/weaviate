@@ -19,7 +19,7 @@ Note: The following datasets are not shown yet:
 * 500M of Deep1B
 * All of Deep1B
 
-## Index Build/Train Time
+## Index Build/Training Time
 
 ![Subsets of Deep1B](results/deep1B_master_train_time.png)
 
