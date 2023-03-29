@@ -30,9 +30,10 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
 	byIndex := map[*Index]batchQueue{}
+	indexById := make(map[int]*Index, len(objects))
 	db.indexLock.RLock()
 
-	for _, item := range objects {
+	for i, item := range objects {
 		for _, index := range db.indices {
 			if index.Config.ClassName != schema.ClassName(item.Object.Class) {
 				continue
@@ -42,19 +43,27 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 				// item has a validation error or another reason to ignore
 				continue
 			}
-
-			queue, ok := byIndex[index]
+			_, ok := byIndex[index]
 			if !ok { // only lock index once
 				index.indexLock.RLock()
 			}
-
-			object := storobj.FromObject(item.Object, item.Vector)
-			queue.objects = append(queue.objects, object)
-			queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
-			byIndex[index] = queue
+			indexById[i] = index
 		}
 	}
 	db.indexLock.RUnlock()
+	for i, item := range objects {
+		if item.Err != nil {
+			// item has a validation error or another reason to ignore
+			continue
+		}
+		index := indexById[i]
+		queue := byIndex[index]
+		object := storobj.FromObject(item.Object, item.Vector)
+		queue.objects = append(queue.objects, object)
+		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
+		byIndex[index] = queue
+
+	}
 
 	for index, queue := range byIndex {
 		errs := index.putObjectBatch(ctx, queue.objects, repl)
