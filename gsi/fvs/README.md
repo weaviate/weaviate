@@ -1,15 +1,13 @@
 
 # GSI Technology's Gemini Fast Vector Search (FVS)
 
-## Introduction
-
 The Weaviate Gemini Plugin leverages GSI Technologies FVS Software Library.
 
-This directory provides profiling, debugging, and benchmark utilities and scripts for FVS.
+This directory provides benchmarks for FVS as well as instructions for how you can reproduce these benchmarks on your system.
 
-## Benchmarks
+# Deep1B Benchmarks
 
-### Deep1B
+## Search Recall vs Throughput
 
 ![Subsets of Deep1B](results/gemini_fvs_deep1B.png)
 
@@ -19,7 +17,7 @@ Note: The following datasets are not shown yet:
 * 500M of Deep1B
 * All of Deep1B
 
-#### Index Build/Training Time
+## Index Build/Training Time
 
 ![Subsets of Deep1B](results/deep1B_master_train_time.png)
 
@@ -31,7 +29,7 @@ Note: The following datasets are not shown yet:
 * 500M of Deep1B
 * All of Deep1B
 
-#### Reproducing These Benchmarks
+## Reproducing These Benchmarks
 
 To reproduce the benchmarks shown above, do the following:
 * login to a system with Gemini FVS installed
@@ -60,8 +58,7 @@ To reproduce the benchmarks shown above, do the following:
   * [training time notebook](benchmarks_analysis.ipynb)
 * we tested with python 3.8 so recommend you use that version
 
-
-#### BERT-based 768-dimension Dataset
+## Benchmarks On A Bert-based 768-dimension Dataset
 
 This is not yet done.
 
