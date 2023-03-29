@@ -34,7 +34,7 @@ Container Setup:
 * Run the docker-compose file "docker-compose-sanity.yml," which runs the containers you just built.
 * Wait until you see the startup message which indicates that the Weaviate server has successfully start.
 
-Test Program:
+Python Application Test Program:
 * In another terminal, cd into the "gsi/tests" directory
 * Create a new python=3.8 environment, activate it, and install the python packages via the "requirements.txt" file
 * Run the following python file "weaviate-gemini-sanity.py"
