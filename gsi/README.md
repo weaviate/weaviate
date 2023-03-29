@@ -28,18 +28,20 @@ Prerequisites:
 
 Container Setup:
 * If you haven't already, clone this repository on the system and cd into the top-level directory.
-* cd into the "gsi" directory
-* run the docker build script: "./rundockerbuild.sh" which builds the container "gsi/weaviate"
-* cd into the "gsi/docker/t2v" directory
-* run the docker build script: "./runbuild.sh" which builds the container "gsi/t2v"
-* cd into the "gsi/docker" directory
-* run the following:  "docker-compose -f docker-compose-sanity.yml up" which runs the containers you just built
+* Now cd into the "gsi" directory
+* Run the docker build script "rundockerbuild.sh" which builds the container locally "gsi/weaviate"
+* Now cd into the "gsi/docker/t2v" directory
+* Run the docker build script "runbuild.sh" which builds the container locally "gsi/t2v"
+* Now cd into the "gsi/docker" directory
+* Run the following docker-compose file "docker-compose-sanity.yml up" which runs the containers you just built.
 
-Test:
-* in another terminal, cd into the "gsi/tests" directory
-* create a new python=3.8 environment, activate it, and install the python packages via the "requirements.txt" file
-* run the following: "python3 weaviate-sanity.py"
-* the example program will create a Gemini index, import some data, and will finally perform some example searches
+Test Program:
+* In another terminal, cd into the "gsi/tests" directory
+* Create a new python=3.8 environment, activate it, and install the python packages via the "requirements.txt" file
+* Run the following python file "weaviate-sanity.py"
+* This weaviate python program will create a gemini index, import some data into it, and will finally perform some example searches against the index.
+
+# Gemini Configuration
 
 # Benchmarks
 
