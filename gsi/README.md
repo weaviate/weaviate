@@ -85,23 +85,23 @@ These benchmarks are not yet available.
 
 ## Index Training
 
-The algorithm that powers the Gemini Plugin (via the FVS) requires an index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the application adds vectors. The Gemini Plugin launches its index training operation when the application invokes its first "search" operation.  The training operation subsequently runs asynchronously and in the background, and therefore does not block the application.  The application immediately receives a message that indicates that the asynchronous training operation has started.  Weaviate developers should take note of this and should consider modifying their application's control flow accordingly when using the Gemini Plugin.
+The algorithm that powers the Gemini Plugin (via the FVS) requires an index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the Weaviate application adds vectors. The Gemini Plugin launches the index training operation in a deferred mannager, when the Weaivate application invokes its first "search" query.  The index training subsequently runs asynchronously (e.g, in the background), and therefore does not block the Weaviate application.  The application immediately receives a message indicating asynchronous training operation started.  Weaviate developers should take note of this and should consider modifying their application's control flow accordingly when using the Gemini Plugin.
 
-Ideally, an application that leverages the Gemini Plugin should be structured as follows:
-* add all the objects that need to be vectorized first via the relevant Weaviate API calls.
-* perform a Weaviate "search" API call and look for a response message that indicates "asynchronous index training in progress."
-* continue querying Weaviate until the response message indicates that the "asynchronous index training is complete."
-* subsequent search calls will complete as you would normally expect.
+Ideally, a Weaviateapplication that leverages the Gemini Plugin should be structured as follows:
+* first add all the objects that need to be vectorized via the relevant Weaviate import API calls.
+* then it should perform a Weaviate search API call and look for a response message indicating "asynchronous index training is in progress."
+* it should then continue querying Weaviate until the response message indicates that the "asynchronous index training is complete."
+* subsequent search calls will complete with the expected search results
 
-We have supplied an example program which demonstrates this ideal flow in python.  The example is located at "gsi/tests/weaviate-gemini-sanity.py."
+We have supplied an example program which demonstrates this application flow in python.  The example is located at "gsi/tests/weaviate-gemini-sanity.py."
 
 As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the [Gemini index training benchmarks](fvs/README.md) for more information.
 
-Also, note the following current limitations while the Gemini index is training asynchronously:
+Also, note the following current limitations while the Gemini index trains:
 * Additional object/vector adds are not allowed
 * Delete object/vectors are not allowed
 
-Also currently the Gemin Plugin will train a Gemini index only once during its lifetime, so applications should try to add as many vectors as possible before performing the first search.
+Currently the Gemin Plugin will train a Gemini index only once during the index'slifetime, so applications should try to add as many vectors as possible before the Gemini plugin trains the index.
 
 We plan to address these issues by supporting a form of hardware-accelerated HNSW in the near future.
 
