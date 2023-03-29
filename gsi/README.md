@@ -51,7 +51,7 @@ Python Application Test Program:
 
 The Gemini plugin requires minimal configuration at the server and the application client. 
 
-# Weaviate Server Configuration
+## Weaviate Server Configuration
 
 This codebase contains all the Gemini Plugin code, so build and deploy the container as you would normally (see the script at "gsi/rundockerbuild.sh." )
 
@@ -63,7 +63,7 @@ The following environmental variables are unique to Gemini Plugin configuration 
 
 See the docker-compose file at 'gsi/docker/docker-compose-sanity.yml' for an example of how to set these environmental variables.
 
-# Weaviate Client Configuration
+## Weaviate Client Configuration
 
 The default vector index is Weaviate's native implementation of HNSW.  To override this in your application, you must set the 'vectorIndexType' property to 'gemini' when you create your Weaviate class schema.
 
