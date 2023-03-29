@@ -33,7 +33,7 @@ client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
 
 # get the schema
 schema = client.schema.get()
-if VERBOSE: print("Got Schema: ", json.dumps(schema, indent=4))
+if VERBOSE: print("Got Weaviate schema: ", json.dumps(schema, indent=4))
 
 # do any schema checks
 if not EXISTS_OK:
