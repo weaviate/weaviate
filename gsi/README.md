@@ -106,6 +106,10 @@ Test automation that extends the existing Weaviate CI/CD on systems with the FVS
 
 High-availability configuration and support like replication are not yet available.
 
+## Recovery
+
+Data recovery (such as if the server terminates unexpectedly) is not yet available.
+
 # Troubleshooting
 
 [This section will eventually contain resolutions to common problems that you may run into when either configuring the Gemini Plugin, or working with a Gemini index, the FVS system, or the APU hardware.]
