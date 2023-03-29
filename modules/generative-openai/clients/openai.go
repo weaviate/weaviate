@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -75,13 +76,14 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	var body []byte
 	var err error
 	var oaiUrl string
+	var input generateInput
 
 	if settings.IsLegacy() {
-		oaiUrl, err = url.JoinPath(v.host, "/v1/completions")
+		oaiUrl = path.Join(v.host, "/v1/completions")
 		if err != nil {
 			return nil, errors.Wrap(err, "join OpenAI API host and path")
 		}
-		body, err = json.Marshal(generateInput{
+		input = generateInput{
 			Prompt:           prompt,
 			Model:            settings.Model(),
 			MaxTokens:        settings.MaxTokens(),
@@ -89,14 +91,14 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 			FrequencyPenalty: settings.FrequencyPenalty(),
 			PresencePenalty:  settings.PresencePenalty(),
 			TopP:             settings.TopP(),
-		})
+		}
 	} else {
 		oaiUrl, err = url.JoinPath(v.host, v.path)
 		if err != nil {
 			return nil, errors.Wrap(err, "join OpenAI API host and path")
 		}
 		tokens := determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), prompt)
-		body, err = json.Marshal(generateInput{
+		input = generateInput{
 			Messages: []message{{
 				Role:    "user",
 				Content: prompt,
@@ -107,9 +109,10 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 			FrequencyPenalty: settings.FrequencyPenalty(),
 			PresencePenalty:  settings.PresencePenalty(),
 			TopP:             settings.TopP(),
-		})
+		}
 	}
 
+	body, err = json.Marshal(input)
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
@@ -179,8 +182,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 }
 
 func determineTokens(maxTokensSetting float64, classSetting float64, prompt string) int {
-	//nolint:gofumpt    //todo very naive approach here, but better than before ;)
-	tokens := float64(countWhitespace(prompt)+1) * 2.5
+	tokens := float64(countWhitespace(prompt)+1) * 3
 	if tokens+classSetting > maxTokensSetting {
 		return int(maxTokensSetting - tokens)
 	}

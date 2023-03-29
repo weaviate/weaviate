@@ -159,11 +159,11 @@ func (ic *classSettings) GetMaxTokensForModel(model string) float64 {
 }
 
 func (ic *classSettings) validateModel(model string) bool {
-	return Contains(availableOpenAIModels, model) || Contains(availableOpenAILegacyModels, model)
+	return contains(availableOpenAIModels, model) || contains(availableOpenAILegacyModels, model)
 }
 
 func (ic *classSettings) IsLegacy() bool {
-	return Contains(availableOpenAILegacyModels, ic.Model())
+	return contains(availableOpenAILegacyModels, ic.Model())
 }
 
 func (ic *classSettings) Model() string {
@@ -190,7 +190,7 @@ func (ic *classSettings) TopP() float64 {
 	return *ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
 }
 
-func Contains[T comparable](s []T, e T) bool {
+func contains[T comparable](s []T, e T) bool {
 	for _, v := range s {
 		if v == e {
 			return true
