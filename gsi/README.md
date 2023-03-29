@@ -83,7 +83,7 @@ The algorithm that powers the Gemini Plugin (via the FVS) requires an index trai
 Ideally, an application that leverages the Gemini Plugin should be structured as follows:
 * add all the objects that need to be vectorized first via the relevant Weaviate API calls.
 * perform a Weaviate "search" API call and look for a response message that indicates "asynchronous index training in progress."
-* continue querying the status until the message indicates that the "asynchrnous index training is complete.
+* continue querying the status until the response message indicates that the "asynchrnous index training is complete."
 * subsequent search calls will complete as you would normally expect.
 
 We chose this route because it does not require you to install a new client side library for your application.
