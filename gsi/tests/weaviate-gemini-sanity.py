@@ -37,7 +37,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("-n", type=int)
 args = parser.parse_args()
-if "n" in args:
+if args.n != None:
     MAX_ADDS = args.n
     print("Overriding MAX_ADDS=%d" % MAX_ADDS)
 
@@ -104,6 +104,7 @@ if cls_schema==None:
     raise Exception("Could not retrieve schema for class='%s'" % CLASS_NAME)
 if cls_schema['vectorIndexType'] != "gemini":
     raise Exception("The schema for class='%s' is not a gemini index." % CLASS_NAME)
+print("Verified.")
 
 # Retrieve some NLP sample data.
 print("Retrieving NLP data...")
@@ -116,7 +117,7 @@ if len(data)==0:
 # Prepare a batch process for importing data to Weaviate.
 print("Import documents to Weaviate (max of around %d docs)" % MAX_ADDS)
 
-# Let's loop until we exceed the MAX configured above.
+# Let's loop until we exceed MAX_ADDS configured above.
 count = 0
 while True: 
 
@@ -131,7 +132,7 @@ while True:
             }
 
             resp = client.batch.add_data_object(properties, CLASS_NAME)
-            print(resp)
+            # TODO: check there's no error - print(resp)
             count += 1
             
     if count > MAX_ADDS:
