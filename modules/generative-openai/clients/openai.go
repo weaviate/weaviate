@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -73,16 +72,11 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
-	var body []byte
-	var err error
 	var oaiUrl string
 	var input generateInput
 
 	if settings.IsLegacy() {
 		oaiUrl = path.Join(v.host, "/v1/completions")
-		if err != nil {
-			return nil, errors.Wrap(err, "join OpenAI API host and path")
-		}
 		input = generateInput{
 			Prompt:           prompt,
 			Model:            settings.Model(),
@@ -93,10 +87,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 			TopP:             settings.TopP(),
 		}
 	} else {
-		oaiUrl, err = url.JoinPath(v.host, v.path)
-		if err != nil {
-			return nil, errors.Wrap(err, "join OpenAI API host and path")
-		}
+		oaiUrl = path.Join(v.host, v.path)
 		tokens := determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), prompt)
 		input = generateInput{
 			Messages: []message{{
@@ -112,7 +103,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		}
 	}
 
-	body, err = json.Marshal(input)
+	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
 	}
