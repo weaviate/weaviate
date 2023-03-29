@@ -39,7 +39,7 @@ Container Setup:
 * Now cd into the "gsi/docker/t2v" directory
 * Run the docker build script "rundockerbuild.sh" which builds a vectorization container locally called "gsi/t2v"
 * Now cd into the "gsi/docker" directory
-* Run the docker-compose file "docker-compose-sanity.yml," which runs the containers you just built.
+* Edit the file "docker-compose-sanity.yml" with your allocation id and run it via docker-compose.
 * Wait until you see the startup message which indicates that the Weaviate server has successfully start.
 
 Python Example:
