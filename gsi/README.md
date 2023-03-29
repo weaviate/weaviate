@@ -112,15 +112,15 @@ Test automation that extends the existing Weaviate CI/CD on systems with the FVS
 
 ## Observability and Metrics
 
-The Gemini plugin does not currently provide any real-time metrics for system performance and monitoring.
+The Gemini plugin does not currently provide any real-time metrics for system performance and monitoring.  Weaviate currently uses Prometheus for this purpose and we will likely integrate with it in the future.
 
 ## Replication
 
-High-availability configuration like replication are not yet available.
+High-availability configurations like replication are not yet supported.
 
 ## Recovery
 
-Data recovery (such as if the server terminates unexpectedly) is not yet available.
+Data recovery (such as if the server terminates unexpectedly) is not yet supported.
 
 # Troubleshooting
 
