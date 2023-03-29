@@ -19,13 +19,19 @@ Note: The following datasets are not shown yet:
 * 500M of Deep1B
 * All of Deep1B
 
-## Index Build/Training Time
+#### Index Build/Training Time
 
 ![Subsets of Deep1B](results/deep1B_master_train_time.png)
 
 ![Subsets of Deep1B - All Runs](results/Deep1B_subplots_train_time.png)
 
-### Reproducing The Benchmarks
+Note: The following datasets are not shown yet:
+* 100M of Deep1B
+* 250M of Deep1B
+* 500M of Deep1B
+* All of Deep1B
+
+#### Reproducing These Benchmarks
 
 To reproduce the benchmarks shown above, do the following:
 * login to a system with Gemini FVS installed
@@ -55,4 +61,7 @@ To reproduce the benchmarks shown above, do the following:
 * we tested with python 3.8 so recommend you use that version
 
 
+#### BERT-based 768-dimension Dataset
+
+This is not yet done.
 
