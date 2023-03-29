@@ -387,7 +387,7 @@ func (i *Gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit
     if i.verbose {
         fmt.Println("Gemini SearchByVectorDistance: Start")
     }
-	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed.")
+	return nil, nil, errors.Errorf("cannot vector search by Distance on a Gemini index.")
 }
 
 func (i *Gemini) UpdateUserConfig() error {
@@ -395,7 +395,7 @@ func (i *Gemini) UpdateUserConfig() error {
     if i.verbose {	
         fmt.Println("Gemini UpdateUserConfig: Start")
     }	
-	return errors.Errorf("Cannot update vector index config on a non-indexed class. Delete and re-create without skip property.")
+	return errors.Errorf("Cannot update vector index config on a Gemini index. Delete and re-create without skip property.")
 }
 
 
@@ -422,6 +422,8 @@ func (i *Gemini) Flush() error {
     if i.verbose {
         fmt.Println("Gemini Flush: Start")
     }
+    
+    // TODO: We should determine if need to relay this event to FVS
 
 	return nil
 }
@@ -432,6 +434,8 @@ func (i *Gemini) Shutdown(context.Context) error {
         fmt.Println("Gemini Shutdown: Start")
     }
 
+    // TODO: We should determine if need to relay this event to FVS
+
 	return nil
 }
 
@@ -440,6 +444,8 @@ func (i *Gemini) PauseMaintenance(context.Context) error {
     if i.verbose {
         fmt.Println("Gemini PauseMaintenance: Start")
     }
+    
+    // TODO: We should determine if need to relay this event to FVS
 
 	return nil
 }
@@ -450,6 +456,9 @@ func (i *Gemini) SwitchCommitLogs(context.Context) error {
         fmt.Println("Gemini SwitchCommitLogs: Start")
     }
 
+    // TODO:  Currently we don't leverage the Weaviate CommitLog subsystem
+    // TODO:  so we should consider if we need it.
+
 	return nil
 }
 
@@ -458,6 +467,8 @@ func (i *Gemini) ListFiles(context.Context) ([]string, error) {
     if i.verbose {
         fmt.Println("Gemini ListFiles: Start")
     }
+
+    // TODO:  Figure out if/when we need to support this call.
 
 	return nil, nil
 }
