@@ -41,7 +41,7 @@ print("Done.")
 
 # Check if the schema already has our test class.
 # If so, try to delete it.
-if CLASS_NAME in [ cls["name"] for cls in schema["classes"] ]
+if CLASS_NAME in [ cls["name"] for cls in schema["classes"] ]:
     print("Warning:  Found class='%s'.  Will try to delete..." % CLASS_NAME)
     
     client.schema.delete_class(CLASS_NAME)  
@@ -152,7 +152,7 @@ while successful_searches< MAX_SEARCHES:
 
     print("Sending a similarity search request now...")
     nearText = {"concepts": ["biology"]}
-    result = client.query.get("Question", ["question", "answer", "category"] ).with_near_text(nearText).with_limit(2).do()
+    result = client.query.get(CLASS_NAME, ["question", "answer", "category"] ).with_near_text(nearText).with_limit(2).do()
 
     # Interpret the results
     async_try_again, errors, data = parse_result(result)
