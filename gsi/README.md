@@ -47,7 +47,7 @@ Python Application Test Program:
 * Run the following python file "weaviate-gemini-sanity.py"
 * This weaviate python program will create a gemini index, import some data into it, and will finally perform some example searches against the index.
 
-# Gemini Plugin Configuration in Weaviate
+# Gemini Plugin Configuration
 
 The Gemini plugin requires minimal configuration at the server and the application client. 
 
