@@ -16,9 +16,9 @@ The following is a high-level architecture of a complete system with the Weaviat
 
 Additional component descriptions:
 * *Gemini Plugin* - This is the code contained in this repo and serves as the bridge between Weaviate and GSI's APU vector acceleration boards.
-* FVS - GSI's Fast Vector Search Library
-* GSL - GSI Search Library 
-* GSM - GSI System Management
+* *FVS* - GSI's Fast Vector Search Library provides an easy-to-use REST web interface for GSI's accelerated search capabilities.
+* *GSL* - GSI Search Library contains efficient search algorithms tuned to the APU acceleration technology.
+* *GSM* - GSI System Management manages multiple APU PCIe boards
 * numpy - The Gemini Plugin stores raw vectors as Numpy compatible files and shares the vectors via fast memory mapping via a shared file system.
 
 # Quick Start
