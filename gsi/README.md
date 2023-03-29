@@ -42,7 +42,7 @@ Test Program:
 
 # Gemini Plugin Configuration in Weaviate
 
-The Gemini plugin requires minimal configuration at the server and the client. 
+The Gemini plugin requires minimal configuration at the server and the application client. 
 
 # Weaviate Server Gemini Plugin Configuration
 
