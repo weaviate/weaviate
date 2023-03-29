@@ -41,7 +41,27 @@ Test Program:
 * Run the following python file "weaviate-sanity.py"
 * This weaviate python program will create a gemini index, import some data into it, and will finally perform some example searches against the index.
 
-# Gemini Configuration
+# Gemini Support In Weaviate
+
+The Gemini plugin requires minimal configuration at the server and the client. 
+
+# Weaviate Server Gemini Plugin Configuration
+
+This codebase contains the Gemini Plugin, so build and deploy the container as you would normally.  See the script at "gsi/rundockerbuild.sh" for an example.
+
+The following environmental variables are unique to Gemini:
+* GEMINI_ALLOCATION_ID - This must be set to a valid allocation id.  Please consult your onboarding instructions or reach out to your GSI support contact.
+* GEMINI_DATA_DIRECTORY - This directory must exist and live under /home/public ( a requirement of the FVS component. )
+* GEMINI_FVS_SERVER - This is the server address of your FVS server.  Typically, its value should be 'localhost' since the FVS server is co-located with your Weaviate eerver instance.
+* GEMINI_DEBUG - By default the value is 'false'.  Set to 'true' to see more logging messages to the console.
+
+See the docker-compose file at 'gsi/docker/docker-compose-sanity.yml' for an example of how to set these environmental variables.
+
+# Weaviate Client Configuraation
+
+The default vector index is Weaviate's native implementation of HNSW.  To override this in your application, you must configure the 'vectorIndexType' property when you create your Weaviate class.
+
+There is a python example at "gsi/tests/weaviate-gemini-sanity.py" that demonstrates how to do this.
 
 # Benchmarks
 
