@@ -88,13 +88,15 @@ Ideally, an application that leverages the Gemini Plugin should be structured as
 
 We chose this route because it does not require you to install a new client side library for your application.
 
-As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the (Gemini training benchmarks)[fvs/README.md] for more information.
+As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the (Gemini index training benchmarks)[fvs/README.md] for more information.
 
 Also, note the following current limitations while the Gemini index is training:
 * Additional object/vector adds are not allowed
 * Delete object/vectors are not allowed
 
 Also currently the Gemin Plugin will train a Gemini index once during its lifetime.
+
+We plan to address these issues by supporting a form of hardware-accelerated HNSW in the near future.
 
 ## CI/CD Automation
 
