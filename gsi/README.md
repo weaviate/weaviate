@@ -112,7 +112,7 @@ Test automation that extends the existing Weaviate CI/CD on systems with the FVS
 
 ## Replication
 
-High-availability configuration and support like replication are not yet available.
+High-availability configuration like replication are not yet available.
 
 ## Recovery
 
