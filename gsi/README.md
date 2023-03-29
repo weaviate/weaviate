@@ -58,7 +58,7 @@ See the docker-compose file at 'gsi/docker/docker-compose-sanity.yml' for an exa
 
 # Weaviate Client Configuration
 
-The default vector index is Weaviate's native implementation of HNSW.  To override this in your application, you must configure the 'vectorIndexType' property when you create your Weaviate class.
+The default vector index is Weaviate's native implementation of HNSW.  To override this in your application, you must set the 'vectorIndexType' property to 'gemini' when you create your Weaviate class schema.
 
 There is an example located at "gsi/tests/weaviate-gemini-sanity.py" that demonstrates this using the existing Weaviate python package.
 
