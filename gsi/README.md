@@ -74,14 +74,6 @@ We benchmarked a system with 4 Gemini APU hardware acceleration boards.  Please 
 
 [These benchmarks are not yet available.]
 
-# CI/CD Automation
-
-[Automation that extends the existing Weaviate CI/CD on systems with the FVS and APU boards is not yet available.]
-
-# Replication
-
-[Replication support is not yet available.]
-
 # Limitations
 
 ## Index Training
@@ -104,8 +96,16 @@ Also, note the following current limitations while the Gemini index is training:
 
 Also currently the Gemin Plugin will train a Gemini index once during its lifetime.
 
+## CI/CD Automation
+
+Test automation that extends the existing Weaviate CI/CD on systems with the FVS and APU boards is not yet available.
+
+## Replication
+
+High-availability configuration and support like replication are not yet available.
+
 # Troubleshooting
 
-[ This section will contain common problems that you may run into when either configuring the Gemini Plugin, or working with an Gemini index, the FVS system, or the APU acceleration boards.]
+[This section will contain resolutions to common problems that you may run into when either configuring the Gemini Plugin, or working with a Gemini index, the FVS system, or the APU hardware.]
 
 
