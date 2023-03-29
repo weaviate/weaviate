@@ -102,7 +102,7 @@ Also, note the following current limitations while the Gemini index trains:
 * Additional object/vector adds are not allowed
 * Delete object/vectors are not allowed
 
-Currently the Gemin Plugin will train a Gemini index only once during the index'slifetime, so applications should try to add as many vectors as possible before the Gemini plugin trains the index.
+Currently the Gemin Plugin will train a Gemini index only once during the index's lifetime, so applications should try to add as many vectors as possible before the Gemini plugin trains the index.
 
 We plan to address these issues by supporting a form of hardware-accelerated HNSW in the near future.
 
