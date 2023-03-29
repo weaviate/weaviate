@@ -44,7 +44,7 @@ Test Program:
 
 The Gemini plugin requires minimal configuration at the server and the application client. 
 
-# Weaviate Server Gemini Plugin Configuration
+# Weaviate Server Configuration
 
 This codebase contains all the Gemini Plugin code, so build and deploy the container as you would normally (see the script at "gsi/rundockerbuild.sh." )
 
