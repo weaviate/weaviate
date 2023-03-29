@@ -19,7 +19,7 @@ Additional component descriptions:
 * *FVS*  -GSI's Fast Vector Search Library provides an easy-to-use REST web interface for GSI's accelerated search capabilities.
 * *GSL*  -GSI Search Library contains efficient search algorithms tuned to the APU acceleration technology.
 * *GSM*  -GSI System Management manages multiple APU PCIe boards
-* *numpy*  -The Gemini Plugin stores raw vectors as Numpy compatible files and shares the vectors via fast memory mapping via the file system.
+* *numpy*  -The Gemini Plugin stores raw vectors as Numpy compatible files and shares the vectors with the FVS via file system memory mapping.
 
 # Quick Start
 
