@@ -9,7 +9,8 @@ This directory provides benchmarks for FVS as well as instructions for how you c
 
 ## Search Recall vs Throughput
 
-![Subsets of Deep1B](results/gemini_fvs_deep1B.png)
+![Subsets of Deep1B](results/recallvsthroughput_a.png)
+![Subsets of Deep1B](results/recallvsthroughput_b.png)
 
 Note: The following datasets are not shown yet:
 * 100M of Deep1B
