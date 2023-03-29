@@ -72,7 +72,7 @@ We benchmarked a system with 4 Gemini APU hardware acceleration boards.  Please 
 
 ## Gemini Plugin vs Weaviate's Native HNSW
 
-[These benchmarks are not yet available.]
+These benchmarks are not yet available.
 
 # Limitations
 
