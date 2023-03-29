@@ -13,14 +13,17 @@ This directory provides profiling, debugging, and benchmark utilities and script
 
 ![Subsets of Deep1B](results/gemini_fvs_deep1B.png)
 
+Note: The following datasets are not shown yet:
+* 100M of Deep1B
+* 250M of Deep1B
+* 500M of Deep1B
+* All of Deep1B
+
 ## Index Build/Train Time
 
 ![Subsets of Deep1B](results/deep1B_master_train_time.png)
 
 ![Subsets of Deep1B - All Runs](results/Deep1B_subplots_train_time.png)
-
-Notes:
-* we tested with python 3.8 so recommend you use that version
 
 ### Reproducing The Benchmarks
 
