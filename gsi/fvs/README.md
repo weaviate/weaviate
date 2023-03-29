@@ -54,8 +54,8 @@ To reproduce the benchmarks shown above, do the following:
   * [run_benchmarks_deep50M_q10.sh](run_benchmarks_deep50M_q10.sh)
   * [run_benchmarks_deep50M_q100.sh](run_benchmarks_deep50M_q100.sh)
 * to plot your data, use the following notebooks:
-  * [recall vs throughput notebook](train_time_analysis.ipynb)
-  * [training time notebook](benchmarks_analysis.ipynb)
+  * [recall vs throughput notebook](benchmarks_analysis.ipynb)
+  * [training time notebook](training_time_analysys.ipynb)
 * we tested with python 3.8 so recommend you use that version
 
 ## Benchmarks On A Transformer-based 768-dimension Dataset
