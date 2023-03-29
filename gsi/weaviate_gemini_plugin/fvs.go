@@ -53,7 +53,6 @@ func Import_dataset( host string, port uint, allocation_token string, path strin
     }                           
                                 
     // create the post json payload
-    //{"dsFilePath": "/home/public/deep-1M.npy", "searchType": "flat", "trainInd": true, "gridTrain": false, "nbits": 768, "qbits": 768, "targetAccuracy": 100, "mdUnique": false, "convertToDataset": false}
     values := map[string]interface{}{ "dsFilePath":     path,
                                     "searchType":       DefaultSearchType,
                                     "trainInd":         DefaultTrainInd,
@@ -126,6 +125,7 @@ func Import_dataset( host string, port uint, allocation_token string, path strin
 }
 
 func Train_status( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/train/status/%s", host, port, dataset_id)
     if verbose {
@@ -139,7 +139,6 @@ func Train_status( host string, port uint, allocation_token string, dataset_id s
     }
 
     // add headers
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
@@ -190,6 +189,7 @@ func Train_status( host string, port uint, allocation_token string, dataset_id s
 }
 
 func Load_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string,error) {
+
     // form the rest url        
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/load", host, port)
     if verbose {
@@ -197,7 +197,6 @@ func Load_dataset( host string, port uint, allocation_token string, dataset_id s
     }
 
     // create the post json payload
-    //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "7e3a75f6-9996-4ffe-9cb1-84f7e5d0366b", "typicalNQueries": 10, "maxNQueries": 3100, "normalize": false, "centroidsHammingK": 5000, "centroidsRerank": 4000, "hammingK": 3200, "topk": 1000, "bitmasksInd": false, "asyncLoad": false}
     values := map[string]interface{}{
                                 "allocationId":         allocation_token,
                                 "datasetId":            dataset_id,
@@ -225,7 +224,6 @@ func Load_dataset( host string, port uint, allocation_token string, dataset_id s
     }
 
     // add headers
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
@@ -267,6 +265,7 @@ func Load_dataset( host string, port uint, allocation_token string, dataset_id s
 }
 
 func Import_queries( host string, port uint, allocation_token string, path string, verbose bool ) (string, error) {
+
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/import", host, port)
     if verbose {
@@ -274,7 +273,6 @@ func Import_queries( host string, port uint, allocation_token string, path strin
     }
     
     // create the post json payload
-    //{"queriesFilePath": "/home/public/deep-queries-10.npy"}
     values := map[string]interface{}{
                                 "queriesFilePath": path}
     jsonValue, jErr := json.Marshal(values)
@@ -292,7 +290,6 @@ func Import_queries( host string, port uint, allocation_token string, path strin
     }
 
     // add headers
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
@@ -337,7 +334,7 @@ func Import_queries( host string, port uint, allocation_token string, path strin
 
 func Set_focus( host string, port uint, allocation_token string, dataset_id string, verbose bool ) error {
 
-   // form the rest url
+    // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/focus", host, port)
     if verbose {
         fmt.Println("Fvs: Set_focust: url=", url)
@@ -363,7 +360,6 @@ func Set_focus( host string, port uint, allocation_token string, dataset_id stri
     }
 
     // add headers
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
@@ -408,7 +404,6 @@ func Search( host string, port uint, allocation_token string, dataset_id string,
     }
    
     // compose the post body
-    //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "c37e9f7c-7ed0-4029-bbd7-353264614432", "queriesFilePath": "/home/public/deep-queries-10.npy", "topk": 10} 
     values := map[string]interface{}{
                                 "allocationId":     allocation_token,
                                 "datasetId":        dataset_id, 
@@ -429,7 +424,6 @@ func Search( host string, port uint, allocation_token string, dataset_id string,
     }
 
     // add headers
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
@@ -466,8 +460,6 @@ func Search( host string, port uint, allocation_token string, dataset_id string,
         fmt.Println("Fvs: Search: json resp=", respData, rErr)
     }
    
-    //goruntime.Breakpoint()
- 
     // reconstruct the distances returned
     dist, ok := respData["distance"].([]interface{})
     if !ok {
@@ -532,6 +524,7 @@ func Search( host string, port uint, allocation_token string, dataset_id string,
 }
 
 func Delete_queries( host string, port uint, allocation_token string, qid string, verbose bool) (string, error) {
+
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/demo/query/remove/%s", host, port, qid)
    
@@ -542,7 +535,6 @@ func Delete_queries( host string, port uint, allocation_token string, qid string
     }
 
     // add headers
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
 
@@ -572,12 +564,7 @@ func Delete_queries( host string, port uint, allocation_token string, qid string
         fmt.Println("Fvs: Delete_queries: json resp=", respData, rErr)
     }
 
-    // TODO:  Not sure what the response is all about
-    //status := respData["status"].(string)
-    //if verbose {
-    //    fmt.Println("Fvs: Delete_queries: status=",status)
-    //}
-
+    // TODO: Do we need to return a status string in addition to error?
     return "ok", nil
 }
 
@@ -590,7 +577,6 @@ func Unload_dataset( host string, port uint, allocation_token string, dataset_id
     }
     
     // create the post json payload
-    //{"allocationId": "0b391a1a-b916-11ed-afcb-0242ac1c0002", "datasetId": "fdebfbac-8608-486c-aae0-f203e7d9993a", "asyncUnload": false} 
     values := map[string]interface{}{
                                 "allocationId": allocation_token,
                                 "datasetId": dataset_id,
@@ -610,7 +596,6 @@ func Unload_dataset( host string, port uint, allocation_token string, dataset_id
     }
 
     // add headers
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Accept", "application/json" ) //; charset=UTF-8")
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
@@ -653,6 +638,7 @@ func Unload_dataset( host string, port uint, allocation_token string, dataset_id
 }
 
 func Delete_dataset( host string, port uint, allocation_token string, dataset_id string, verbose bool ) (string, error) {
+
     // form the rest url
     url := fmt.Sprintf("http://%s:%d/v1.0/dataset/remove/%s", host, port, dataset_id)
   
@@ -663,7 +649,6 @@ func Delete_dataset( host string, port uint, allocation_token string, dataset_id
     }       
 
     // add headers 
-    // {'allocationToken': '0b391a1a-b916-11ed-afcb-0242ac1c0002', 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Swagger-Codegen/1.0.0/python'}
     request.Header.Set("allocationToken", allocation_token)
     request.Header.Set("Content-Type", "application/json" ) //; charset=UTF-8")
 
@@ -753,8 +738,6 @@ func Numpy_read_float32_array(f *mmap.ReaderAt, arr [][]float32, dim int64, inde
 
             bits := binary.LittleEndian.Uint32(bt)
             arr[j][i] = math.Float32frombits(bits)
-
-            //arr[j][i] = binary.LittleEndian.Float32(bt)
         }
 
     }
