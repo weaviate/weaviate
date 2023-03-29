@@ -58,7 +58,7 @@ To reproduce the benchmarks shown above, do the following:
   * [training time notebook](benchmarks_analysis.ipynb)
 * we tested with python 3.8 so recommend you use that version
 
-## Benchmarks On A Bert-based 768-dimension Dataset
+## Benchmarks On A Transformer-based 768-dimension Dataset
 
 This is not yet done.
 
