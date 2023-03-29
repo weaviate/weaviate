@@ -16,10 +16,10 @@ The following is a high-level architecture of a complete system with the Weaviat
 
 Additional component descriptions:
 * *Gemini Plugin* - This is the code contained in this repo and serves as the bridge between Weaviate and GSI's APU vector acceleration boards.
-* *FVS*  GSI's Fast Vector Search Library provides an easy-to-use REST web interface for GSI's accelerated search capabilities.
-* *GSL*  GSI Search Library contains efficient search algorithms tuned to the APU acceleration technology.
-* *GSM*  GSI System Management manages multiple APU PCIe boards
-* *numpy*  The Gemini Plugin stores raw vectors as Numpy compatible files and shares the vectors via fast memory mapping via a shared file system.
+* *FVS*  -GSI's Fast Vector Search Library provides an easy-to-use REST web interface for GSI's accelerated search capabilities.
+* *GSL*  -GSI Search Library contains efficient search algorithms tuned to the APU acceleration technology.
+* *GSM*  -GSI System Management manages multiple APU PCIe boards
+* *numpy*  -The Gemini Plugin stores raw vectors as Numpy compatible files and shares the vectors via fast memory mapping via a shared file system.
 
 # Quick Start
 
@@ -56,10 +56,10 @@ The Gemini plugin requires minimal configuration at the server and the applicati
 This codebase contains all the Gemini Plugin code, so build and deploy the container as you would normally (see the script at "gsi/rundockerbuild.sh." )
 
 The following environmental variables are unique to Gemini Plugin configuration at the server:
-* *GEMINI_ALLOCATION_ID*  This must be set to a valid allocation id.  Please consult your onboarding instructions or reach out to your GSI support contact for more information.
-* *GEMINI_DATA_DIRECTORY* This directory must exist and live under "/home/public" (it's an FVS requirement.)  In addition to the FVS API, this directory is critical for data transfer from the Gemini Plugin.
-* *GEMINI_FVS_SERVER* This is the server address of your FVS server.  Typically, its value should be 'localhost' since the FVS server would typically be co-located with your Weaviate server instance.
-* *GEMINI_DEBUG* By default its false.  Set to 'true' (lower-case) to see more Gemini Plugin log messages printed to the console.  This is useful when debugging Gemini Plugin configuration issues.
+* *GEMINI_ALLOCATION_ID*  -This must be set to a valid allocation id.  Please consult your onboarding instructions or reach out to your GSI support contact for more information.
+* *GEMINI_DATA_DIRECTORY* -This directory must exist and live under "/home/public" (it's an FVS requirement.)  In addition to the FVS API, this directory is critical for data transfer from the Gemini Plugin.
+* *GEMINI_FVS_SERVER* -This is the server address of your FVS server.  Typically, its value should be 'localhost' since the FVS server would typically be co-located with your Weaviate server instance.
+* *GEMINI_DEBUG* -By default its false.  Set to 'true' (lower-case) to see more Gemini Plugin log messages printed to the console.  This is useful when debugging Gemini Plugin configuration issues.
 
 See the docker-compose file at 'gsi/docker/docker-compose-sanity.yml' for an example of how to set these environmental variables.
 
