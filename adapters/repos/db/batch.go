@@ -29,9 +29,8 @@ type batchQueue struct {
 func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
-	byIndex := map[string]batchQueue{}
+	byIndex := map[*Index]batchQueue{}
 	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
 
 	for _, item := range objects {
 		for _, index := range db.indices {
@@ -44,19 +43,25 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 				continue
 			}
 
-			queue := byIndex[index.ID()]
+			queue, ok := byIndex[index]
+			if !ok { // only lock index once
+				index.indexLock.RLock()
+			}
+
 			object := storobj.FromObject(item.Object, item.Vector)
 			queue.objects = append(queue.objects, object)
 			queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
-			byIndex[index.ID()] = queue
+			byIndex[index] = queue
 		}
 	}
+	db.indexLock.RUnlock()
 
-	for indexID, queue := range byIndex {
-		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects, repl)
-		for index, err := range errs {
+	for index, queue := range byIndex {
+		errs := index.putObjectBatch(ctx, queue.objects, repl)
+		index.indexLock.RUnlock()
+		for i, err := range errs {
 			if err != nil {
-				objects[queue.originalIndex[index]].Err = err
+				objects[queue.originalIndex[i]].Err = err
 			}
 		}
 	}
@@ -67,9 +72,8 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchReferences, error) {
-	byIndex := map[string]objects.BatchReferences{}
+	byIndex := map[*Index]objects.BatchReferences{}
 	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
 	for _, item := range references {
 		for _, index := range db.indices {
 			if item.Err != nil {
@@ -80,18 +84,22 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 			if index.Config.ClassName != item.From.Class {
 				continue
 			}
-
-			queue := byIndex[index.ID()]
+			queue, ok := byIndex[index]
+			if !ok { // only lock index once
+				index.indexLock.RLock()
+			}
 			queue = append(queue, item)
-			byIndex[index.ID()] = queue
+			byIndex[index] = queue
 		}
 	}
+	db.indexLock.RUnlock()
 
-	for indexID, queue := range byIndex {
-		errs := db.indices[indexID].addReferencesBatch(ctx, queue, repl)
-		for index, err := range errs {
+	for index, queue := range byIndex {
+		errs := index.addReferencesBatch(ctx, queue, repl)
+		index.indexLock.RUnlock()
+		for i, err := range errs {
 			if err != nil {
-				references[queue[index].OriginalIndex].Err = err
+				references[queue[i].OriginalIndex].Err = err
 			}
 		}
 	}
