@@ -66,6 +66,8 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
+	indexLock sync.RWMutex
+
 	metrics         *Metrics
 	centralJobQueue chan job
 }
