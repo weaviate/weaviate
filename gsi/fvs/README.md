@@ -40,14 +40,14 @@ Notes:
 * we tested with python 3.8 so recommend you use that version
 * make sure no other intensive workloads are running when you benchmark (leverage 'who' and 'htop' to get this information )
 
-## Datasets
-
-To create the various benchmark datasets used in these benchmarks, edit and run the 'make_datasets.py' python script in this directory.
-
 ## Index Build/Train Time
 
+![Subsets of Deep1B](results/deep1B_master_train_time.png)
+
+![Subsets of Deep1B - All Runs](results/Deep1B_subplots_train_time.png)
+
 To reproduce the training time plots shown below, do the following:
-* use the following [notebook](training_time_analysis.ipynb)
+* to plot your data, use the following [notebook](training_time_analysis.ipynb)
 
 <img align="left" src="results/deep1B_1_train_time.png">
 <img align="right" src="results/deep1B_2_train_time.png">
@@ -55,5 +55,9 @@ To reproduce the training time plots shown below, do the following:
 <img align="right" src="results/deep1B_10_train_time.png">
 <img align="left" src="results/deep1B_20_train_time.png">
 <img align="right" src="results/deep1B_50_train_time.png">
+
+## Datasets
+
+To create the various benchmark datasets used in these benchmarks, edit and run the 'make_datasets.py' python script in this directory.
 
 
