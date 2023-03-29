@@ -37,7 +37,7 @@ Container Setup:
 Test Program:
 * In another terminal, cd into the "gsi/tests" directory
 * Create a new python=3.8 environment, activate it, and install the python packages via the "requirements.txt" file
-* Run the following python file "weaviate-sanity.py"
+* Run the following python file "weaviate-gemini-sanity.py"
 * This weaviate python program will create a gemini index, import some data into it, and will finally perform some example searches against the index.
 
 # Gemini Support In Weaviate
