@@ -110,6 +110,10 @@ We plan to address these issues by supporting a form of hardware-accelerated HNS
 
 Test automation that extends the existing Weaviate CI/CD on systems with the FVS and APU boards is not yet available.
 
+## Metrics
+
+The Gemini plugin does not currently provide any real-time metrics for system performance and monitoring.
+
 ## Replication
 
 High-availability configuration like replication are not yet available.
