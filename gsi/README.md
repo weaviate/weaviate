@@ -6,7 +6,7 @@ The Weaviate Gemini Plugin provides an alternate ANN implementation for Weaviate
 The features of this plugin include:
 * provides accurate and fast vector search for large-scale vector datasets 
 * the plugin is implemented in pure Golang
-* the interfaces with Gemini's FVS (Fast Vector Search) REST web interface
+* the plugin interfaces directly with Gemini's FVS (Fast Vector Search) REST web interface
 
 # Architecture
 
