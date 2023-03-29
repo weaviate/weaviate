@@ -40,18 +40,18 @@ Test Program:
 * Run the following python file "weaviate-gemini-sanity.py"
 * This weaviate python program will create a gemini index, import some data into it, and will finally perform some example searches against the index.
 
-# Gemini Support In Weaviate
+# Gemini Plugin Configuration in Weaviate
 
 The Gemini plugin requires minimal configuration at the server and the client. 
 
 # Weaviate Server Gemini Plugin Configuration
 
-This codebase contains the Gemini Plugin, so build and deploy the container as you would normally.  See the script at "gsi/rundockerbuild.sh" for an example.
+This codebase contains all the Gemini Plugin code, so build and deploy the container as you would normally (see the script at "gsi/rundockerbuild.sh." )
 
-The following environmental variables are unique to Gemini:
+The following environmental variables are unique to Gemini Plugin configuration at the server:
 * GEMINI_ALLOCATION_ID - This must be set to a valid allocation id.  Please consult your onboarding instructions or reach out to your GSI support contact for more information.
 * GEMINI_DATA_DIRECTORY - This directory must exist and live under /home/public ( a requirement of the FVS component. )
-* GEMINI_FVS_SERVER - This is the server address of your FVS server.  Typically, its value should be 'localhost' since the FVS server typically be co-located with your Weaviate server instance.
+* GEMINI_FVS_SERVER - This is the server address of your FVS server.  Typically, its value should be 'localhost' since the FVS server would typically be co-located with your Weaviate server instance.
 * GEMINI_DEBUG - By default the value is 'false'.  Set to 'true' to see more Gemini Plugin log messages printed to the console.
 
 See the docker-compose file at 'gsi/docker/docker-compose-sanity.yml' for an example of how to set these environmental variables.
@@ -68,7 +68,7 @@ There is a python example at "gsi/tests/weaviate-gemini-sanity.py" that demonstr
 
 The Weaviate Gemini Plugin communicates with GSI's Fast Vector Search (FVS) REST web service.
 
-We benchmarked an FVS system with 4 Gemini APU hardware acceleration boards.  Please see this [README](fvs/README.md) for those detailed results.  We've provided code and instructions so you can reproduce these results on your system.
+We benchmarked a system with 4 Gemini APU hardware acceleration boards.  Please see this [README](fvs/README.md) for those detailed results.  In that directory, you will find code and instructions so that you can reproduce these results on your system.
 
 ## Gemini Plugin vs Weaviate's Native HNSW
 
@@ -76,12 +76,36 @@ We benchmarked an FVS system with 4 Gemini APU hardware acceleration boards.  Pl
 
 # CI/CD Automation
 
-[CI/CD automation support is not yet available.]
+[Automation that extends the existing Weaviate CI/CD on systems with the FVS and APU boards is not yet available.]
 
 # Replication
 
 [Replication support is not yet available.]
 
+# Limitations
+
+## Index Training
+
+The algorithm that powers the Gemini Plugin (via the FVS) requires an index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the application adds vectors. The Gemini Plugin launches its index training operation when the application invokes its first "search" operation.  The training opperation runs asynchronously and in the background, and therefore does not block the application.  The application immediately receives a message that indicates training has started.  Weaviate developers should take note of this and should modify their application's flow accordingly when using the Gemini Plugin.  
+
+Ideally, an application that leverages the Gemini Plugin should be structured as follows:
+* add all the objects that need to be vectorized first via the relevant Weaviate API calls.
+* perform a Weaviate "search" API call and look for a response message that indicates "asynchronous index training in progress."
+* continue querying the status until the message indicates that the "asynchrnous index training is complete.
+* subsequent search calls will complete as you would normally expect.
+
+We chose this route because it does not require you to install a new client side library for your application.
+
+As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the (Gemini training benchmarks)[fvs/README.md] for more information.
+
+Also, note the following current limitations while the Gemini index is training:
+* Additional object/vector adds are not allowed
+* Delete object/vectors are not allowed
+
+Also currently the Gemin Plugin will train a Gemini index once during its lifetime.
+
 # Troubleshooting
 
-[Troubleshooting notes are not yet available.]
+[ This section will contain common problems that you may run into when either configuring the Gemini Plugin, or working with an Gemini index, the FVS system, or the APU acceleration boards.]
+
+

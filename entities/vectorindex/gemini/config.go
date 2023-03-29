@@ -6,11 +6,10 @@ import (
     "github.com/weaviate/weaviate/entities/schema"
 )
 
-// The minimal number of parameters available in UserConfig.
-// See the gemini plugin module for the full suite of defaults
-// that we make make available at a later time.
+// A minimal number of config parameters arre available here in UserConfig.
 const (
     DefaultSkip                 = false
+    DefaultSearchType           = "flat"
     DefaultCentroidsHammingK    = 5000
     DefaultCentroidsRerank      = 4000
     DefaultHammingK             = 3200
@@ -19,14 +18,13 @@ const (
 
 type UserConfig struct {
     Skip                    bool   `json:"skip"`
+    SearchType              string `json:"distance"`
     CentroidsHammingK       int    `json:"centroidsHammingK"`
     CentroidsRerank         int    `json:"centroidsRerank"`
     HammingK                int    `json:"hammingK"`
     NBits                   int    `json:"nBits"`
 }
 
-// IndexType returns the type of the underlying vector index, thus making sure
-// the schema.VectorIndexConfig interface is implemented
 func (u UserConfig) IndexType() string {
     return "gemini"
 }
@@ -34,6 +32,7 @@ func (u UserConfig) IndexType() string {
 // SetDefaults in the user-specifyable part of the config
 func (c *UserConfig) SetDefaults() {
     c.Skip              = DefaultSkip
+    c.SearchType        = DefaultSearchType
     c.CentroidsHammingK = DefaultCentroidsHammingK
     c.CentroidsRerank   = DefaultCentroidsRerank
     c.HammingK          = DefaultHammingK

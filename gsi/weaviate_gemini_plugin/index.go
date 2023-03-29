@@ -69,7 +69,7 @@ type Gemini struct{
 
 }
 
-func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int ) (*Gemini, error) {
+func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string ) (*Gemini, error) {
 
     // get special verbose/debug flag if present 
     gemini_verbose := false

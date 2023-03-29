@@ -240,6 +240,8 @@ func (s *Shard) initVectorIndex(
 
             geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
 
+            // TODO: Currently we don't utilize the non-user Config but that 
+            // TODO: may likely change in the future.
             vi, err := gemini.New( gemini.Config{}, geminiUserConfig )
             if err != nil {
                 return errors.Wrapf(err, "init shard %q: gemini index", s.ID())

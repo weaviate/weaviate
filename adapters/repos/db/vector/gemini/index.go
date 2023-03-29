@@ -23,13 +23,14 @@ import (
 
 type gemini struct{
 
-    // gemini plugin struct pointer
+    // The underlying plugin struct pointer
+    // gets assigned in the New function.
     plugin *geminiplugin.Gemini
 }
 
 func New(cfg Config, uc ent.UserConfig) (*gemini, error) {
 
-    plugin, err := geminiplugin.New(uc.CentroidsHammingK, uc.CentroidsRerank, uc.HammingK, uc.NBits )
+    plugin, err := geminiplugin.New(uc.CentroidsHammingK, uc.CentroidsRerank, uc.HammingK, uc.NBits, uc.SearchType )
     if err!= nil {
         return nil, errors.Wrapf( err, "Gemini plugin constructor." )
     }
