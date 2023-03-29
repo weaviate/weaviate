@@ -120,6 +120,6 @@ Data recovery (such as if the server terminates unexpectedly) is not yet availab
 
 # Troubleshooting
 
-[This section will eventually contain resolutions to common problems that you may run into when either configuring the Gemini Plugin, or working with a Gemini index, the FVS system, or the APU hardware.]
+This section will eventually contain resolutions to common problems that you may run into when either configuring the Gemini Plugin, or working with a Gemini index, the FVS system, or the APU hardware.
 
 
