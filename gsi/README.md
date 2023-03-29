@@ -86,7 +86,7 @@ Ideally, an application that leverages the Gemini Plugin should be structured as
 * continue querying Weaviate until the response message indicates that the "asynchrnous index training is complete."
 * subsequent search calls will complete as you would normally expect.
 
-We chose this route because it does not require you to install a new client side library for your application.
+We have supplied an example program which demonstrates this flow using the existing python weaviate library ( at "gsi/tests/weaviate-gemini-sanity.py ).
 
 As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the [Gemini index training benchmarks](fvs/README.md) for more information.
 
