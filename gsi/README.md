@@ -29,9 +29,9 @@ Prerequisites:
 Container Setup:
 * If you haven't already, clone this repository on the system and cd into the top-level directory.
 * Now cd into the "gsi" directory
-* Run the docker build script "rundockerbuild.sh" which builds the container locally "gsi/weaviate"
+* Run the docker build script "rundockerbuild.sh" which builds the Gemini plugin-enabled container locally called "gsi/weaviate"
 * Now cd into the "gsi/docker/t2v" directory
-* Run the docker build script "runbuild.sh" which builds the container locally "gsi/t2v"
+* Run the docker build script "rundockerbuild.sh" which builds a vectorization container locally called "gsi/t2v"
 * Now cd into the "gsi/docker" directory
 * Run the following docker-compose file "docker-compose-sanity.yml up" which runs the containers you just built.
 
