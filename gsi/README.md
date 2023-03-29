@@ -90,7 +90,7 @@ We have supplied an example program which demonstrates this ideal flow in python
 
 As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the [Gemini index training benchmarks](fvs/README.md) for more information.
 
-Also, note the following current limitations while the Gemini index is training:
+Also, note the following current limitations while the Gemini index is training asynchronously:
 * Additional object/vector adds are not allowed
 * Delete object/vectors are not allowed
 
