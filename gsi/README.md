@@ -10,9 +10,16 @@ The features of this plugin include:
 
 # Architecture
 
-The following is a high-level architecture of a system with the Weaviate Gemini Plugin:
+The following is a high-level architecture of a complete system with the Weaviate Gemini Plugin:
 
 ![alt text](Gemini_Plugin2.png)
+
+Additional component descriptions:
+* Gemini Plugin - This is the code contained in this repo and serves as the bridge between Weaviate and GSI's APU vector acceleration boards.
+* FVS - GSI's Fast Vector Search Library
+* GSL - GSI Search Library 
+* GSM - GSI System Management
+* numpy - The Gemini Plugin stores raw vectors as Numpy compatible files and shares the vectors via fast memory mapping via a shared file system.
 
 # Quick Start
 
