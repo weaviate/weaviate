@@ -74,6 +74,14 @@ We benchmarked an FVS system with 4 Gemini APU hardware acceleration boards.  Pl
 
 [These benchmarks are not yet available.]
 
+# CI/CD Automation
+
+[CI/CD support is not yet available.]
+
+# Replication
+
+[Replication support is not yet available.]
+
 # Troubleshooting
 
 [Troubleshooting notes are not yet available.]
