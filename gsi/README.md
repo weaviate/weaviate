@@ -12,7 +12,7 @@ The features of this plugin include:
 
 The following is a high-level architecture of a system with the Weaviate Gemini Plugin:
 
-[TBD]
+![alt text](Gemini_Plugin.png)
 
 # Quick Start
 
