@@ -110,7 +110,7 @@ We plan to address these issues by supporting a form of hardware-accelerated HNS
 
 Test automation that extends the existing Weaviate CI/CD on systems with the FVS and APU boards is not yet available.
 
-## Observability and Metrics
+## Observability Metrics
 
 The Gemini plugin does not currently provide any real-time metrics for system performance and monitoring.  Weaviate currently uses Prometheus for this purpose and we will likely integrate with it in the future.
 
