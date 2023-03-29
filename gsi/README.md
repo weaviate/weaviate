@@ -66,14 +66,14 @@ There is a python example at "gsi/tests/weaviate-gemini-sanity.py" that demonstr
 
 ## Gemini Fast Vector Search
 
-The Weaviate Gemini Plugin interfaces directly with GSI's Fast Vector Search (FVS) REST web service.
+The Weaviate Gemini Plugin communicates with GSI's Fast Vector Search (FVS) REST web service.
 
-We benchmarked an FVS system with 4 Gemini APU hardware acceleration boards.  Please see this README for those detailed results.  We've provided code and instructions so you can reproduce these results on your system.
+We benchmarked an FVS system with 4 Gemini APU hardware acceleration boards on various dataasets.  Please see this README for those detailed results.  We've provided code and instructions so you can reproduce these results on your system.
 
 ## Gemini Plugin vs Weaviate's Native HNSW
 
-[TBD]
+[These benchmarks are not yet available.]
 
 # Troubleshooting
 
-[TBD]
+[Troubleshooting notes are not yet available.]
