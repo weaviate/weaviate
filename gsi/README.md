@@ -1,7 +1,7 @@
 
 # Weaviate Gemini Plugin
 
-The Weaviate Gemini Plugin provides an alternate approximate nearest neighbor (ANN) implementation for Weaviate that is based on hardware acceleration powered by GSI Technology's Gemini APU.
+The Weaviate Gemini Plugin provides an alternate approximate nearest neighbor (ANN) implementation for Weaviate that is based on hardware acceleration powered by GSI Technology's Gemini Associative Processor (APU).
 
 The features of this plugin include:
 * provides accurate and fast vector search for large-scale vector datasets 
