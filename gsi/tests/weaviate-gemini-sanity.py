@@ -4,6 +4,7 @@ import traceback
 import time
 import weaviate
 import requests
+import argparse
 
 #
 # Configuration
@@ -31,24 +32,34 @@ VERBOSE         = True
 # Sanity check
 #
 
+# Check some arguments to override defaults
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("-n", type=int)
+args = parser.parse_args()
+if "n" in args:
+    MAX_ADDS = args.n
+    print("Overriding MAX_ADDS=%d" % MAX_ADDS)
+
 print("Connecting to Weaviate...")
 client = weaviate.Client(WEAVIATE_CONN)
 print("Done.")
 
 print("Getting the Weaviate schema...")
 schema = client.schema.get()
+print(schema)
 print("Done.")
 
 # Check if the schema already has our test class.
 # If so, try to delete it.
-if CLASS_NAME in [ cls["name"] for cls in schema["classes"] ]:
+if CLASS_NAME in [ cls["class"] for cls in schema["classes"] ]:
     print("Warning:  Found class='%s'.  Will try to delete..." % CLASS_NAME)
     
     client.schema.delete_class(CLASS_NAME)  
     print("Done. Verifying schema...")
 
     schema = client.schema.get()
-    if CLASS_NAME in [ cls["name"] for cls in schema["classes"] ]:
+    if CLASS_NAME in [ cls["class"] for cls in schema["classes"] ]:
         raise Exception("Did not expect to find class='%s'" % CLASS_NAME)
 
     print("Done.")
@@ -77,6 +88,23 @@ class_obj = {
     "vectorIndexType": "gemini" # Here is where we tell Weaviate to use the gemini plugin
 }
 
+# Update the schema with this class
+print("Creating '%s' with gemini index..." % CLASS_NAME)
+client.schema.create_class(class_obj)
+
+# Retrieve updated schema and check its a gemini index
+print("Done.  Verifying schema and gemini index...")
+schema = client.schema.get()
+if CLASS_NAME not in [ cls["class"] for cls in schema["classes"] ]:
+    raise Exception("Could not verify class='%s' was created." % CLASS_NAME)
+cls_schema = None
+for cls in schema["classes"]:
+    if cls["class"] == CLASS_NAME: cls_schema = cls
+if cls_schema==None:
+    raise Exception("Could not retrieve schema for class='%s'" % CLASS_NAME)
+if cls_schema['vectorIndexType'] != "gemini":
+    raise Exception("The schema for class='%s' is not a gemini index." % CLASS_NAME)
+
 # Retrieve some NLP sample data.
 print("Retrieving NLP data...")
 url = 'https://raw.githubusercontent.com/weaviate-tutorials/quickstart/main/data/jeopardy_tiny.json'
@@ -96,7 +124,6 @@ while True:
         batch.batch_size=BATCH_SIZE
 
         for i, d in enumerate(data):
-
             properties = {
                 "answer": d["Answer"],
                 "question": d["Question"],
@@ -104,6 +131,7 @@ while True:
             }
 
             resp = client.batch.add_data_object(properties, CLASS_NAME)
+            print(resp)
             count += 1
             
     if count > MAX_ADDS:
