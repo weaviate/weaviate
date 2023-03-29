@@ -20,7 +20,7 @@ If you just want to see something working first, then following the directions i
 
 Prerequisites:
 * You should have access to a system with Gemini APU boards installed.
-* The system should have GSI's FVS (Fast Vector Search) support installed.
+* The system should have GSI's Fast Vector Search (FVS) support installed.
 * You should have received already an "allocation id" (which behaves like an API key.)
 * Without all of these you should not proceed and should reach out to your GSI Technology support contact.
 
