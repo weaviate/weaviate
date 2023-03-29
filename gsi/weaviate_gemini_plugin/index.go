@@ -69,7 +69,7 @@ type Gemini struct{
 
 }
 
-func New() (*Gemini, error) {
+func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int ) (*Gemini, error) {
 
     // get special verbose/debug flag if present 
     gemini_verbose := false
@@ -84,7 +84,6 @@ func New() (*Gemini, error) {
         fmt.Println("ERROR: Could not find GEMINI_ALLOCATION_ID env var.") 
         return nil, fmt.Errorf("Could not find GEMINI_ALLOCATION_ID env var." )
     }
-
     //TODO: Check valid allocation id (GUID) format 
     
     // a valid gemini_fvs_server is required
@@ -138,7 +137,6 @@ func New() (*Gemini, error) {
 
 }
 
-// func (i *Index) Add(id uint64, vector []float32) error {
 func (i *Gemini) Add(id uint64, vector []float32) error {
 
     // sychronize this function
@@ -151,15 +149,16 @@ func (i *Gemini) Add(id uint64, vector []float32) error {
 
     if i.last_fvs_status != "" {
         // TODO: This means that an async index build is in progress.
-        // TODO: In the future We should consider cacheing the adds for a deferred
-        // TODO: index build when the current one is complete.
+        // TODO: In the future We should consider cacheiing the adds for a deferred
+        // TODO: index build which starts after the current one is complete.
+        // TODO: For now, we return an error with a suitable error string.
     
         return errors.Errorf("Async index build is in progress.  Cannot add new items while this is in progress.")
     }
 
     // Get the float vector dimensions
     dim := int( len(vector) )
-    // TODO: check any dim constraints
+    // TODO: We should eventually check dimension constraints.
 
     if i.verbose {
         fmt.Println("Gemini Add: dimension=", dim)
@@ -223,6 +222,7 @@ func (i *Gemini) Delete(id uint64) error {
         fmt.Println("Gemini SearchByVector: Delete")
     }
 
+    // TODO: We need to eventually implement the 'D' in CRUD semantics provided by native HNSW.
     return errors.New("Delete is not supported.")
 
 }
@@ -252,16 +252,11 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
                     fmt.Println("Gemini SearchByVector: About to import dataset with dataset_id=", i.dataset_id )
                 }
 
-		// TODO: Check that we have enough data.
-		// TODO: Note that his arbitrary number of 4001 was surfaced
-		// TODO: because we encountered a specific FVS error which indicated
-		// TODO: this constraint.  
 		if (i.min_records_check && i.count<4001) { 
 		    return nil, nil, fmt.Errorf("FVS requires a mininum of 4001 vectors in the dataset.")
 		}
 
-                //dataset_id, err := Import_dataset( i.fvs_server, 7761, i.allocation_id, "/home/public/deep-1M.npy", 768, i.verbose );
-                dataset_id, err := Import_dataset( i.fvs_server, 7761, i.allocation_id, i.db_path, 768, i.verbose );
+                dataset_id, err := Import_dataset( i.fvs_server, DefaultFVSPort, i.allocation_id, i.db_path, 768, i.verbose );
                 if err!=nil {
                     return nil, nil, errors.Wrap(err, "Gemini dataset import failed.")
 
@@ -279,7 +274,7 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
             }
 
             // Query the training status to populate the 'last_fvs_status' field
-            status, err := Train_status( i.fvs_server, 7761, i.allocation_id, i.dataset_id, i.verbose )
+            status, err := Train_status( i.fvs_server, DefaultFVSPort, i.allocation_id, i.dataset_id, i.verbose )
             if err!=nil {
                 return nil, nil, errors.Wrap(err, "Could not get gemini index training status.")
             } else if status == "error" {
@@ -302,7 +297,7 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 
                 // TODO: Now load the dataset
                 // TODO: Consider doing this asynchronously
-                status, err := Load_dataset( i.fvs_server, 7761, i.allocation_id, i.dataset_id, i.verbose )
+                status, err := Load_dataset( i.fvs_server, DefaultFVSPort, i.allocation_id, i.dataset_id, i.verbose )
                 if err!=nil {
                     return nil, nil, errors.Wrap(err, "Load dataset failed.")
                 }
@@ -348,7 +343,8 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
         farr[0] = vector
 
         // TODO: Create a temp numpy file for the query array.
-        // TODO: Convert code to memory array when FVS api supports it.
+        // TODO: We should eventually convert the code to support memory array when the
+        // TODO: FVS supports it.
         query_count, _, err := Numpy_append_float32_array( query_path, farr, int64(dim), int64(1) )
         if err!=nil {
             return nil, nil, errors.Errorf("There was a problem adding to the query backing store file.")
@@ -357,8 +353,8 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
             return nil, nil, errors.Errorf("Appending array to local file store did not yield expected result.")
         }       
         
-        //dist, inds, timing, s_err := Search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
-        dist, inds, timing, s_err := Search( i.fvs_server, 7761, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
+        //dist, inds, timing, s_err := Search( i.fvs_server, DefaultFVSPort, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
+        dist, inds, timing, s_err := Search( i.fvs_server, DefaultFVSPort, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
         if s_err!= nil {
             return nil, nil, errors.Wrap(s_err, "Gemini index search failed.")
         }

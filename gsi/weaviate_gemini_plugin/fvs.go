@@ -18,7 +18,6 @@ import (
     "golang.org/x/exp/mmap"
 )
 
-// Import_dataset defaults
 const (
     DefaultSearchType           = "flat"
     DefaultTrainInd             = true
@@ -40,6 +39,10 @@ const (
     DefaultTopK                 = 1000
     DefaultBitmasksInd          = false
     DefaultAsyncLoad            = false
+)
+
+const (
+    DefaultFVSPort              = 7761
 )
 
 func Import_dataset( host string, port uint, allocation_token string, path string, bits uint, verbose bool ) (string, error) {

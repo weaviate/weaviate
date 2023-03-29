@@ -147,19 +147,19 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
         
         case geminient.UserConfig:
             
-            //geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
+            geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
 
-            //if geminiUserConfig.Skip {
-            //    s.vectorIndex = noop.NewIndex()
-            //
-            //} else {
+            if geminiUserConfig.Skip {
+                s.vectorIndex = noop.NewIndex()
+            
+            } else {
 
-                if err := s.initVectorIndex(ctx, geminient.UserConfig{}); err != nil {
+                if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
                     return nil, fmt.Errorf("init vector index: %w", err)
                 }
 
                 defer s.vectorIndex.PostStartup()
-            //}
+            }
 
             if err := s.initNonVector(ctx, class); err != nil {
                 return nil, errors.Wrapf(err, "init shard %q", s.ID())

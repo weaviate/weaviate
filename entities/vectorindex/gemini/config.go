@@ -6,11 +6,23 @@ import (
     "github.com/weaviate/weaviate/entities/schema"
 )
 
+// The minimal number of parameters available in UserConfig.
+// See the gemini plugin module for the full suite of defaults
+// that we make make available at a later time.
+const (
+    DefaultSkip                 = false
+    DefaultCentroidsHammingK    = 5000
+    DefaultCentroidsRerank      = 4000
+    DefaultHammingK             = 3200
+    DefaultNBits                = 768
+)
 
-// The Gemini Plugin currently takes most configurable settings through 
-// env vars ( see the plugin code at gsi/weaviate_gemini_plugin/ ).
-// This class is a miminal stub required by the Weavaite code-base.
 type UserConfig struct {
+    Skip                    bool   `json:"skip"`
+    CentroidsHammingK       int    `json:"centroidsHammingK"`
+    CentroidsRerank         int    `json:"centroidsRerank"`
+    HammingK                int    `json:"hammingK"`
+    NBits                   int    `json:"nBits"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -19,13 +31,19 @@ func (u UserConfig) IndexType() string {
     return "gemini"
 }
 
-    
-// The Gemini Plugin currently takes most configurable settings through 
-// env vars ( see the plugin code at gsi/weaviate_gemini_plugin/ ).
-// This class is a miminal stub required by the Weavaite code-base.
-func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
+// SetDefaults in the user-specifyable part of the config
+func (c *UserConfig) SetDefaults() {
+    c.Skip              = DefaultSkip
+    c.CentroidsHammingK = DefaultCentroidsHammingK
+    c.CentroidsRerank   = DefaultCentroidsRerank
+    c.HammingK          = DefaultHammingK
+    c.NBits             = DefaultNBits
+}
 
+    
+func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
     uc := UserConfig{}
+    uc.SetDefaults()
     return uc, nil
 }
  

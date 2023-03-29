@@ -23,9 +23,6 @@ import (
 
 func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 
-    //  
-    //goruntime.Breakpoint()
-    //
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
 

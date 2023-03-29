@@ -18,6 +18,7 @@ package schema
 
 import (
 	"net/http"
+    //goruntime "runtime"
 
 	"github.com/go-openapi/runtime/middleware"
 
@@ -29,6 +30,7 @@ type SchemaObjectsCreateHandlerFunc func(SchemaObjectsCreateParams, *models.Prin
 
 // Handle executing the request and returning a response
 func (fn SchemaObjectsCreateHandlerFunc) Handle(params SchemaObjectsCreateParams, principal *models.Principal) middleware.Responder {
+    //goruntime.Breakpoint()
 	return fn(params, principal)
 }
 
