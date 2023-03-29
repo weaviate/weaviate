@@ -71,6 +71,14 @@ type Gemini struct{
 
 func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string ) (*Gemini, error) {
 
+    // TODO: currently we aren't allowing any default overrides
+    if searchtype != DefaultSearchType ||
+        centroidsHammingK != DefaultHammingK ||
+        centroidsRerank != DefaultCentroidsRerank ||
+        hammingK != DefaultHammingK {
+        return nil, fmt.Errorf("Currently you cannot override the Gemini's default index parameters.")
+    }
+
     // get special verbose/debug flag if present 
     gemini_verbose := false
     gemini_debug_flag := os.Getenv("GEMINI_DEBUG")
@@ -84,7 +92,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
         fmt.Println("ERROR: Could not find GEMINI_ALLOCATION_ID env var.") 
         return nil, fmt.Errorf("Could not find GEMINI_ALLOCATION_ID env var." )
     }
-    //TODO: Check valid allocation id (GUID) format 
+    //TODO: Check valid allocation id (GUID) format. 
     
     // a valid gemini_fvs_server is required
     fvs_server := os.Getenv("GEMINI_FVS_SERVER")
@@ -92,8 +100,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
         fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
         return nil, fmt.Errorf("Could not find GEMINI_FVS_SERVER env var." )
     }
-
-    //TODO: Validate the server connection here
+    //TODO: We should validate the server connection here.
 
     // a valid data_dir is required for gemini files
     data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
@@ -227,6 +234,8 @@ func (i *Gemini) Delete(id uint64) error {
 
 }
 
+
+// TODO:  This function is too big and we should consider refactoring it into an FSM
 func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, error) {
 
     // sychronize this function
@@ -252,9 +261,9 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
                     fmt.Println("Gemini SearchByVector: About to import dataset with dataset_id=", i.dataset_id )
                 }
 
-		if (i.min_records_check && i.count<4001) { 
-		    return nil, nil, fmt.Errorf("FVS requires a mininum of 4001 vectors in the dataset.")
-		}
+                if (i.min_records_check && i.count<=DefaultCentroidsRerank ) { 
+                    return nil, nil, fmt.Errorf("FVS requires a mininum of %d vectors in the dataset." , DefaultCentroidsRerank)
+                }
 
                 dataset_id, err := Import_dataset( i.fvs_server, DefaultFVSPort, i.allocation_id, i.db_path, 768, i.verbose );
                 if err!=nil {
@@ -328,7 +337,7 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
         // check dimensions match expected
         dim := int( len(vector) )
         if dim != i.dim {
-            return nil, nil, fmt.Errorf("Gemini SearchByVector: Got vector of dim=%d but expected %d", dim, i.dim )
+            return nil, nil, fmt.Errorf("Gemini SearchByVector: Got vector of dim=%d but expected %d.", dim, i.dim )
         }
 
         // Create a unique filename for the numpy query file
@@ -378,7 +387,7 @@ func (i *Gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit
     if i.verbose {
         fmt.Println("Gemini SearchByVectorDistance: Start")
     }
-	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
+	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed.")
 }
 
 func (i *Gemini) UpdateUserConfig() error {
@@ -386,7 +395,7 @@ func (i *Gemini) UpdateUserConfig() error {
     if i.verbose {	
         fmt.Println("Gemini UpdateUserConfig: Start")
     }	
-	return errors.Errorf("cannot update vector index config on a non-indexed class. Delete and re-create without skip property")
+	return errors.Errorf("Cannot update vector index config on a non-indexed class. Delete and re-create without skip property.")
 }
 
 

@@ -10,7 +10,6 @@ import (
     "bytes"
     "io/ioutil"
     "strconv"
-    //goruntime "runtime"
 
     "github.com/pkg/errors"
     mmapgo "github.com/edsrzf/mmap-go"
