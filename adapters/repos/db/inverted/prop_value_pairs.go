@@ -143,6 +143,11 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		dbms[i] = dbm
 	}
 
+	if pv.cacheable() && checksumsIdenticalBM(dbms) {
+		// all children are identical, no need to merge, simply return the first
+		return dbms[0], nil
+	}
+
 	mergeRes := dbms[0].docIDs.Clone()
 	mergeFn := mergeRes.And
 	if pv.operator == filters.OperatorOr {
