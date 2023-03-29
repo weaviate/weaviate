@@ -62,6 +62,9 @@ type DB struct {
 	//
 	//
 	// See also: https://github.com/weaviate/weaviate/issues/2351
+	//
+	// This lock should be used to avoid that the indices-map is changed while iterating over it. To
+	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
 	jobQueueCh          chan job

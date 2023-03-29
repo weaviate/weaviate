@@ -66,6 +66,7 @@ type Index struct {
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
+	// This lock should be used together with the db indexLock
 	indexLock sync.RWMutex
 
 	metrics         *Metrics
