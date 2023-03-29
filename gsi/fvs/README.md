@@ -20,7 +20,7 @@ Note: The following datasets are not shown yet:
 
 ## Index Build/Training Time
 
-![Subsets of Deep1B](results/deep1B_master_train_time.png)
+![Subsets of Deep1B](results/deep1B_master_train_time2.png)
 
 ![Subsets of Deep1B - All Runs](results/Deep1B_subplots_train_time.png)
 
