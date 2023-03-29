@@ -64,7 +64,7 @@ There is a python example at "gsi/tests/weaviate-gemini-sanity.py" that demonstr
 
 # Benchmarks
 
-## Gemini Fast Vector Search
+## Gemini Fast Vector Search (FVS)
 
 The Weaviate Gemini Plugin communicates with GSI's Fast Vector Search (FVS) REST web service.
 
