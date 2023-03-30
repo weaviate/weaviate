@@ -43,7 +43,7 @@ func newPropValuePair() propValuePair {
 	return propValuePair{docIDs: newDocBitmap()}
 }
 
-func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipCache bool) error {
+func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipChecksum bool) error {
 	if pv.operator.OnValue() {
 		id := helpers.BucketFromPropNameLSM(pv.prop)
 		if pv.prop == filters.InternalPropBackwardsCompatID {
@@ -92,7 +92,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipCache bool) err
 		}
 
 		ctx := context.TODO() // TODO: pass through instead of spawning new
-		dbm, err := s.docBitmap(ctx, b, limit, pv, skipCache)
+		dbm, err := s.docBitmap(ctx, b, limit, pv, skipChecksum)
 		if err != nil {
 			return err
 		}
@@ -106,7 +106,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipCache bool) err
 				// otherwise we run into situations where each subfilter on their own
 				// runs into the limit, possibly yielding in "less than limit" results
 				// after merging.
-				err := child.fetchDocIDs(s, 0, skipCache)
+				err := child.fetchDocIDs(s, 0, skipChecksum)
 				if err != nil {
 					return errors.Wrapf(err, "nested child %d", i)
 				}
@@ -122,7 +122,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int, skipCache bool) err
 	return nil
 }
 
-func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
+func (pv *propValuePair) mergeDocIDs(useChecksums bool) (*docBitmap, error) {
 	if pv.operator.OnValue() {
 		return &pv.docIDs, nil
 	}
@@ -136,14 +136,14 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 
 	dbms := make([]*docBitmap, len(pv.children))
 	for i, child := range pv.children {
-		dbm, err := child.mergeDocIDs()
+		dbm, err := child.mergeDocIDs(useChecksums)
 		if err != nil {
 			return nil, errors.Wrapf(err, "retrieve doc bitmap of child %d", i)
 		}
 		dbms[i] = dbm
 	}
 
-	if pv.cacheable() && checksumsIdenticalBM(dbms) {
+	if useChecksums && checksumsIdenticalBM(dbms) {
 		// all children are identical, no need to merge, simply return the first
 		return dbms[0], nil
 	}
@@ -154,151 +154,21 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 		mergeFn = mergeRes.Or
 	}
 
-	checksums := make([][]byte, len(pv.children))
-	checksums[0] = dbms[0].checksum
-
 	for i := 1; i < len(dbms); i++ {
 		mergeFn(dbms[i].docIDs)
-		checksums[i] = dbms[i].checksum
+	}
+
+	var checksum []byte
+	if useChecksums {
+		checksums := make([][]byte, len(pv.children))
+		for i := 0; i < len(dbms); i++ {
+			checksums[i] = dbms[i].checksum
+		}
+		checksum = combineChecksums(checksums, pv.operator)
 	}
 
 	return &docBitmap{
 		docIDs:   roaringset.Condense(mergeRes),
-		checksum: combineChecksums(checksums, pv.operator),
+		checksum: checksum,
 	}, nil
 }
-
-// // if duplicates are acceptable, simpler (and faster) algorithms can be used
-// // for merging
-// func (pv *propValuePair) mergeDocIDs(acceptDuplicates bool) (*docPointers, error) {
-// 	if pv.operator.OnValue() {
-// 		return &pv.docIDs, nil
-// 	}
-
-// 	switch pv.operator {
-// 	case filters.OperatorAnd:
-// 		return mergeAndOptimized(pv.children, acceptDuplicates)
-// 	case filters.OperatorOr:
-// 		return mergeOr(pv.children, acceptDuplicates)
-// 	default:
-// 		return nil, fmt.Errorf("unsupported operator: %s", pv.operator.Name())
-// 	}
-// }
-
-// // TODO: Delete?
-// // This is only left so we can use it as a control or baselines in tests and
-// // benchmkarks against the newer optimized version.
-// func mergeAnd(children []*propValuePair, acceptDuplicates bool) (*docPointers, error) {
-// 	sets := make([]*docPointers, len(children))
-
-// 	// retrieve child IDs
-// 	for i, child := range children {
-// 		docIDs, err := child.mergeDocIDs(acceptDuplicates)
-// 		if err != nil {
-// 			return nil, errors.Wrapf(err, "retrieve doc ids of child %d", i)
-// 		}
-
-// 		sets[i] = docIDs
-// 	}
-
-// 	if checksumsIdentical(sets) {
-// 		// all children are identical, no need to merge, simply return the first
-// 		// set
-// 		return sets[0], nil
-// 	}
-
-// 	// merge AND
-// 	found := map[uint64]uint64{} // map[id]count
-// 	for _, set := range sets {
-// 		for _, pointer := range set.docIDs {
-// 			count := found[pointer]
-// 			count++
-// 			found[pointer] = count
-// 		}
-// 	}
-
-// 	var out docPointers
-// 	var idsForChecksum []uint64
-// 	for id, count := range found {
-// 		if count != uint64(len(sets)) {
-// 			continue
-// 		}
-
-// 		// TODO: optimize to use fixed length slice and cut off (should be
-// 		// considerably cheaper on very long lists, such as we encounter during
-// 		// large classification cases
-// 		out.docIDs = append(out.docIDs, id)
-// 		idsForChecksum = append(idsForChecksum, id)
-// 	}
-
-// 	checksum, err := docPointerChecksum(idsForChecksum)
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "calculate checksum")
-// 	}
-
-// 	out.checksum = checksum
-// 	return &out, nil
-// }
-
-// func mergeOr(children []*propValuePair, acceptDuplicates bool) (*docPointers, error) {
-// 	sets := make([]*docPointers, len(children))
-
-// 	// retrieve child IDs
-// 	for i, child := range children {
-// 		docIDs, err := child.mergeDocIDs(acceptDuplicates)
-// 		if err != nil {
-// 			return nil, errors.Wrapf(err, "retrieve doc ids of child %d", i)
-// 		}
-
-// 		sets[i] = docIDs
-// 	}
-
-// 	if checksumsIdentical(sets) {
-// 		// all children are identical, no need to merge, simply return the first
-// 		// set
-// 		return sets[0], nil
-// 	}
-
-// 	if acceptDuplicates {
-// 		return mergeOrAcceptDuplicates(sets)
-// 	}
-
-// 	// merge OR
-// 	var checksums [][]byte
-// 	found := map[uint64]uint64{} // map[id]count
-// 	for _, set := range sets {
-// 		for _, pointer := range set.docIDs {
-// 			count := found[pointer]
-// 			count++
-// 			found[pointer] = count
-// 		}
-// 		checksums = append(checksums, set.checksum)
-// 	}
-
-// 	var out docPointers
-// 	for id := range found {
-// 		out.docIDs = append(out.docIDs, id)
-// 	}
-
-// 	out.checksum = combineChecksums(checksums, filters.OperatorOr)
-// 	return &out, nil
-// }
-
-// func checksumsIdentical(sets []*docPointers) bool {
-// 	if len(sets) == 0 {
-// 		return false
-// 	}
-
-// 	if len(sets) == 1 {
-// 		return true
-// 	}
-
-// 	lastChecksum := sets[0].checksum
-// 	for _, set := range sets {
-// 		if !bytes.Equal(set.checksum, lastChecksum) {
-// 			return false
-// 		}
-// 	}
-
-// 	return true
-// }
