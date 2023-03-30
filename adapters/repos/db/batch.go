@@ -44,8 +44,9 @@ func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
 				continue
 			}
 			_, ok := byIndex[index]
-			if !ok { // only lock index once
+			if !ok { // only lock index once and initialize byIndex map
 				index.indexLock.RLock()
+				byIndex[index] = batchQueue{}
 			}
 			indexById[i] = index
 		}
