@@ -83,8 +83,9 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	repl *additional.ReplicationProperties,
 ) (objects.BatchReferences, error) {
 	byIndex := map[*Index]objects.BatchReferences{}
+	indexById := make(map[int]*Index, len(references))
 	db.indexLock.RLock()
-	for _, item := range references {
+	for i, item := range references {
 		for _, index := range db.indices {
 			if item.Err != nil {
 				// item has a validation error or another reason to ignore
@@ -94,15 +95,27 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 			if index.Config.ClassName != item.From.Class {
 				continue
 			}
-			queue, ok := byIndex[index]
+			_, ok := byIndex[index]
 			if !ok { // only lock index once
 				index.indexLock.RLock()
+				byIndex[index] = objects.BatchReferences{}
 			}
-			queue = append(queue, item)
-			byIndex[index] = queue
+			indexById[i] = index
 		}
 	}
 	db.indexLock.RUnlock()
+
+	for i, item := range references {
+		if item.Err != nil {
+			// item has a validation error or another reason to ignore
+			continue
+		}
+		index := indexById[i]
+
+		queue := byIndex[index]
+		queue = append(queue, item)
+		byIndex[index] = queue
+	}
 
 	for index, queue := range byIndex {
 		errs := index.addReferencesBatch(ctx, queue, repl)
