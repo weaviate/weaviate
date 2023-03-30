@@ -1,5 +1,6 @@
+
 import weaviate
-client = weaviate.Client('http://localhost:8080')
+client = weaviate.Client('http://localhost:8081')
 
 tmp = input('Please write a sentence or two for which you wish to find the "closest" documents: ')
 try:
