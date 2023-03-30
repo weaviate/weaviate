@@ -205,11 +205,15 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if !store.b.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
+
 	if err := validateID(req.ID); err != nil {
 		return nil, err
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
+	}
+	if dup := findDuplicate(req.Include); dup != "" {
+		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 	classes := req.Include
 	if len(classes) == 0 {
@@ -240,6 +244,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
+	}
+	if dup := findDuplicate(req.Include); dup != "" {
+		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 	destPath := store.HomeDir()
 	meta, err := store.Meta(ctx, GlobalBackupFile)
@@ -284,4 +291,16 @@ func logOperation(logger logrus.FieldLogger, name, id, backend string, begin tim
 	} else {
 		le.Info()
 	}
+}
+
+// findDuplicate returns first duplicate if it is found, and "" otherwise
+func findDuplicate(xs []string) string {
+	m := make(map[string]struct{}, len(xs))
+	for _, x := range xs {
+		if _, ok := m[x]; ok {
+			return x
+		}
+		m[x] = struct{}{}
+	}
+	return ""
 }

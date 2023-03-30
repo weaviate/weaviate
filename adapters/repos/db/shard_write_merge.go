@@ -217,8 +217,13 @@ func mergeProps(previous *storobj.Object,
 		properties = map[string]interface{}{}
 	}
 
+	// remove properties from object that have been set to nil
+	for _, propToDelete := range merge.PropertiesToDelete {
+		delete(properties, propToDelete)
+	}
+
 	for propName, value := range merge.PrimitiveSchema {
-		// for primtive props, we simply need to overwrite
+		// for primitive props, we simply need to overwrite
 		properties[propName] = value
 	}
 

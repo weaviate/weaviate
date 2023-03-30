@@ -115,8 +115,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
-		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
+	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
+		metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -143,7 +143,9 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.flushAndSwitchIfThresholdsMet)
+	b.flushCycle = cyclemanager.New(
+		cyclemanager.MemtableFlushCycleTicker(),
+		b.flushAndSwitchIfThresholdsMet)
 	b.flushCycle.Start()
 
 	b.metrics.TrackStartupBucket(beforeAll)
@@ -706,7 +708,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
@@ -725,8 +727,9 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 			Warn("flush halted due to shard READONLY status")
 
 		b.flushLock.RUnlock()
+		// TODO maybe will not be necessary with dynamic interval
 		time.Sleep(time.Second)
-		return
+		return false
 	}
 
 	b.flushLock.RUnlock()
@@ -745,7 +748,9 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 				b.memtableThreshold = uint64(next)
 			}
 		}
+		return true
 	}
+	return false
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket

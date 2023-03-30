@@ -52,10 +52,11 @@ func TestFilterClasses(t *testing.T) {
 		{in: []string{"a"}, xs: []string{"a"}, out: []string{}},
 		{in: []string{"1", "2", "3", "4"}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
 		{in: []string{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
+		{in: []string{"1", "2", "1", "3", "1", "3"}, xs: []string{"2"}, out: []string{"1", "3"}},
 	}
 	for _, tc := range tests {
 		got := filterClasses(tc.in, tc.xs)
-		assert.Equal(t, tc.out, got)
+		assert.ElementsMatch(t, tc.out, got)
 	}
 }
 
