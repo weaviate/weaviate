@@ -3,7 +3,7 @@ dependencies:
 - weaviate_client v3.15.1
 
 to run:
-- $ docker-compose up -d
+- follow instructions under gsi/test directory for starting gsi/t2v docker container
 - $ python3 gemini_nlp.py  
 
 checking status/completion:
