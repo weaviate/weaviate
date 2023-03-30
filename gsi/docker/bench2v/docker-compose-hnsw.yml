@@ -1,0 +1,33 @@
+version: '3.4'
+services:
+  weaviate:
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8081'
+    - --scheme
+    - http
+    image: gsi/weaviate
+    ports:
+    - 8081:8081
+    volumes:
+      - /var/lib/weaviate:/var/lib/weaviate
+    restart: on-failure:0
+    environment:
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-transformers'
+      ENABLE_MODULES: 'text2vec-transformers'
+      TRANSFORMERS_INFERENCE_API: 'http://bench2v:8080'
+      CLUSTER_HOSTNAME: 'node1'
+  bench2v:
+    image: gsi/bench2v 
+    ports:
+     - "8080:8080"
+    volumes:
+     - /Users/gwilliams/Projects/GSI/Weaviate/data/:/datasets
+    environment:
+      ENABLE_CUDA: 0
+      NUMPY_FILE: "/datasets/deep-1M.npy"

@@ -22,7 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/gemini"
+    "github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
@@ -31,6 +32,9 @@ const (
 
 	errorVectorIndexType = "vector index config (%T) is not of type HNSW, " +
 		"but objects manager is restricted to HNSW"
+
+    errorVectorIndexGeminiType = "vector index config (%T) is not of type Gemini, " +
+		"but objects manager is restricted to Gemini"
 
 	warningVectorIgnored = "This vector will be ignored. If you meant to index " +
 		"the vector, make sure to set vectorIndexConfig.skip to 'false'. If the previous " +
@@ -45,6 +49,7 @@ const (
 )
 
 func (m *Provider) ValidateVectorizer(moduleName string) error {
+
 	mod := m.GetByName(moduleName)
 	if mod == nil {
 		return errors.Errorf("no module with name %q present", moduleName)
@@ -84,29 +89,45 @@ func (m *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	//GW
-        fmt.Println("UpdateVector usecases/modules/vectorizer.go !")
-        //GW
 
-	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
-	if !ok {
-		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
-	}
+    switch class.VectorIndexConfig.(type) {
 
-	if class.Vectorizer == config.VectorizerModuleNone {
-		if hnswConfig.Skip && len(object.Vector) > 0 {
-			logger.WithField("className", object.Class).
-				Warningf(warningSkipVectorProvided)
-		}
+        case hnsw.UserConfig:
 
-		return nil
-	}
+	        hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
+	        if !ok {
+	            return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+	        }
 
-	if hnswConfig.Skip {
-		logger.WithField("className", object.Class).
-			WithField("vectorizer", class.Vectorizer).
-			Warningf(warningSkipVectorGenerated, class.Vectorizer)
-	}
+            if class.Vectorizer == config.VectorizerModuleNone {
+                if hnswConfig.Skip && len(object.Vector) > 0 {
+                    logger.WithField("className", object.Class).
+                    Warningf(warningSkipVectorProvided)
+                }
+                return nil
+            }
+
+            if hnswConfig.Skip {
+                logger.WithField("className", object.Class).
+                    WithField("vectorizer", class.Vectorizer).
+                    Warningf(warningSkipVectorGenerated, class.Vectorizer)
+            }
+
+            break
+
+        case gemini.UserConfig:
+	
+            _, ok := class.VectorIndexConfig.(gemini.UserConfig)
+	        if !ok {
+		        return fmt.Errorf(errorVectorIndexGeminiType, class.VectorIndexConfig)
+	        }
+
+            break
+        
+        default:
+
+            return fmt.Errorf("Unsupported vector index config.")
+    }
 
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {

@@ -1,0 +1,9 @@
+version: '3.4'
+services:
+  t2v-transformers:
+    image: gsi/t2v #semitechnologies/transformers-inference:sentence-transformers-msmarco-distilroberta-base-v2
+    ports:
+     - "8080:8080"
+    environment:
+      ENABLE_CUDA: 0 # set to 1 to enable
+      # NVIDIA_VISIBLE_DEVICES: all # enable if running with CUDA 

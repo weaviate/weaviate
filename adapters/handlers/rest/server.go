@@ -54,6 +54,7 @@ func init() {
 
 // NewServer creates a new api weaviate server but does not configure it
 func NewServer(api *operations.WeaviateAPI) *Server {
+
 	s := new(Server)
 
 	s.shutdown = make(chan struct{})
@@ -64,6 +65,7 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 
 // ConfigureAPI configures the API and handlers.
 func (s *Server) ConfigureAPI() {
+
 	if s.api != nil {
 		s.handler = configureAPI(s.api)
 	}

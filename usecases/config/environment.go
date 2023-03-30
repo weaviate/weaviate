@@ -164,7 +164,7 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
-	}
+    }
 
 	config.AutoSchema.Enabled = true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
@@ -216,6 +216,15 @@ func FromEnv(config *Config) error {
 	} else {
 		config.MaximumConcurrentGetRequests = DefaultMaxConcurrentGetRequests
 	}
+
+    config.DefaultVectorIndexType = "hnsw"
+    if v := os.Getenv("DEFAULT_VECTOR_INDEX_TYPE"); v !="" {
+        // TODO: Should probably check for valid strings
+        config.DefaultVectorIndexType = v
+    }
+    if v := os.Getenv("MODULES_PATH"); v != "" {
+        config.ModulesPath = v // "/Users/gwilliams/Projects/GSI/Weaviate/github.fork/weaviate/modules"
+    }
 
 	return nil
 }
@@ -297,7 +306,7 @@ const VectorizerModuleNone = "none"
 
 // DefaultGossipBindPort uses the hashicorp/memberlist default
 // port value assigned with the use of DefaultLocalConfig
-const DefaultGossipBindPort = 7946
+const DefaultGossipBindPort = 7949 //GW - 6
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"

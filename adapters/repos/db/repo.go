@@ -66,6 +66,7 @@ func (d *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 }
 
 func (d *DB) WaitForStartup(ctx context.Context) error {
+
 	err := d.init(ctx)
 	if err != nil {
 		return err

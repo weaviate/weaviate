@@ -105,3 +105,6 @@ benchmark_results_*.json
 
 # local credentials
 creds.json
+
+# gw added
+.env
