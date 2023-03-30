@@ -90,7 +90,7 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/completions", r.URL.String())
+	assert.Equal(f.t, "/v1/chat/completions", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.answer.Error != nil && f.answer.Error.Message != "" {

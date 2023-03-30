@@ -152,11 +152,13 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
-func (h *hnsw) tombstoneCleanup(stopFunc cyclemanager.StopFunc) {
-	if err := h.CleanUpTombstonedNodes(stopFunc); err != nil {
+func (h *hnsw) tombstoneCleanup(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+	executed, err := h.cleanUpTombstonedNodes(shouldBreak)
+	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
 			WithError(err).Error("tombstone cleanup errord")
 	}
+	return executed
 }
 
 // PostStartup triggers routines that should happen after startup. The startup

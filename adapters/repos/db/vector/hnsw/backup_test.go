@@ -41,8 +41,7 @@ func TestBackup_PauseMaintenance(t *testing.T) {
 			RootPath: "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:       indexID,
 			MakeCommitLoggerThunk: func() (CommitLogger, error) {
-				return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
-					logrus.New())
+				return NewCommitLogger(dirName, indexID, logrus.New())
 			},
 			DistanceProvider: distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: testVectorForID,
@@ -96,8 +95,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		RootPath: dirName,
 		ID:       indexID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
-				logrus.New())
+			return NewCommitLogger(dirName, indexID, logrus.New())
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
@@ -125,8 +123,7 @@ func TestBackup_ListFiles(t *testing.T) {
 		RootPath: dirName,
 		ID:       indexID,
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
-				logrus.New())
+			return NewCommitLogger(dirName, indexID, logrus.New())
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,
@@ -170,8 +167,7 @@ func TestBackup_ResumeMaintenance(t *testing.T) {
 		RootPath: dirName,
 		ID:       "backup-pause-maintenance-test",
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
-			return NewCommitLogger(dirName, indexID, 500*time.Millisecond,
-				logrus.New())
+			return NewCommitLogger(dirName, indexID, logrus.New())
 		},
 		DistanceProvider: distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: testVectorForID,

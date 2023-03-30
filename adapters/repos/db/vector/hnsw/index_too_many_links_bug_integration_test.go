@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -46,8 +47,10 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	original, err := NewCommitLogger(rootPath, "too_many_links_test", 1, logger,
-		WithCommitlogThreshold(1e5), WithCommitlogThresholdForCombining(5e5))
+	original, err := NewCommitLogger(rootPath, "too_many_links_test", logger,
+		WithCommitlogThreshold(1e5),
+		WithCommitlogThresholdForCombining(5e5),
+		WithCommitlogCycleTicker(cyclemanager.FixedIntervalTickerProvider(1)))
 	require.Nil(t, err)
 
 	data := make([][]float32, n)

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -35,7 +36,8 @@ func TestStartupWithCorruptCondenseFiles(t *testing.T) {
 	rootPath := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	original, err := NewCommitLogger(rootPath, "corrupt_test", 0, logger)
+	original, err := NewCommitLogger(rootPath, "corrupt_test", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
 
 	data := [][]float32{

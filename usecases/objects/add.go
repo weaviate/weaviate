@@ -97,7 +97,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	err = m.validateObject(ctx, principal, object, repl)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, object, repl)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -125,7 +125,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	return object, nil
 }
 
-func (m *Manager) validateObject(ctx context.Context,
+func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) error {
