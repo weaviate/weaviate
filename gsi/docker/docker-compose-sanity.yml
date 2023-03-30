@@ -27,7 +27,7 @@ services:
       GEMINI_FVS_SERVER: 'localhost' # On Linux, must use network_mode=host
       GEMINI_DEBUG: 'false'
   t2v-transformers:
-    image: gsi-t2v
+    image: gsi/t2v
     network_mode: host # works on Linux not Mac
     deploy:
       resources:
