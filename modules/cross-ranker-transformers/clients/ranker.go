@@ -28,11 +28,11 @@ func New(origin string, logger logrus.FieldLogger) *client {
 }
 
 func (v *client) Rank(ctx context.Context,
-	property string, query string,
+	rankpropertyValue string, query string,
 ) (*ent.RankResult, error) {
 	body, err := json.Marshal(RankInput{
-		Property: property,
-		Query:    query,
+		RankPropertyValue: rankpropertyValue,
+		Query:             query,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
@@ -66,9 +66,9 @@ func (v *client) Rank(ctx context.Context,
 	}
 
 	return &ent.RankResult{
-		Property: resBody.Property,
-		Query:    resBody.Query,
-		Score:    resBody.Score,
+		RankPropertyValue: resBody.RankPropertyValue,
+		Query:             resBody.Query,
+		Score:             resBody.Score,
 	}, nil
 }
 
@@ -77,13 +77,13 @@ func (v *client) url(path string) string {
 }
 
 type RankInput struct {
-	Property string `json:"Property"`
-	Query    string `json:"Query"`
+	RankPropertyValue string `json:"RankPropertyValue"`
+	Query             string `json:"Query"`
 }
 
 type RankResponse struct {
-	Property string  `json:"Property"`
-	Query    string  `json:"Query"`
-	Score    float64 `json:"Score"`
-	Error    string  `json:"Error"`
+	RankPropertyValue string  `json:"RankPropertyValue"`
+	Query             string  `json:"Query"`
+	Score             float64 `json:"Score"`
+	Error             string  `json:"Error"`
 }
