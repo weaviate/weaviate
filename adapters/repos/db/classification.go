@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
-	libfilters "github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -32,14 +31,14 @@ import (
 // TODO: why is this logic in the persistence package? This is business-logic,
 // move out of here!
 func (db *DB) GetUnclassified(ctx context.Context, class string,
-	properties []string, filter *libfilters.LocalFilter,
+	properties []string, filter *filters.LocalFilter,
 ) ([]search.Result, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
-		libfilters.OperatorEqual, 0)
+		filters.OperatorEqual, 0)
 	res, err := db.ClassSearch(ctx, dto.GetParams{
 		ClassName: class,
 		Filters:   mergedFilter,
-		Pagination: &libfilters.Pagination{
+		Pagination: &filters.Pagination{
 			Limit: 10000, // TODO: gh-1219 increase
 		},
 		AdditionalProperties: additional.Properties{
@@ -58,7 +57,7 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 // move out of here!
 func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
-	filter *libfilters.LocalFilter,
+	filter *filters.LocalFilter,
 ) ([]search.Result, error) {
 	res, err := db.VectorClassSearch(ctx, dto.GetParams{
 		ClassName:    class,
@@ -79,10 +78,10 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 // move out of here!
 func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
-	filter *libfilters.LocalFilter,
+	filter *filters.LocalFilter,
 ) ([]classification.NeighborRef, error) {
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
-		libfilters.OperatorGreaterThan, 0)
+		filters.OperatorGreaterThan, 0)
 	res, err := db.VectorClassSearch(ctx, dto.GetParams{
 		ClassName:    class,
 		SearchVector: vector,
@@ -231,41 +230,41 @@ type neighborProp struct {
 
 type neighborBeacons map[string][]float32
 
-func mergeUserFilterWithRefCountFilter(userFilter *libfilters.LocalFilter, className string,
-	properties []string, op libfilters.Operator, refCount int,
-) *libfilters.LocalFilter {
-	countFilters := make([]libfilters.Clause, len(properties))
+func mergeUserFilterWithRefCountFilter(userFilter *filters.LocalFilter, className string,
+	properties []string, op filters.Operator, refCount int,
+) *filters.LocalFilter {
+	countFilters := make([]filters.Clause, len(properties))
 	for i, prop := range properties {
-		countFilters[i] = libfilters.Clause{
+		countFilters[i] = filters.Clause{
 			Operator: op,
-			Value: &libfilters.Value{
+			Value: &filters.Value{
 				Type:  schema.DataTypeInt,
 				Value: refCount,
 			},
-			On: &libfilters.Path{
+			On: &filters.Path{
 				Class:    schema.ClassName(className),
 				Property: schema.PropertyName(prop),
 			},
 		}
 	}
 
-	var countRootClause libfilters.Clause
+	var countRootClause filters.Clause
 	if len(countFilters) == 1 {
 		countRootClause = countFilters[0]
 	} else {
-		countRootClause = libfilters.Clause{
+		countRootClause = filters.Clause{
 			Operands: countFilters,
-			Operator: libfilters.OperatorAnd,
+			Operator: filters.OperatorAnd,
 		}
 	}
 
-	rootFilter := &libfilters.LocalFilter{}
+	rootFilter := &filters.LocalFilter{}
 	if userFilter == nil {
 		rootFilter.Root = &countRootClause
 	} else {
-		rootFilter.Root = &libfilters.Clause{
-			Operator: libfilters.OperatorAnd, // so we can AND the refcount requirements and whatever custom filters, the user has
-			Operands: []libfilters.Clause{*userFilter.Root, countRootClause},
+		rootFilter.Root = &filters.Clause{
+			Operator: filters.OperatorAnd, // so we can AND the refcount requirements and whatever custom filters, the user has
+			Operands: []filters.Clause{*userFilter.Root, countRootClause},
 		}
 	}
 
