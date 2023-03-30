@@ -40,6 +40,7 @@ import (
 func (m *Manager) startupClusterSync(ctx context.Context,
 	localSchema *State,
 ) error {
+ 
 	nodes := m.clusterState.AllNames()
 	if len(nodes) <= 1 {
 		return m.startupHandleSingleNode(ctx, nodes)
@@ -71,6 +72,7 @@ func (m *Manager) startupClusterSync(ctx context.Context,
 func (m *Manager) startupHandleSingleNode(ctx context.Context,
 	nodes []string,
 ) error {
+
 	localName := m.clusterState.LocalName()
 	if len(nodes) == 0 {
 		return fmt.Errorf("corrupt cluster state: cluster has size=0")

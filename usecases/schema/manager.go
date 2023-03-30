@@ -42,7 +42,9 @@ type Manager struct {
 	moduleConfig            ModuleConfig
 	cluster                 *cluster.TxManager
 	clusterState            clusterState
-	hnswConfigParser        VectorConfigParser
+    //GW - MAJOR CHANGE
+	vectorConfigParser        VectorConfigParser
+    //GW
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	RestoreStatus           sync.Map
@@ -109,15 +111,15 @@ type scaleOut interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
-	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
+    //GW MAJOR
+	//hnswConfigParser VectorConfigParser, 
+	vectorConfigParser VectorConfigParser, 
+    //GW MAJOR
+    vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	txClient cluster.Client, scaleoutManager scaleOut,
 ) (*Manager, error) {
-
-	//GW
-        fmt.Println("NEWMANAGER usecases/schema/manager.go !")
-        //GW
 
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
@@ -127,7 +129,9 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		state:                   State{},
 		logger:                  logger,
 		authorizer:              authorizer,
-		hnswConfigParser:        hnswConfigParser,
+        //GW MAJOR
+		vectorConfigParser:      vectorConfigParser,
+        //GW MAJOR
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
@@ -196,10 +200,6 @@ func (m *Manager) triggerSchemaUpdateCallbacks() {
 
 func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 
-	//GW
-        fmt.Println("SCHEMA loadOrInitializeSchema Inside usecases/scheman/manager.go!")
-        //GW
-
 	schema, err := m.repo.LoadSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load schema:  %v", err)
@@ -230,7 +230,7 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	// make sure that all migrations have completed before checking sync,
 	// otherwise two identical schemas might fail the check based on form rather
 	// than content
-
+	
 	if err := m.startupClusterSync(ctx, schema); err != nil {
 		return errors.Wrap(err, "sync schema with other nodes in the cluster")
 	}

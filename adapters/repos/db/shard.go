@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/gemini"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -38,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -118,98 +120,144 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	defer s.metrics.ShardStartup(before)
+    
+    switch index.vectorIndexUserConfig.(type) {
 
-	hnswUserConfig, ok := index.vectorIndexUserConfig.(hnswent.UserConfig)
-	if !ok {
-		return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-			index.vectorIndexUserConfig)
-	}
+        case hnswent.UserConfig:
 
-	if hnswUserConfig.Skip {
-		//GW
-        	fmt.Println("NOOP NEW INDEX adapters/repos/db/shard.go!")
-        	//GW
-		s.vectorIndex = noop.NewIndex()
-	} else {
-		//GW
-        	fmt.Println("INIT VECTOR INDEX adapters/repos/db/shard.go!")
-        	//GW
+            hnswUserConfig := index.vectorIndexUserConfig.(hnswent.UserConfig)
 
-		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-			return nil, fmt.Errorf("init vector index: %w", err)
-		}
+            if hnswUserConfig.Skip {
+                s.vectorIndex = noop.NewIndex()
 
-		defer s.vectorIndex.PostStartup()
-	}
+            } else {
 
-	if err := s.initNonVector(ctx, class); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q", s.ID())
-	}
+                if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
+                    return nil, fmt.Errorf("init vector index: %w", err)
+                }
 
-	return s, nil
+                defer s.vectorIndex.PostStartup()
+            }
+
+            if err := s.initNonVector(ctx, class); err != nil {
+                return nil, errors.Wrapf(err, "init shard %q", s.ID())
+            }
+
+	        return s, nil
+        
+        case geminient.UserConfig:
+            
+            geminiUserConfig := index.vectorIndexUserConfig.(geminient.UserConfig)
+
+            if geminiUserConfig.Skip {
+                s.vectorIndex = noop.NewIndex()
+            
+            } else {
+
+                if err := s.initVectorIndex(ctx, geminiUserConfig); err != nil {
+                    return nil, fmt.Errorf("init vector index: %w", err)
+                }
+
+                defer s.vectorIndex.PostStartup()
+            }
+
+            if err := s.initNonVector(ctx, class); err != nil {
+                return nil, errors.Wrapf(err, "init shard %q", s.ID())
+            }
+
+	        return s, nil
+
+        default:
+
+            return s, fmt.Errorf("Supported vectorInddexUserConfig type.")
+
+    }
 }
 
 func (s *Shard) initVectorIndex(
-	ctx context.Context, hnswUserConfig hnswent.UserConfig,
+    ctx context.Context,
+    vectorIndexUserConfig schema.VectorIndexConfig,
 ) error {
-	var distProv distancer.Provider
 
-	switch hnswUserConfig.Distance {
-	case "", hnswent.DistanceCosine:
-		distProv = distancer.NewCosineDistanceProvider()
-	case hnswent.DistanceDot:
-		distProv = distancer.NewDotProductProvider()
-	case hnswent.DistanceL2Squared:
-		distProv = distancer.NewL2SquaredProvider()
-	case hnswent.DistanceManhattan:
-		distProv = distancer.NewManhattanProvider()
-	case hnswent.DistanceHamming:
-		distProv = distancer.NewHammingProvider()
-	default:
-		return errors.Errorf("unrecognized distance metric %q,"+
-			"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
-	}
+    switch vectorIndexUserConfig.(type) {
 
-	//GW
-        fmt.Println("BEFORE HNSW NEW  adapters/repos/db/shard.go!")
-        //GW
+        case hnswent.UserConfig:
 
-	vi, err := hnsw.New(hnsw.Config{
-		Logger:            s.index.logger,
-		RootPath:          s.index.Config.RootPath,
-		ID:                s.ID(),
-		ShardName:         s.name,
-		ClassName:         s.index.Config.ClassName.String(),
-		PrometheusMetrics: s.promMetrics,
-		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			// Previously we had an interval of 10s in here, which was changed to
-			// 0.5s as part of gh-1867. There's really no way to wait so long in
-			// between checks: If you are running on a low-powered machine, the
-			// interval will simply find that there is no work and do nothing in
-			// each iteration. However, if you are running on a very powerful
-			// machine within 10s you could have potentially created two units of
-			// work, but we'll only be handling one every 10s. This means
-			// uncombined/uncondensed hnsw commit logs will keep piling up can only
-			// be processes long after the initial insert is complete. This also
-			// means that if there is a crash during importing a lot of work needs
-			// to be done at startup, since the commit logs still contain too many
-			// redundancies. So as of now it seems there are only advantages to
-			// running the cleanup checks and work much more often.
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-				s.index.logger)
-		},
-		VectorForIDThunk: s.vectorByIndexID,
-		DistanceProvider: distProv,
-	}, hnswUserConfig)
-	if err != nil {
-		return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
-	}
-	s.vectorIndex = vi
+            hnswUserConfig := vectorIndexUserConfig.(hnswent.UserConfig)
+            var distProv distancer.Provider
 
-	return nil
+            switch hnswUserConfig.Distance {
+                case "", hnswent.DistanceCosine:
+                    distProv = distancer.NewCosineDistanceProvider()
+                case hnswent.DistanceDot:
+                    distProv = distancer.NewDotProductProvider()
+                case hnswent.DistanceL2Squared:
+                    distProv = distancer.NewL2SquaredProvider()
+                case hnswent.DistanceManhattan:
+                    distProv = distancer.NewManhattanProvider()
+                case hnswent.DistanceHamming:
+                    distProv = distancer.NewHammingProvider()
+                default:
+                    return errors.Errorf("unrecognized distance metric %q,"+
+                        "choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", hnswUserConfig.Distance)
+                }
+
+            vi, err := hnsw.New(hnsw.Config{
+                Logger:            s.index.logger,
+                RootPath:          s.index.Config.RootPath,
+                ID:                s.ID(),
+                ShardName:         s.name,
+                ClassName:         s.index.Config.ClassName.String(),
+                PrometheusMetrics: s.promMetrics,
+                MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+                    // Previously we had an interval of 10s in here, which was changed to
+                    // 0.5s as part of gh-1867. There's really no way to wait so long in
+                    // between checks: If you are running on a low-powered machine, the
+                    // interval will simply find that there is no work and do nothing in
+                    // each iteration. However, if you are running on a very powerful
+                    // machine within 10s you could have potentially created two units of
+                    // work, but we'll only be handling one every 10s. This means
+                    // uncombined/uncondensed hnsw/gemini commit logs will keep piling up can only
+                    // be processes long after the initial insert is complete. This also
+                    // means that if there is a crash during importing a lot of work needs
+                    // to be done at startup, since the commit logs still contain too many
+                    // redundancies. So as of now it seems there are only advantages to
+                    // running the cleanup checks and work much more often.
+                    return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
+                        s.index.logger)
+                },
+                VectorForIDThunk: s.vectorByIndexID,
+                DistanceProvider: distProv,
+            }, hnswUserConfig)
+
+            if err != nil {
+                return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+            }
+            s.vectorIndex = vi
+            return nil
+
+        case geminient.UserConfig:
+
+            geminiUserConfig := vectorIndexUserConfig.(geminient.UserConfig)
+
+            // TODO: Currently we don't utilize the non-user Config but that 
+            // TODO: may likely change in the future.
+            vi, err := gemini.New( gemini.Config{}, geminiUserConfig )
+            if err != nil {
+                return errors.Wrapf(err, "init shard %q: gemini index", s.ID())
+            }
+            s.vectorIndex = vi
+
+            return nil
+
+        default:
+            return fmt.Errorf("Unsupported vectorIndexUserConfig.")
+    }
+
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+
 	err := s.initDBFile(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())

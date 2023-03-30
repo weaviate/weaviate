@@ -18,6 +18,7 @@ package schema
 
 import (
 	"net/http"
+    //goruntime "runtime"
 
 	"github.com/go-openapi/runtime/middleware"
 
