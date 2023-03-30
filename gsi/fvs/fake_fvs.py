@@ -62,7 +62,9 @@ class S(BaseHTTPRequestHandler):
             if not DATASET_ID: 
                 DATASET_ID = str(uuid.uuid1())
             else: 
-                raise Exception("Already got a dataset_id")
+                #raise Exception("Already got a dataset_id")
+                print("Warning, already got a dataset_id and replacing it...")
+                DATASET_ID = str(uuid.uuid1())
             body_dct = json.loads( post_data.decode('utf-8') )
             DS_FILE_PATH = body_dct["dsFilePath"]
             if VERBOSE: print("DS_FILE_PATH=",DS_FILE_PATH)

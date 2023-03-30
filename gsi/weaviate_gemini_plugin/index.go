@@ -16,6 +16,8 @@ import (
 	"fmt"
     "sync"
     "os"
+    "net/http"
+    //goruntime "runtime"
 
     "github.com/go-openapi/strfmt"
     "github.com/google/uuid"
@@ -71,50 +73,89 @@ type Gemini struct{
 
 func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string ) (*Gemini, error) {
 
-    // TODO: currently we aren't allowing any default overrides
-    if searchtype != DefaultSearchType ||
-        centroidsHammingK != DefaultHammingK ||
-        centroidsRerank != DefaultCentroidsRerank ||
-        hammingK != DefaultHammingK {
-        return nil, fmt.Errorf("Currently you cannot override the Gemini's default index parameters.")
+
+    // Check index parameters
+    // TODO: Currently we aren't allowing any default overrides
+    if searchtype != string(DefaultSearchType) {
+        return nil, fmt.Errorf("Currently you cannot override the Gemini's default search type.")
+    }
+    if centroidsHammingK != int(DefaultCentroidsHammingK) {
+        return nil, fmt.Errorf("Currently you cannot override the Gemini's default centroids hamming k.")
+    }
+    if centroidsRerank != int(DefaultCentroidsRerank) {
+        return nil, fmt.Errorf("Currently you cannot override the Gemini's default centroids rerank.")
+    }
+    if hammingK != int(DefaultHammingK) {
+        return nil, fmt.Errorf("Currently you cannot override the Gemini's default hamming k.")
     }
 
+    //
     // get special verbose/debug flag if present 
+    //
     gemini_verbose := false
     gemini_debug_flag := os.Getenv("GEMINI_DEBUG")
     if gemini_debug_flag == "true" {
         gemini_verbose = true
     }
 
+    //
     // a valid gemini_allocation_id is required
+    //
     allocation_id := os.Getenv("GEMINI_ALLOCATION_ID")
     if allocation_id == "" {
-        fmt.Println("ERROR: Could not find GEMINI_ALLOCATION_ID env var.") 
+        if gemini_verbose {
+            fmt.Println("ERROR: Could not find GEMINI_ALLOCATION_ID env var.") 
+        }
         return nil, fmt.Errorf("Could not find GEMINI_ALLOCATION_ID env var." )
     }
-    //TODO: Check valid allocation id (GUID) format. 
-    
+    // check its a valid guid
+    _, err := uuid.Parse(allocation_id)
+    if err != nil {
+        if gemini_verbose {
+            fmt.Println("ERROR: allocation id is not a valid guid.")
+        }
+        return nil, errors.Wrapf(err, "Allocation id is not a valid guid.")
+    }
+
+    //
     // a valid gemini_fvs_server is required
+    //
     fvs_server := os.Getenv("GEMINI_FVS_SERVER")
     if fvs_server == "" {
-        fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
+        if gemini_verbose {
+            fmt.Println("ERROR: Could not find GEMINI_FVS_SERVER env var.") 
+        }
         return nil, fmt.Errorf("Could not find GEMINI_FVS_SERVER env var." )
     }
-    //TODO: We should validate the server connection here.
+    ping_url := fmt.Sprintf("http://%s:%d/v1.0/alive", fvs_server, DefaultFVSPort )
+    if gemini_verbose {
+        fmt.Println("Formed an FVS ping url=", ping_url )
+    }
+    _, perr := http.Get(ping_url)
+	if perr != nil {
+        if gemini_verbose {
+		    fmt.Printf("error making http request: %s\n", err)
+        }
+        return nil, errors.Wrapf( err, "Could not ping the FVS server.")
+	}
 
+    //
     // a valid data_dir is required for gemini files
+    //
     data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
     if data_dir == "" {
         fmt.Println("ERROR: Could not find GEMINI_DATA_DIRECTORY env var.") 
         return nil, fmt.Errorf("Could not find GEMINI_DATA_DIRECTORY env var." )
     }
-    _, err := os.Stat(data_dir)
-    if os.IsNotExist(err) {
+    _, oerr := os.Stat(data_dir)
+    if os.IsNotExist(oerr) {
         fmt.Println("The GEMINI_DATA_DIRECTORY %s is not valid (%v)", data_dir, err)
         return nil, errors.Wrapf(err, "The GEMINI_DATA_DIRECTORY %s is not valid", data_dir )
     }
 
+    //
     // possibly override min records check 
+    //
     min_records_check := true
     min_records_check_flag := os.Getenv("GEMINI_MIN_RECORDS_CHECK")
     if min_records_check_flag == "false" {
@@ -137,7 +178,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
     idx.min_records_check   = min_records_check
 
     if idx.verbose {
-        fmt.Println("Gemini Index Contructor db_path=", idx.db_path)
+        fmt.Println("Gemini index constructor db_path=", idx.db_path)
     }
 
     return idx, nil

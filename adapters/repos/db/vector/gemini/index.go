@@ -13,6 +13,7 @@ package gemini
 
 import (
 	"context"
+    //goruntime "runtime"
 
     geminiplugin "github.com/gsi/weaviate/gemini_plugin"
 	"github.com/pkg/errors"
