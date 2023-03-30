@@ -23,7 +23,7 @@ import (
 )
 
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
-	pv *propValuePair, skipCache bool,
+	pv *propValuePair, skipChecksum bool,
 ) (docBitmap, error) {
 	// geo props cannot be served by the inverted index and they require an
 	// external index. So, instead of trying to serve this chunk of the filter
@@ -42,7 +42,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 
 	// bucket with strategy roaring set serves bitmaps directly
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv, skipCache)
+		return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv, skipChecksum)
 	}
 
 	// bucket with strategy set serves docIds used to build bitmap
@@ -50,13 +50,13 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 }
 
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Bucket,
-	limit int, pv *propValuePair, skipCache bool,
+	limit int, pv *propValuePair, skipChecksum bool,
 ) (docBitmap, error) {
 	out := newUnitializedDocBitmap()
 	var hashBucket *lsmkv.Bucket
 	var err error
 
-	if !skipCache {
+	if !skipChecksum {
 		hashBucket, err = s.getHashBucket(pv)
 		if err != nil {
 			return out, err
@@ -74,7 +74,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		}
 		i++
 
-		if !skipCache {
+		if !skipChecksum {
 			currHash, err := hashBucket.Get(k)
 			if err != nil {
 				return false, errors.Wrap(err, "get hash")
@@ -104,7 +104,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		out = newDocBitmap()
 	}
 
-	if !skipCache {
+	if !skipChecksum {
 		out.checksum = combineChecksums(hashes, pv.operator)
 	}
 	return out, nil
