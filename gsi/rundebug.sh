@@ -47,6 +47,5 @@ rm -fr /var/lib/weaviate/*
 
 # DLV is a Golang debugger that will need to have installed locally
 which dlv
-dlv --help
 
 cd .. && dlv debug cmd/weaviate-server/main.go --build-flags -modfile=gsi/go.mod -- --host=0.0.0.0 --port=8081 --scheme=http
