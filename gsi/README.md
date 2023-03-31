@@ -8,7 +8,7 @@ The features of this plugin include:
 * the plugin is implemented in pure Golang
 * the plugin interfaces directly with Gemini's FVS (Fast Vector Search) REST webservice API
 
-# Architecture
+# System Architecture
 
 The following is a high-level architecture of a complete system with the Weaviate Gemini Plugin:
 
