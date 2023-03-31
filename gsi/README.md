@@ -54,7 +54,7 @@ The Gemini plugin requires minimal configuration at the server and the applicati
 
 ## Weaviate Server Configuration
 
-This codebase contains all the Gemini Plugin code, so build and deploy the container as you would normally (see the script at "gsi/rundockerbuild.sh." )
+This codebase contains all the Gemini Plugin code, so build and deploy the container as you would normally (see the script at [gsi/rundockerbuild.sh](./rundockerbuild.sh) )
 
 The following environmental variables are unique to Gemini Plugin configuration at the server:
 * *GEMINI_ALLOCATION_ID*  -This must be set to a valid allocation id.  Please consult your onboarding instructions or reach out to your GSI support contact for more information.
