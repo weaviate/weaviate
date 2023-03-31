@@ -23,8 +23,8 @@ services:
       TRANSFORMERS_INFERENCE_API: 'http://localhost:8080'
       CLUSTER_HOSTNAME: 'node1'
       GEMINI_ALLOCATION_ID: 'fd283b38-3e4a-11eb-a205-7085c2c5e516'
-      GEMINI_DATA_DIRECTORY: '/home/public' # Do Not Change This
-      GEMINI_FVS_SERVER: 'localhost' # On Linux, must use network_mode=host
+      GEMINI_DATA_DIRECTORY: '/home/public' 
+      GEMINI_FVS_SERVER: 'localhost' 
       GEMINI_DEBUG: 'false'
   t2v-transformers:
     image: gsi/t2v
