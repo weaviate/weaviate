@@ -15,7 +15,7 @@ The following is a high-level architecture of a complete system with the Weaviat
 ![alt text](./images/Gemini_Plugin2.png)
 
 Additional component descriptions:
-* *Gemini Plugin* - Serves as the bridge between Weaviate and GSI's vector search acceleration technology.
+* *Gemini Plugin* - Serves as the bridge between Weaviate and GSI's vector search acceleration technology.  The following [README](./weaviate_gemini_plugin/README.md) discusses further how we've structured the code.
 * *FVS*  -GSI's Fast Vector Search provides an easy-to-use REST web interface for GSI's accelerated search capabilities.
 * *GSL*  -GSI Search Library contains efficient vector search algorithms tuned to the APU acceleration technology.
 * *GSM*  -GSI System Management manages multiple APU PCIe boards
