@@ -70,60 +70,34 @@ The default vector index is Weaviate's native implementation of HNSW.  To overri
 
 There is an example located at "gsi/tests/weaviate-gemini-sanity.py" that demonstrates this using the existing Weaviate python package.
 
-# Benchmarks
+# Comparing The Gemini To HNSW
 
-## Gemini Fast Vector Search (FVS)
+## Search Performance
 
-The Weaviate Gemini Plugin communicates with GSI's Fast Vector Search (FVS) REST web service.
+Since Weaviate can now support both the Gemini Plugin alongside it's native HNSW, its straightforward to perform an apples-to-apples comparison of both ANN algorithms on the same system and the same data.  We will be performing these measurements on various large scale datasets and reporting the results here at a later time.
 
-We benchmarked a system with 4 Gemini APU hardware acceleration boards.  Please see this [README](fvs/README.md) for those detailed results.  In that directory, you will find code and instructions so that you can reproduce these results on your system.
+We can show at this time benchmarks on FVS, upon which the Gemini Plugin is built.  Please see this [README](fvs/README.md) for those detailed results.  In that directory, you will find code and instructions so that you can reproduce these results on your system.
 
-## Gemini Plugin vs Weaviate's Native HNSW
+## Off-line Index Training
 
-These benchmarks are not yet available.
+The algorithm that powers the Gemini Plugin (via the FVS) requires an off-line index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the Weaviate application adds vectors. The Gemini Plugin launches the index training operation in a deferred manner, when the Weaivate application invokes its first "search" query.  The index training runs asynchronously (e.g, in the background), and therefore does not block the Weaviate client application.  The application immediately receives a message indicating asynchronous training operation started.  Weaviate developers should take note of this as they may need to modify their application's control flow accordingly when using a Gemini index.
 
-# Limitations
-
-## Index Training
-
-The algorithm that powers the Gemini Plugin (via the FVS) requires an index training/build step.  This contrasts to the native HNSW algorithm which builds its index incrementally and dynamically as the Weaviate application adds vectors. The Gemini Plugin launches the index training operation in a deferred manner, when the Weaivate application invokes its first "search" query.  The index training subsequently runs asynchronously (e.g, in the background), and therefore does not block the Weaviate application.  The application immediately receives a message indicating asynchronous training operation started.  Weaviate developers should take note of this and should consider modifying their application's control flow accordingly when using the Gemini Plugin.
-
-Ideally, a Weaviate eapplication that leverages the Gemini Plugin should be structured as follows:
+Ideally, a Weaviate client application that leverages the Gemini Plugin should be structured as follows:
 * first add all the objects that need to be vectorized via the relevant Weaviate import API calls.
 * then it should perform a Weaviate search API call and look for a response message indicating "asynchronous index training is in progress."
 * it should then continue querying Weaviate until the response message indicates that the "asynchronous index training is complete."
 * subsequent search calls will complete with the expected search results
 
-We have supplied an example program which demonstrates this application flow in python.  The example is located at "gsi/tests/weaviate-gemini-sanity.py."
+We have supplied an example python program which demonstrates this application flow, located at [gsi/tests/weaviate-gemini-sanity.py](./tests/weaviate-sanity.py).
 
-As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the [Gemini index training benchmarks](fvs/README.md) for more information.
+As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the [Gemini offline training benchmarks](fvs/README.md) for more information.
 
-Also, note the following current limitations while the Gemini index trains:
-* Additional object/vector adds are not allowed
-* Delete object/vectors are not allowed
+#  Roadmap
 
-Currently the Gemin Plugin will train a Gemini index only once during the index's lifetime, so applications should try to add as many vectors as possible before the Gemini plugin trains the index.
+More Gemini Plugin improvements are coming as we continue to integrate deeper into Weaviate and, importantly, as the Weaviate ecosystem starts to give us feedback:
 
-We plan to address these issues by supporting a form of hardware-accelerated HNSW in the near future.
-
-## CI/CD Automation
-
-Test automation that extends the existing Weaviate CI/CD on systems with the FVS and APU boards is not yet available.
-
-## Observability Metrics
-
-The Gemini plugin does not currently provide any real-time metrics for system performance and monitoring.  Weaviate currently uses Prometheus for this purpose and we will likely integrate with it in the future.
-
-## Replication
-
-High-availability configurations like replication are not yet supported.
-
-## Recovery
-
-Data recovery (such as if the server terminates unexpectedly) is not yet supported.
-
-# Troubleshooting
-
-This section will eventually contain resolutions to common problems that you may run into when either configuring the Gemini Plugin, or working with a Gemini index, the FVS system, or the APU hardware.
-
+* we are working on eliminating the off-line training process of the Gemini index
+* integrate system observability metrics into Prometheus alongside Weaviate
+* support Weaviate's fail-over and replication strategies for datacenter high-availablity deployment
+* integrate test automation including unit tests, stress tests, code coverage tests by extending Github's CI/CD infrastructure to GSI's hardware cloud
 
