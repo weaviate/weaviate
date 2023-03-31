@@ -99,5 +99,6 @@ More Gemini Plugin improvements are coming as we continue to integrate deeper in
 * we are working on eliminating the off-line training process of the Gemini index
 * integrate system observability metrics into Prometheus alongside Weaviate
 * support Weaviate's fail-over and replication strategies for datacenter high-availablity deployment
+* implement Weaviate's native HNSW data recovery features such as data recovery and index re-initialization
 * integrate test automation including unit tests, stress tests, code coverage tests by extending Github's CI/CD infrastructure to GSI's hardware cloud
 * continued benchmark efforts comparing the hardware accelerated Weaviate Gemini index vs. native HNSW for large datasets
