@@ -74,7 +74,6 @@ type Gemini struct{
 func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, searchtype string ) (*Gemini, error) {
 
 
-    // Check index parameters
     // TODO: Currently we aren't allowing any default overrides
     if searchtype != string(DefaultSearchType) {
         return nil, fmt.Errorf("Currently you cannot override the Gemini's default search type.")
@@ -90,7 +89,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
     }
 
     //
-    // get special verbose/debug flag if present 
+    // get special verbose/debug flag if present in environment
     //
     gemini_verbose := false
     gemini_debug_flag := os.Getenv("GEMINI_DEBUG")
@@ -99,7 +98,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
     }
 
     //
-    // a valid gemini_allocation_id is required
+    // a valid gemini_allocation_id setting is required from the environment
     //
     allocation_id := os.Getenv("GEMINI_ALLOCATION_ID")
     if allocation_id == "" {
@@ -118,7 +117,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
     }
 
     //
-    // a valid gemini_fvs_server is required
+    // a valid gemini_fvs_server setting is required from the environment
     //
     fvs_server := os.Getenv("GEMINI_FVS_SERVER")
     if fvs_server == "" {
@@ -131,6 +130,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
     if gemini_verbose {
         fmt.Println("Formed an FVS ping url=", ping_url )
     }
+    // ping the FVS server
     _, perr := http.Get(ping_url)
 	if perr != nil {
         if gemini_verbose {
@@ -140,7 +140,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
 	}
 
     //
-    // a valid data_dir is required for gemini files
+    // a valid data_dir setting is required for gemini files from the environment
     //
     data_dir := os.Getenv("GEMINI_DATA_DIRECTORY")
     if data_dir == "" {
@@ -154,7 +154,7 @@ func New( centroidsHammingK int, centroidsRerank int, hammingK int, nbits int, s
     }
 
     //
-    // possibly override min records check 
+    // possibly override min records check via a setting from the environment
     //
     min_records_check := true
     min_records_check_flag := os.Getenv("GEMINI_MIN_RECORDS_CHECK")
@@ -206,7 +206,6 @@ func (i *Gemini) Add(id uint64, vector []float32) error {
 
     // Get the float vector dimensions
     dim := int( len(vector) )
-    // TODO: We should eventually check dimension constraints.
 
     if i.verbose {
         fmt.Println("Gemini Add: dimension=", dim)
@@ -257,7 +256,7 @@ func (i *Gemini) Add(id uint64, vector []float32) error {
         i.count = new_count
     }
 
-    // By setting to true, next search kicks off an async index build/train
+    // By setting to true, next "search" calls kicks off an async index training
     i.stale = true
 	
     return nil
@@ -270,13 +269,11 @@ func (i *Gemini) Delete(id uint64) error {
         fmt.Println("Gemini SearchByVector: Delete")
     }
 
-    // TODO: We need to eventually implement the 'D' in CRUD semantics provided by native HNSW.
     return errors.New("Delete is not supported.")
 
 }
 
 
-// TODO:  This function is too big and we should consider refactoring it into an FSM
 func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, error) {
 
     // sychronize this function
@@ -292,6 +289,11 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 
     } else {
 
+        // TODO:  This bit of code is a gnarly and deserves a refactor into an FSM.
+        // TODO:  Basically, it will kick off an index asynchronous build at FVS and continues
+        // TODO:  to monitor its status, returning appropriate messages to the client along the way.
+        // TODO:  Finally, when the index is built it performs the actual search and returns
+        // TODO:  the expected result to the client.
         if  i.stale  {
             // Build/rebuild the index or check on an async build status
 
@@ -394,7 +396,7 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 
         // TODO: Create a temp numpy file for the query array.
         // TODO: We should eventually convert the code to support memory array when the
-        // TODO: FVS supports it.
+        // TODO: FVS supports memory arrays as a data transfer mechanism.
         query_count, _, err := Numpy_append_float32_array( query_path, farr, int64(dim), int64(1) )
         if err!=nil {
             return nil, nil, errors.Errorf("There was a problem adding to the query backing store file.")
@@ -403,7 +405,6 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
             return nil, nil, errors.Errorf("Appending array to local file store did not yield expected result.")
         }       
         
-        //dist, inds, timing, s_err := Search( i.fvs_server, DefaultFVSPort, i.allocation_id, i.dataset_id, "/home/public/deep-queries-10.npy", 10, i.verbose );
         dist, inds, timing, s_err := Search( i.fvs_server, DefaultFVSPort, i.allocation_id, i.dataset_id, query_path, 10, i.verbose );
         if s_err!= nil {
             return nil, nil, errors.Wrap(s_err, "Gemini index search failed.")
@@ -428,7 +429,7 @@ func (i *Gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit
     if i.verbose {
         fmt.Println("Gemini SearchByVectorDistance: Start")
     }
-	return nil, nil, errors.Errorf("cannot vector search by Distance on a Gemini index.")
+	return nil, nil, errors.Errorf("Currently cannot vector search by Distance on a Gemini index.")
 }
 
 func (i *Gemini) UpdateUserConfig() error {
@@ -436,7 +437,7 @@ func (i *Gemini) UpdateUserConfig() error {
     if i.verbose {	
         fmt.Println("Gemini UpdateUserConfig: Start")
     }	
-	return errors.Errorf("Cannot update vector index config on a Gemini index. Delete and re-create without skip property.")
+	return errors.Errorf("Currently cannot update vector index config on a Gemini index. Delete and re-create without skip property.")
 }
 
 
@@ -463,9 +464,8 @@ func (i *Gemini) Flush() error {
     if i.verbose {
         fmt.Println("Gemini Flush: Start")
     }
-    
-    // TODO: We should determine if need to relay this event to FVS
-
+   
+    // Currently, nothing needs to be flushed in this implementation. 
 	return nil
 }
 
@@ -475,8 +475,7 @@ func (i *Gemini) Shutdown(context.Context) error {
         fmt.Println("Gemini Shutdown: Start")
     }
 
-    // TODO: We should determine if need to relay this event to FVS
-
+    // Currently, nothing is done at Shutdown in this implementation. 
 	return nil
 }
 
@@ -486,8 +485,7 @@ func (i *Gemini) PauseMaintenance(context.Context) error {
         fmt.Println("Gemini PauseMaintenance: Start")
     }
     
-    // TODO: We should determine if need to relay this event to FVS
-
+    // Currently, nothing is done at PauseMaintence in this implementation. 
 	return nil
 }
 
@@ -497,9 +495,7 @@ func (i *Gemini) SwitchCommitLogs(context.Context) error {
         fmt.Println("Gemini SwitchCommitLogs: Start")
     }
 
-    // TODO:  Currently we don't leverage the Weaviate CommitLog subsystem
-    // TODO:  so we should consider if we need it.
-
+    // Currently we don't leverage the Weaviate CommitLog subsystem.
 	return nil
 }
 
@@ -509,8 +505,7 @@ func (i *Gemini) ListFiles(context.Context) ([]string, error) {
         fmt.Println("Gemini ListFiles: Start")
     }
 
-    // TODO:  Figure out if/when we need to support this call.
-
+    // Currently, this implementation does not return anything.
 	return nil, nil
 }
 
@@ -520,6 +515,7 @@ func (i *Gemini) ResumeMaintenance(context.Context) error {
         fmt.Println("Gemini ResumeMaintenance: Start")
     }
 
+    // Currently, nothing is done at ResumeMaintence in this implementation. 
 	return nil
 }
 
@@ -529,6 +525,7 @@ func (i *Gemini) ValidateBeforeInsert(vector []float32) error {
         fmt.Println("Gemini ValidateBeforeInsert: Start")
     }
 
+    // Currently, nothing is done in this implementation. 
 	return nil
 }
 
@@ -537,6 +534,7 @@ func (i *Gemini) PostStartup() {
     if i.verbose {
         fmt.Println("Gemini PostStartup: Start")
     }
+    // Currently, nothing is done in this implementation. 
 }
 
 func (i *Gemini) Dump(labels ...string) {
@@ -544,4 +542,5 @@ func (i *Gemini) Dump(labels ...string) {
     if i.verbose {
         fmt.Println("Gemini Dump: Start")
     }
+    // Currently, nothing is done in this implementation. 
 }

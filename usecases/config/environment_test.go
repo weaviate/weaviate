@@ -281,7 +281,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_IGNORE_SCHEMA_SYNC": "true",
 			},
 			expectedResult: cluster.Config{
-				GossipBindPort:          7949, //GW - 6
+				GossipBindPort:          7949, //TODO: 7946 conflicts with Docker swarm port
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
 			},

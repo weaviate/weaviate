@@ -92,9 +92,7 @@ type Config struct {
 	MaximumConcurrentGetRequests     int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-    // GW - MAJOR CHANGE
-    DefaultVectorIndexType          string          `json:"default_vector_index_type" yaml:"default_vector_index_type"`
-    //GW
+    DefaultVectorIndexType           string         `json:"default_vector_index_type" yaml:"default_vector_index_type"`
 }
 
 type moduleProvider interface {

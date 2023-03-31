@@ -202,10 +202,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 	}
 
 	if class.VectorIndexType == "" {
-        //GW MAJOR CHANGE
-		//class.VectorIndexType = "hnsw"
         class.VectorIndexType = m.config.DefaultVectorIndexType
-        //GW
 	}
 
 	if m.config.DefaultVectorDistanceMetric != "" {
