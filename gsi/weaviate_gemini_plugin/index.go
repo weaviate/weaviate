@@ -289,9 +289,9 @@ func (i *Gemini) SearchByVector(vector []float32, k int) ([]uint64, []float32, e
 
     } else {
 
-        // TODO:  This bit of code is a bit gnarly and deserves a refactor into an FSM.
+        // TODO:  This bit of code is a gnarly and deserves a refactor into an FSM.
         // TODO:  Basically, it will kick off an index asynchronous build at FVS and continues
-        // TODO:  to monitor its status, return appropriate messages to the client along the way.
+        // TODO:  to monitor its status, returning appropriate messages to the client along the way.
         // TODO:  Finally, when the index is built it performs the actual search and returns
         // TODO:  the expected result to the client.
         if  i.stale  {
