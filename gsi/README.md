@@ -35,17 +35,17 @@ Prerequisites:
 Container Setup:
 * If you haven't already, clone this repository on the system and cd into the top-level directory.
 * Now cd into the [gsi](../gsi) directory
-* Run the docker build script [rundockerbuild.sh](./rundockerbuild.sh) which builds the Gemini plugin-enabled container locally called "gsi/weaviate"
-* Now cd into the "gsi/docker/t2v" directory
-* Run the docker build script "rundockerbuild.sh" which builds a vectorization container locally called "gsi/t2v"
-* Now cd into the "gsi/docker" directory
-* Edit the file "docker-compose-sanity.yml" with your allocation id and run it via docker-compose.
+* Run the docker build script [rundockerbuild.sh](./rundockerbuild.sh) which builds a Gemini Plugin-enabled container locally called "gsi/weaviate"
+* Now cd into the [gsi/docker/t2v](docker/t2v) directory
+* Run the docker build script [rundockerbuild.sh](docker/t2v/rundockerbuild.sh) which builds a vectorization container locally called "gsi/t2v"
+* Now cd into the [gsi/docker](./docker) directory
+* Edit the file [docker-compose-sanity.yml](./docker/docker-compose-sanity.yml) with your allocation id and run it via docker-compose.
 * Wait until you see the startup message which indicates that the Weaviate server has successfully start.
 
 Python Example:
-* In another terminal, cd into the "gsi/tests" directory
-* Create a new python=3.8 environment, activate it, and install the python packages via the "requirements.txt" file
-* Run the following python file "weaviate-gemini-sanity.py"
+* In another terminal, cd into the [gsi/tests](./tests) directory
+* Create a new python=3.8 environment, activate it, and install the python packages via the [requirements.txt](./tests/requirements.txt) file
+* Run the following python file [weaviate-gemini-sanity.py](./tests/weaviate-gemini-sanity.py)
 * This weaviate python program will create a gemini index, import some data into it, and will finally perform some example searches against the index.
 
 # Gemini Plugin Configuration
