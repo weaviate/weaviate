@@ -62,7 +62,7 @@ The following environmental variables are unique to Gemini Plugin configuration 
 * *GEMINI_FVS_SERVER* -This is the server address of your FVS server.  Typically, its value should be 'localhost' since the FVS server would typically be co-located with your Weaviate server instance.
 * *GEMINI_DEBUG* -By default its false.  Set to 'true' (lower-case) to see more Gemini Plugin log messages printed to the console.  This is useful when debugging Gemini Plugin configuration issues.
 
-See the docker-compose file at 'gsi/docker/docker-compose-sanity.yml' for an example of how to set these environmental variables.
+See the docker-compose file at [gsi/docker/docker-compose-sanity.yml](./docker/docker-compose-sanity.yml) for an example of how to set these environmental variables.
 
 ## Weaviate Client Configuration
 
