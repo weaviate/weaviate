@@ -29,7 +29,7 @@ If you just want to see something working first, then following the directions i
 Prerequisites:
 * You should have access to a system with Gemini APU boards installed.
 * The system should have GSI's Fast Vector Search (FVS) support installed.
-* You should have received already an "allocation id" (which behaves like an API key.)
+* You should have created or received an "allocation id" for your system. 
 * Without all of these you should not proceed and should reach out to your GSI Technology support contact.
 
 Container Setup:
@@ -39,7 +39,7 @@ Container Setup:
 * Now cd into the [gsi/docker/t2v](docker/t2v) directory
 * Run the docker build script [rundockerbuild.sh](docker/t2v/rundockerbuild.sh) which builds a vectorization container locally called "gsi/t2v"
 * Now cd into the [gsi/docker](./docker) directory
-* Edit the file [docker-compose-sanity.yml](./docker/docker-compose-sanity.yml) with your allocation id and run it via docker-compose.
+* Edit the file [docker-compose-sanity.yml](./docker/docker-compose-sanity.yml) and set the env var GEMINI_ALLOCATION_ID to your allocation id and run the file via docker-compose.
 * Wait until you see the startup message which indicates that the Weaviate server has successfully start.
 
 Python Example:
