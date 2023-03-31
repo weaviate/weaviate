@@ -70,7 +70,7 @@ The default vector index is Weaviate's native implementation of HNSW.  To overri
 
 There is a python example located at [gsi/tests/weaviate-gemini-sanity.py](./tests/weaviate-gemini-sanity.py) that demonstrates this.
 
-# Comparing The Gemini To HNSW
+# Comparing Gemini Plugin To Weaviate's Native HNSW
 
 ## Search Performance
 
