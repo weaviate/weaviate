@@ -12,7 +12,7 @@ The features of this plugin include:
 
 The following is a high-level architecture of a complete system with the Weaviate Gemini Plugin:
 
-![alt text](Gemini_Plugin2.png)
+![alt text](./images/Gemini_Plugin2.png)
 
 Additional component descriptions:
 * *Gemini Plugin* - Serves as the bridge between Weaviate and GSI's vector search acceleration technology.
