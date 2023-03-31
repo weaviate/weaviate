@@ -5,7 +5,7 @@ The Gemini Plugin provides an alternative to Weaviate's native HNSW ANN implemen
 * It serves as a bridge between Weaviate and GSI Technology's Fast Vector Search (FVS)
 * FVS provides efficient hardware accelerated vector search and is suitable for large scale datasets
 
-# Plugin Architecture
+# Architecture
 
 All of the code for the Gemini support in Weaviate lives in two primary places:
 * In the core Weaviate codebase including:
