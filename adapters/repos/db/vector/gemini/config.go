@@ -12,11 +12,6 @@
 package gemini
 
 import (
-	//GW "github.com/sirupsen/logrus"
-	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	//GW "github.com/weaviate/weaviate/adapters/repos/db/vector/gemini/distancer"
-    //GW
-	//GW"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -27,10 +22,6 @@ type Config struct {
 	// internal
 	RootPath              string
 	ID                    string
-	//GW MakeCommitLoggerThunk MakeCommitLogger
-	//GW VectorForIDThunk      VectorForID
-	//GW Logger                logrus.FieldLogger
-	//GW DistanceProvider      distancer.Provider
 	PrometheusMetrics     *monitoring.PrometheusMetrics
 
 	// metadata for monitoring
@@ -38,30 +29,3 @@ type Config struct {
 	ClassName string
 }
 
-/*
-func (c Config) Validate() error {
-	ec := &errorcompounder.ErrorCompounder{}
-
-	if c.ID == "" {
-		ec.Addf("id cannot be empty")
-	}
-
-	if c.RootPath == "" {
-		ec.Addf("rootPath cannot be empty")
-	}
-
-	if c.MakeCommitLoggerThunk == nil {
-		ec.Addf("makeCommitLoggerThunk cannot be nil")
-	}
-
-	if c.VectorForIDThunk == nil {
-		ec.Addf("vectorForIDThunk cannot be nil")
-	}
-
-	if c.DistanceProvider == nil {
-		ec.Addf("distancerProvider cannot be nil")
-	}
-
-	return ec.ToError()
-}
-*/
