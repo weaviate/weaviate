@@ -14,7 +14,7 @@ All of the code for the Gemini support in Weaviate lives in two primary places:
 * In this Golang module directory:
   * It includes an FVS REST API wrapper written in pure Golang [\(fvs.go\)](./fvs.go)
   * It includes code which implements the Weaviate index "interface" called from the "gemini" index stub described above [\(index.go\)](./index.go).
-  * Please note that this module may end up in its own separately named repository in the future.
+  * Please note that this module may end up in its own separate repository in the future.
 
 
 
