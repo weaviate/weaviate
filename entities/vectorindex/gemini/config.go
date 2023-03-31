@@ -16,7 +16,7 @@ import (
     "github.com/weaviate/weaviate/entities/schema"
 )
 
-// A minimal number of config parameters arre available here in UserConfig.
+// A minimal number of gemini index config parameters are available here in UserConfig.
 const (
     DefaultSkip                 = false
     DefaultSearchType           = "flat"
@@ -39,7 +39,6 @@ func (u UserConfig) IndexType() string {
     return "gemini"
 }
 
-// SetDefaults in the user-specifyable part of the config
 func (c *UserConfig) SetDefaults() {
     c.Skip              = DefaultSkip
     c.SearchType        = DefaultSearchType
