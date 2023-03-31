@@ -6,7 +6,7 @@ The Weaviate Gemini Plugin provides an alternate approximate nearest neighbor (A
 The features of this plugin include:
 * provides accurate and fast vector search for large-scale vector datasets 
 * the plugin is implemented in pure Golang
-* the plugin interfaces directly with Gemini's FVS (Fast Vector Search) REST webservice API
+* the plugin interfaces directly with Gemini's FVS (Fast Vector Search) REST web service API
 
 # System Architecture
 
