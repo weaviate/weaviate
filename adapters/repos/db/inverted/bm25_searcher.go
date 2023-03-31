@@ -59,6 +59,7 @@ type BM25Searcher struct {
 
 type propLengthRetriever interface {
 	PropertyMean(prop string) (float32, error)
+	PropertyTally(prop string) (uint64,uint64, float64,uint64,uint64, error)
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store, schema schema.Schema,
@@ -485,7 +486,8 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 	propertyNamesString := make([]string, 0)
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
-	averagePropLength := 0.
+	sum, count := uint64(0), uint64(0)
+	explain := ""
 	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
 		propBoost := 1
@@ -496,16 +498,18 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		}
 		propertyBoosts[property] = float32(propBoost)
 
-		propMean, err := b.propLengths.PropertyMean(property)
+		s,t,_, countSum, proplenSum, err := b.propLengths.PropertyTally(property)
 		if err != nil {
 			return nil, nil, err
 		}
-		averagePropLength += float64(propMean)
+		sum += s
+		count += t
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
 			return nil, nil, err
 		}
+		explain = fmt.Sprintf("%v\n%v: countSum: %v, proplenSum: %v", explain, property, countSum, proplenSum)
 
 		if prop.Tokenization == "word" {
 			if prop.DataType[0] == "text" || prop.DataType[0] == "text[]" {
@@ -520,7 +524,9 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		}
 	}
 
-	averagePropLength = averagePropLength / float64(len(params.Properties)) / 2000.0
+	averagePropLength :=  float64(sum) / float64(count)  //84?
+
+	explain = explain + fmt.Sprintf("\nTotal prop length: %v, total prop count: %v, average prop length: %v\n", sum, count, averagePropLength)
 
 	// preallocate the results (+1 is for full query)
 	fullQueryLength := 0
@@ -603,7 +609,7 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		return a.Score > b.Score
 	})
 
-	finalCandidates := NewCustomMapWithArena(ar, uintptr(limit))
+	finalCandidates := NewCustomMapWithArena(ar, 10000000)
 	// Iterate over all results, merge them into finalCandidates, and add them to the heap
 	for _, termResult := range results {
 		resMap := termResult.data
@@ -644,7 +650,7 @@ func (b *BM25Searcher) scoreMap(ctx context.Context, filterDocIds helpers.AllowL
 		if err != nil {
 			return nil, nil, err
 		}
-		object.Object.Additional["explainScore"] = strings.Join(item.ExplainScore, "\n")+"\n"+fmt.Sprintf("Total score: %v", item.Score)
+		object.Object.Additional["explainScore"] = explain +strings.Join(item.ExplainScore, "\n")+"\n"+fmt.Sprintf("Total score: %v", item.Score)
 		//fmt.Printf("%+v\n", object)
 		objects = append(objects, object)
 		scores = append(scores, float32(item.Score))
@@ -669,9 +675,9 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 			return termResult, fmt.Errorf("could not find bucket for property %v", propName)
 		}
 
-		kps, _ := bucket.MapList([]byte(query))
-		// bucket.MapListWithCallback([]byte(query), func(val lsmkv.MapPair) {
-		for _, val := range kps {
+		//kps, _ := bucket.MapList([]byte(query))
+		 bucket.MapListWithCallback([]byte(query), func(val lsmkv.MapPair) {
+		//for _, val := range kps {
 			docID := binary.BigEndian.Uint64(val.Key)
 			if filterDocIds == nil || filterDocIds.Contains(docID) {
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
@@ -692,7 +698,7 @@ func (b *BM25Searcher) createTermMaps(ar *arena.Arena, config schema.BM25Config,
 				}
 			}
 
-		} //)
+		} )
 
 	}
 
@@ -781,6 +787,7 @@ func (b *BM25Searcher) wand(
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	averagePropLength := 0.
+	TotalSum, TotalCount := 0,0
 	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
 		propBoost := 1
@@ -791,11 +798,12 @@ func (b *BM25Searcher) wand(
 		}
 		propertyBoosts[property] = float32(propBoost)
 
-		propMean, err := b.propLengths.PropertyMean(property)
+		sum, count, _ ,_, _, err := b.propLengths.PropertyTally(property)
 		if err != nil {
 			return nil, nil, err
 		}
-		averagePropLength += float64(propMean)
+		TotalSum += int(sum)
+		TotalCount += int(count)
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
@@ -815,7 +823,7 @@ func (b *BM25Searcher) wand(
 		}
 	}
 
-	averagePropLength = averagePropLength / float64(len(params.Properties))
+	averagePropLength = float64(TotalSum) / float64(TotalCount)
 
 	// preallocate the results (+1 is for full query)
 	fullQueryLength := 0
@@ -896,8 +904,10 @@ func (b *BM25Searcher) wand(
 	resultsOriginalOrder := make(terms, len(results))
 	copy(resultsOriginalOrder, results)
 
-	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
-	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+	explainScore := map[uint64]string{}
+
+	topKHeap := b.getTopKHeap(limit, results, averagePropLength, explainScore)
+	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, explainScore)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string, duplicateBoost []int, detector *stopwords.Detector) ([]string, []int) {
@@ -925,7 +935,7 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []*haxmap.Map[uint64, int], additionalExplanations bool) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []*haxmap.Map[uint64, int], additionalExplanations bool, explainScore map[uint64]string) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return nil, nil, errors.Errorf("objects bucket not found")
@@ -954,20 +964,14 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 			if obj.AdditionalProperties() == nil {
 				obj.Object.Additional = make(map[string]interface{})
 			}
-			for j, result := range results {
-				if termIndice, ok := indices[j].Get(res.ID); ok {
-					queryTerm := result.queryTerm
-					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
-					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
-				}
-			}
+			obj.Object.Additional["explainScore"] = "hello"+explainScore[res.ID]
 		}
 		objects = append(objects, obj)
 	}
 	return objects, scores, nil
 }
 
-func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64) *priorityqueue.Queue {
+func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64, explainScore map[uint64]string) *priorityqueue.Queue {
 	topKHeap := priorityqueue.NewMin(limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
@@ -976,9 +980,10 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 			return topKHeap
 		}
 
-		id, score := results.scoreNext(averagePropLength, b.config)
+		id, score := results.scoreNext(averagePropLength, b.config, explainScore)
 
 		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
+			explainScore[id] = explainScore[id] + fmt.Sprintf("Final score: %f\n", score)
 			topKHeap.Insert(id, float32(score))
 			for topKHeap.Len() > limit {
 				topKHeap.Pop()
@@ -1128,11 +1133,12 @@ type term struct {
 	UniqueCount int
 }
 
-func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config,explainScore map[uint64]string) (uint64, float64) {
 	id := t.idPointer
 	pair := t.data[t.posPointer]
 	freq := float64(pair.frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
+	explain := fmt.Sprintf("tf(%s) = %f / (%f + %f * (1 - %f + %f * %f / %f)) = %f\n", t.queryTerm, freq, freq, config.K1, config.B, config.B, pair.propLength, averagePropLength, tf)
 
 	// advance
 	t.posPointer++
@@ -1141,6 +1147,8 @@ func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Conf
 	} else {
 		t.idPointer = t.data[t.posPointer].id
 	}
+	explain = explain + fmt.Sprintf("score(%s) = %f * %f = %f\n", t.queryTerm, tf, t.idf, tf*t.idf)
+	explainScore[id] = explainScore[id] + explain
 
 	return id, tf * t.idf
 }
@@ -1213,7 +1221,7 @@ func (t terms) findFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config, explainScore map[uint64]string) (uint64, float64) {
 	pos, ok := t.findFirstNonExhausted()
 	if !ok {
 		// done, nothing left to score
@@ -1226,7 +1234,7 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 		if t[i].idPointer != id || t[i].exhausted {
 			continue
 		}
-		_, score := t[i].scoreAndAdvance(averagePropLength, config)
+		_, score := t[i].scoreAndAdvance(averagePropLength, config, explainScore)
 		cumScore += score
 	}
 

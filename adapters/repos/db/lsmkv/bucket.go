@@ -672,7 +672,9 @@ func (b *Bucket) MapListWithCallback(key []byte, callback func(v MapPair), cfgs 
 				return
 			}
 			element.Tombstone = v.tombstone
-			callback(element)
+			//if !element.Tombstone {
+				callback(element)
+			//}
 		}
 	}
 

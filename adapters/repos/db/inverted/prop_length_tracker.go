@@ -30,8 +30,8 @@ import (
 // | 2-3       | uint16 pointer for property name length
 // | 4-n       | property name
 // | ...       | repeat length+pointer pattern
-// | 3584-3840 | second property buckets (64 buckets of float32)
-// | 3840-4096 | first property buckets
+// | 3584-3840 | second property buckets (64 buckets of float32)s
+// | 3840-PAGE_LENGTH | first property buckets
 // | repeat    | page is now 1, repeat all of above
 //
 // Fixed Assumptions:
@@ -51,6 +51,41 @@ type PropertyLengthTracker struct {
 	path  string
 	pages []byte
 	sync.Mutex
+}
+
+var PAGE_LENGTH uint16 = 4096
+
+func (t *PropertyLengthTracker) putUint16At(v uint16, offset int) {
+	if v == 57638 {
+		panic("no")
+	}
+	binary.LittleEndian.PutUint16(t.pages[offset:offset+2], v)
+}
+
+func (t *PropertyLengthTracker) uint16At(offset int) uint16 {
+	return binary.LittleEndian.Uint16(t.pages[offset : offset+2])
+}
+
+func (t *PropertyLengthTracker) putUint32At(v uint32, offset int) {
+	if v == 57638 {
+		panic("no")
+	}
+	binary.LittleEndian.PutUint32(t.pages[offset:offset+4], v)
+}
+
+func (t *PropertyLengthTracker) uint32At(offset int) uint32 {
+	return binary.LittleEndian.Uint32(t.pages[offset : offset+4])
+}
+
+func (t *PropertyLengthTracker) unpackBucket(bucket uint16, v uint32) (float32, float32) {
+	count := math.Float32frombits(v)
+	value := t.valueFromBucket(bucket)
+	return value, count
+}
+
+func (t *PropertyLengthTracker) unpackBucketAt(bucket uint16, o int) (float32, float32) {
+	v := t.uint32At(o)
+	return t.unpackBucket(bucket, v)
 }
 
 func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
@@ -78,7 +113,7 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 			return nil, errors.Wrap(err, "read initial count from file")
 		}
 
-		if len(existingPages)%4096 != 0 {
+		if len(existingPages)%int(PAGE_LENGTH) != 0 {
 			return nil, errors.Errorf(
 				"failed sanity check, prop len tracker file %s has length %d", path,
 				len(existingPages))
@@ -88,9 +123,9 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 	} else {
 		// this is the first time this is being created, initialize with an empty
 		// page
-		t.pages = make([]byte, 4096)
+		t.pages = make([]byte, PAGE_LENGTH)
 		// set initial end-of-index offset to 2
-		binary.LittleEndian.PutUint16(t.pages[0:2], 2)
+		t.putUint16At(2, 0)
 	}
 
 	return t, nil
@@ -113,13 +148,14 @@ func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) er
 		}
 	}
 
-	bucketOffset := page*4096 + relBucketOffset + t.bucketFromValue(value)*4
+	bucket := t.bucketFromValue(value)
+	bucketOffset := page*PAGE_LENGTH + relBucketOffset + bucket*4
 
-	v := binary.LittleEndian.Uint32(t.pages[bucketOffset : bucketOffset+4])
+	v := t.uint32At(int(bucketOffset))
 	currentValue := math.Float32frombits(v)
 	currentValue += 1
 	v = math.Float32bits(currentValue)
-	binary.LittleEndian.PutUint32(t.pages[bucketOffset:bucketOffset+4], v)
+	t.putUint32At(v, int(bucketOffset))
 	return nil
 }
 
@@ -127,23 +163,21 @@ func (t *PropertyLengthTracker) TrackProperty(propName string, value float32) er
 // the prop existed at all. The first to values have no meaning if the latter
 // is false
 func (t *PropertyLengthTracker) propExists(needle string) (uint16, uint16, bool) {
-	pages := len(t.pages) / 4096
+	pages := len(t.pages) / int(PAGE_LENGTH)
 	for page := 0; page < pages; page++ {
-		pageStart := page * 4096
+		pageStart := page * int(PAGE_LENGTH)
 
-		relativeEOI := binary.LittleEndian.Uint16(t.pages[pageStart : pageStart+2])
+		relativeEOI := t.uint16At(pageStart)
 		EOI := pageStart + int(relativeEOI)
 
 		offset := int(pageStart) + 2
 		for offset < EOI {
-			propNameLength := int(binary.LittleEndian.Uint16(
-				t.pages[offset : offset+2]))
+			propNameLength := int(t.uint16At(offset))
 			offset += 2
 
 			propName := t.pages[offset : offset+propNameLength]
 			offset += propNameLength
-			bucketPointer := binary.LittleEndian.Uint16(
-				t.pages[offset : offset+2])
+			bucketPointer := t.uint16At(offset)
 			offset += 2
 
 			if string(propName) == needle {
@@ -161,16 +195,15 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, er
 	for {
 		propNameBytes := []byte(propName)
 		t.createPageIfNotExists(page)
-		pageStart := page * 4096
-		lastBucketOffset := pageStart + 4096
+		pageStart := page * PAGE_LENGTH
+		lastBucketOffset := pageStart + PAGE_LENGTH
 
-		relativeOffset := binary.LittleEndian.Uint16(t.pages[pageStart : pageStart+2])
+		relativeOffset := t.uint16At(int(pageStart))
 		offset := pageStart + relativeOffset
 		if relativeOffset != 2 {
 			// relative offset is other than 2, so there are also props in. This
 			// means we can take the value of offset-2 to read the bucket offset
-			lastBucketOffset = pageStart + binary.LittleEndian.
-				Uint16(t.pages[offset-2:offset])
+			lastBucketOffset = pageStart + t.uint16At(int(offset-2))
 		}
 
 		if !t.canPageFit(propNameBytes, offset, lastBucketOffset) {
@@ -184,18 +217,18 @@ func (t *PropertyLengthTracker) addProperty(propName string) (uint16, uint16, er
 		}
 
 		propNameLength := uint16(len(propNameBytes))
-		binary.LittleEndian.PutUint16(t.pages[offset:offset+2], propNameLength)
+		t.putUint16At(propNameLength, int(offset))
 		offset += 2
 		copy(t.pages[offset:offset+propNameLength], propNameBytes)
 		offset += propNameLength
 
 		newBucketOffset := lastBucketOffset - 256 - pageStart
-		binary.LittleEndian.PutUint16(t.pages[offset:offset+2], newBucketOffset)
+		t.putUint16At(newBucketOffset, int(offset))
 		offset += 2
 
 		// update end of index offset for page, since the prop name index has
 		// now grown
-		binary.LittleEndian.PutUint16(t.pages[pageStart:pageStart+2], offset-pageStart)
+		t.putUint16At(offset-pageStart, int(pageStart))
 		return page, newBucketOffset, nil
 	}
 }
@@ -223,6 +256,9 @@ func (t *PropertyLengthTracker) bucketFromValue(value float32) uint16 {
 	if bucket > 63 {
 		return 64
 	}
+	if bucket == 63 {
+		panic("bucket 63 is too big, you shouldn't be writing to this")
+	}
 	return uint16(bucket)
 }
 
@@ -247,11 +283,11 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	totalCount := float32(0)
 	bucket := uint16(0)
 
-	offset = offset + page*4096
+	offset = offset + page*PAGE_LENGTH
 	for o := offset; o < offset+256; o += 4 {
-		v := binary.LittleEndian.Uint32(t.pages[o : o+4])
-		count := math.Float32frombits(v)
-		sum += float32(t.valueFromBucket(bucket)) * count
+		
+		value, count := t.unpackBucketAt(bucket, int(o))
+		sum += value * count
 		totalCount += count
 
 		bucket++
@@ -264,14 +300,48 @@ func (t *PropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	return sum / totalCount, nil
 }
 
+func (t *PropertyLengthTracker) PropertyTally(propName string) (uint64, uint64, float64, uint64, uint64, error) {
+	t.Lock()
+	defer t.Unlock()
+
+	page, offset, ok := t.propExists(propName)
+	if !ok {
+		return 0, 0, 0, 0, 0, nil
+	}
+
+	sum := uint64(0)
+	totalCount := uint64(0)
+	bucket := uint16(0)
+	countTally := uint64(0)
+	proplenTally := uint64(0)
+
+	offset = offset + page*PAGE_LENGTH
+	for o := offset; o < offset+256; o += 4 {
+		value, count := t.unpackBucketAt(bucket, int(o))
+		countTally += uint64(count)
+		proplenTally += uint64(value)
+		sum += uint64(value * count)
+		totalCount += uint64(count)
+		fmt.Printf("Bucket: %v, Offset: %v, Count: %v, Proplen: %v, Sum: %v, TotalCount: %v\n", bucket, o, count, float32(t.valueFromBucket(bucket)), sum, totalCount)
+
+		bucket++
+	}
+
+	if totalCount == 0 {
+		return 0, 0, 0, 0, 0, nil
+	}
+
+	return sum, totalCount, float64(sum) / float64(totalCount), countTally, proplenTally, nil
+}
+
 func (t *PropertyLengthTracker) createPageIfNotExists(page uint16) {
-	if uint16(len(t.pages))/4096-1 < page {
+	if uint16(len(t.pages))/PAGE_LENGTH-1 < page {
 		// we need to grow the page buffer
-		newPages := make([]byte, uint64(page)*4096+4096)
+		newPages := make([]byte, uint64(page+1)*uint64(PAGE_LENGTH))
 		copy(newPages[:len(t.pages)], t.pages)
 
 		// the new page must have the correct offset initialized
-		binary.LittleEndian.PutUint16(newPages[page*4096:page*4096+2], 2)
+		t.putUint16At(2, int(page*PAGE_LENGTH))
 		t.pages = newPages
 	}
 }
