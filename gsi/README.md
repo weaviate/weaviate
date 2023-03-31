@@ -34,7 +34,7 @@ Prerequisites:
 
 Container Setup:
 * If you haven't already, clone this repository on the system and cd into the top-level directory.
-* Now cd into the "gsi" directory
+* Now cd into the [gsi](../gsi) directory
 * Run the docker build script "rundockerbuild.sh" which builds the Gemini plugin-enabled container locally called "gsi/weaviate"
 * Now cd into the "gsi/docker/t2v" directory
 * Run the docker build script "rundockerbuild.sh" which builds a vectorization container locally called "gsi/t2v"
