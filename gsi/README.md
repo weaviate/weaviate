@@ -46,7 +46,7 @@ Python Example:
 * In another terminal, cd into the [gsi/tests](./tests) directory
 * Create a new python=3.8 environment, activate it, and install the python packages via the [requirements.txt](./tests/requirements.txt) file
 * Run the following python file [weaviate-gemini-sanity.py](./tests/weaviate-gemini-sanity.py)
-* This weaviate python program will create a gemini index, import some data into it, and will finally perform some example searches against the index.
+* This Weaviate python program will create a Gemini index, import some data into it, and will finally perform some example searches against the index.
 
 # Gemini Plugin Configuration
 
