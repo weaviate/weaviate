@@ -70,8 +70,8 @@ type BackUpper interface {
 
 // cluster is used by the scaler to query cluster
 type cluster interface {
-	// AllNames returns list of existing node in the cluster
-	AllNames() []string
+	// Candidates returns list of existing nodes in the cluster
+	Candidates() []string
 	// LocalName returns name of this node
 	LocalName() string
 	// NodeHostname return hosts address for a specific node name
