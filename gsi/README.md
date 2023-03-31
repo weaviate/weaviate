@@ -68,7 +68,7 @@ See the docker-compose file at [gsi/docker/docker-compose-sanity.yml](./docker/d
 
 The default vector index is Weaviate's native implementation of HNSW.  To override this in your application, you must set the *vectorIndexType* property to *gemini* when you create your Weaviate class schema.
 
-There is an example located at "gsi/tests/weaviate-gemini-sanity.py" that demonstrates this using the existing Weaviate python package.
+There is a python example located at [gsi/tests/weaviate-gemini-sanity.py](./tests/weaviate-gemini-sanity.py) that demonstrates this.
 
 # Comparing The Gemini To HNSW
 
@@ -88,9 +88,9 @@ Ideally, a Weaviate client application that leverages the Gemini Plugin should b
 * it should then continue querying Weaviate until the response message indicates that the "asynchronous index training is complete."
 * subsequent search calls will complete with the expected search results
 
-We have supplied an example python program which demonstrates this application flow, located at [gsi/tests/weaviate-gemini-sanity.py](./tests/weaviate-sanity.py).
+We have supplied an example python program which demonstrates this application flow, located at [gsi/tests/weaviate-gemini-sanity.py](./tests/weaviate-gemini-sanity.py).
 
-As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the [Gemini offline training benchmarks](fvs/README.md) for more information.
+As datasets become larger, the elapsed time that your application needs to wait for the index training to complete will increase as well.  Please see the [Gemini offline training benchmarks](./fvs/README.md) for more information.
 
 #  Roadmap
 
