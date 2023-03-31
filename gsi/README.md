@@ -74,7 +74,7 @@ There is a python example located at [gsi/tests/weaviate-gemini-sanity.py](./tes
 
 ## Search Performance
 
-Since Weaviate can now support both the Gemini Plugin alongside it's native HNSW, it's now straightforward to perform an apples-to-apples comparison of both ANN algorithms on the same system and the same data.  We will be performing these measurements on various large scale datasets and reporting the results here at a later time.
+Since Weaviate can now support both the Gemini Plugin alongside its native HNSW, it's now straightforward to perform an apples-to-apples comparison of both ANN algorithms on the same system and the same data.  We will be performing these measurements on various large scale datasets and reporting the results here at a later time.
 
 We can show at this time benchmarks on FVS, upon which the Gemini Plugin is built.  Please see this [README](fvs/README.md) for those detailed results.  In that directory, you will find code and instructions so that you can reproduce these results on your system.
 
