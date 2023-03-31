@@ -132,6 +132,10 @@ func (f *fakeClusterState) AllNames() []string {
 	return f.hosts
 }
 
+func (f *fakeClusterState) Candidates() []string {
+	return f.hosts
+}
+
 func (f *fakeClusterState) LocalName() string {
 	return "node1"
 }
