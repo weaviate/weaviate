@@ -37,4 +37,4 @@ ENTRYPOINT ["/bin/weaviate"]
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN apk add --no-cache --upgrade ca-certificates openssl
 RUN mkdir ./modules
-CMD [ "--host", "0.0.0.0", "--port", "8081", "--scheme", "http"]
+CMD [ "--host", "0.0.0.0", "--port", "8082", "--scheme", "http"]

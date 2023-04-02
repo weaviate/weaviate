@@ -14,7 +14,7 @@ VERBOSE = True
 #
 
 # The weaviate client with connection info
-client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
+client = weaviate.Client("http://localhost:801")  # Replace with your endpoint
 
 
 # TODO: Make sure the class exists...
