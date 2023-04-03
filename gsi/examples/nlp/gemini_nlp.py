@@ -13,9 +13,6 @@ MAX_SEARCHES = 10
 BATCH_SIZE = 10
 HEADER = {"Content-Type": "application/json"}
 
-
-
-
 # initialize client and class object
 print("Connecting to Weaviate...")
 client = weaviate.Client(WEAVIATE_CONN) 
