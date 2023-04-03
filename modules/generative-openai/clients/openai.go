@@ -73,16 +73,16 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
-	var body []byte
-	var err error
 	var oaiUrl string
+	var err error
+	var input generateInput
 
 	if settings.IsLegacy() {
 		oaiUrl, err = url.JoinPath(v.host, "/v1/completions")
 		if err != nil {
-			return nil, errors.Wrap(err, "join OpenAI API host and path")
+			return nil, errors.Wrap(err, "url join path")
 		}
-		body, err = json.Marshal(generateInput{
+		input = generateInput{
 			Prompt:           prompt,
 			Model:            settings.Model(),
 			MaxTokens:        settings.MaxTokens(),
@@ -90,14 +90,14 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 			FrequencyPenalty: settings.FrequencyPenalty(),
 			PresencePenalty:  settings.PresencePenalty(),
 			TopP:             settings.TopP(),
-		})
+		}
 	} else {
 		oaiUrl, err = url.JoinPath(v.host, v.path)
 		if err != nil {
-			return nil, errors.Wrap(err, "join OpenAI API host and path")
+			return nil, errors.Wrap(err, "url join path")
 		}
 		tokens := determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), prompt)
-		body, err = json.Marshal(generateInput{
+		input = generateInput{
 			Messages: []message{{
 				Role:    "user",
 				Content: prompt,
@@ -108,11 +108,12 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 			FrequencyPenalty: settings.FrequencyPenalty(),
 			PresencePenalty:  settings.PresencePenalty(),
 			TopP:             settings.TopP(),
-		})
+		}
 	}
 
+	body, err := json.Marshal(input)
 	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
+		return nil, errors.Wrap(err, "marshal body")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
@@ -190,8 +191,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 }
 
 func determineTokens(maxTokensSetting float64, classSetting float64, prompt string) int {
-	//nolint:gofumpt    //todo very naive approach here, but better than before ;)
-	tokens := float64(countWhitespace(prompt)+1) * 2.5
+	tokens := float64(countWhitespace(prompt)+1) * 3
 	if tokens+classSetting > maxTokensSetting {
 		return int(maxTokensSetting - tokens)
 	}
