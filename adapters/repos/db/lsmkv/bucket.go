@@ -645,12 +645,10 @@ func (b *Bucket) Count() int {
 		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
 		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
 
-		fmt.Printf("active=%d, flushing=%d\n", deltaActive, deltaFlushing)
 		memtableCount = deltaActive + deltaFlushing
 	}
 
 	diskCount := b.disk.count()
-	fmt.Printf("disk=%d\n", diskCount)
 
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)
