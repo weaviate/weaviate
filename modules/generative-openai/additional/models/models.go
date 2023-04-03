@@ -16,8 +16,15 @@ package models
 type GenerateResult struct {
 	SingleResult  *string `json:"singleResult,omitempty"`
 	GroupedResult *string `json:"groupedResult,omitempty"`
+	Single        *Result `json:"single,omitempty"`
+	Grouped       *Result `json:"grouped,omitempty"`
 	Usage         *Usage  `json:"usage,omitempty"`
 	Error         error   `json:"error,omitempty"`
+}
+
+type Result struct {
+	Result *string `json:"result,omitempty"`
+	Usage  *Usage  `json:"usage,omitempty"`
 }
 
 type Usage struct {

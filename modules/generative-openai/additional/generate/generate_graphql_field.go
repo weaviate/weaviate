@@ -56,15 +56,35 @@ func (p *GenerateProvider) additionalGenerateField(classname string) *graphql.Fi
 			Fields: graphql.Fields{
 				"singleResult":  &graphql.Field{Type: graphql.String},
 				"groupedResult": &graphql.Field{Type: graphql.String},
-				"error":         &graphql.Field{Type: graphql.String},
-				"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-					Name: fmt.Sprintf("%sAdditionalGenerateUsage", classname),
+				"single": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalGenerateSingleUsage", classname),
 					Fields: graphql.Fields{
-						"promptTokens":     &graphql.Field{Type: graphql.Int},
-						"completionTokens": &graphql.Field{Type: graphql.Int},
-						"totalTokens":      &graphql.Field{Type: graphql.Int},
+						"result": &graphql.Field{Type: graphql.String},
+						"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalGenerateSingleUsageResult", classname),
+							Fields: graphql.Fields{
+								"promptTokens":     &graphql.Field{Type: graphql.Int},
+								"completionTokens": &graphql.Field{Type: graphql.Int},
+								"totalTokens":      &graphql.Field{Type: graphql.Int},
+							},
+						})},
 					},
 				})},
+				"grouped": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sAdditionalGenerateGroupedUsage", classname),
+					Fields: graphql.Fields{
+						"result": &graphql.Field{Type: graphql.String},
+						"usage": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
+							Name: fmt.Sprintf("%sAdditionalGenerateGroupedUsageResult", classname),
+							Fields: graphql.Fields{
+								"promptTokens":     &graphql.Field{Type: graphql.Int},
+								"completionTokens": &graphql.Field{Type: graphql.Int},
+								"totalTokens":      &graphql.Field{Type: graphql.Int},
+							},
+						})},
+					},
+				})},
+				"error": &graphql.Field{Type: graphql.String},
 			},
 		}),
 	}

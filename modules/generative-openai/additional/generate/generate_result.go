@@ -113,14 +113,19 @@ func (p *GenerateProvider) setCombinedResult(in []search.Result, i int, generate
 	}
 
 	var result *string
+	var usage *generativemodels.Usage
 	if generateResult != nil {
 		result = generateResult.Result
+		usage = generateResult.Usage
 	}
 
 	ap["generate"] = &generativemodels.GenerateResult{
 		GroupedResult: result,
-		Error:         err,
-		Usage:         generateResult.Usage,
+		Grouped: &generativemodels.Result{
+			Result: result,
+			Usage:  usage,
+		},
+		Error: err,
 	}
 
 	in[i].AdditionalProperties = ap
@@ -128,8 +133,10 @@ func (p *GenerateProvider) setCombinedResult(in []search.Result, i int, generate
 
 func (p *GenerateProvider) setIndividualResult(in []search.Result, i int, generateResult *ent.GenerateResult, err error) {
 	var result *string
+	var usage *generativemodels.Usage
 	if generateResult != nil {
 		result = generateResult.Result
+		usage = generateResult.Usage
 	}
 
 	ap := in[i].AdditionalProperties
@@ -140,24 +147,23 @@ func (p *GenerateProvider) setIndividualResult(in []search.Result, i int, genera
 	if ap["generate"] != nil {
 		ap["generate"] = &generativemodels.GenerateResult{
 			GroupedResult: ap["generate"].(*generativemodels.GenerateResult).GroupedResult,
-			Usage:         ap["generate"].(*generativemodels.GenerateResult).Usage,
-			SingleResult:  result,
-			Error:         err,
+			Grouped:       ap["generate"].(*generativemodels.GenerateResult).Grouped,
+			Single: &generativemodels.Result{
+				Result: result,
+				Usage:  usage,
+			},
+			SingleResult: result,
+			Error:        err,
 		}
 	} else {
-		if i == 0 {
-			ap["generate"] = &generativemodels.GenerateResult{
-				SingleResult: result,
-				Usage:        generateResult.Usage,
-				Error:        err,
-			}
-		} else {
-			ap["generate"] = &generativemodels.GenerateResult{
-				SingleResult: result,
-				Error:        err,
-			}
+		ap["generate"] = &generativemodels.GenerateResult{
+			SingleResult: result,
+			Single: &generativemodels.Result{
+				Result: result,
+				Usage:  usage,
+			},
+			Error: err,
 		}
-
 	}
 
 	in[i].AdditionalProperties = ap
