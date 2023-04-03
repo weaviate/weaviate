@@ -5,12 +5,12 @@ services:
     - --host
     - 0.0.0.0
     - --port
-    - '8081'
+    - '8091'
     - --scheme
     - http
     image: gsi/weaviate
     ports:
-    - 8081:8081
+    - 8091:8091
     volumes:
       - /var/lib/weaviate:/var/lib/weaviate
     restart: on-failure:0

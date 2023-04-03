@@ -29,7 +29,7 @@ EXISTS_OK = False
 #
 
 # The weaviate client with connection info
-client = weaviate.Client("http://localhost:8081")  # Replace with your endpoint
+client = weaviate.Client("http://localhost:8091")  # Replace with your endpoint
 
 # get the schema
 schema = client.schema.get()
