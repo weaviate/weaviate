@@ -16,7 +16,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weaviate/weaviate/modules/generative-openai/additional/models"
 	"io"
 	"net/http"
 	"net/url"
@@ -28,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/generative-openai/additional/models"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
 	"github.com/weaviate/weaviate/modules/generative-openai/ent"
 )

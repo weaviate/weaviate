@@ -19,6 +19,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/weaviate/weaviate/modules/generative-openai/additional/models"
+
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +33,7 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func TestGetAnswer(t *testing.T) {
+func TestGetGenerate(t *testing.T) {
 	textProperties := []map[string]string{{"prop": "My name is john"}}
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		handler := &testAnswerHandler{
@@ -54,6 +56,7 @@ func TestGetAnswer(t *testing.T) {
 
 		expected := ent.GenerateResult{
 			Result: ptString("John"),
+			Usage:  ptObject(0, 0, 0),
 		}
 
 		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
@@ -117,4 +120,12 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func ptString(in string) *string {
 	return &in
+}
+
+func ptObject(prompt int, completion int, total int) *models.Usage {
+	return &models.Usage{
+		PromptTokens:     prompt,
+		CompletionTokens: completion,
+		TotalTokens:      total,
+	}
 }

@@ -13,6 +13,7 @@ package generate
 
 import (
 	"fmt"
+
 	"github.com/tailor-inc/graphql"
 )
 
