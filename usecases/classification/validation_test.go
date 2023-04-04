@@ -81,10 +81,10 @@ func Test_ValidateUserInput(t *testing.T) {
 			name: "basedOnProperty is not of type text",
 			input: models.Classification{
 				Class:              "Article",
-				BasedOnProperties:  []string{"name"},
+				BasedOnProperties:  []string{"words"},
 				ClassifyProperties: []string{"exactCategory"},
 			},
-			expectedError: fmt.Errorf("invalid classification: basedOnProperties: property 'name' must be of type 'text'"),
+			expectedError: fmt.Errorf("invalid classification: basedOnProperties: property 'words' must be of type 'text'"),
 		},
 
 		{

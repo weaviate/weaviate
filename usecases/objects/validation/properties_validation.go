@@ -105,11 +105,6 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid cref: %s", err)
 		}
-	case schema.DataTypeString:
-		data, err = stringVal(pv)
-		if err != nil {
-			return nil, fmt.Errorf("invalid string property '%s' on class '%s': %s", propertyName, className, err)
-		}
 	case schema.DataTypeText:
 		data, err = stringVal(pv)
 		if err != nil {
@@ -160,11 +155,6 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %s", propertyName, className, err)
 		}
-	case schema.DataTypeStringArray:
-		data, err = stringArrayVal(pv, "string")
-		if err != nil {
-			return nil, fmt.Errorf("invalid string array property '%s' on class '%s': %s", propertyName, className, err)
-		}
 	case schema.DataTypeTextArray:
 		data, err = stringArrayVal(pv, "text")
 		if err != nil {
@@ -195,7 +185,19 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid uuid array property '%s' on class '%s': %s", propertyName, className, err)
 		}
-
+	// deprecated string
+	case schema.DataTypeString:
+		data, err = stringVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid string property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	// deprecated string	
+	case schema.DataTypeStringArray:
+		data, err = stringArrayVal(pv, "string")
+		if err != nil {
+			return nil, fmt.Errorf("invalid string array property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	
 	default:
 		return nil, fmt.Errorf("unrecognized data type '%s'", *dataType)
 	}

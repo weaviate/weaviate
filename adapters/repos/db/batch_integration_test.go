@@ -203,7 +203,7 @@ func delete2Objects(t *testing.T, repo *DB, className string) {
 							},
 							Value: &filters.Value{
 								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506003",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 						{
@@ -214,7 +214,7 @@ func delete2Objects(t *testing.T, repo *DB, className string) {
 							},
 							Value: &filters.Value{
 								Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506004",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 					},
@@ -325,8 +325,8 @@ func testAddBatchObjectClass(repo *DB, migrator *Migrator,
 			Properties: []*models.Property{
 				{
 					Name:         "stringProp",
-					DataType:     []string{string(schema.DataTypeString)},
-					Tokenization: "word",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 				{
 					Name:     "location",
@@ -499,7 +499,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			})
 
 			t.Run("can be queried through the inverted index", func(t *testing.T) {
-				filter := buildFilter("stringProp", "third", eq, dtString)
+				filter := buildFilter("stringProp", "third", eq, schema.DataTypeText)
 				params := dto.GetParams{
 					ClassName:  "ThingForBatching",
 					Pagination: &filters.Pagination{Limit: 10},
@@ -960,7 +960,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 						Operator: filters.OperatorLike,
 						Value: &filters.Value{
 							Value: "*",
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 						},
 						On: &filters.Path{
 							Property: schema.PropertyName("id"),
@@ -1040,7 +1040,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 								},
 								Value: &filters.Value{
 									Value: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
-									Type:  schema.DataTypeString,
+									Type:  schema.DataTypeText,
 								},
 							},
 							{
@@ -1051,7 +1051,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 								},
 								Value: &filters.Value{
 									Value: "90ade18e-2b99-4903-aa34-1d5d648c932d",
-									Type:  schema.DataTypeString,
+									Type:  schema.DataTypeText,
 								},
 							},
 						},
@@ -1107,7 +1107,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 						Operator: filters.OperatorLike,
 						Value: &filters.Value{
 							Value: "*",
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 						},
 						On: &filters.Path{
 							Property: schema.PropertyName("id"),

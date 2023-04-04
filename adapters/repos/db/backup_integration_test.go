@@ -283,8 +283,9 @@ func makeTestClass(className string) *models.Class {
 		Class:               className,
 		Properties: []*models.Property{
 			{
-				Name:     "stringProp",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "stringProp",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}

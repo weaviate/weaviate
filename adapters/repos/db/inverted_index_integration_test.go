@@ -346,7 +346,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: fmt.Sprint(now),
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}
@@ -360,7 +360,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: fmt.Sprint(now),
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}

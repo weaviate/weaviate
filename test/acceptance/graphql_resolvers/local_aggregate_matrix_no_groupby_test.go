@@ -26,7 +26,7 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedAllResultsAssertions := []assertFunc{
 			asserts.meta(7),
 			asserts.booleanArray("booleans", 10, 4, 6, 0.4, 0.6),
-			asserts.stringArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
+			asserts.textArray("strings", 10, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{4, 3, 2, 1}),
 			asserts.textArray("texts", 10, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{4, 3, 2, 1}),
 			asserts.numberArray("numbers", 10, 4, 1, 1, 20, 2, 2),
 			asserts.intArray("ints", 10, 104, 101, 101, 1020, 102, 102),
@@ -36,7 +36,7 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedResultsWithDataAssertions := []assertFunc{
 			asserts.meta(2),
 			asserts.booleanArray("booleans", 7, 2, 5, 0.2857142857142857, 0.7142857142857143),
-			asserts.stringArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
+			asserts.textArray("strings", 7, []string{"Astr", "Bstr", "Cstr", "Dstr"}, []int64{2, 2, 2, 1}),
 			asserts.textArray("texts", 7, []string{"Atxt", "Btxt", "Ctxt", "Dtxt"}, []int64{2, 2, 2, 1}),
 			asserts.numberArray("numbers", 7, 4, 1, 1, 16, 2, 2.2857142857142856),
 			asserts.intArray("ints", 7, 104, 101, 101, 716, 102, 102.28571428571429),
@@ -46,7 +46,7 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedResultsWithoutDataAssertions := []assertFunc{
 			asserts.meta(3),
 			asserts.booleanArray0("booleans"),
-			asserts.stringArray0("strings"),
+			asserts.textArray0("strings"),
 			asserts.textArray0("texts"),
 			asserts.numberArray0("numbers"),
 			asserts.intArray0("ints"),
@@ -56,7 +56,7 @@ func aggregateArrayClassWithoutGroupByTest(t *testing.T) {
 		expectedNoResultsAssertions := []assertFunc{
 			asserts.meta(0),
 			asserts.booleanArray0("booleans"),
-			asserts.stringArray0("strings"),
+			asserts.textArray0("strings"),
 			asserts.textArray0("texts"),
 			asserts.numberArray0("numbers"),
 			asserts.intArray0("ints"),
@@ -107,7 +107,7 @@ func aggregateDuplicatesClassWithoutGroupByTest(t *testing.T) {
 		expectedAllResultsAssertions := []assertFunc{
 			asserts.meta(3),
 			asserts.booleanArray("booleans", 9, 3, 6, 0.3333333333333333, 0.6666666666666666),
-			asserts.stringArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
+			asserts.textArray("strings", 9, []string{"Astr", "Bstr"}, []int64{6, 3}),
 			asserts.textArray("texts", 9, []string{"Atxt", "Btxt"}, []int64{6, 3}),
 			asserts.numberArray("numbers", 9, 2, 1, 1, 12, 1, 1.3333333333333333),
 			asserts.intArray("ints", 9, 102, 101, 101, 912, 101, 101.33333333333333),
@@ -116,7 +116,7 @@ func aggregateDuplicatesClassWithoutGroupByTest(t *testing.T) {
 		expectedSomeResultsAssertions := []assertFunc{
 			asserts.meta(1),
 			asserts.booleanArray("booleans", 4, 1, 3, 0.25, 0.75),
-			asserts.stringArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
+			asserts.textArray("strings", 4, []string{"Astr", "Bstr"}, []int64{3, 1}),
 			asserts.textArray("texts", 4, []string{"Atxt", "Btxt"}, []int64{3, 1}),
 			asserts.numberArray("numbers", 4, 2, 1, 1, 5, 1, 1.25),
 			asserts.intArray("ints", 4, 102, 101, 101, 405, 101, 101.25),
@@ -125,7 +125,7 @@ func aggregateDuplicatesClassWithoutGroupByTest(t *testing.T) {
 		expectedNoResultsAssertions := []assertFunc{
 			asserts.meta(0),
 			asserts.booleanArray0("booleans"),
-			asserts.stringArray0("strings"),
+			asserts.textArray0("strings"),
 			asserts.textArray0("texts"),
 			asserts.numberArray0("numbers"),
 			asserts.intArray0("ints"),
@@ -215,9 +215,9 @@ func aggregateCityClassWithoutGroupByTest(t *testing.T) {
 			asserts.text("history", 4, []string{historyAmsterdam, historyRotterdam, historyBerlin, historyDusseldorf}, []int64{1, 1, 1, 1}),
 			asserts.boolean("isCapital", 5, 3, 2, 0.6, 0.4),
 			asserts.textArray("museums", 9, []string{"German Historical Museum", "Museum Boijmans Van Beuningen", "Onomato", "Rijksmuseum", "Schiffahrt Museum"}, []int64{1, 1, 1, 1, 1}),
-			asserts.string("name", 5, []string{"Amsterdam", "Berlin", "Dusseldorf", "Missing Island", "Rotterdam"}, []int64{1, 1, 1, 1, 1}),
+			asserts.text("name", 5, []string{"Amsterdam", "Berlin", "Dusseldorf", "Missing Island", "Rotterdam"}, []int64{1, 1, 1, 1, 1}),
 			asserts.int("population", 5, 3470000, 0, 600000, 6470000, 600000, 1294000),
-			asserts.stringArray("timezones", 8, []string{"CEST", "CET"}, []int64{4, 4}),
+			asserts.textArray("timezones", 8, []string{"CEST", "CET"}, []int64{4, 4}),
 			asserts.pointingTo("inCountry", "Country"),
 		}
 		expectedResultsWithDataAssertions := []assertFunc{
@@ -227,9 +227,9 @@ func aggregateCityClassWithoutGroupByTest(t *testing.T) {
 			asserts.text("history", 2, []string{historyAmsterdam, historyBerlin}, []int64{1, 1}),
 			asserts.boolean("isCapital", 2, 0, 2, 0, 1),
 			asserts.textArray("museums", 3, []string{"German Historical Museum", "Rijksmuseum", "Stedelijk Museum"}, []int64{1, 1, 1}),
-			asserts.string("name", 2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
+			asserts.text("name", 2, []string{"Amsterdam", "Berlin"}, []int64{1, 1}),
 			asserts.int("population", 2, 3470000, 1800000, 1800000, 5270000, 2635000, 2635000),
-			asserts.stringArray("timezones", 4, []string{"CEST", "CET"}, []int64{2, 2}),
+			asserts.textArray("timezones", 4, []string{"CEST", "CET"}, []int64{2, 2}),
 			asserts.pointingTo("inCountry", "Country"),
 		}
 		expectedResultsWithoutDataAssertions := []assertFunc{
@@ -239,9 +239,9 @@ func aggregateCityClassWithoutGroupByTest(t *testing.T) {
 			asserts.text0("history"),
 			asserts.boolean0("isCapital"),
 			asserts.textArray0("museums"),
-			asserts.string0("name"),
+			asserts.text0("name"),
 			asserts.int0("population"),
-			asserts.stringArray0("timezones"),
+			asserts.textArray0("timezones"),
 			asserts.pointingTo("inCountry", "Country"),
 		}
 		expectedNoResultsAssertions := []assertFunc{
@@ -251,9 +251,9 @@ func aggregateCityClassWithoutGroupByTest(t *testing.T) {
 			asserts.text0("history"),
 			asserts.boolean0("isCapital"),
 			asserts.textArray0("museums"),
-			asserts.string0("name"),
+			asserts.text0("name"),
 			asserts.int0("population"),
-			asserts.stringArray0("timezones"),
+			asserts.textArray0("timezones"),
 			asserts.pointingTo("inCountry", "Country"),
 		}
 

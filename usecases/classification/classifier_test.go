@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -433,93 +432,6 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		classifier := New(sg, repo, vectorRepo, authorizer, newNullLogger(), nil)
 
-		t.Run("with invalid sourceFilter", func(t *testing.T) {
-			invalidSourceFilter := &models.WhereFilter{
-				Path:        []string{"description"},
-				Operator:    "Equal",
-				ValueString: ptString("should be valueText"),
-			}
-
-			params := models.Classification{
-				Class:              "Article",
-				BasedOnProperties:  []string{"description"},
-				ClassifyProperties: []string{"exactCategory", "mainCategory"},
-				Settings: map[string]interface{}{
-					"k": json.Number("1"),
-				},
-				Filters: &models.ClassificationFilters{
-					SourceWhere: invalidSourceFilter,
-				},
-				Type: TypeContextual,
-			}
-
-			_, err := classifier.Schedule(context.Background(), nil, params)
-			assert.EqualError(t, err, `invalid sourceWhere: data type filter cannot use "valueString" on type "text", use "valueText" instead`)
-		})
-
-		t.Run("with invalid targetFilter", func(t *testing.T) {
-			sourceFilter := &models.WhereFilter{
-				Path:      []string{"description"},
-				Operator:  "Equal",
-				ValueText: ptString("someValue"),
-			}
-
-			invalidTargetFilter := &models.WhereFilter{
-				Path:        []string{"description"},
-				Operator:    "Equal",
-				ValueString: ptString("someValue"),
-			}
-
-			params := models.Classification{
-				Class:              "Article",
-				BasedOnProperties:  []string{"description"},
-				ClassifyProperties: []string{"exactCategory", "mainCategory"},
-				Settings: map[string]interface{}{
-					"k": json.Number("1"),
-				},
-				Filters: &models.ClassificationFilters{
-					SourceWhere: sourceFilter,
-					TargetWhere: invalidTargetFilter,
-				},
-				Type: TypeContextual,
-			}
-
-			_, err := classifier.Schedule(context.Background(), nil, params)
-			assert.Error(t, err)
-			assert.True(t, strings.Contains(err.Error(), "invalid targetWhere"))
-		})
-
-		t.Run("with invalid trainingFilter", func(t *testing.T) {
-			sourceFilter := &models.WhereFilter{
-				Path:      []string{"description"},
-				Operator:  "Equal",
-				ValueText: ptString("someValue"),
-			}
-			invalidTrainingFilter := &models.WhereFilter{
-				Path:        []string{"description"},
-				Operator:    "Equal",
-				ValueString: ptString("someValue"),
-			}
-
-			params := models.Classification{
-				Class:              "Article",
-				BasedOnProperties:  []string{"description"},
-				ClassifyProperties: []string{"exactCategory", "mainCategory"},
-				Settings: map[string]interface{}{
-					"k": json.Number("1"),
-				},
-				Filters: &models.ClassificationFilters{
-					SourceWhere:      sourceFilter,
-					TrainingSetWhere: invalidTrainingFilter,
-				},
-				Type: TypeKNN,
-			}
-
-			_, err := classifier.Schedule(context.Background(), nil, params)
-			assert.Error(t, err)
-			assert.True(t, strings.Contains(err.Error(), "invalid trainingSetWhere"))
-		})
-
 		t.Run("with only one of the where filters being set", func(t *testing.T) {
 			whereFilter := &models.WhereFilter{
 				Path:        []string{"id"},
@@ -594,6 +506,99 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 					waitForStatusToNoLongerBeRunning(t, classifier, class.ID)
 				})
 			}
+		})
+	})
+
+	t.Run("when deprecated (valueString) whereFilters are received", func(t *testing.T) {
+		sg := &fakeSchemaGetter{testSchema()}
+		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
+		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
+		classifier := New(sg, repo, vectorRepo, authorizer, newNullLogger(), nil)
+
+		t.Run("with deprecated sourceFilter", func(t *testing.T) {
+			deprecatedSourceFilter := &models.WhereFilter{
+				Path:        []string{"description"},
+				Operator:    "Equal",
+				ValueString: ptString("should be valueText"),
+			}
+
+			params := models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory", "mainCategory"},
+				Settings: map[string]interface{}{
+					"k": json.Number("1"),
+				},
+				Filters: &models.ClassificationFilters{
+					SourceWhere: deprecatedSourceFilter,
+				},
+				Type: TypeContextual,
+			}
+
+			_, err := classifier.Schedule(context.Background(), nil, params)
+			assert.Nil(t, err)
+		})
+
+		t.Run("with deprecated targetFilter", func(t *testing.T) {
+			sourceFilter := &models.WhereFilter{
+				Path:      []string{"description"},
+				Operator:  "Equal",
+				ValueText: ptString("someValue"),
+			}
+
+			deprecatedTargetFilter := &models.WhereFilter{
+				Path:        []string{"description"},
+				Operator:    "Equal",
+				ValueString: ptString("someValue"),
+			}
+
+			params := models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory", "mainCategory"},
+				Settings: map[string]interface{}{
+					"k": json.Number("1"),
+				},
+				Filters: &models.ClassificationFilters{
+					SourceWhere: sourceFilter,
+					TargetWhere: deprecatedTargetFilter,
+				},
+				Type: TypeContextual,
+			}
+
+			_, err := classifier.Schedule(context.Background(), nil, params)
+			assert.Nil(t, err)
+		})
+
+		t.Run("with deprecated trainingFilter", func(t *testing.T) {
+			sourceFilter := &models.WhereFilter{
+				Path:      []string{"description"},
+				Operator:  "Equal",
+				ValueText: ptString("someValue"),
+			}
+			deprecatedTrainingFilter := &models.WhereFilter{
+				Path:        []string{"description"},
+				Operator:    "Equal",
+				ValueString: ptString("someValue"),
+			}
+
+			params := models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory", "mainCategory"},
+				Settings: map[string]interface{}{
+					"k": json.Number("1"),
+				},
+				Filters: &models.ClassificationFilters{
+					SourceWhere:      sourceFilter,
+					TrainingSetWhere: deprecatedTrainingFilter,
+				},
+				Type: TypeKNN,
+			}
+
+			_, err := classifier.Schedule(context.Background(), nil, params)
+			assert.Nil(t, err)
 		})
 	})
 }

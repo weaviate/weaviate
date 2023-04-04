@@ -381,15 +381,17 @@ func (s *Searcher) extractGeoFilter(propName string, value interface{},
 func (s *Searcher) extractUUIDFilter(propName string, value interface{},
 	valueType schema.DataType, operator filters.Operator,
 ) (*propValuePair, error) {
-	if valueType != schema.DataTypeString {
-		return nil, fmt.Errorf("prop %q is of type uuid, the uuid to filter"+
-			"on must be specified as a string (e.g. valueString:<uuid>)", propName)
+	switch valueType {
+	case schema.DataTypeText:
+		// ok
+	default:
+		return nil, fmt.Errorf("prop %q is of type uuid, the uuid to filter "+
+			"on must be specified as a string (e.g. valueText:<uuid>)", propName)
 	}
 
 	asStr, ok := value.(string)
 	if !ok {
-		return nil,
-			fmt.Errorf("expected to see uuid as string in filter, got %T", value)
+		return nil, fmt.Errorf("expected to see uuid as string in filter, got %T", value)
 	}
 
 	parsed, err := uuid.Parse(asStr)
@@ -438,7 +440,10 @@ func (s *Searcher) extractIDProp(value interface{},
 func extractTimestampProp(propName string, propType schema.DataType, value interface{},
 	operator filters.Operator,
 ) (*propValuePair, error) {
-	if propType != schema.DataTypeDate && propType != schema.DataTypeString {
+	switch propType {
+	case schema.DataTypeText, schema.DataTypeDate:
+		// ok
+	default:
 		return nil, fmt.Errorf(
 			"failed to extract internal prop, unsupported type %T for prop %s", value, propName)
 	}
@@ -480,9 +485,6 @@ func (s *Searcher) extractTokenizableProp(propName string, searchedDataType sche
 	var terms []string
 
 	switch searchedDataType {
-	case schema.DataTypeString:
-		// deprecated as of v1.19, alias for text
-		fallthrough
 	case schema.DataTypeText:
 		if !helpers.IsSupportedTokenization(configuredTokenization) {
 			return nil, fmt.Errorf("unsupported tokenization '%s' configured for data type '%s'", configuredTokenization, searchedDataType)
@@ -496,7 +498,7 @@ func (s *Searcher) extractTokenizableProp(propName string, searchedDataType sche
 			terms = helpers.Tokenize(configuredTokenization, value.(string))
 		}
 	default:
-		return nil, fmt.Errorf("expected value type to be text or string (deprecated as of v1.19), got %v", searchedDataType)
+		return nil, fmt.Errorf("expected value type to be text, got %v", searchedDataType)
 	}
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
@@ -571,9 +573,6 @@ func (s *Searcher) onInternalProp(propName string) bool {
 
 func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	switch valueType {
-	case schema.DataTypeString:
-		// deprecated as of v1.19, alias for text
-		fallthrough
 	case schema.DataTypeText:
 		return true
 	default:

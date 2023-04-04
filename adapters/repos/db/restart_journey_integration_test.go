@@ -111,7 +111,7 @@ func TestRestartJourney(t *testing.T) {
 						Operator: filters.OperatorEqual,
 						Value: &filters.Value{
 							Value: "9d64350e-5027-40ea-98db-e3b97e6f6f8f",
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 						},
 						On: &filters.Path{
 							Class:    "Class",
@@ -195,7 +195,7 @@ func TestRestartJourney(t *testing.T) {
 						Operator: filters.OperatorEqual,
 						Value: &filters.Value{
 							Value: "9d64350e-5027-40ea-98db-e3b97e6f6f8f",
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 						},
 						On: &filters.Path{
 							Class:    "Class",

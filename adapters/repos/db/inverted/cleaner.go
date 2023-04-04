@@ -44,8 +44,7 @@ func (c *Cleaner) getDocumentKey(documentID uint64) []byte {
 
 func (c *Cleaner) propHasFrequency(p *models.Property) bool {
 	for i := range p.DataType {
-		if dt := schema.DataType(p.DataType[i]); dt == schema.DataTypeString ||
-			dt == schema.DataTypeText {
+		if dt := schema.DataType(p.DataType[i]); dt == schema.DataTypeText {
 			return true
 		}
 	}

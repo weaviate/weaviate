@@ -14,6 +14,7 @@ package filters
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -61,7 +62,7 @@ func TestValidateIsNullOperator(t *testing.T) {
 				Value:    &Value{Value: true, Type: tt.schemaType},
 				On:       &Path{Class: "Car", Property: "horsepower"},
 			}
-			err := validateClause(sch, &cl)
+			err := validateClause(sch, newClauseWrapper(&cl))
 			if tt.valid {
 				require.Nil(t, err)
 			} else {
@@ -133,7 +134,7 @@ func TestValidatePropertyLength(t *testing.T) {
 				Value:    &Value{Value: tt.value, Type: tt.schemaType},
 				On:       &Path{Class: "Car", Property: "len(horsepower)"},
 			}
-			err := validateClause(sch, &cl)
+			err := validateClause(sch, newClauseWrapper(&cl))
 			if tt.valid {
 				require.Nil(t, err)
 			} else {
@@ -153,23 +154,31 @@ func TestValidateUUIDFilter(t *testing.T) {
 	}{
 		{
 			name:       "Valid datatype and operator",
-			schemaType: schema.DataTypeString,
+			schemaType: schema.DataTypeText,
 			valid:      true,
 			operator:   OperatorEqual,
 			value:      0,
 		},
 		{
-			name:       "Wrong data type (text)",
-			schemaType: schema.DataTypeText,
+			name:       "Wrong data type (int)",
+			schemaType: schema.DataTypeInt,
 			valid:      false,
 			operator:   OperatorEqual,
 			value:      0,
 		},
 		{
 			name:       "Wrong operator (Like)",
-			schemaType: schema.DataTypeString,
+			schemaType: schema.DataTypeText,
 			valid:      false,
 			operator:   OperatorLike,
+			value:      0,
+		},
+
+		{
+			name:       "[deprecated string] Valid datatype and operator",
+			schemaType: schema.DataTypeString,
+			valid:      true,
+			operator:   OperatorEqual,
 			value:      0,
 		},
 	}
@@ -193,13 +202,107 @@ func TestValidateUUIDFilter(t *testing.T) {
 					Value:    &Value{Value: tt.value, Type: tt.schemaType},
 					On:       &Path{Class: "Car", Property: prop},
 				}
-				err := validateClause(sch, &cl)
+				err := validateClause(sch, newClauseWrapper(&cl))
 				if tt.valid {
 					require.Nil(t, err)
 				} else {
 					require.NotNil(t, err)
 				}
 			}
+		})
+	}
+}
+
+func TestClauseWrapper(t *testing.T) {
+	type testCase struct {
+		name         string
+		valueType    schema.DataType
+		requiredType schema.DataType
+
+		expectedValid     bool
+		expectedValueName string
+	}
+
+	testCases := []testCase{
+		{
+			name:              "string accepted where text is required",
+			valueType:         schema.DataTypeString,
+			requiredType:      schema.DataTypeText,
+			expectedValid:     true,
+			expectedValueName: "valueString",
+		},
+		{
+			name:              "text accepted where text is required",
+			valueType:         schema.DataTypeText,
+			requiredType:      schema.DataTypeText,
+			expectedValid:     true,
+			expectedValueName: "valueText",
+		},
+		{
+			name:              "string[] accepted where text[] is required",
+			valueType:         schema.DataTypeStringArray,
+			requiredType:      schema.DataTypeTextArray,
+			expectedValid:     true,
+			expectedValueName: "valueString[]",
+		},
+		{
+			name:              "text[] accepted where text[] is required",
+			valueType:         schema.DataTypeTextArray,
+			requiredType:      schema.DataTypeTextArray,
+			expectedValid:     true,
+			expectedValueName: "valueText[]",
+		},
+		{
+			name:              "text not accepted where string is required",
+			valueType:         schema.DataTypeText,
+			requiredType:      schema.DataTypeString,
+			expectedValid:     false,
+			expectedValueName: "valueText",
+		},
+		{
+			name:              "text[] not accepted where string[] is required",
+			valueType:         schema.DataTypeTextArray,
+			requiredType:      schema.DataTypeStringArray,
+			expectedValid:     false,
+			expectedValueName: "valueText[]",
+		},
+		{
+			name:              "int not accepted where boolean is required",
+			valueType:         schema.DataTypeInt,
+			requiredType:      schema.DataTypeBoolean,
+			expectedValid:     false,
+			expectedValueName: "valueInt",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			clause := Clause{
+				Operator: OperatorEqual,
+				Value:    &Value{Value: "someValue", Type: tc.valueType},
+				On:       &Path{Class: "SomeClass", Property: "someProperty"},
+			}
+
+			cw := newClauseWrapper(&clause)
+
+			assert.Equal(t, tc.expectedValid, cw.isType(tc.requiredType))
+			assert.Equal(t, tc.expectedValueName, cw.getValueNameFromType())
+
+			assert.Equal(t, "someValue", cw.getValue())
+			assert.Equal(t, schema.ClassName("SomeClass"), cw.getClassName())
+			assert.Equal(t, schema.PropertyName("someProperty"), cw.getPropertyName())
+			assert.Equal(t, OperatorEqual, cw.getOperator())
+			assert.Nil(t, cw.getOperands())
+
+			t.Run("clause is updated to required type if valid", func(t *testing.T) {
+				cw.updateClause()
+
+				if tc.expectedValid {
+					assert.Equal(t, tc.requiredType, clause.Value.Type)
+				} else {
+					assert.Equal(t, tc.valueType, clause.Value.Type)
+				}
+			})
 		})
 	}
 }

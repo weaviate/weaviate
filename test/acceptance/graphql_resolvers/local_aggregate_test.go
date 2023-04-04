@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -141,7 +142,7 @@ func localMetaWithWhereAndNearTextFilters(t *testing.T) {
 			typeField := name["type"]
 			topOccurrences := name["topOccurrences"]
 
-			assert.Equal(t, "string", typeField)
+			assert.Equal(t, schema.DataTypeText.String(), typeField)
 
 			expectedTopOccurrences := []interface{}{
 				map[string]interface{}{
@@ -250,7 +251,7 @@ func localMetaWithWhereAndNearTextFilters(t *testing.T) {
 			typeField := name["type"]
 			topOccurrences := name["topOccurrences"]
 
-			assert.Equal(t, "string", typeField)
+			assert.Equal(t, schema.DataTypeText.String(), typeField)
 
 			expectedTopOccurrences := []interface{}{
 				map[string]interface{}{
@@ -361,7 +362,7 @@ func localMetaWithWhereAndNearObjectFilters(t *testing.T) {
 			typeField := name["type"]
 			topOccurrences := name["topOccurrences"]
 
-			assert.Equal(t, "string", typeField)
+			assert.Equal(t, schema.DataTypeText.String(), typeField)
 
 			expectedTopOccurrences := []interface{}{
 				map[string]interface{}{
@@ -470,7 +471,7 @@ func localMetaWithWhereAndNearObjectFilters(t *testing.T) {
 			typeField := name["type"]
 			topOccurrences := name["topOccurrences"]
 
-			assert.Equal(t, "string", typeField)
+			assert.Equal(t, schema.DataTypeText.String(), typeField)
 
 			expectedTopOccurrences := []interface{}{
 				map[string]interface{}{
@@ -522,7 +523,7 @@ func localMetaWithNearVectorFilter(t *testing.T) {
 			typeField := name["type"]
 			topOccurrences := name["topOccurrences"]
 
-			assert.Equal(t, "string", typeField)
+			assert.Equal(t, schema.DataTypeText.String(), typeField)
 
 			expectedTopOccurrences := []interface{}{
 				map[string]interface{}{
@@ -572,7 +573,7 @@ func localMetaWithNearVectorFilter(t *testing.T) {
 			typeField := name["type"]
 			topOccurrences := name["topOccurrences"]
 
-			assert.Equal(t, "string", typeField)
+			assert.Equal(t, schema.DataTypeText.String(), typeField)
 
 			expectedTopOccurrences := []interface{}{
 				map[string]interface{}{

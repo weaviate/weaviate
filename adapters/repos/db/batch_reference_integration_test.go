@@ -318,7 +318,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				},
 				Value: &filters.Value{
 					Value: "item",
-					Type:  dtString,
+					Type:  schema.DataTypeText,
 				},
 			},
 		}

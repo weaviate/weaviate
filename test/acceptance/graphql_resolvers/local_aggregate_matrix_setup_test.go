@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
@@ -64,12 +65,12 @@ func arrayClassSchema() *models.Class {
 		Properties: []*models.Property{
 			{
 				Name:         "strings",
-				DataType:     []string{"string[]"},
-				Tokenization: models.PropertyTokenizationWord,
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:         "texts",
-				DataType:     []string{"text[]"},
+				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
@@ -495,12 +496,12 @@ func duplicatesClassSchema() *models.Class {
 		Properties: []*models.Property{
 			{
 				Name:         "strings",
-				DataType:     []string{"string[]"},
-				Tokenization: models.PropertyTokenizationWord,
+				DataType:     schema.DataTypeTextArray.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:         "texts",
-				DataType:     []string{"text[]"},
+				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationWord,
 			},
 			{

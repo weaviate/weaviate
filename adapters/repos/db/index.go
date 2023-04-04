@@ -908,7 +908,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
 					return fmt.Errorf(
-						"local shard object serach %s: %w", shard.ID(), err)
+						"local shard object search %s: %w", shard.ID(), err)
 				}
 				if i.replicationEnabled() {
 					storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
