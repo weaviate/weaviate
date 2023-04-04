@@ -173,8 +173,8 @@ func (d *DB) DeleteIndex(className schema.ClassName) error {
 	if !ok {
 		return errors.Errorf("exist index %s", id)
 	}
-	index.indexLock.Lock()
-	defer index.indexLock.Unlock()
+	index.dropIndex.Lock()
+	defer index.dropIndex.Unlock()
 	err := index.drop()
 	if err != nil {
 		return errors.Wrapf(err, "drop index %s", id)

@@ -78,7 +78,7 @@ type Index struct {
 	// unlock db.indexLock
 	// Use the indices
 	// RUnlock all picked indices
-	indexLock sync.RWMutex
+	dropIndex sync.RWMutex
 
 	metrics         *Metrics
 	centralJobQueue chan job
