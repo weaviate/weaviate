@@ -59,3 +59,63 @@ func TestBucket_WasDeleted(t *testing.T) {
 		assert.False(t, deleted)
 	})
 }
+
+func TestBucket_MemtableCountWithFlushing(t *testing.T) {
+	b := Bucket{
+		// by using an empty segment group for the disk portion, we can test the
+		// memtable portion in isolation
+		disk: &SegmentGroup{},
+	}
+
+	tests := []struct {
+		name                string
+		current             *countStats
+		previous            *countStats
+		expectedNetActive   int
+		expectedNetPrevious int
+		expectedNetTotal    int
+	}{
+		{
+			name: "only active, only additions",
+			current: &countStats{
+				upsertKeys: [][]byte{[]byte("key-1")},
+			},
+			expectedNetActive: 1,
+		},
+		{
+			name: "only active, both additions and deletions",
+			current: &countStats{
+				upsertKeys: [][]byte{[]byte("key-1")},
+				// no key with key-2 ever existed, so this does not alter the net count
+				tombstonedKeys: [][]byte{[]byte("key-2")},
+			},
+			expectedNetActive: 1,
+		},
+		{
+			name: "an deletion that was previously added",
+			current: &countStats{
+				tombstonedKeys: [][]byte{[]byte("key-a")},
+			},
+			previous: &countStats{
+				upsertKeys: [][]byte{[]byte("key-a")},
+			},
+			expectedNetActive:   -1,
+			expectedNetPrevious: 1,
+			expectedNetTotal:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actualActive := b.memtableNetCount(tt.current, tt.previous)
+			assert.Equal(t, tt.expectedNetActive, actualActive)
+
+			if tt.previous != nil {
+				actualPrevious := b.memtableNetCount(tt.previous, nil)
+				assert.Equal(t, tt.expectedNetPrevious, actualPrevious)
+
+				assert.Equal(t, tt.expectedNetTotal, actualPrevious+actualActive)
+			}
+		})
+	}
+}
