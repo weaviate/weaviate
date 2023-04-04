@@ -30,6 +30,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
+	indexByClass := make(map[string]*Index)
 
 	for _, item := range objs {
 		if item.Err != nil {
@@ -46,11 +47,12 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	for class := range objectByClass {
 		index := db.indices[indexID(schema.ClassName(class))]
 		index.dropIndex.RLock()
+		indexByClass[class] = index
 	}
 	db.indexLock.RUnlock()
 
 	for class, queue := range objectByClass {
-		index := db.indices[indexID(schema.ClassName(class))]
+		index := indexByClass[class]
 		errs := index.putObjectBatch(ctx, queue.objects, repl)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
@@ -67,6 +69,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	repl *additional.ReplicationProperties,
 ) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
+	indexByClass := make(map[schema.ClassName]*Index)
 
 	for _, item := range references {
 		if item.Err != nil {
@@ -80,11 +83,12 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	for class := range refByClass {
 		index := db.indices[indexID(class)]
 		index.dropIndex.RLock()
+		indexByClass[class] = index
 	}
 	db.indexLock.RUnlock()
 
 	for class, queue := range refByClass {
-		index := db.indices[indexID(class)]
+		index := indexByClass[class]
 		errs := index.addReferencesBatch(ctx, queue, repl)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
