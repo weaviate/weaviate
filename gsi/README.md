@@ -94,10 +94,11 @@ As datasets become larger, the elapsed time that your application needs to wait 
 
 #  Roadmap
 
-More Gemini Plugin improvements are coming as we continue to integrate deeper into Weaviate and, importantly, as the Weaviate ecosystem starts to give us feedback:
+We are considering additional features below and look forward to working with the Weaviate ecosystem:
 
 * integrate system observability metrics into Prometheus alongside Weaviate
-* support Weaviate's fail-over and replication strategies for data center high-availablity deployment
+* match Weaviate's fail-over and replication strategies for the data center high-availablity
 * implement Weaviate's native HNSW data recovery such as index re-initialization
 * integrate test automation including unit tests, stress tests, and code coverage tests by extending Github's CI/CD infrastructure to GSI's hardware cloud
 * continued benchmark efforts comparing the hardware accelerated Weaviate Gemini index vs. native HNSW for large datasets
+* please contact GSI Technology for additional feature requests
