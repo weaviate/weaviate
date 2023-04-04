@@ -26,100 +26,81 @@ type batchQueue struct {
 	originalIndex []int
 }
 
-func (db *DB) BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
+func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
-	byIndex := map[*Index]batchQueue{}
-	indexById := make(map[int]*Index, len(objects))
-	db.indexLock.RLock()
+	objectByClass := make(map[string]batchQueue)
+	indexByClass := make(map[string]*Index)
 
-	for i, item := range objects {
-		for _, index := range db.indices {
-			if index.Config.ClassName != schema.ClassName(item.Object.Class) {
-				continue
-			}
-
-			if item.Err != nil {
-				// item has a validation error or another reason to ignore
-				continue
-			}
-			_, ok := byIndex[index]
-			if !ok { // only lock index once and initialize byIndex map
-				index.indexLock.RLock()
-				byIndex[index] = batchQueue{}
-			}
-			indexById[i] = index
-		}
-	}
-	db.indexLock.RUnlock()
-	for i, item := range objects {
+	for _, item := range objs {
 		if item.Err != nil {
 			// item has a validation error or another reason to ignore
 			continue
 		}
-		index := indexById[i]
-		queue := byIndex[index]
-		object := storobj.FromObject(item.Object, item.Vector)
-		queue.objects = append(queue.objects, object)
+		queue := objectByClass[item.Object.Class]
+		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Vector))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
-		byIndex[index] = queue
-
+		objectByClass[item.Object.Class] = queue
 	}
 
-	for index, queue := range byIndex {
+	db.indexLock.RLock()
+	for class := range objectByClass {
+		for _, index := range db.indices {
+			if index.Config.ClassName == schema.ClassName(class) {
+				index.dropIndex.RLock()
+				indexByClass[class] = index
+				break
+			}
+		}
+	}
+	db.indexLock.RUnlock()
+
+	for className, queue := range objectByClass {
+		index := indexByClass[className]
 		errs := index.putObjectBatch(ctx, queue.objects, repl)
-		index.indexLock.RUnlock()
+		index.dropIndex.RUnlock()
 		for i, err := range errs {
 			if err != nil {
-				objects[queue.originalIndex[i]].Err = err
+				objs[queue.originalIndex[i]].Err = err
 			}
 		}
 	}
 
-	return objects, nil
+	return objs, nil
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchReferences, error) {
-	byIndex := map[*Index]objects.BatchReferences{}
-	indexById := make(map[int]*Index, len(references))
-	db.indexLock.RLock()
-	for i, item := range references {
-		for _, index := range db.indices {
-			if item.Err != nil {
-				// item has a validation error or another reason to ignore
-				continue
-			}
+	refByClass := make(map[schema.ClassName]objects.BatchReferences)
+	indexByClass := make(map[schema.ClassName]*Index)
 
-			if index.Config.ClassName != item.From.Class {
-				continue
-			}
-			_, ok := byIndex[index]
-			if !ok { // only lock index once
-				index.indexLock.RLock()
-				byIndex[index] = objects.BatchReferences{}
-			}
-			indexById[i] = index
-		}
-	}
-	db.indexLock.RUnlock()
-
-	for i, item := range references {
+	for _, item := range references {
 		if item.Err != nil {
 			// item has a validation error or another reason to ignore
 			continue
 		}
-		index := indexById[i]
-
-		queue := byIndex[index]
+		queue := refByClass[item.From.Class]
 		queue = append(queue, item)
-		byIndex[index] = queue
+		refByClass[item.From.Class] = queue
 	}
 
-	for index, queue := range byIndex {
+	db.indexLock.RLock()
+	for class := range refByClass {
+		for _, index := range db.indices {
+			if index.Config.ClassName == class {
+				index.dropIndex.RLock()
+				indexByClass[class] = index
+				break
+			}
+		}
+	}
+	db.indexLock.RUnlock()
+
+	for className, queue := range refByClass {
+		index := indexByClass[className]
 		errs := index.addReferencesBatch(ctx, queue, repl)
-		index.indexLock.RUnlock()
+		index.dropIndex.RUnlock()
 		for i, err := range errs {
 			if err != nil {
 				references[queue[i].OriginalIndex].Err = err
