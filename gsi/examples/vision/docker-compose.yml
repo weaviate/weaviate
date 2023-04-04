@@ -5,7 +5,7 @@ services:
     - --host
     - 0.0.0.0
     - --port
-    - '8081'
+    - '8091'
     - --scheme
     - http
     image: gsi/weaviate
@@ -20,28 +20,10 @@ services:
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
       DEFAULT_VECTORIZER_MODULE: 'img2vec-neural'
       ENABLE_MODULES: 'img2vec-neural'
-      # TRANSFORMERS_INFERENCE_API: 'http://localhost:8080'
-      IMAGE_INFERENCE_API: 'http://i2v-neural:8080'
+      IMAGE_INFERENCE_API: 'http://localhost:8080'
       CLUSTER_HOSTNAME: 'node1'
-      GEMINI_ALLOCATION_ID: 'fd283b38-3e4a-11eb-a205-7085c2c5e516'
-      GEMINI_DATA_DIRECTORY: '/home/public' # Do Not Change This
-      GEMINI_FVS_SERVER: 'localhost' # On Linux, must use network_mode=host
-  #     GEMINI_DEBUG: 'false'
-  # t2v-transformers:
-  #   image: gsi/t2v
-  #   network_mode: host # works on Linux not Mac
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #         - driver: nvidia # assumes you have an NVidia GPU
-  #           count: 1
-  #           capabilities: [gpu] 
-  #   environment:
-  #     ENABLE_CUDA: 1 # assumes you have an NVidia GPU
   i2v-neural:
     image: semitechnologies/img2vec-pytorch:resnet50
-    # network_mode: host
     deploy:
       resources:
         reservations:
