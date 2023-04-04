@@ -47,8 +47,11 @@ func TestUpdatingPropertiesWithNil(t *testing.T) {
 			class := models.Class{
 				Class: className,
 				Properties: []*models.Property{{
-					Name:     tt.prop1,
-					DataType: []string{string(schema.DataTypeString)},
+					Name: tt.prop1,
+					// TODO change to method call
+					DataType: []string{string(schema.DataTypeText)},
+					// TODO change to constant
+					Tokenization: "whitespace",
 				}},
 				InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true},
 			}

@@ -258,11 +258,11 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) erro
 			return nil
 		}
 		switch prop.dataType {
-		case schema.DataTypeText, schema.DataTypeString:
+		case schema.DataTypeText:
 			if err := analyzeString(value); err != nil {
 				return err
 			}
-		case schema.DataTypeTextArray, schema.DataTypeStringArray:
+		case schema.DataTypeTextArray:
 			valueStruct, ok := value.([]interface{})
 			if !ok {
 				return fmt.Errorf("expected property type []text or []string, received %T", valueStruct)

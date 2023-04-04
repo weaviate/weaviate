@@ -50,8 +50,8 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "unrelatedProp",
-			DataType:     []string{string(schema.DataTypeString)},
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		}, {
 			Name:     "boolProp",
 			DataType: []string{string(schema.DataTypeBoolean)},

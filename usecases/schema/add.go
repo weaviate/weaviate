@@ -29,8 +29,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-const DefaultTokenization = models.PropertyTokenizationWord
-
 // AddClass to the schema
 func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
@@ -75,12 +73,14 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
-	m.setClassDefaults(class)
 
+	m.setClassDefaults(class)
 	err = m.validateCanAddClass(ctx, class, true)
 	if err != nil {
 		return err
 	}
+	// migrate only after validation in completed
+	m.migrateClassSettings(class)
 
 	err = m.parseShardingConfig(ctx, class)
 	if err != nil {
@@ -123,12 +123,14 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
-	m.setClassDefaults(class)
 
+	m.setClassDefaults(class)
 	err := m.validateCanAddClass(ctx, class, false)
 	if err != nil {
 		return nil, err
 	}
+	// migrate only after validation in completed
+	m.migrateClassSettings(class)
 
 	err = m.parseShardingConfig(ctx, class)
 	if err != nil {
@@ -226,16 +228,23 @@ func (m *Manager) setPropertyDefaults(prop *models.Property) {
 }
 
 func (m *Manager) setPropertyDefaultTokenization(prop *models.Property) {
-	if dataType, ok := schema.AsPrimitive(prop.DataType); ok {
-		switch dataType {
-		case schema.DataTypeString, schema.DataTypeStringArray:
-			// deprecated as of v1.19, alias for text
-			fallthrough
-		case schema.DataTypeText, schema.DataTypeTextArray:
-			if prop.Tokenization == "" {
-				prop.Tokenization = DefaultTokenization
-			}
+	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+	case schema.DataTypeString, schema.DataTypeStringArray:
+		// deprecated as of v1.19, default tokenization was word
+		// which will be migrated to text+whitespace
+		if prop.Tokenization == "" {
+			prop.Tokenization = models.PropertyTokenizationWord
 		}
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		if prop.Tokenization == "" {
+			prop.Tokenization = models.PropertyTokenizationWord
+		}
+	}
+}
+
+func (m *Manager) migrateClassSettings(class *models.Class) {
+	for _, prop := range class.Properties {
+		m.migratePropertySettings(prop)
 	}
 }
 
@@ -247,33 +256,21 @@ func (m *Manager) migratePropertySettings(prop *models.Property) {
 // here both are changed to Text/TextArray
 // and proper, backward compatible tokenization
 func (m *Manager) migratePropertyDataTypeAndTokenization(prop *models.Property) {
-	if dataType, ok := schema.AsPrimitive(prop.DataType); ok {
-		switch dataType {
-		case schema.DataTypeString:
-			switch prop.Tokenization {
-			case models.PropertyTokenizationWord:
-				prop.DataType = schema.DataTypeText.PropString()
-				prop.Tokenization = models.PropertyTokenizationWhitespace
-			case models.PropertyTokenizationField:
-				prop.DataType = schema.DataTypeText.PropString()
-				// "field" tokenization supported for Text
-			case "":
-				prop.DataType = schema.DataTypeText.PropString()
-				// leave tokenization empty, will be set to default later
-			}
-		case schema.DataTypeStringArray:
-			switch prop.Tokenization {
-			case models.PropertyTokenizationWord:
-				prop.DataType = schema.DataTypeTextArray.PropString()
-				prop.Tokenization = models.PropertyTokenizationWhitespace
-			case models.PropertyTokenizationField:
-				prop.DataType = schema.DataTypeTextArray.PropString()
-				// "field" tokenization supported for TextArray
-			case "":
-				prop.DataType = schema.DataTypeTextArray.PropString()
-				// leave tokenization empty, will be set to default later
-			}
-		}
+	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+	case schema.DataTypeString:
+		prop.DataType = schema.DataTypeText.PropString()
+	case schema.DataTypeStringArray:
+		prop.DataType = schema.DataTypeTextArray.PropString()
+	default:
+		// other types need no migration and do not support tokenization
+		return
+	}
+
+	switch prop.Tokenization {
+	case models.PropertyTokenizationWord:
+		prop.Tokenization = models.PropertyTokenizationWhitespace
+	case models.PropertyTokenizationField:
+		// stays field
 	}
 }
 

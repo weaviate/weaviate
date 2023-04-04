@@ -43,15 +43,16 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 
 		switch primitiveDataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
-			// deprecated as of v1.19, alias for text
-			fallthrough
+			// deprecated as of v1.19, will be migrated to DataTypeText/DataTypeTextArray
+			switch tokenization {
+			case models.PropertyTokenizationField, models.PropertyTokenizationWord:
+				return nil
+			}
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
 				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
 				return nil
-			default:
-				return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 			}
 		default:
 			if tokenization == "" {
@@ -59,6 +60,7 @@ func validatePropertyTokenization(tokenization string, propertyDataType schema.P
 			}
 			return fmt.Errorf("Tokenization is not allowed for data type '%s'", primitiveDataType)
 		}
+		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 	}
 
 	if tokenization == "" {

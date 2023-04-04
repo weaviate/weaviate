@@ -35,15 +35,6 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 	property *models.Property, className string,
 ) *graphql.Field {
 	switch propertyType.AsPrimitive() {
-	case schema.DataTypeString:
-		return &graphql.Field{
-			Description: property.Description,
-			Name:        property.Name,
-			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return p.Source.(map[string]interface{})[p.Info.FieldName], nil
-			},
-		}
 	case schema.DataTypeText:
 		return &graphql.Field{
 			Description: property.Description,
@@ -98,7 +89,7 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.String,
 		}
-	case schema.DataTypeStringArray, schema.DataTypeTextArray:
+	case schema.DataTypeTextArray:
 		return &graphql.Field{
 			Description: property.Description,
 			Name:        property.Name,

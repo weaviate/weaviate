@@ -200,9 +200,6 @@ func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
 
 func HasFrequency(dt schema.DataType) bool {
 	switch dt {
-	case schema.DataTypeString, schema.DataTypeStringArray:
-		// deprecated as of v1.19, alias for text
-		fallthrough
 	case schema.DataTypeText, schema.DataTypeTextArray:
 		return true
 	default:
@@ -215,9 +212,6 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 	var items []Countable
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
-	case schema.DataTypeStringArray:
-		// deprecated as of v1.19, alias for text
-		fallthrough
 	case schema.DataTypeTextArray:
 		hasFrequency = HasFrequency(dt)
 		in, err := stringsFromValues(prop, values)
@@ -361,9 +355,6 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	dt := schema.DataType(prop.DataType[0])
 	switch dt {
-	case schema.DataTypeString:
-		// deprecated as of v1.19, alias for text
-		fallthrough
 	case schema.DataTypeText:
 		hasFrequency = HasFrequency(dt)
 		asString, ok := value.(string)

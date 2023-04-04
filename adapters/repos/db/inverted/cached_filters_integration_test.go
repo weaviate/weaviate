@@ -112,7 +112,7 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "modulo-7",
-						Type:  schema.DataTypeString,
+						Type:  schema.DataTypeText,
 					},
 				},
 			},
@@ -130,7 +130,7 @@ func Test_CachedFilters_String(t *testing.T) {
 					},
 					Value: &filters.Value{
 						Value: "modulo-1*",
-						Type:  schema.DataTypeString,
+						Type:  schema.DataTypeText,
 					},
 				},
 			},
@@ -151,7 +151,7 @@ func Test_CachedFilters_String(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "modulo-7",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 						{
@@ -162,7 +162,7 @@ func Test_CachedFilters_String(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "modulo-8",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 					},
@@ -185,7 +185,7 @@ func Test_CachedFilters_String(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "modulo-7",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 						{
@@ -196,7 +196,7 @@ func Test_CachedFilters_String(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "modulo-14",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 					},
@@ -225,7 +225,7 @@ func Test_CachedFilters_String(t *testing.T) {
 									},
 									Value: &filters.Value{
 										Value: "modulo-7",
-										Type:  schema.DataTypeString,
+										Type:  schema.DataTypeText,
 									},
 								},
 								{
@@ -236,7 +236,7 @@ func Test_CachedFilters_String(t *testing.T) {
 									},
 									Value: &filters.Value{
 										Value: "modulo-8",
-										Type:  schema.DataTypeString,
+										Type:  schema.DataTypeText,
 									},
 								},
 							},
@@ -251,7 +251,7 @@ func Test_CachedFilters_String(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "modulo-7000000",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 					},
@@ -737,7 +737,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "list_a",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 						{
@@ -748,7 +748,7 @@ func Test_DuplicateEntriesInAnd_String(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "list_b",
-								Type:  schema.DataTypeString,
+								Type:  schema.DataTypeText,
 							},
 						},
 					},
@@ -858,8 +858,8 @@ func createSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "inverted-with-frequency",
-							DataType:     []string{"string"},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "inverted-without-frequency",

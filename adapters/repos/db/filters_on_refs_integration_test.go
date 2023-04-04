@@ -207,7 +207,7 @@ func TestRefFilters(t *testing.T) {
 	t.Run("filtering", func(t *testing.T) {
 		t.Run("one level deep", func(t *testing.T) {
 			t.Run("ref name matches", func(t *testing.T) {
-				filter := filterCarParkedAtGarage(schema.DataTypeString,
+				filter := filterCarParkedAtGarage(schema.DataTypeText,
 					"name", filters.OperatorEqual, "Luxury Parking Garage")
 				params := getParamsWithFilter("MultiRefCar", filter)
 
@@ -217,7 +217,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("ref id matches", func(t *testing.T) {
-				filter := filterCarParkedAtGarage(schema.DataTypeString,
+				filter := filterCarParkedAtGarage(schema.DataTypeText,
 					"id", filters.OperatorEqual, "a7e10b55-1ac4-464f-80df-82508eea1951")
 				params := getParamsWithFilter("MultiRefCar", filter)
 
@@ -227,7 +227,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("ref name doesn't match", func(t *testing.T) {
-				filter := filterCarParkedAtGarage(schema.DataTypeString,
+				filter := filterCarParkedAtGarage(schema.DataTypeText,
 					"name", filters.OperatorEqual, "There is no parking garage with this name")
 				params := getParamsWithFilter("MultiRefCar", filter)
 
@@ -298,7 +298,7 @@ func TestRefFilters(t *testing.T) {
 								},
 								Value: &filters.Value{
 									Value: "Car which is parked in a garage",
-									Type:  schema.DataTypeString,
+									Type:  schema.DataTypeText,
 								},
 								Operator: filters.OperatorEqual,
 							},
@@ -322,7 +322,7 @@ func TestRefFilters(t *testing.T) {
 
 		t.Run("multiple levels deep", func(t *testing.T) {
 			t.Run("ref name matches", func(t *testing.T) {
-				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeText,
 					"name", filters.OperatorEqual, "Luxury Parking Garage")
 				params := getParamsWithFilter("MultiRefDriver", filter)
 
@@ -334,7 +334,7 @@ func TestRefFilters(t *testing.T) {
 			})
 
 			t.Run("ref name doesn't match", func(t *testing.T) {
-				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeText,
 					"name", filters.OperatorEqual, "There is no parking garage with this name")
 				params := getParamsWithFilter("MultiRefDriver", filter)
 
@@ -761,7 +761,7 @@ func filterAirportsInGermanCitiesOver600k() *filters.LocalFilter {
 					},
 					Value: &filters.Value{
 						Value: "Germany",
-						Type:  dtString,
+						Type:  schema.DataTypeText,
 					},
 				},
 			},

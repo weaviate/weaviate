@@ -30,16 +30,18 @@ func getMyFavoriteClassSchemaForTests() schema.Schema {
 					Class: testClassName,
 					Properties: []*models.Property{
 						{
-							Name:     "stringProp",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "stringProp",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "textProp",
 							DataType: []string{string(schema.DataTypeText)},
 						},
 						{
-							Name:     "stringPropArray",
-							DataType: []string{string(schema.DataTypeStringArray)},
+							Name:         "stringPropArray",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "textPropArray",
@@ -86,8 +88,9 @@ func getMyFavoriteClassSchemaForTests() schema.Schema {
 							DataType: []string{string(schema.DataTypeGeoCoordinates)},
 						},
 						{
-							Name:     "emptyStringProp",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "emptyStringProp",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "emptyBoolProp",
@@ -159,8 +162,9 @@ func sorterCitySchema() schema.Schema {
 					Class: "City",
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "country",
@@ -179,8 +183,9 @@ func sorterCitySchema() schema.Schema {
 							DataType: []string{string(schema.DataTypeDate)},
 						},
 						{
-							Name:     "timezones",
-							DataType: []string{string(schema.DataTypeStringArray)},
+							Name:         "timezones",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "timezonesUTC",

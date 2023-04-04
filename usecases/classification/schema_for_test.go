@@ -38,8 +38,9 @@ func testSchema() schema.Schema {
 							DataType: []string{string(schema.DataTypeText)},
 						},
 						{
-							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "exactCategory",
@@ -56,6 +57,10 @@ func testSchema() schema.Schema {
 						{
 							Name:     "anyCategory",
 							DataType: []string{"MainCategory", "ExactCategory"},
+						},
+						{
+							Name:     "words",
+							DataType: schema.DataTypeInt.PropString(),
 						},
 					},
 				},
