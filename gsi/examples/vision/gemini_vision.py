@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore",category=DeprecationWarning)
 DATADIR = '/mnt/nas1/fashion/base64_images/'
 CLASS_NAME = "Fashion"
 WEAVIATE_CONN = "http://localhost:8091"
-MAX_ADDS = 3000 # up to 44k, limit 10k for less than 10 minute upload
+MAX_ADDS = 1000 # up to 44k, limit 10k for less than 10 minute upload
 MAX_SEARCHES = 10
 BATCH_SIZE = 50
 HEADER = {"Content-Type": "application/json"}
@@ -162,8 +162,12 @@ while successful_searches < MAX_SEARCHES:
     print("sending a similarity search request now...")
     row = df.iloc[random.randint(MAX_ADDS, df.shape[0]), :]
     uri = row.uri
-    nearImage = {'image': uri}
-    result = client.query.get(CLASS_NAME, ["productDisplayName"]).with_near_image(nearImage).with_limit(2).do()
+    with open(f"{DATADIR}{row.id}.jpg.b64") as file:
+        file_lines = file.readlines()
+    encoding = ' '.join(file_lines)
+    encoding = encoding.replace('\n', '').replace(' ', '')
+    nearImage = {'image': encoding}
+    result = client.query.get(CLASS_NAME, ["productDisplayName"]).with_near_image(nearImage, encode=False).with_limit(2).do()
     async_try_again, errors, data = parse_result(result)
     if async_try_again:
         print("Gemini is asynchronously building an index, and has asked us to try the search again a little later...")
