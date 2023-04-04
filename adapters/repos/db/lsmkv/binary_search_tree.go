@@ -87,6 +87,34 @@ type countStats struct {
 	tombstonedKeys [][]byte
 }
 
+func (c *countStats) hasUpsert(needle []byte) bool {
+	if c == nil {
+		return false
+	}
+
+	for _, hay := range c.upsertKeys {
+		if bytes.Equal(needle, hay) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *countStats) hasTombstone(needle []byte) bool {
+	if c == nil {
+		return false
+	}
+
+	for _, hay := range c.tombstonedKeys {
+		if bytes.Equal(needle, hay) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (t *binarySearchTree) countStats() *countStats {
 	stats := &countStats{}
 	if t.root == nil {
