@@ -115,128 +115,172 @@ func TestAddClass(t *testing.T) {
 		require.Equal(t, expectedStopwordConfig, mgr.state.ObjectSchema.Classes[0].InvertedIndexConfig.Stopwords)
 	})
 
-	classNameFromDataTypeAndTokenization := func(dataType schema.DataType, tokenization string) string {
-		dtStr := strings.ReplaceAll(string(dataType), "[]", "Array")
-		tStr := "empty"
-		if tokenization != "" {
-			tStr = tokenization
-		}
-
-		return fmt.Sprintf("%s_%s", dtStr, tStr)
-	}
-
-	t.Run("with valid property tokenization", func(t *testing.T) {
-		mgr := newSchemaManager()
-
-		properties := []*models.Property{}
-		for _, dt := range append(schema.PrimitiveDataTypes, schema.DeprecatedPrimitiveDataTypes...) {
-			properties = append(properties, &models.Property{
-				Name:     classNameFromDataTypeAndTokenization(dt, ""),
-				DataType: dt.PropString(),
-			})
-		}
-		for _, dt := range []schema.DataType{
-			schema.DataTypeText, schema.DataTypeTextArray,
-			schema.DataTypeString, schema.DataTypeStringArray,
-		} {
-			for _, tokenization := range helpers.Tokenizations {
-				properties = append(properties, &models.Property{
-					Name:         classNameFromDataTypeAndTokenization(dt, tokenization),
-					DataType:     dt.PropString(),
-					Tokenization: tokenization,
-				})
-			}
-		}
-
-		err := mgr.AddClass(context.Background(),
-			nil, &models.Class{
-				Class:      "NewClass",
-				Properties: properties,
-			})
-
-		require.Nil(t, err)
-		require.NotNil(t, mgr.state.ObjectSchema)
-		require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
-	})
-
-	t.Run("with invalid property tokenization", func(t *testing.T) {
+	t.Run("with tokenizations", func(t *testing.T) {
 		type testCase struct {
-			name         string
-			dataType     []string
-			tokenization string
-			errorMsg     string
+			propName       string
+			dataType       []string
+			tokenization   string
+			expectedErrMsg string
 		}
 
-		nonExistingTokenization := "non_existing"
-
-		mgr := newSchemaManager()
-		_, err := mgr.addClass(context.Background(), &models.Class{
-			Class: "SomeClass",
-		})
-		require.Nil(t, err)
-		_, err = mgr.addClass(context.Background(), &models.Class{
-			Class: "SomeOtherClass",
-		})
-		require.Nil(t, err)
-		_, err = mgr.addClass(context.Background(), &models.Class{
-			Class: "YetAnotherClass",
-		})
-		require.Nil(t, err)
-
-		testCases := []testCase{}
-		for _, dt := range append(schema.PrimitiveDataTypes, schema.DeprecatedPrimitiveDataTypes...) {
-			switch dt {
-			case schema.DataTypeString, schema.DataTypeStringArray:
-				fallthrough
-			case schema.DataTypeText, schema.DataTypeTextArray:
-				testCases = append(testCases, testCase{
-					name:         classNameFromDataTypeAndTokenization(dt, nonExistingTokenization),
-					dataType:     []string{string(dt)},
-					tokenization: nonExistingTokenization,
-					errorMsg:     fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", nonExistingTokenization, dt),
-				})
-			default:
-				for _, tokenization := range append(helpers.Tokenizations, nonExistingTokenization) {
-					testCases = append(testCases, testCase{
-						name:         classNameFromDataTypeAndTokenization(dt, tokenization),
-						dataType:     []string{string(dt)},
-						tokenization: tokenization,
-						errorMsg:     fmt.Sprintf("Tokenization is not allowed for data type '%s'", dt),
-					})
-				}
+		propName := func(dataType schema.DataType, tokenization string) string {
+			dtStr := strings.ReplaceAll(string(dataType), "[]", "Array")
+			tStr := "empty"
+			if tokenization != "" {
+				tStr = tokenization
 			}
-		}
-		for i, dataType := range [][]string{
-			{"SomeClass"},
-			{"SomeOtherClass", "YetAnotherClass"},
-		} {
-			for _, tokenization := range append(helpers.Tokenizations, nonExistingTokenization) {
-				testCases = append(testCases, testCase{
-					name:         fmt.Sprintf("RefClass_%d_%s", i, tokenization),
-					dataType:     dataType,
-					tokenization: tokenization,
-					errorMsg:     "Tokenization is not allowed for reference data type",
-				})
-			}
+			return fmt.Sprintf("%s_%s", dtStr, tStr)
 		}
 
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				err := mgr.AddClass(context.Background(),
-					nil, &models.Class{
-						Class: "NewClass",
+		runTestCases := func(t *testing.T, testCases []testCase, mgr *Manager) {
+			for i, tc := range testCases {
+				t.Run(tc.propName, func(t *testing.T) {
+					err := mgr.AddClass(context.Background(), nil, &models.Class{
+						Class: fmt.Sprintf("NewClass_%d", i),
 						Properties: []*models.Property{
 							{
-								Name:         tc.name,
+								Name:         tc.propName,
 								DataType:     tc.dataType,
 								Tokenization: tc.tokenization,
 							},
 						},
 					})
 
-				require.EqualError(t, err, tc.errorMsg)
-			})
+					if tc.expectedErrMsg == "" {
+						require.Nil(t, err)
+						require.NotNil(t, mgr.state.ObjectSchema)
+						require.NotEmpty(t, mgr.state.ObjectSchema.Classes)
+					} else {
+						require.EqualError(t, err, tc.expectedErrMsg)
+					}
+				})
+			}
 		}
+
+		t.Run("text/textArray and all tokenizations", func(t *testing.T) {
+			testCases := []testCase{}
+			for _, dataType := range []schema.DataType{
+				schema.DataTypeText, schema.DataTypeTextArray,
+			} {
+				for _, tokenization := range append(helpers.Tokenizations, "") {
+					testCases = append(testCases, testCase{
+						propName:       propName(dataType, tokenization),
+						dataType:       dataType.PropString(),
+						tokenization:   tokenization,
+						expectedErrMsg: "",
+					})
+				}
+
+				tokenization := "non_existing"
+				testCases = append(testCases, testCase{
+					propName:       propName(dataType, tokenization),
+					dataType:       dataType.PropString(),
+					tokenization:   tokenization,
+					expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+				})
+			}
+
+			runTestCases(t, testCases, newSchemaManager())
+		})
+
+		t.Run("non text/textArray and all tokenizations", func(t *testing.T) {
+			testCases := []testCase{}
+			for _, dataType := range schema.PrimitiveDataTypes {
+				switch dataType {
+				case schema.DataTypeText, schema.DataTypeTextArray:
+					continue
+				default:
+					tokenization := ""
+					testCases = append(testCases, testCase{
+						propName:       propName(dataType, tokenization),
+						dataType:       dataType.PropString(),
+						tokenization:   tokenization,
+						expectedErrMsg: "",
+					})
+
+					for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+						testCases = append(testCases, testCase{
+							propName:       propName(dataType, tokenization),
+							dataType:       dataType.PropString(),
+							tokenization:   tokenization,
+							expectedErrMsg: fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+						})
+					}
+				}
+			}
+
+			runTestCases(t, testCases, newSchemaManager())
+		})
+
+		t.Run("non text/textArray and all tokenizations", func(t *testing.T) {
+			ctx := context.Background()
+			mgr := newSchemaManager()
+
+			_, err := mgr.addClass(ctx, &models.Class{Class: "SomeClass"})
+			require.Nil(t, err)
+			_, err = mgr.addClass(ctx, &models.Class{Class: "SomeOtherClass"})
+			require.Nil(t, err)
+			_, err = mgr.addClass(ctx, &models.Class{Class: "YetAnotherClass"})
+			require.Nil(t, err)
+
+			testCases := []testCase{}
+			for i, dataType := range [][]string{
+				{"SomeClass"},
+				{"SomeOtherClass", "YetAnotherClass"},
+			} {
+				testCases = append(testCases, testCase{
+					propName:       fmt.Sprintf("RefProp_%d_empty", i),
+					dataType:       dataType,
+					tokenization:   "",
+					expectedErrMsg: "",
+				})
+
+				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+					testCases = append(testCases, testCase{
+						propName:       fmt.Sprintf("RefProp_%d_%s", i, tokenization),
+						dataType:       dataType,
+						tokenization:   tokenization,
+						expectedErrMsg: "Tokenization is not allowed for reference data type",
+					})
+				}
+			}
+
+			runTestCases(t, testCases, mgr)
+		})
+
+		t.Run("[deprecated string] string/stringArray and all tokenizations", func(t *testing.T) {
+			testCases := []testCase{}
+			for _, dataType := range []schema.DataType{
+				schema.DataTypeString, schema.DataTypeStringArray,
+			} {
+				for _, tokenization := range []string{
+					models.PropertyTokenizationWord, models.PropertyTokenizationField, "",
+				} {
+					testCases = append(testCases, testCase{
+						propName:       propName(dataType, tokenization),
+						dataType:       dataType.PropString(),
+						tokenization:   tokenization,
+						expectedErrMsg: "",
+					})
+				}
+
+				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
+					switch tokenization {
+					case models.PropertyTokenizationWord, models.PropertyTokenizationField:
+						continue
+					default:
+						testCases = append(testCases, testCase{
+							propName:       propName(dataType, tokenization),
+							dataType:       dataType.PropString(),
+							tokenization:   tokenization,
+							expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+						})
+					}
+				}
+			}
+
+			runTestCases(t, testCases, newSchemaManager())
+		})
 	})
 
 	t.Run("with default vector distance metric", func(t *testing.T) {

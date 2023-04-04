@@ -44,12 +44,12 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		InvertedIndexConfig: invertedConfig(),
 		Properties: []*models.Property{{
 			Name:         "stringProp",
-			DataType:     []string{string(schema.DataTypeString)},
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		}, {
 			Name:          "hiddenStringProp",
-			DataType:      []string{string(schema.DataTypeString)},
-			Tokenization:  "word",
+			DataType:      schema.DataTypeText.PropString(),
+			Tokenization:  models.PropertyTokenizationWhitespace,
 			IndexInverted: ptBool(false),
 		}},
 	}
@@ -131,7 +131,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 10,
 			},
-			Filters: buildFilter("hiddenStringProp", "hidden", eq, dtString),
+			Filters: buildFilter("hiddenStringProp", "hidden", eq, schema.DataTypeText),
 		})
 
 		require.NotNil(t, err)
@@ -145,7 +145,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 10,
 			},
-			Filters: buildFilter("_creationTimeUnix", "1234567891011", eq, dtString),
+			Filters: buildFilter("_creationTimeUnix", "1234567891011", eq, schema.DataTypeText),
 		})
 
 		require.NotNil(t, err)

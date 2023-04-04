@@ -42,8 +42,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "location",
@@ -58,8 +58,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -70,8 +70,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "parkedAt",
@@ -86,8 +86,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "drives",
@@ -102,8 +102,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "friendsWith",
@@ -118,8 +118,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "hasMembers",
@@ -136,8 +136,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -148,8 +148,8 @@ func parkingGaragesSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:         "name",
-							DataType:     []string{string(schema.DataTypeString)},
-							Tokenization: "word",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},

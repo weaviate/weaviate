@@ -74,8 +74,8 @@ func TestNodesAPI_Journey(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "stringProp",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}

@@ -958,7 +958,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
 						Value: &filters.Value{
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 							Value: "Superbread",
 						},
 						On: &filters.Path{
@@ -1792,7 +1792,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
 						Value: &filters.Value{
-							Type:  schema.DataTypeString,
+							Type:  schema.DataTypeText,
 							Value: "Superbread",
 						},
 						On: &filters.Path{
@@ -2248,7 +2248,7 @@ func sectorEqualsFoodFilter() *filters.LocalFilter {
 			},
 			Value: &filters.Value{
 				Value: "Food",
-				Type:  schema.DataTypeString,
+				Type:  schema.DataTypeText,
 			},
 		},
 	}

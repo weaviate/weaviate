@@ -67,11 +67,11 @@ func Test_Resolve(t *testing.T) {
 						Car(where:{
 							operator:Or
 							operands:[{
-								valueString:"Fast",
+								valueText:"Fast",
 								operator:Equal,
 								path:["modelName"]
 							}, {
-								valueString:"Slow",
+								valueText:"Slow",
 								operator:Equal,
 								path:["modelName"]
 							}]
@@ -114,7 +114,7 @@ func Test_Resolve(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "Fast",
-								Type:  schema.DataType("string"),
+								Type:  schema.DataTypeText,
 							},
 						},
 						{
@@ -125,7 +125,7 @@ func Test_Resolve(t *testing.T) {
 							},
 							Value: &filters.Value{
 								Value: "Slow",
-								Type:  schema.DataType("string"),
+								Type:  schema.DataTypeText,
 							},
 						},
 					},
@@ -834,6 +834,93 @@ func Test_Resolve(t *testing.T) {
 					map[string]interface{}{
 						"modelName": map[string]interface{}{
 							"count": 7,
+						},
+					},
+				},
+			}},
+		},
+		testCase{
+			name: "[deprecated string] for gh-758 (multiple operands)",
+			query: `
+			{
+					Aggregate {
+						Car(where:{
+							operator:Or
+							operands:[{
+								valueString:"Fast",
+								operator:Equal,
+								path:["modelName"]
+							}, {
+								valueString:"Slow",
+								operator:Equal,
+								path:["modelName"]
+							}]
+						}) {
+							__typename
+							modelName {
+								__typename
+								count
+							}
+						}
+					}
+			}`,
+			expectedProps: []aggregation.ParamProperty{
+				{
+					Name:        "modelName",
+					Aggregators: []aggregation.Aggregator{aggregation.CountAggregator},
+				},
+			},
+			resolverReturn: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"modelName": {
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Count: 20,
+							},
+						},
+					},
+				},
+			},
+			expectedWhereFilter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    schema.ClassName("Car"),
+								Property: schema.PropertyName("modelName"),
+							},
+							Value: &filters.Value{
+								Value: "Fast",
+								Type:  schema.DataTypeString,
+							},
+						},
+						{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    schema.ClassName("Car"),
+								Property: schema.PropertyName("modelName"),
+							},
+							Value: &filters.Value{
+								Value: "Slow",
+								Type:  schema.DataTypeString,
+							},
+						},
+					},
+				},
+			},
+
+			expectedGroupBy: nil,
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"__typename": "AggregateCar",
+						"modelName": map[string]interface{}{
+							"count":      20,
+							"__typename": "AggregateCarmodelNameObj",
 						},
 					},
 				},

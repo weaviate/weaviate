@@ -68,32 +68,32 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		Properties: []*models.Property{
 			{
 				Name:          "title",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationWord,
 				IndexInverted: truePointer(),
 			},
 			{
 				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationWord,
 				IndexInverted: truePointer(),
 			},
 			{
 				Name:          "review",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationWord,
 				IndexInverted: truePointer(),
 			},
 			{
-				Name:          "stringField",
-				DataType:      []string{string(schema.DataTypeString)},
-				Tokenization:  "field",
+				Name:          "textField",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationField,
 				IndexInverted: truePointer(),
 			},
 			{
-				Name:          "stringFieldWord",
-				DataType:      []string{string(schema.DataTypeString)},
-				Tokenization:  "word",
+				Name:          "textWhitespace",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationWhitespace,
 				IndexInverted: truePointer(),
 			},
 			{
@@ -103,14 +103,14 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 			},
 			{
 				Name:          "multiTitles",
-				DataType:      []string{string(schema.DataTypeTextArray)},
-				Tokenization:  "word",
+				DataType:      schema.DataTypeTextArray.PropString(),
+				Tokenization:  models.PropertyTokenizationWord,
 				IndexInverted: truePointer(),
 			},
 			{
-				Name:          "multiStringFieldWord",
-				DataType:      []string{string(schema.DataTypeStringArray)},
-				Tokenization:  "word",
+				Name:          "multiTextWhitespace",
+				DataType:      schema.DataTypeTextArray.PropString(),
+				Tokenization:  models.PropertyTokenizationWhitespace,
 				IndexInverted: truePointer(),
 			},
 		},
@@ -133,10 +133,10 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 	testData = append(testData, map[string]interface{}{"title": "My journeys in Journey", "description": "A journey story about journeying"})
 	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Actually all about journey"})
 	testData = append(testData, map[string]interface{}{"title": "journey journey", "description": "journey journey journey"})
-	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey", "multiStringFieldWord": []string{"totally irrelevant:)", "we all MuuultiYell! together"}})
-	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY", "multiStringFieldWord": []string{"MuuultiYell!", "is fun"}})
-	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "stringField": "*&^$@#$%^&*()(Offtopic!!!!"})
-	testData = append(testData, map[string]interface{}{"title": "none", "description": "other", "stringField": "YELLING IS FUN"})
+	testData = append(testData, map[string]interface{}{"title": "journey", "description": "journey journey", "multiTextWhitespace": []string{"totally irrelevant:)", "we all MuuultiYell! together"}})
+	testData = append(testData, map[string]interface{}{"title": "JOURNEY", "description": "A LOUD JOURNEY", "multiTextWhitespace": []string{"MuuultiYell!", "is fun"}})
+	testData = append(testData, map[string]interface{}{"title": "An unrelated title", "description": "Absolutely nothing to do with the topic", "textField": "*&^$@#$%^&*()(Offtopic!!!!"})
+	testData = append(testData, map[string]interface{}{"title": "none", "description": "other", "textField": "YELLING IS FUN"})
 	testData = append(testData, map[string]interface{}{"title": "something", "description": "none none", "review": "none none none none none none"})
 
 	for i, data := range testData {
@@ -223,7 +223,7 @@ func TestBM25FJourney(t *testing.T) {
 	addit := additional.Properties{}
 
 	t.Run("bm25f journey", func(t *testing.T) {
-		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "journey"}
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
 		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
@@ -246,13 +246,13 @@ func TestBM25FJourney(t *testing.T) {
 
 	// String are by default not tokenized, so we can search for non-alpha characters
 	t.Run("bm25f stringfield non-alpha", func(t *testing.T) {
-		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "stringField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
+		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 		addit = additional.Properties{}
 		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
-		t.Log("--- Start results for stringField search ---")
+		t.Log("--- Start results for textField search ---")
 		for _, r := range resStringField {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
@@ -264,13 +264,13 @@ func TestBM25FJourney(t *testing.T) {
 	// String and text fields are indexed differently, so this checks the string indexing and searching.  In particular,
 	// string fields are not lower-cased before indexing, so upper case searches must be passed through unchanged.
 	t.Run("bm25f stringfield caps", func(t *testing.T) {
-		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"stringField"}, Query: "YELLING IS FUN"}
+		kwrStringField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"textField"}, Query: "YELLING IS FUN"}
 		addit := additional.Properties{}
 		resStringField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrStringField, nil, nil, addit, nil)
 		require.Nil(t, err)
 
 		// Print results
-		t.Log("--- Start results for stringField caps search ---")
+		t.Log("--- Start results for textField caps search ---")
 		for _, r := range resStringField {
 			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
@@ -401,7 +401,7 @@ func TestBM25FJourney(t *testing.T) {
 	})
 
 	t.Run("Array fields string", func(t *testing.T) {
-		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiStringFieldWord"}, Query: "MuuultiYell!"}
+		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTextWhitespace"}, Query: "MuuultiYell!"}
 		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil)
 		require.Nil(t, err)
 
@@ -695,20 +695,20 @@ func Test_propertyIsIndexed(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:          "title",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationWord,
 				IndexInverted: nil,
 			},
 			{
 				Name:          "description",
-				DataType:      []string{string(schema.DataTypeText)},
-				Tokenization:  "word",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationWord,
 				IndexInverted: truePointer(),
 			},
 			{
-				Name:          "stringField",
-				DataType:      []string{string(schema.DataTypeString)},
-				Tokenization:  "field",
+				Name:          "textField",
+				DataType:      schema.DataTypeText.PropString(),
+				Tokenization:  models.PropertyTokenizationField,
 				IndexInverted: falsePointer(),
 			},
 		},
@@ -726,7 +726,7 @@ func Test_propertyIsIndexed(t *testing.T) {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, true)
 		}
 
-		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "stringField"); got != false {
+		if got := schema.PropertyIsIndexed(ClassSchema, "MyClass", "textField"); got != false {
 			t.Errorf("propertyIsIndexed() = %v, want %v", got, false)
 		}
 

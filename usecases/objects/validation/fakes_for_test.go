@@ -29,7 +29,8 @@ func testSchema() schema.Schema {
 					Properties: []*models.Property{
 						{
 							Name:     "name",
-							DataType: []string{string(schema.DataTypeString)},
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "phone",

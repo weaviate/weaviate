@@ -54,10 +54,10 @@ func TestFilters(t *testing.T) {
 	t.Run("prepare test schema and data ",
 		prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
 
-	t.Run("primitve props without nesting",
+	t.Run("primitive props without nesting",
 		testPrimitiveProps(repo))
 
-	t.Run("primitve props with limit",
+	t.Run("primitive props with limit",
 		testPrimitivePropsWithLimit(repo))
 
 	t.Run("chained primitive props",
@@ -84,7 +84,6 @@ var (
 	dtInt            = schema.DataTypeInt
 	dtBool           = schema.DataTypeBoolean
 	dtNumber         = schema.DataTypeNumber
-	dtString         = schema.DataTypeString
 	dtText           = schema.DataTypeText
 	dtDate           = schema.DataTypeDate
 	dtGeoCoordinates = schema.DataTypeGeoCoordinates
@@ -151,17 +150,17 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "modelName != sprinter",
-				filter:      buildFilter("modelName", "sprinter", neq, dtString),
+				filter:      buildFilter("modelName", "sprinter", neq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carNilID},
 			},
 			{
-				name:        "modelName = spr*er (optimizable) dtString",
-				filter:      buildFilter("modelName", "spr*er", like, dtString),
+				name:        "modelName = spr*er (optimizable) dtText",
+				filter:      buildFilter("modelName", "spr*er", like, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
-				name:        "modelName = *rinte? (non-optimizable) dtString",
-				filter:      buildFilter("modelName", "*rinte?", like, dtString),
+				name:        "modelName = *rinte? (non-optimizable) dtText",
+				filter:      buildFilter("modelName", "*rinte?", like, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
@@ -241,7 +240,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "exactly matching a specific contact email",
-				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtString),
+				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
@@ -270,43 +269,38 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
-				name:        "matching words with special characters with string value",
-				filter:      buildFilter("description", "it's also not exactly lightweight.", eq, dtString),
-				expectedIDs: []strfmt.UUID{},
-			},
-			{
 				name:        "matching words without special characters",
-				filter:      buildFilter("description", "also not exactly lightweight", eq, dtString),
+				filter:      buildFilter("description", "also not exactly lightweight", eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "by id",
-				filter:      buildFilter("id", carPoloID.String(), eq, dtString),
+				filter:      buildFilter("id", carPoloID.String(), eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by id not equal",
-				filter:      buildFilter("id", carE63sID.String(), neq, dtString),
+				filter:      buildFilter("id", carE63sID.String(), neq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID, carEmpty},
 			},
 			{
 				name:        "by id less then equal",
-				filter:      buildFilter("id", carPoloID.String(), lte, dtString),
+				filter:      buildFilter("id", carPoloID.String(), lte, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
 			},
 			{
 				name:        "by id less then",
-				filter:      buildFilter("id", carPoloID.String(), lt, dtString),
+				filter:      buildFilter("id", carPoloID.String(), lt, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			{
 				name:        "by id greater then equal",
-				filter:      buildFilter("id", carPoloID.String(), gte, dtString),
+				filter:      buildFilter("id", carPoloID.String(), gte, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carNilID, carEmpty},
 			},
 			{
 				name:        "by id greater then",
-				filter:      buildFilter("id", carPoloID.String(), gt, dtString),
+				filter:      buildFilter("id", carPoloID.String(), gt, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID, carNilID, carEmpty},
 			},
 			{
@@ -322,67 +316,67 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			// {
 			// 	name:        "by id like",
-			// 	filter:      buildFilter("id", carPoloID.String(), like, dtString),
+			// 	filter:      buildFilter("id", carPoloID.String(), like, dtText),
 			// 	expectedIDs: []strfmt.UUID{carPoloID},
 			// },
 			{
 				name:        "by color with word tokenization",
-				filter:      buildFilter("colorWord", "grey", eq, dtString),
+				filter:      buildFilter("colorWhitespace", "grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name:        "by color with word tokenization multiword (1)",
-				filter:      buildFilter("colorWord", "light grey", eq, dtString),
+				filter:      buildFilter("colorWhitespace", "light grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
 			},
 			{
 				name:        "by color with word tokenization multiword (2)",
-				filter:      buildFilter("colorWord", "dark grey", eq, dtString),
+				filter:      buildFilter("colorWhitespace", "dark grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by color with field tokenization",
-				filter:      buildFilter("colorField", "grey", eq, dtString),
+				filter:      buildFilter("colorField", "grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{},
 			},
 			{
 				name:        "by color with field tokenization multiword (1)",
-				filter:      buildFilter("colorField", "light grey", eq, dtString),
+				filter:      buildFilter("colorField", "light grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "by color with field tokenization multiword (2)",
-				filter:      buildFilter("colorField", "dark grey", eq, dtString),
+				filter:      buildFilter("colorField", "dark grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by color array with word tokenization",
-				filter:      buildFilter("colorArrayWord", "grey", eq, dtString),
+				filter:      buildFilter("colorArrayWhitespace", "grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID},
 			},
 			{
 				name:        "by color array with word tokenization multiword (1)",
-				filter:      buildFilter("colorArrayWord", "light grey", eq, dtString),
+				filter:      buildFilter("colorArrayWhitespace", "light grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
 			},
 			{
 				name:        "by color array with word tokenization multiword (2)",
-				filter:      buildFilter("colorArrayWord", "dark grey", eq, dtString),
+				filter:      buildFilter("colorArrayWhitespace", "dark grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "by color array with field tokenization",
-				filter:      buildFilter("colorArrayField", "grey", eq, dtString),
+				filter:      buildFilter("colorArrayField", "grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
 			{
 				name:        "by color with array field tokenization multiword (1)",
-				filter:      buildFilter("colorArrayField", "light grey", eq, dtString),
+				filter:      buildFilter("colorArrayField", "light grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "by color with array field tokenization multiword (2)",
-				filter:      buildFilter("colorArrayField", "dark grey", eq, dtString),
+				filter:      buildFilter("colorArrayField", "dark grey", eq, dtText),
 				expectedIDs: []strfmt.UUID{},
 			},
 			{
@@ -422,7 +416,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "length 0 (not added and empty)",
-				filter:      buildFilter("len(colorArrayWord)", 0, eq, dtInt),
+				filter:      buildFilter("len(colorArrayWhitespace)", 0, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carNilID, carEmpty},
 			},
 			{
@@ -465,27 +459,27 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			},
 			{
 				name:        "Empty array by length",
-				filter:      buildFilter("len(colorArrayWord)", 0, eq, dtInt),
+				filter:      buildFilter("len(colorArrayWhitespace)", 0, eq, dtInt),
 				expectedIDs: []strfmt.UUID{carEmpty, carNilID},
 			},
 			{
 				name:        "made by Mercedes ... I mean manufacturer1",
-				filter:      buildFilter("manufacturerId", manufacturer1.String(), eq, dtString),
+				filter:      buildFilter("manufacturerId", manufacturer1.String(), eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
 			},
 			{
 				name:        "made by manufacturer2",
-				filter:      buildFilter("manufacturerId", manufacturer2.String(), eq, dtString),
+				filter:      buildFilter("manufacturerId", manufacturer2.String(), eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name:        "available at the north dealership",
-				filter:      buildFilter("availableAtDealerships", dealershipNorth.String(), eq, dtString),
+				filter:      buildFilter("availableAtDealerships", dealershipNorth.String(), eq, dtText),
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID},
 			},
 			{
 				name:        "available at the south dealership",
-				filter:      buildFilter("availableAtDealerships", dealershipSouth.String(), eq, dtString),
+				filter:      buildFilter("availableAtDealerships", dealershipSouth.String(), eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
 			},
 		}
@@ -566,7 +560,7 @@ func testChainedPrimitiveProps(repo *DB,
 			{
 				name: "modelName == sprinter AND  weight > 3000",
 				filter: filterAnd(
-					buildFilter("modelName", "sprinter", eq, dtString),
+					buildFilter("modelName", "sprinter", eq, dtText),
 					buildFilter("weight", float64(3000), gt, dtNumber),
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID},
@@ -574,16 +568,16 @@ func testChainedPrimitiveProps(repo *DB,
 			{
 				name: "modelName == sprinter OR modelName == e63s",
 				filter: filterOr(
-					buildFilter("modelName", "sprinter", eq, dtString),
-					buildFilter("modelName", "e63s", eq, dtString),
+					buildFilter("modelName", "sprinter", eq, dtText),
+					buildFilter("modelName", "e63s", eq, dtText),
 				),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
 			},
 			// test{
 			// 	name: "NOT modelName == sprinter, modelName == e63s",
 			// 	filter: filterNot(
-			// 		buildFilter("modelName", "sprinter", eq, dtString),
-			// 		buildFilter("modelName", "e63s", eq, dtString),
+			// 		buildFilter("modelName", "sprinter", eq, dtText),
+			// 		buildFilter("modelName", "e63s", eq, dtText),
 			// 	),
 			// 	expectedIDs: []strfmt.UUID{carPoloID},
 			// },
@@ -692,19 +686,19 @@ var carClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			DataType:     []string{string(schema.DataTypeString)},
+			DataType:     schema.DataTypeText.PropString(),
 			Name:         "modelName",
-			Tokenization: "word",
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 		{
-			DataType:     []string{string(schema.DataTypeString)},
+			DataType:     schema.DataTypeText.PropString(),
 			Name:         "contact",
-			Tokenization: "word",
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 		{
-			DataType:     []string{string(schema.DataTypeText)},
+			DataType:     schema.DataTypeText.PropString(),
 			Name:         "description",
-			Tokenization: "word",
+			Tokenization: models.PropertyTokenizationWord,
 		},
 		{
 			DataType: []string{string(schema.DataTypeInt)},
@@ -723,24 +717,24 @@ var carClass = &models.Class{
 			Name:     "released",
 		},
 		{
-			DataType:     []string{string(schema.DataTypeString)},
-			Name:         "colorWord",
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Name:         "colorWhitespace",
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 		{
-			DataType:     []string{string(schema.DataTypeString)},
+			DataType:     schema.DataTypeText.PropString(),
 			Name:         "colorField",
-			Tokenization: "field",
+			Tokenization: models.PropertyTokenizationField,
 		},
 		{
-			DataType:     []string{string(schema.DataTypeStringArray)},
-			Name:         "colorArrayWord",
-			Tokenization: "word",
+			DataType:     schema.DataTypeTextArray.PropString(),
+			Name:         "colorArrayWhitespace",
+			Tokenization: models.PropertyTokenizationWhitespace,
 		},
 		{
-			DataType:     []string{string(schema.DataTypeStringArray)},
+			DataType:     schema.DataTypeTextArray.PropString(),
 			Name:         "colorArrayField",
-			Tokenization: "field",
+			Tokenization: models.PropertyTokenizationField,
 		},
 		{
 			DataType: []string{string(schema.DataTypeUUID)},
@@ -791,9 +785,9 @@ var cars = []models.Object{
 			},
 			"contact":                "john@heavycars.example.com",
 			"description":            "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
-			"colorWord":              "light grey",
+			"colorWhitespace":        "light grey",
 			"colorField":             "light grey",
-			"colorArrayWord":         []interface{}{"light grey"},
+			"colorArrayWhitespace":   []interface{}{"light grey"},
 			"colorArrayField":        []interface{}{"light grey"},
 			"manufacturerId":         manufacturer1,
 			"availableAtDealerships": []uuid.UUID{dealershipNorth, dealershipSouth},
@@ -813,9 +807,9 @@ var cars = []models.Object{
 			},
 			"contact":                "jessica-世界@unicode.example.com",
 			"description":            "This car has a huge motor, but it's also not exactly lightweight.",
-			"colorWord":              "very light grey",
+			"colorWhitespace":        "very light grey",
 			"colorField":             "very light grey",
-			"colorArrayWord":         []interface{}{"very light", "grey"},
+			"colorArrayWhitespace":   []interface{}{"very light", "grey"},
 			"colorArrayField":        []interface{}{"very light", "grey"},
 			"manufacturerId":         manufacturer1,
 			"availableAtDealerships": []uuid.UUID{dealershipNorth},
@@ -831,9 +825,9 @@ var cars = []models.Object{
 			"weight":                 1200.0,
 			"contact":                "sandra@efficientcars.example.com",
 			"description":            "This small car has a small engine and unicode labels (ąę), but it's very light, so it feels fater than it is.",
-			"colorWord":              "dark grey",
+			"colorWhitespace":        "dark grey",
 			"colorField":             "dark grey",
-			"colorArrayWord":         []interface{}{"dark", "grey"},
+			"colorArrayWhitespace":   []interface{}{"dark", "grey"},
 			"colorArrayField":        []interface{}{"dark", "grey"},
 			"manufacturerId":         manufacturer2,
 			"availableAtDealerships": []uuid.UUID{dealershipSouth},
@@ -850,13 +844,13 @@ var cars = []models.Object{
 		Class: carClass.Class,
 		ID:    carEmpty,
 		Properties: map[string]interface{}{
-			"modelName":       "",
-			"contact":         "",
-			"description":     "",
-			"colorWord":       "",
-			"colorField":      "",
-			"colorArrayWord":  []interface{}{},
-			"colorArrayField": []interface{}{},
+			"modelName":            "",
+			"contact":              "",
+			"description":          "",
+			"colorWhitespace":      "",
+			"colorField":           "",
+			"colorArrayWhitespace": []interface{}{},
+			"colorArrayField":      []interface{}{},
 		},
 	},
 }
@@ -1001,18 +995,18 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "name",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
-				Name:         "textProp",
-				DataType:     []string{string(schema.DataTypeText)},
-				Tokenization: "word",
+				Name:         "textPropWord",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWord,
 			},
 			{
-				Name:         "stringProp",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				Name:         "textPropWhitespace",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -1022,9 +1016,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 			Class: class.Class,
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
-				"name":       "all lowercase",
-				"stringProp": "apple banana orange",
-				"textProp":   "apple banana orange",
+				"name":               "all lowercase",
+				"textPropWhitespace": "apple banana orange",
+				"textPropWord":       "apple banana orange",
 			},
 			Vector: []float32{0.1},
 		},
@@ -1032,9 +1026,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 			Class: class.Class,
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
-				"name":       "mixed case",
-				"stringProp": "apple Banana ORANGE",
-				"textProp":   "apple Banana ORANGE",
+				"name":               "mixed case",
+				"textPropWhitespace": "apple Banana ORANGE",
+				"textPropWord":       "apple Banana ORANGE",
 			},
 			Vector: []float32{0.1},
 		},
@@ -1042,9 +1036,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 			Class: class.Class,
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
-				"name":       "first letter uppercase",
-				"stringProp": "Apple Banana Orange",
-				"textProp":   "Apple Banana Orange",
+				"name":               "first letter uppercase",
+				"textPropWhitespace": "Apple Banana Orange",
+				"textPropWord":       "Apple Banana Orange",
 			},
 			Vector: []float32{0.1},
 		},
@@ -1052,9 +1046,9 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 			Class: class.Class,
 			ID:    strfmt.UUID(uuid.New().String()),
 			Properties: map[string]interface{}{
-				"name":       "all uppercase",
-				"stringProp": "APPLE BANANA ORANGE",
-				"textProp":   "APPLE BANANA ORANGE",
+				"name":               "all uppercase",
+				"textPropWhitespace": "APPLE BANANA ORANGE",
+				"textPropWord":       "APPLE BANANA ORANGE",
 			},
 			Vector: []float32{0.1},
 		},
@@ -1088,140 +1082,92 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		}
 
 		tests := []test{
-			// pT stands for propType, meaning this the type the object has according
-			// to the schema
-			// sT stands for searchType, meaning the type the user specified at
-			// search time
 			{
-				name:   "pT==sT, text, lowercase, single word, should match all",
-				filter: buildFilter("textProp", "apple", eq, dtText),
+				name:   "text word, lowercase, single word, should match all",
+				filter: buildFilter("textPropWord", "apple", eq, dtText),
 				expectedNames: []string{
 					"all uppercase", "all lowercase", "mixed case",
 					"first letter uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, text, lowercase, multiple words, should match all",
-				filter: buildFilter("textProp", "apple banana orange", eq, dtText),
+				name:   "text word, lowercase, multiple words, should match all",
+				filter: buildFilter("textPropWord", "apple banana orange", eq, dtText),
 				expectedNames: []string{
 					"all uppercase", "all lowercase", "mixed case",
 					"first letter uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, text, mixed case, single word, should match all",
-				filter: buildFilter("textProp", "Apple", eq, dtText),
+				name:   "text word, mixed case, single word, should match all",
+				filter: buildFilter("textPropWord", "Apple", eq, dtText),
 				expectedNames: []string{
 					"all uppercase", "all lowercase", "mixed case",
 					"first letter uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, text, mixed case, multiple words, should match all",
-				filter: buildFilter("textProp", "Apple Banana Orange", eq, dtText),
+				name:   "text word, mixed case, multiple words, should match all",
+				filter: buildFilter("textPropWord", "Apple Banana Orange", eq, dtText),
 				expectedNames: []string{
 					"all uppercase", "all lowercase", "mixed case",
 					"first letter uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, text, uppercase, single word, should match all",
-				filter: buildFilter("textProp", "APPLE", eq, dtText),
+				name:   "text word, uppercase, single word, should match all",
+				filter: buildFilter("textPropWord", "APPLE", eq, dtText),
 				expectedNames: []string{
 					"all uppercase", "all lowercase", "mixed case",
 					"first letter uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, text, uppercase, multiple words, should match all",
-				filter: buildFilter("textProp", "APPLE BANANA ORANGE", eq, dtText),
+				name:   "text word, uppercase, multiple words, should match all",
+				filter: buildFilter("textPropWord", "APPLE BANANA ORANGE", eq, dtText),
 				expectedNames: []string{
 					"all uppercase", "all lowercase", "mixed case",
 					"first letter uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, string, lowercase, single word, should match exact casing",
-				filter: buildFilter("stringProp", "apple", eq, dtString),
+				name:   "text whitespace, lowercase, single word, should match exact casing",
+				filter: buildFilter("textPropWhitespace", "apple", eq, dtText),
 				expectedNames: []string{
 					"all lowercase", "mixed case", // mixed matches because the first word is all lowercase
 				},
 			},
 			{
-				name:          "pT==sT, string, lowercase, multiple words, should match all-lowercase",
-				filter:        buildFilter("stringProp", "apple banana orange", eq, dtString),
+				name:          "text whitespace, lowercase, multiple words, should match all-lowercase",
+				filter:        buildFilter("textPropWhitespace", "apple banana orange", eq, dtText),
 				expectedNames: []string{"all lowercase"},
 			},
 			{
-				name:   "pT==sT, string, mixed case, single word, should match exact matches",
-				filter: buildFilter("stringProp", "Banana", eq, dtString),
+				name:   "text whitespace, mixed case, single word, should match exact matches",
+				filter: buildFilter("textPropWhitespace", "Banana", eq, dtText),
 				expectedNames: []string{
 					"mixed case", "first letter uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, string, mixed case, multiple words, should match exact matches",
-				filter: buildFilter("stringProp", "apple Banana ORANGE", eq, dtString),
+				name:   "text whitespace, mixed case, multiple words, should match exact matches",
+				filter: buildFilter("textPropWhitespace", "apple Banana ORANGE", eq, dtText),
 				expectedNames: []string{
 					"mixed case",
 				},
 			},
 			{
-				name:   "pT==sT, string, uppercase, single word, should match all upper",
-				filter: buildFilter("stringProp", "APPLE", eq, dtString),
+				name:   "text whitespace, uppercase, single word, should match all upper",
+				filter: buildFilter("textPropWhitespace", "APPLE", eq, dtText),
 				expectedNames: []string{
 					"all uppercase",
 				},
 			},
 			{
-				name:   "pT==sT, string, uppercase, multiple words, should match only all upper",
-				filter: buildFilter("stringProp", "APPLE BANANA ORANGE", eq, dtString),
+				name:   "text whitespace, uppercase, multiple words, should match only all upper",
+				filter: buildFilter("textPropWhitespace", "APPLE BANANA ORANGE", eq, dtText),
 				expectedNames: []string{
 					"all uppercase",
-				},
-			},
-
-			// The next four tests mix up the datatype specified in the prop and
-			// specified at search time. It is questionable if there is any value in
-			// intentionally mixing them up, however, these tests also serve as
-			// documentation to what would happen if they are used as such.
-
-			{
-				// sT==string means the casing is not altered in the index, so you
-				// would search exactly as it is stored in the inverted index since
-				// pT==text lowercased at import time, this matches
-				name:   "pT==text, sT==string, lowercase, single word, matches all",
-				filter: buildFilter("textProp", "apple", eq, dtString),
-				expectedNames: []string{
-					"all uppercase", "all lowercase", "mixed case",
-					"first letter uppercase",
-				},
-			},
-			{
-				// lowercased in the index, but sT==string means casing unchanged
-				// -> no matches
-				name:          "pT==text, sT==string, uppercase, single word, matches none",
-				filter:        buildFilter("textProp", "APPLE", eq, dtString),
-				expectedNames: []string{},
-			},
-			{
-				// sT==text means the search term will be lowercased
-				// since pT=string does not alter the casing only lowercase objects
-				// would be found
-				name:   "pT==string, sT==text, lowercase, single word",
-				filter: buildFilter("stringProp", "apple", eq, dtText),
-				expectedNames: []string{
-					"all lowercase", "mixed case",
-				},
-			},
-			{
-				// sT==text means the search term will be lowercased
-				// since pT=string does not alter the casing only lowercase objects
-				// would be found
-				name:   "pT==string, sT==text, uppercase, single word",
-				filter: buildFilter("stringProp", "APPLE", eq, dtText),
-				expectedNames: []string{
-					"all lowercase", "mixed case",
 				},
 			},
 		}
@@ -1359,16 +1305,16 @@ func testSortProperties(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID, carE63sID, carEmpty, carNilID},
 			},
 			{
-				name: "colorArrayWord asc",
+				name: "colorArrayWhitespace asc",
 				sort: []filters.Sort{
-					buildSortFilter([]string{"colorArrayWord"}, "asc"),
+					buildSortFilter([]string{"colorArrayWhitespace"}, "asc"),
 				},
 				expectedIDs: []strfmt.UUID{carNilID, carEmpty, carPoloID, carSprinterID, carE63sID},
 			},
 			{
-				name: "colorArrayWord desc",
+				name: "colorArrayWhitespace desc",
 				sort: []filters.Sort{
-					buildSortFilter([]string{"colorArrayWord"}, "desc"),
+					buildSortFilter([]string{"colorArrayWhitespace"}, "desc"),
 				},
 				expectedIDs: []strfmt.UUID{carE63sID, carSprinterID, carPoloID, carNilID, carEmpty},
 			},
@@ -1449,12 +1395,13 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "name",
-				DataType:     []string{string(schema.DataTypeString)},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
-				Name:     "other",
-				DataType: []string{string(schema.DataTypeString)},
+				Name:         "other",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}

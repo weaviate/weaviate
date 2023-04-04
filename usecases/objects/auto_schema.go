@@ -163,6 +163,8 @@ func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 }
 
 func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
+	fallbackDataType := []schema.DataType{schema.DataTypeText}
+
 	switch v := value.(type) {
 	case string:
 		_, err := time.Parse(time.RFC3339, v)
@@ -181,8 +183,7 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 		if v["input"] != nil {
 			return []schema.DataType{schema.DataTypePhoneNumber}
 		}
-		// fallback to String
-		return []schema.DataType{schema.DataTypeString}
+		return fallbackDataType
 	case []interface{}:
 		if len(v) > 0 {
 			dataType := []schema.DataType{}
@@ -229,9 +230,8 @@ func (m *autoSchemaManager) determineType(value interface{}) []schema.DataType {
 			}
 			return dataType
 		}
-		// fallback to String
-		return []schema.DataType{schema.DataTypeString}
+		return fallbackDataType
 	default:
-		return []schema.DataType{schema.DataTypeString}
+		return fallbackDataType
 	}
 }
