@@ -30,7 +30,6 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	repl *additional.ReplicationProperties,
 ) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
-	indexByClass := make(map[string]*Index)
 
 	for _, item := range objs {
 		if item.Err != nil {
@@ -45,18 +44,13 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 
 	db.indexLock.RLock()
 	for class := range objectByClass {
-		for _, index := range db.indices {
-			if index.Config.ClassName == schema.ClassName(class) {
-				index.dropIndex.RLock()
-				indexByClass[class] = index
-				break
-			}
-		}
+		index := db.indices[indexID(schema.ClassName(class))]
+		index.dropIndex.RLock()
 	}
 	db.indexLock.RUnlock()
 
-	for className, queue := range objectByClass {
-		index := indexByClass[className]
+	for class, queue := range objectByClass {
+		index := db.indices[indexID(schema.ClassName(class))]
 		errs := index.putObjectBatch(ctx, queue.objects, repl)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
@@ -73,32 +67,24 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	repl *additional.ReplicationProperties,
 ) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
-	indexByClass := make(map[schema.ClassName]*Index)
 
 	for _, item := range references {
 		if item.Err != nil {
 			// item has a validation error or another reason to ignore
 			continue
 		}
-		queue := refByClass[item.From.Class]
-		queue = append(queue, item)
-		refByClass[item.From.Class] = queue
+		refByClass[item.From.Class] = append(refByClass[item.From.Class], item)
 	}
 
 	db.indexLock.RLock()
 	for class := range refByClass {
-		for _, index := range db.indices {
-			if index.Config.ClassName == class {
-				index.dropIndex.RLock()
-				indexByClass[class] = index
-				break
-			}
-		}
+		index := db.indices[indexID(class)]
+		index.dropIndex.RLock()
 	}
 	db.indexLock.RUnlock()
 
-	for className, queue := range refByClass {
-		index := indexByClass[className]
+	for class, queue := range refByClass {
+		index := db.indices[indexID(class)]
 		errs := index.addReferencesBatch(ctx, queue, repl)
 		index.dropIndex.RUnlock()
 		for i, err := range errs {
