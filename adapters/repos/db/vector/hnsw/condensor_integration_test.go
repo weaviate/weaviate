@@ -16,6 +16,7 @@ package hnsw
 
 import (
 	"bufio"
+	"context"
 	"math/rand"
 	"os"
 	"strings"
@@ -25,18 +26,24 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestCondensor(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
+	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
 
-	perfect, err := NewCommitLogger(rootPath, "perfect", 0, logger)
+	perfect, err := NewCommitLogger(rootPath, "perfect", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer perfect.Shutdown(ctx)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
 		uncondensed.AddNode(&vertex{id: 0, level: 3})
@@ -141,16 +148,23 @@ func TestCondensor(t *testing.T) {
 func TestCondensorAppendNodeLinks(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
+	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	control, err := NewCommitLogger(rootPath, "control", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer control.Shutdown(ctx)
 
 	t.Run("add data to the first log", func(t *testing.T) {
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
@@ -229,16 +243,23 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 func TestCondensorReplaceNodeLinks(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
+	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	control, err := NewCommitLogger(rootPath, "control", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer control.Shutdown(ctx)
 
 	t.Run("add data to the first log", func(t *testing.T) {
 		uncondensed1.AddNode(&vertex{id: 0, level: 1})
@@ -322,16 +343,23 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 func TestCondensorClearLinksAtLevel(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
+	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", 0, logger)
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed1.Shutdown(ctx)
 
-	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", 0, logger)
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed2.Shutdown(ctx)
 
-	control, err := NewCommitLogger(rootPath, "control", 0, logger)
+	control, err := NewCommitLogger(rootPath, "control", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer control.Shutdown(ctx)
 
 	t.Run("add data to the first log", func(t *testing.T) {
 		uncondensed1.AddNode(&vertex{id: 0, level: 1})
@@ -411,10 +439,13 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 func TestCondensorWithoutEntrypoint(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := t.TempDir()
+	ctx := context.Background()
 
 	logger, _ := test.NewNullLogger()
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		WithCommitlogCycleTicker(cyclemanager.NewNoopTicker))
 	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
 
 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
 		uncondensed.AddNode(&vertex{id: 0, level: 3})

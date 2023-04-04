@@ -90,6 +90,24 @@ func TestBackupStatus(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, want, got)
 	})
+
+	t.Run("ReadFromMetadataError", func(t *testing.T) {
+		backend := &fakeBackend{}
+		st := string(backup.Failed)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: st, Error: "error1"})
+		want = &models.BackupCreateStatusResponse{
+			ID:      id,
+			Path:    path,
+			Status:  &st,
+			Backend: backendName,
+		}
+		backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
+		backend.On("HomeDir", mock.Anything).Return(path)
+		m := createManager(nil, nil, backend, nil)
+		_, err := m.BackupStatus(ctx, nil, backendName, id)
+		assert.NotNil(t, err)
+		assert.ErrorContains(t, err, "error1")
+	})
 }
 
 func TestBackupOnStatus(t *testing.T) {

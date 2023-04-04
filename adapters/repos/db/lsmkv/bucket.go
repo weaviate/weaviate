@@ -115,8 +115,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	sg, err := newSegmentGroup(dir, cyclemanager.DefaultLSMCompactionInterval, logger,
-		b.legacyMapSortingBeforeCompaction, metrics, b.strategy, b.monitorCount)
+	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
+		metrics, b.strategy, b.monitorCount)
 	if err != nil {
 		return nil, errors.Wrap(err, "init disk segments")
 	}
@@ -143,7 +143,9 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		return nil, err
 	}
 
-	b.flushCycle = cyclemanager.New(cyclemanager.DefaultMemtableFlushInterval, b.flushAndSwitchIfThresholdsMet)
+	b.flushCycle = cyclemanager.New(
+		cyclemanager.MemtableFlushCycleTicker(),
+		b.flushAndSwitchIfThresholdsMet)
 	b.flushCycle.Start()
 
 	b.metrics.TrackStartupBucket(beforeAll)
@@ -633,10 +635,19 @@ func (b *Bucket) Count() int {
 		panic("Count() called on strategy other than 'replace'")
 	}
 
-	memtableCount := b.memtableNetCount(b.active.countStats())
-	if b.flushing != nil {
-		memtableCount += b.memtableNetCount(b.flushing.countStats())
+	memtableCount := 0
+	if b.flushing == nil {
+		// only consider active
+		memtableCount += b.memtableNetCount(b.active.countStats(), nil)
+	} else {
+		flushingCountStats := b.flushing.countStats()
+		activeCountStats := b.active.countStats()
+		deltaActive := b.memtableNetCount(activeCountStats, flushingCountStats)
+		deltaFlushing := b.memtableNetCount(flushingCountStats, nil)
+
+		memtableCount = deltaActive + deltaFlushing
 	}
+
 	diskCount := b.disk.count()
 
 	if b.monitorCount {
@@ -645,29 +656,36 @@ func (b *Bucket) Count() int {
 	return memtableCount + diskCount
 }
 
-func (b *Bucket) memtableNetCount(stats *countStats) int {
+func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
 	netCount := 0
 
 	// TODO: this uses regular get, given that this may be called quite commonly,
 	// we might consider building a pure Exists(), which skips reading the value
 	// and only checks for tombstones, etc.
 	for _, key := range stats.upsertKeys {
-		v, _ := b.disk.get(key) // current implementation can't error
-		if v == nil {
-			// this key didn't exist before
+		if !b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount++
 		}
 	}
 
 	for _, key := range stats.tombstonedKeys {
-		v, _ := b.disk.get(key) // current implementation can't error
-		if v != nil {
-			// this key existed before
+		if b.existsOnDiskAndPreviousMemtable(previousMemtable, key) {
 			netCount--
 		}
 	}
 
 	return netCount
+}
+
+func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
+	v, _ := b.disk.get(key) // current implementation can't error
+	if v == nil {
+		// not on disk, but it could still be in the previous memtable
+		return previous.hasUpsert(key)
+	}
+
+	// it exists on disk ,but it could still have been deleted in the previous memtable
+	return !previous.hasTombstone(key)
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
@@ -706,7 +724,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldBreak cyclemanager.ShouldBreakFunc) bool {
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
@@ -725,8 +743,9 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 			Warn("flush halted due to shard READONLY status")
 
 		b.flushLock.RUnlock()
+		// TODO maybe will not be necessary with dynamic interval
 		time.Sleep(time.Second)
-		return
+		return false
 	}
 
 	b.flushLock.RUnlock()
@@ -745,7 +764,9 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(stopFunc cyclemanager.StopFunc) {
 				b.memtableThreshold = uint64(next)
 			}
 		}
+		return true
 	}
+	return false
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
