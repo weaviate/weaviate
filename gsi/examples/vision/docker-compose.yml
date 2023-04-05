@@ -8,7 +8,7 @@ services:
     - '8091'
     - --scheme
     - http
-    image: gsi/weaviate
+    image: gsijb/weaviate
     network_mode: host # works on Linux but not Mac
     volumes:
       - /var/lib/weaviate:/var/lib/weaviate
@@ -22,6 +22,12 @@ services:
       ENABLE_MODULES: 'img2vec-neural'
       IMAGE_INFERENCE_API: 'http://localhost:8080'
       CLUSTER_HOSTNAME: 'node1'
+      DEFAULT_VECTOR_INDEX_TYPE: 'gemini'
+      GEMINI_MIN_RECORDS_CHECK: 'true'
+      GEMINI_ALLOCATION_ID: '0b391a1a-b916-11ed-afcb-0242ac1c0002'
+      GEMINI_DATA_DIRECTORY: '/home/public' # Do Not Change This
+      GEMINI_FVS_SERVER: 'localhost' # On Linux, must use network_mode=host
+      GEMINI_DEBUG: 'false'
   i2v-neural:
     image: semitechnologies/img2vec-pytorch:resnet50
     deploy:
