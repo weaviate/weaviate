@@ -33,7 +33,7 @@ type JsonPropertyLengthTracker struct {
 }
 
 func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, error) {
-
+fmt.Printf("NewJsonPropertyLengthTracker(%s)")
 	t := &JsonPropertyLengthTracker{
 		data: PropLenData{make(map[string][]int)},
 		path: path,
@@ -51,6 +51,32 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 
 		var data PropLenData
 		if err := json.Unmarshal(bytes, &data); err != nil {
+			if bytes[0] != '{' {
+				//It's probably the old format file, load the old format and convert it to the new format
+				plt, err := NewOldPropertyLengthTracker(path)
+				if err != nil {
+					return nil, errors.Wrap(err, "convert old property length tracker")
+				}
+				
+				propertyNames := plt.PropertyNames()
+				//Loop over every page and bucket in the old tracker and add it to the new tracker
+				for _, name := range propertyNames {
+					t.data.BucketedData[name] = make([]int, 64)
+					for i := 0; i < 64; i++ {
+						count, err := plt.BucketCount(name, uint16(i))
+						if err != nil {
+							return nil, errors.Wrap(err, "convert old property length tracker")
+						}
+						t.data.BucketedData[name][i] = int(count)
+					}
+				}
+
+
+				plt.Close()
+				plt.Drop()
+			}
+
+
 			return nil, err
 		}
 		t.data = data
@@ -175,6 +201,7 @@ func (t *JsonPropertyLengthTracker) Flush() error {
 		return err
 	}
 
+	fmt.Printf("Flushing json props to %s, %v bytes\n", t.path, len(bytes))
 	ioutil.WriteFile(t.path, bytes, 0o666)
 	return nil
 }
