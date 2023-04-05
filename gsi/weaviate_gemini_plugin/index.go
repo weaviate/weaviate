@@ -263,7 +263,7 @@ func (i *Gemini) Add(id uint64, vector []float32) error {
 
 }
 
-func (i *Gemini) Delete(id uint64) error {
+func (i *Gemini) Delete(id ...uint64) error {
 
     if i.verbose {
         fmt.Println("Gemini SearchByVector: Delete")

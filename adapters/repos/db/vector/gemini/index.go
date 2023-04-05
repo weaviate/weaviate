@@ -51,10 +51,11 @@ func (i *gemini) Add(id uint64, vector []float32) error {
 
 }
 
-func (i *gemini) Delete(id uint64) error {
+func (i *gemini) Delete(id ...uint64) error {
 
     // This file is a 'stub' for the module's implementation of the gemini indeex
-    return i.plugin.Delete( id )
+    //return i.plugin.Delete( id )
+    return nil
 
 }
 
@@ -72,7 +73,7 @@ func (i *gemini) SearchByVectorDistance(vector []float32, dist float32, maxLimit
 
 }
 
-func (i *gemini) UpdateUserConfig(updated schema.VectorIndexConfig) error {
+func (i *gemini) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
 
     // This file is a 'stub' for the module's implementation of the gemini indeex
     return i.plugin.UpdateUserConfig();
