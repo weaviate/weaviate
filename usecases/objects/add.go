@@ -14,11 +14,11 @@ package objects
 import (
 	"context"
 	"fmt"
-
-	"github.com/weaviate/weaviate/entities/additional"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -57,7 +57,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
-	id strfmt.UUID,
+	id strfmt.UUID, repl *additional.ReplicationProperties,
 ) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
@@ -65,10 +65,17 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 			return "", NewErrInternal("could not generate id: %v", err)
 		}
 		return newID, nil
+	} else {
+		// IDs are always returned lowercase, but they are written
+		// to disk as uppercase, when provided that way. Here we
+		// ensure they are lowercase on disk as well, so things
+		// like filtering are not affected.
+		// See: https://github.com/weaviate/weaviate/issues/2647
+		id = strfmt.UUID(strings.ToLower(id.String()))
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.vectorRepo.Exists(ctx, class, id); ok {
+	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
 		return "", NewErrInternal(err.Error())
@@ -79,7 +86,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string,
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object, repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID)
+	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +97,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
-	err = m.validateObject(ctx, principal, object)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, object, repl)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -118,7 +125,10 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	return object, nil
 }
 
-func (m *Manager) validateObject(ctx context.Context, principal *models.Principal, object *models.Object) error {
+func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
+	principal *models.Principal, object *models.Object,
+	repl *additional.ReplicationProperties,
+) error {
 	// Validate schema given in body with the weaviate schema
 	if _, err := uuid.Parse(object.ID.String()); err != nil {
 		return err
@@ -129,5 +139,5 @@ func (m *Manager) validateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	return validation.New(m.vectorRepo.Exists, m.config).Object(ctx, object, class)
+	return validation.New(m.vectorRepo.Exists, m.config, repl).Object(ctx, object, class)
 }

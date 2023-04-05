@@ -18,6 +18,9 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 	libgraphql "github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -36,8 +39,22 @@ type graphQLProvider interface {
 	GetGraphQL() libgraphql.GraphQL
 }
 
-func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvider) {
+func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvider, m *schema.Manager) {
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
+		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
+		// authorization requirements.
+		err := m.Authorizer.Authorize(principal, "list", "schema/*")
+		if err != nil {
+			switch err.(type) {
+			case errors.Forbidden:
+				return graphql.NewGraphqlPostForbidden().
+					WithPayload(errPayloadFromSingleErr(err))
+			default:
+				return graphql.NewGraphqlPostUnprocessableEntity().
+					WithPayload(errPayloadFromSingleErr(err))
+			}
+		}
+
 		errorResponse := &models.ErrorResponse{}
 
 		// Get all input from the body of the request, as it is a POST.

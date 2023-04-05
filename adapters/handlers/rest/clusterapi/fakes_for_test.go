@@ -130,6 +130,10 @@ func (f *fakeClusterState) AllNames() []string {
 	return f.hosts
 }
 
+func (f *fakeClusterState) Candidates() []string {
+	return f.hosts
+}
+
 func (f *fakeClusterState) LocalName() string {
 	return f.hosts[0]
 }
@@ -208,5 +212,9 @@ func (n *NilMigrator) UpdateInvertedIndexConfig(ctx context.Context, className s
 }
 
 func (n *NilMigrator) RecalculateVectorDimensions(ctx context.Context) error {
+	return nil
+}
+
+func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	return nil
 }

@@ -56,6 +56,23 @@ func SchemaFromDataset(ds Dataset) *models.Class {
 		out.Properties = append(out.Properties, prop)
 	}
 
+	filterProps := []*models.Property{
+		{
+			Name:     "modulo_10",
+			DataType: []string{"int"},
+		},
+		{
+			Name:     "modulo_100",
+			DataType: []string{"int"},
+		},
+		{
+			Name:     "modulo_1000",
+			DataType: []string{"int"},
+		},
+	}
+
+	out.Properties = append(out.Properties, filterProps...)
+
 	return out
 }
 

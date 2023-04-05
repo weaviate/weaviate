@@ -55,9 +55,9 @@ case $CONFIG in
   second-node)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH:-"./data-node2"}" \
+      PERSISTENCE_DATA_PATH="./data-node2" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-node2" \
-      CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node2"} \
+      CLUSTER_HOSTNAME="node2" \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
@@ -232,6 +232,37 @@ case $CONFIG in
         --port 8080
     ;;
 
+  local-apikey)
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,your-secret-key \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      DEFAULT_VECTORIZER_MODULE=none \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
+
+  local-wcs-oidc-and-apikey)
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=my-secret-key,my-secret-read-only-key \
+      AUTHENTICATION_APIKEY_USERS=etienne@semi.technology,etienne+read-only@semi.technology \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      AUTHENTICATION_OIDC_ENABLED=true \
+      AUTHENTICATION_OIDC_ISSUER=https://auth.wcs.api.weaviate.io/auth/realms/SeMI\
+      AUTHENTICATION_OIDC_USERNAME_CLAIM=email \
+      AUTHENTICATION_OIDC_GROUPS_CLAIM=groups \
+      AUTHENTICATION_OIDC_CLIENT_ID=wcs \
+      AUTHORIZATION_ADMINLIST_ENABLED=true \
+      AUTHORIZATION_ADMINLIST_USERS=etienne@semi.technology \
+      AUTHORIZATION_ADMINLIST_READONLY_USERS=etienne+read-only@semi.technology \
+      DEFAULT_VECTORIZER_MODULE=none \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
+
   local-multi-text)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -328,6 +359,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       BACKUP_S3_ENDPOINT="localhost:9000" \
+      BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_BUCKET="weaviate-backups" \
       AWS_ACCESS_KEY_ID="aws_access_key" \
       AWS_SECRET_KEY="aws_secret_key" \
@@ -351,6 +383,23 @@ case $CONFIG in
       BACKUP_GCS_ENDPOINT=localhost:9090 \
       BACKUP_GCS_BUCKET=weaviate-backups \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
+
+  local-azure)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      BACKUP_AZURE_CONTAINER=weaviate-container \
+      AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;" \
+      ENABLE_MODULES="text2vec-contextionary,backup-azure" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       go_run ./cmd/weaviate-server \

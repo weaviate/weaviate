@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/models"
 	sch "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -49,6 +50,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("import test data (date field class)", addDateFieldClass)
 	t.Run("import test data (custom vector class)", addTestDataCVC)
 	t.Run("import test data (class without properties)", addTestDataNoProperties)
+	t.Run("import test data (cursor api)", addTestDataCursorSearch)
 
 	// explore tests
 	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
@@ -64,6 +66,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with sort", gettingObjectsWithSort)
 	t.Run("getting objects with hybrid search", getWithHybridSearch)
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
+	t.Run("cursor through results", getWithCursorSearch)
 
 	// aggregate tests
 	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
@@ -98,6 +101,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, arrayClassName)
 	deleteObjectClass(t, duplicatesClassName)
 	deleteObjectClass(t, noPropsClassName)
+	deleteObjectClass(t, "CursorClass")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -266,6 +270,10 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "inCity",
 				DataType: []string{"City"},
+			},
+			{
+				Name:     "airportId",
+				DataType: []string{"uuid"},
 			},
 		},
 	})
@@ -617,7 +625,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport1,
 		Properties: map[string]interface{}{
-			"code": "10000",
+			"code":      "10000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000010000").String(),
 			"phone": map[string]interface{}{
 				"input": "+311234567",
 			},
@@ -632,7 +641,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport2,
 		Properties: map[string]interface{}{
-			"code": "20000",
+			"code":      "20000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000020000").String(),
 			"inCity": []interface{}{
 				map[string]interface{}{
 					"beacon": crossref.NewLocalhost("City", rotterdam).String(),
@@ -644,7 +654,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport3,
 		Properties: map[string]interface{}{
-			"code": "30000",
+			"code":      "30000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000030000").String(),
 			"inCity": []interface{}{
 				map[string]interface{}{
 					"beacon": crossref.NewLocalhost("City", dusseldorf).String(),
@@ -656,7 +667,8 @@ func addTestDataCityAirport(t *testing.T) {
 		Class: "Airport",
 		ID:    airport4,
 		Properties: map[string]interface{}{
-			"code": "40000",
+			"code":      "40000",
+			"airportId": uuid.MustParse("00000000-0000-0000-0000-000000040000").String(),
 			"inCity": []interface{}{
 				map[string]interface{}{
 					"beacon": crossref.NewLocalhost("City", berlin).String(),
@@ -664,15 +676,6 @@ func addTestDataCityAirport(t *testing.T) {
 			},
 		},
 	})
-
-	// wait for consistency
-	assertGetObjectEventually(t, airport1)
-	assertGetObjectEventually(t, airport2)
-	assertGetObjectEventually(t, airport3)
-	assertGetObjectEventually(t, airport4)
-
-	// give cache some time to become hot
-	time.Sleep(2 * time.Second)
 }
 
 func addTestDataCompanies(t *testing.T) {
@@ -987,6 +990,64 @@ func addTestDataNearObjectSearch(t *testing.T) {
 		},
 	})
 	assertGetObjectEventually(t, "aa44bbee-ca5f-4db7-a412-5fc6a2300011")
+}
+
+const (
+	cursorClassID1 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	cursorClassID2 = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	cursorClassID3 = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+	cursorClassID4 = strfmt.UUID("00000000-0000-0000-0000-000000000004")
+	cursorClassID5 = strfmt.UUID("00000000-0000-0000-0000-000000000005")
+	cursorClassID6 = strfmt.UUID("00000000-0000-0000-0000-000000000006")
+	cursorClassID7 = strfmt.UUID("00000000-0000-0000-0000-000000000007")
+)
+
+func addTestDataCursorSearch(t *testing.T) {
+	className := "CursorClass"
+	ids := []strfmt.UUID{
+		cursorClassID1,
+		cursorClassID2,
+		cursorClassID3,
+		cursorClassID4,
+		cursorClassID5,
+		cursorClassID6,
+		cursorClassID7,
+	}
+	names := []string{
+		"Mount Everest",
+		"Amsterdam is a cool city",
+		"Football is a game where people run after ball",
+		"Berlin is Germany's capital city",
+		"London is a cool city",
+		"Wroclaw is a really cool city",
+		"Brisbane is a city in Australia",
+	}
+
+	createObjectClass(t, &models.Class{
+		Class: className,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+		},
+	})
+
+	for i, id := range ids {
+		createObject(t, &models.Object{
+			Class: className,
+			ID:    id,
+			Properties: map[string]interface{}{
+				"name": names[i],
+			},
+		})
+		assertGetObjectEventually(t, id)
+	}
 }
 
 func addDateFieldClass(t *testing.T) {

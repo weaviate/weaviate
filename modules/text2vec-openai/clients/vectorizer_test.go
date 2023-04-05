@@ -77,7 +77,7 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "failed with status: 500 error: nope, not gonna happen")
+		assert.Equal(t, err.Error(), "connection to OpenAI failed with status: 500 error: nope, not gonna happen")
 	})
 
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {

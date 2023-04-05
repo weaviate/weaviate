@@ -119,7 +119,11 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
-		return nil, errors.Wrap(err, "invalid 'sort' filter")
+		return nil, errors.Wrap(err, "invalid 'sort' parameter")
+	}
+
+	if err := e.validateCursor(params); err != nil {
+		return nil, errors.Wrap(err, "cursor api: invalid 'after' parameter")
 	}
 
 	if params.KeywordRanking != nil {
@@ -133,15 +137,9 @@ func (e *Explorer) GetClass(ctx context.Context,
 	return e.getClassList(ctx, params)
 }
 
-func (e *Explorer) getClassKeywordBased(ctx context.Context,
-	params dto.GetParams,
-) ([]interface{}, error) {
+func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]interface{}, error) {
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
-	}
-
-	if params.Filters != nil {
-		return nil, errors.Errorf("filtered keyword search (bm25) not supported yet")
 	}
 
 	if len(params.KeywordRanking.Query) == 0 {
@@ -246,7 +244,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			hybridSearchLimit = hybrid.DefaultLimit
 		}
 		res, dists, err := e.search.ClassObjectVectorSearch(
-			ctx, params.ClassName, vec, 0, hybridSearchLimit, nil)
+			ctx, params.ClassName, vec, 0, hybridSearchLimit, params.Filters)
 		if err != nil {
 			return nil, nil, err
 		}

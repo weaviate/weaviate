@@ -60,7 +60,6 @@ func (d *DB) init(ctx context.Context) error {
 				RootPath:                  d.config.RootPath,
 				ResourceUsage:             d.config.ResourceUsage,
 				QueryMaximumResults:       d.config.QueryMaximumResults,
-				MaxImportGoroutinesFactor: d.config.MaxImportGoroutinesFactor,
 				MemtablesFlushIdleAfter:   d.config.MemtablesFlushIdleAfter,
 				MemtablesInitialSizeMB:    d.config.MemtablesInitialSizeMB,
 				MemtablesMaxSizeMB:        d.config.MemtablesMaxSizeMB,
@@ -72,7 +71,7 @@ func (d *DB) init(ctx context.Context) error {
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
 				d.schemaGetter, d, d.logger, d.nodeResolver, d.remoteIndex,
-				d.replicaClient, d.promMetrics, class)
+				d.replicaClient, d.promMetrics, class, d.jobQueueCh)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

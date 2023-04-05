@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-type RemoteReplicaIncomingRepo interface {
+type RemoteIncomingRepo interface {
 	// Write endpoints
 	ReplicateObject(ctx context.Context, indexName, shardName,
 		requestID string, object *storobj.Object) SimpleResponse
@@ -42,8 +42,6 @@ type RemoteReplicaIncomingRepo interface {
 	// Read endpoints
 	FetchObject(ctx context.Context, indexName,
 		shardName string, id strfmt.UUID) (objects.Replica, error)
-	DoesExist(ctx context.Context, class,
-		shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, class,
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
@@ -51,10 +49,10 @@ type RemoteReplicaIncomingRepo interface {
 }
 
 type RemoteReplicaIncoming struct {
-	repo RemoteReplicaIncomingRepo
+	repo RemoteIncomingRepo
 }
 
-func NewRemoteReplicaIncoming(repo RemoteReplicaIncomingRepo) *RemoteReplicaIncoming {
+func NewRemoteReplicaIncoming(repo RemoteIncomingRepo) *RemoteReplicaIncoming {
 	return &RemoteReplicaIncoming{
 		repo: repo,
 	}
@@ -118,12 +116,6 @@ func (rri *RemoteReplicaIncoming) FetchObject(ctx context.Context,
 	indexName, shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
 	return rri.repo.FetchObject(ctx, indexName, shardName, id)
-}
-
-func (rri *RemoteReplicaIncoming) DoesExist(ctx context.Context,
-	indexName, shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
-	return rri.repo.DoesExist(ctx, indexName, shardName, id)
 }
 
 func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,

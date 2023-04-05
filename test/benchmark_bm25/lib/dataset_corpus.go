@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 )
@@ -36,6 +37,10 @@ func ParseCorpi(ds Dataset, multiply int) (Corpi, error) {
 
 	scanner := bufio.NewScanner(f)
 
+	// we need reproducible random numbers to be able to compare different runs. This only needs to be stable for a
+	// given version of the code. If it produces different numbers after a dependency update it doesn't matter.
+	r := rand.New(rand.NewSource(9))
+
 	c := Corpi{}
 	for scanner.Scan() {
 		obj := map[string]interface{}{}
@@ -54,7 +59,14 @@ func ParseCorpi(ds Dataset, multiply int) (Corpi, error) {
 			corp[SanitizePropName(prop)] = propStr
 			for i := 1; i < multiply; i++ {
 				newName := fmt.Sprintf("%s_copy_%d", SanitizePropName(prop), i)
-				corp[newName] = propStr
+				var propString string
+				if len(c) > 1 { // get the content of the property from another object, to get more varied results
+					otherObjectIndex := r.Intn(len(corp))
+					propString = c[otherObjectIndex][SanitizePropName(prop)]
+				} else {
+					propString = propStr
+				}
+				corp[newName] = propString
 			}
 		}
 

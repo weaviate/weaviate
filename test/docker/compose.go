@@ -18,6 +18,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
+	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
+	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
 )
@@ -33,32 +35,36 @@ const (
 	envTestQnATransformersImage = "TEST_QNA_TRANSFORMERS_IMAGE"
 	// envTestSUMTransformersImage adds ability to pass a custom image to module tests
 	envTestSUMTransformersImage = "TEST_SUM_TRANSFORMERS_IMAGE"
+	// envTestMulti2VecCLIPImage adds ability to pass a custom CLIP image to module tests
+	envTestMulti2VecCLIPImage = "TEST_MULTI2VEC_CLIP_IMAGE"
 )
 
 const (
-	BackupFileSystem = "backup-filesystem"
-	BackupS3         = "backup-s3"
-	BackupGCS        = "backup-gcs"
-	Ref2VecCentroid  = "ref2vec-centroid"
+	Ref2VecCentroid = "ref2vec-centroid"
 )
 
 type Compose struct {
-	enableModules           []string
-	defaultVectorizerModule string
-	withMinIO               bool
-	withGCS                 bool
-	withBackendFilesystem   bool
-	withBackendS3           bool
-	withBackendS3Bucket     string
-	withBackendGCS          bool
-	withBackendGCSBucket    string
-	withTransformers        bool
-	withContextionary       bool
-	withQnATransformers     bool
-	withWeaviate            bool
-	withWeaviateCluster     bool
-	withSUMTransformers     bool
-	withCentroid            bool
+	enableModules             []string
+	defaultVectorizerModule   string
+	withMinIO                 bool
+	withGCS                   bool
+	withAzurite               bool
+	withBackendFilesystem     bool
+	withBackendS3             bool
+	withBackendS3Bucket       string
+	withBackendGCS            bool
+	withBackendGCSBucket      string
+	withBackendAzure          bool
+	withBackendAzureContainer string
+	withTransformers          bool
+	withContextionary         bool
+	withQnATransformers       bool
+	withWeaviate              bool
+	withWeaviateAuth          bool
+	withWeaviateCluster       bool
+	withSUMTransformers       bool
+	withCentroid              bool
+	withCLIP                  bool
 }
 
 func New() *Compose {
@@ -74,6 +80,12 @@ func (d *Compose) WithMinIO() *Compose {
 func (d *Compose) WithGCS() *Compose {
 	d.withGCS = true
 	d.enableModules = append(d.enableModules, modstggcs.Name)
+	return d
+}
+
+func (d *Compose) WithAzurite() *Compose {
+	d.withAzurite = true
+	d.enableModules = append(d.enableModules, modstgazure.Name)
 	return d
 }
 
@@ -99,7 +111,7 @@ func (d *Compose) WithQnATransformers() *Compose {
 
 func (d *Compose) WithBackendFilesystem() *Compose {
 	d.withBackendFilesystem = true
-	d.enableModules = append(d.enableModules, BackupFileSystem)
+	d.enableModules = append(d.enableModules, modstgfilesystem.Name)
 	return d
 }
 
@@ -107,7 +119,7 @@ func (d *Compose) WithBackendS3(bucket string) *Compose {
 	d.withBackendS3 = true
 	d.withBackendS3Bucket = bucket
 	d.withMinIO = true
-	d.enableModules = append(d.enableModules, BackupS3)
+	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
 }
 
@@ -115,13 +127,27 @@ func (d *Compose) WithBackendGCS(bucket string) *Compose {
 	d.withBackendGCS = true
 	d.withBackendGCSBucket = bucket
 	d.withGCS = true
-	d.enableModules = append(d.enableModules, BackupGCS)
+	d.enableModules = append(d.enableModules, modstggcs.Name)
+	return d
+}
+
+func (d *Compose) WithBackendAzure(container string) *Compose {
+	d.withBackendAzure = true
+	d.withBackendAzureContainer = container
+	d.withAzurite = true
+	d.enableModules = append(d.enableModules, modstgazure.Name)
 	return d
 }
 
 func (d *Compose) WithSUMTransformers() *Compose {
 	d.withSUMTransformers = true
 	d.enableModules = append(d.enableModules, SUMTransformers)
+	return d
+}
+
+func (d *Compose) WithMulti2VecCLIP() *Compose {
+	d.withCLIP = true
+	d.enableModules = append(d.enableModules, Multi2VecCLIP)
 	return d
 }
 
@@ -139,6 +165,12 @@ func (d *Compose) WithWeaviate() *Compose {
 func (d *Compose) WithWeaviateCluster() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateCluster = true
+	return d
+}
+
+func (d *Compose) WithWeaviateAuth() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateAuth = true
 	return d
 }
 
@@ -179,6 +211,19 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 				envSettings[k] = v
 			}
 			envSettings["BACKUP_GCS_BUCKET"] = d.withBackendGCSBucket
+		}
+	}
+	if d.withAzurite {
+		container, err := startAzurite(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", Azurite)
+		}
+		containers = append(containers, container)
+		if d.withBackendAzure {
+			for k, v := range container.envSettings {
+				envSettings[k] = v
+			}
+			envSettings["BACKUP_AZURE_CONTAINER"] = d.withBackendAzureContainer
 		}
 	}
 	if d.withBackendFilesystem {
@@ -228,6 +273,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
+	if d.withCLIP {
+		image := os.Getenv(envTestMulti2VecCLIPImage)
+		container, err := startM2VClip(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", SUMTransformers)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
 	if d.withWeaviate {
 		image := os.Getenv(envTestWeaviateImage)
 		hostname := Weaviate
@@ -235,6 +291,15 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["CLUSTER_HOSTNAME"] = "node1"
 			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
+		}
+		if d.withWeaviateAuth {
+			envSettings["AUTHENTICATION_OIDC_ENABLED"] = "true"
+			envSettings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
+			envSettings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
+			envSettings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
+			envSettings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
+			envSettings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
+			envSettings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname)

@@ -43,11 +43,16 @@ func newCommitLoggerParser(path string, activeMemtable *Memtable,
 }
 
 func (p *commitloggerParser) Do() error {
-	if p.strategy == StrategyReplace {
+	switch p.strategy {
+	case StrategyReplace:
 		return p.doReplace()
+	case StrategyMapCollection, StrategySetCollection:
+		return p.doCollection()
+	case StrategyRoaringSet:
+		return p.doRoaringSet()
+	default:
+		return errors.Errorf("unknown strategy %s on commit log parse", p.strategy)
 	}
-
-	return p.doCollection()
 }
 
 // doReplace parsers all entries into a cache for deduplication first and only
@@ -78,15 +83,14 @@ func (p *commitloggerParser) doReplace() error {
 			break
 		}
 
-		switch commitType {
-		case CommitTypeCollection:
-			f.Close()
-			return errors.Errorf("found a collection commit on a replace bucket")
-		case CommitTypeReplace:
+		if CommitTypeReplace.Is(commitType) {
 			if err := p.parseReplaceNode(); err != nil {
 				errUnexpectedLength = errors.Wrap(err, "read replace node")
 				break
 			}
+		} else {
+			f.Close()
+			return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
 		}
 	}
 

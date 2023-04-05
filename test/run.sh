@@ -133,6 +133,14 @@ function run_acceptance_tests() {
         return 1
       fi
     done
+    # tests with go client are in a separate package with its own dependencies to isolate them
+    cd 'test/acceptance_with_go_client'
+    for pkg in $(go list ./... ); do
+      if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
 }
 
 function run_module_tests() {

@@ -31,7 +31,7 @@ import (
 func TestSchedulerValidateCreateBackup(t *testing.T) {
 	t.Parallel()
 	var (
-		cls         = "MyClass"
+		cls         = "C1"
 		backendName = "s3"
 		s           = newFakeScheduler(nil).scheduler()
 		ctx         = context.Background()
@@ -63,6 +63,18 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		})
 		assert.NotNil(t, err)
 	})
+
+	t.Run("RequestIncludeHasDuplicate", func(t *testing.T) {
+		_, err := s.Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{"C2", "C2", "C1"},
+			Exclude: []string{},
+		})
+		assert.NotNil(t, err)
+		assert.ErrorContains(t, err, "C2")
+	})
+
 	t.Run("ResultingClassListIsEmpty", func(t *testing.T) {
 		// return one class and exclude it in the request
 		fs := newFakeScheduler(nil)
@@ -545,6 +557,17 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		assert.NotNil(t, err)
 	})
 
+	t.Run("RequestIncludeHasDuplicates", func(t *testing.T) {
+		_, err := s.Restore(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      id,
+			Include: []string{"C1", "C2", "C1"},
+			Exclude: []string{},
+		})
+		assert.NotNil(t, err)
+		assert.ErrorContains(t, err, "C1")
+	})
+
 	t.Run("BackendFailure", func(t *testing.T) { //  backend provider fails
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
@@ -675,4 +698,23 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 func marshalCoordinatorMeta(m backup.DistributedBackupDescriptor) []byte {
 	bytes, _ := json.MarshalIndent(m, "", "")
 	return bytes
+}
+
+func TestFirstDuplicate(t *testing.T) {
+	tests := []struct {
+		in   []string
+		want string
+	}{
+		{},
+		{[]string{"1"}, ""},
+		{[]string{"1", "1"}, "1"},
+		{[]string{"1", "2", "2", "1"}, "2"},
+		{[]string{"1", "2", "3", "1"}, "1"},
+	}
+	for _, test := range tests {
+		got := findDuplicate(test.in)
+		if got != test.want {
+			t.Errorf("firstDuplicate(%v) want=%s got=%s", test.in, test.want, got)
+		}
+	}
 }

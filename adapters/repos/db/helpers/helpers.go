@@ -11,13 +11,18 @@
 
 package helpers
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/filters"
+)
 
 var (
-	ObjectsBucket       = []byte("objects")
-	ObjectsBucketLSM    = "objects"
-	DimensionsBucketLSM = "dimensions"
-	DocIDBucket         = []byte("doc_ids")
+	ObjectsBucket              = []byte("objects")
+	ObjectsBucketLSM           = "objects"
+	CompressedObjectsBucketLSM = "compressed_objects"
+	DimensionsBucketLSM        = "dimensions"
+	DocIDBucket                = []byte("doc_ids")
 )
 
 // BucketFromPropName creates the byte-representation used as the bucket name
@@ -43,4 +48,24 @@ func BucketFromPropNameLSM(propName string) string {
 // for the status information of a partiular prop in the inverted index
 func HashBucketFromPropNameLSM(propName string) string {
 	return fmt.Sprintf("hash_property_%s", propName)
+}
+
+func BucketFromPropNameLengthLSM(propName string) string {
+	return BucketFromPropNameLSM(propName + filters.InternalPropertyLength)
+}
+
+func HashBucketFromPropNameLengthLSM(propName string) string {
+	return HashBucketFromPropNameLSM(propName + filters.InternalPropertyLength)
+}
+
+func BucketFromPropNameNullLSM(propName string) string {
+	return BucketFromPropNameLSM(propName + filters.InternalNullIndex)
+}
+
+func HashBucketFromPropNameNullLSM(propName string) string {
+	return HashBucketFromPropNameLSM(propName + filters.InternalNullIndex)
+}
+
+func TempBucketFromBucketName(bucketName string) string {
+	return bucketName + "_temp"
 }

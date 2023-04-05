@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -76,6 +77,16 @@ func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
 // message, even when OIDC is globally disabled.
 func configureOIDC(appState *state.State) *oidc.Client {
 	c, err := oidc.New(appState.ServerConfig.Config)
+	if err != nil {
+		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
+		os.Exit(1)
+	}
+
+	return c
+}
+
+func configureAPIKey(appState *state.State) *apikey.Client {
+	c, err := apikey.New(appState.ServerConfig.Config)
 	if err != nil {
 		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
 		os.Exit(1)

@@ -43,16 +43,16 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -74,16 +74,16 @@ func TestBatchPutObjects(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -100,16 +100,16 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -132,15 +132,15 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
@@ -157,16 +157,16 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   1,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
@@ -233,16 +233,16 @@ func TestBatchDeleteObjects(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -260,16 +260,16 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	queryMaximumResults := int64(200)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -296,15 +296,15 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	queryMaximumResults := int64(20)
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
-	repo := New(logger, Config{
+	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
-	repo.SetSchemaGetter(schemaGetter)
-	err := repo.WaitForStartup(testCtx())
 	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 	migrator := NewMigrator(repo, logger)
 
@@ -582,6 +582,55 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				_, ok := findID(res, batch[2].Object.ID)
 				require.Equal(t, false, ok, "results should not contain our desired id")
 			})
+		})
+
+		t.Run("upserting the same objects over and over again", func(t *testing.T) {
+			for i := 0; i < 20; i++ {
+				batch := objects.BatchObjects{
+					objects.BatchObject{
+						OriginalIndex: 0,
+						Err:           nil,
+						Object: &models.Object{
+							Class: "ThingForBatching",
+							Properties: map[string]interface{}{
+								"stringProp": "first element",
+							},
+							ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+						},
+						UUID:   "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+						Vector: []float32{1, 2, 3},
+					},
+					objects.BatchObject{
+						OriginalIndex: 1,
+						Err:           nil,
+						Object: &models.Object{
+							Class: "ThingForBatching",
+							Properties: map[string]interface{}{
+								"stringProp": "third element",
+							},
+							ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+						},
+						UUID:   "90ade18e-2b99-4903-aa34-1d5d648c932d",
+						Vector: []float32{1, 1, -3},
+					},
+				}
+
+				t.Run("can import", func(t *testing.T) {
+					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+					require.Nil(t, err)
+
+					assert.Nil(t, batchRes[0].Err)
+					assert.Nil(t, batchRes[1].Err)
+				})
+
+				t.Run("a vector search returns the correct number of elements", func(t *testing.T) {
+					res, err := repo.ClassVectorSearch(context.Background(), "ThingForBatching",
+						[]float32{1, 2, 3}, 0, 100, nil)
+					require.Nil(t, err)
+					assert.Len(t, res, 2)
+				})
+
+			}
 		})
 
 		t.Run("with a duplicate UUID", func(t *testing.T) {
@@ -1084,7 +1133,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			leftToDelete := objectsMatches
 			deleteIterationCount := 0
 			deletedObjectsCount := 0
-			for true {
+			for {
 				// delete objects to limit
 				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil)
 				require.Nil(t, err)

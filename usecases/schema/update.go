@@ -29,7 +29,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	m.Lock()
 	defer m.Unlock()
 
-	err := m.authorizer.Authorize(principal, "update", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (m *Manager) validateImmutableTextField(u immutableText,
 func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
 	className, shardName, targetStatus string,
 ) error {
-	err := m.authorizer.Authorize(principal, "update",
+	err := m.Authorizer.Authorize(principal, "update",
 		fmt.Sprintf("schema/%s/shards/%s", className, shardName))
 	if err != nil {
 		return err
@@ -210,7 +210,7 @@ func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Princ
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	name string, class *models.Class,
 ) error {
-	err := m.authorizer.Authorize(principal, "update", "schema/objects")
+	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 
 	if class.Class != className {
 		// the name in the URI and body don't match, so we assume the user wants to rename
-		n := upperCaseClassName(class.Class)
+		n := schema.UppercaseClassName(class.Class)
 		newName = &n
 	}
 

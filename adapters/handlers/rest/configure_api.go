@@ -39,11 +39,11 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	entgemini "github.com/weaviate/weaviate/entities/vectorindex/gemini"
+	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
@@ -141,9 +141,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = func(token string, scopes []string) (*models.Principal, error) {
-		return appState.OIDC.ValidateAndExtract(token, scopes)
-	}
+	api.OidcAuth = NewTokenAuthComposer(
+		appState.ServerConfig.Config.Authentication,
+		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
@@ -167,22 +167,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	remoteIndexClient := clients.NewRemoteIndex(clusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(clusterHttpClient)
 	replicationClient := clients.NewReplicationClient(clusterHttpClient)
-	repo := db.New(appState.Logger, db.Config{
-		ServerVersion:                    config.ServerVersion,
-		GitHash:                          config.GitHash,
-		MemtablesFlushIdleAfter:          appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
-		MemtablesInitialSizeMB:           10,
-		MemtablesMaxSizeMB:               appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
-		MemtablesMinActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
-		MemtablesMaxActiveSeconds:        appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
-		RootPath:                         appState.ServerConfig.Config.Persistence.DataPath,
-		QueryLimit:                       appState.ServerConfig.Config.QueryDefaults.Limit,
-		QueryMaximumResults:              appState.ServerConfig.Config.QueryMaximumResults,
-		MaxImportGoroutinesFactor:        appState.ServerConfig.Config.MaxImportGoroutinesFactor,
-		TrackVectorDimensions:            appState.ServerConfig.Config.TrackVectorDimensions,
-		ReindexVectorDimensionsAtStartup: appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
-		ResourceUsage:                    appState.ServerConfig.Config.ResourceUsage,
+	repo, err := db.New(appState.Logger, db.Config{
+		ServerVersion:             config.ServerVersion,
+		GitHash:                   config.GitHash,
+		MemtablesFlushIdleAfter:   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesInitialSizeMB:    10,
+		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
+		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
+		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
+		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
+		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
+		MaxImportGoroutinesFactor: appState.ServerConfig.Config.MaxImportGoroutinesFactor,
+		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
+		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics) // TODO client
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("invalid new DB")
+	}
+
 	appState.DB = repo
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
@@ -224,7 +229,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	    schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseUserConfig, appState.Modules, inverted.ValidateConfig,
+		enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, schemaTxClient, scaler,
 	    )
         if err != nil {
@@ -326,7 +331,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
         appState.SchemaManager,
         repo, appState)
 
+	reindexCtx, reindexCtxCancel := context.WithCancel(context.Background())
+	reindexFinished := make(chan error)
+	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
+		// start reindexing inverted indexes (if requested by user) in the background
+		// allowing db to complete api configuration and start handling requests
+		go func() {
+			appState.Logger.
+				WithField("action", "startup").
+				Info("Reindexing sets to roaring sets")
+			// FIXME to avoid import cycles tasks are passed as strings
+			reindexFinished <- migrator.InvertedReindex(reindexCtx, "ShardInvertedReindexTaskSetToRoaringSet")
+		}()
+	}
+
 	api.ServerShutdown = func() {
+		// stop reindexing on server shutdown
+		reindexCtxCancel()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
@@ -403,6 +425,7 @@ func startupRoutine(ctx context.Context) *state.State {
 		Debug("config loaded")
 
 	appState.OIDC = configureOIDC(appState)
+	appState.APIKey = configureAPIKey(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 	appState.Authorizer = configureAuthorizer(appState)
 
@@ -414,7 +437,7 @@ func startupRoutine(ctx context.Context) *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Persistence.DataPath, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -598,6 +621,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstggcs.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modstgazure.Name]; ok {
+		appState.Modules.Register(modstgazure.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modstgazure.Name).
 			Debug("enabled module")
 	}
 

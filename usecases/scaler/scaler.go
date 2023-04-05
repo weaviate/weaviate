@@ -70,8 +70,8 @@ type BackUpper interface {
 
 // cluster is used by the scaler to query cluster
 type cluster interface {
-	// AllNames returns list of existing node in the cluster
-	AllNames() []string
+	// Candidates returns list of existing nodes in the cluster
+	Candidates() []string
 	// LocalName returns name of this node
 	LocalName() string
 	// NodeHostname return hosts address for a specific node name
@@ -100,7 +100,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 	// make changes
 	ssBefore := s.schema.ShardingState(className)
 	if ssBefore == nil {
-		return nil, errors.Errorf("no sharding state for class %q", className)
+		return nil, fmt.Errorf("no sharding state for class %q", className)
 	}
 	if newReplFactor > prevReplFactor {
 		return s.scaleOut(ctx, className, ssBefore, updated, newReplFactor)
@@ -131,7 +131,9 @@ func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *shard
 	// Identify all shards of the class and adjust the replicas. After this is
 	// done, the affected shards now belong to more nodes than they did before.
 	for name, shard := range ssAfter.Physical {
-		shard.AdjustReplicas(int(replFactor), s.cluster)
+		if err := shard.AdjustReplicas(int(replFactor), s.cluster); err != nil {
+			return nil, err
+		}
 		ssAfter.Physical[name] = shard
 	}
 	lDist, nodeDist := distributions(ssBefore, &ssAfter)
@@ -210,5 +212,5 @@ func (s *Scaler) LocalScaleOut(ctx context.Context,
 func (s *Scaler) scaleIn(ctx context.Context, className string,
 	updated sharding.Config,
 ) (*sharding.State, error) {
-	return nil, errors.Errorf("scaling in (reducing replica count) not supported yet")
+	return nil, errors.Errorf("scaling in not supported yet")
 }

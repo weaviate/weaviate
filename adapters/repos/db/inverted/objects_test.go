@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -28,11 +29,17 @@ func TestAnalyzeObject(t *testing.T) {
 	a := NewAnalyzer(fakeStopwordDetector{})
 
 	t.Run("with multiple properties", func(t *testing.T) {
+		id1 := uuid.New()
+		id2 := uuid.New()
 		schema := map[string]interface{}{
 			"description": "I am great!",
 			"email":       "john@doe.com",
 			"about_me":    "I like reading sci-fi books",
 			"profession":  "Mechanical Engineer",
+			"id1":         id1,                 // correctly parsed
+			"id2":         id2.String(),        // untyped
+			"idArray1":    []uuid.UUID{id1},    // coorectly parsed
+			"idArray2":    []any{id2.String()}, // untyped
 		}
 
 		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
@@ -56,6 +63,22 @@ func TestAnalyzeObject(t *testing.T) {
 				Name:         "profession",
 				DataType:     []string{"string"},
 				Tokenization: "field",
+			},
+			{
+				Name:     "id1",
+				DataType: []string{"uuid"},
+			},
+			{
+				Name:     "id2",
+				DataType: []string{"uuid"},
+			},
+			{
+				Name:     "idArray1",
+				DataType: []string{"uuid[]"},
+			},
+			{
+				Name:     "idArray2",
+				DataType: []string{"uuid[]"},
 			},
 		}
 		res, err := a.Object(schema, props, strfmt.UUID(uuid))
@@ -120,12 +143,44 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		require.Len(t, res, 5)
+		expectedID1 := []Countable{
+			{
+				Data:          []byte(id1[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		expectedID2 := []Countable{
+			{
+				Data:          []byte(id2[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		expectedIDArray1 := []Countable{
+			{
+				Data:          []byte(id1[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		expectedIDArray2 := []Countable{
+			{
+				Data:          []byte(id2[:]),
+				TermFrequency: 0,
+			},
+		}
+
+		require.Len(t, res, 9)
 		var actualDescription []Countable
 		var actualEmail []Countable
 		var actualAboutMe []Countable
 		var actualProfession []Countable
 		var actualUUID []Countable
+		var actualID1 []Countable
+		var actualID2 []Countable
+		var actualIDArray1 []Countable
+		var actualIDArray2 []Countable
 
 		for _, elem := range res {
 			if elem.Name == "email" {
@@ -147,6 +202,22 @@ func TestAnalyzeObject(t *testing.T) {
 			if elem.Name == "_id" {
 				actualUUID = elem.Items
 			}
+
+			if elem.Name == "id1" {
+				actualID1 = elem.Items
+			}
+
+			if elem.Name == "id2" {
+				actualID2 = elem.Items
+			}
+
+			if elem.Name == "idArray1" {
+				actualIDArray1 = elem.Items
+			}
+
+			if elem.Name == "idArray2" {
+				actualIDArray2 = elem.Items
+			}
 		}
 
 		assert.ElementsMatch(t, expectedEmail, actualEmail, res)
@@ -154,6 +225,10 @@ func TestAnalyzeObject(t *testing.T) {
 		assert.ElementsMatch(t, expectedAboutMe, actualAboutMe, res)
 		assert.ElementsMatch(t, expectedProfession, actualProfession, res)
 		assert.ElementsMatch(t, expectedUUID, actualUUID, res)
+		assert.ElementsMatch(t, expectedID1, actualID1, res)
+		assert.ElementsMatch(t, expectedID2, actualID2, res)
+		assert.ElementsMatch(t, expectedIDArray1, actualIDArray1, res)
+		assert.ElementsMatch(t, expectedIDArray2, actualIDArray2, res)
 	})
 
 	t.Run("with refProps", func(t *testing.T) {

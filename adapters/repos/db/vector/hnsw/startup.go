@@ -14,12 +14,15 @@ package hnsw
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"io"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -117,9 +120,29 @@ func (h *hnsw) restoreFromDisk() error {
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
 	h.tombstones = state.Tombstones
+	h.compressed.Store(state.Compressed)
 
-	// make sure the cache fits the current size
-	h.cache.grow(uint64(len(h.nodes)))
+	if state.Compressed {
+		err := h.initCompressedStore()
+		if err != nil {
+			return err
+		}
+		h.cache.drop()
+		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
+			int(state.PQData.M),
+			int(state.PQData.Ks),
+			state.PQData.UseBitsEncoding,
+			h.distancerProvider,
+			int(state.PQData.Dimensions), state.PQData.EncoderType,
+			state.PQData.Encoders,
+		)
+		if err != nil {
+			return errors.Wrap(err, "Restoring PQ data.")
+		}
+	} else {
+		// make sure the cache fits the current size
+		h.cache.grow(uint64(len(h.nodes)))
+	}
 
 	// make sure the visited list pool fits the current size
 	h.pools.visitedLists.Destroy()
@@ -129,11 +152,13 @@ func (h *hnsw) restoreFromDisk() error {
 	return nil
 }
 
-func (h *hnsw) tombstoneCleanup(stopFunc cyclemanager.StopFunc) {
-	if err := h.CleanUpTombstonedNodes(stopFunc); err != nil {
+func (h *hnsw) tombstoneCleanup(shouldBreak cyclemanager.ShouldBreakFunc) bool {
+	executed, err := h.cleanUpTombstonedNodes(shouldBreak)
+	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
 			WithError(err).Error("tombstone cleanup errord")
 	}
+	return executed
 }
 
 // PostStartup triggers routines that should happen after startup. The startup
@@ -147,13 +172,30 @@ func (h *hnsw) PostStartup() {
 }
 
 func (h *hnsw) prefillCache() {
-	limit := int(h.cache.copyMaxSize())
+	limit := 0
+	if h.compressed.Load() {
+		limit = int(h.compressedVectorsCache.copyMaxSize())
+	} else {
+		limit = int(h.cache.copyMaxSize())
+	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
-		err := newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+		var err error
+		if h.compressed.Load() {
+			cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
+			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+				id := binary.LittleEndian.Uint64(k)
+				h.compressedVectorsCache.grow(id)
+				h.compressedVectorsCache.preload(id, v)
+			}
+			cursor.Close()
+		} else {
+			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+		}
+
 		if err != nil {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}

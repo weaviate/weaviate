@@ -114,7 +114,7 @@ type fakeNodes struct {
 	nodes []string
 }
 
-func (f fakeNodes) AllNames() []string {
+func (f fakeNodes) Candidates() []string {
 	return f.nodes
 }
 
@@ -168,7 +168,7 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
-	additional additional.Properties,
+	cursor *filters.Cursor, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }

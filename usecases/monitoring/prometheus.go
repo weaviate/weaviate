@@ -40,6 +40,7 @@ type PrometheusMetrics struct {
 	ObjectCount                        *prometheus.GaugeVec
 	QueriesCount                       *prometheus.GaugeVec
 	QueriesDurations                   *prometheus.HistogramVec
+	QueriesFilteredVectorDurations     *prometheus.SummaryVec
 	QueryDimensions                    *prometheus.CounterVec
 	GoroutinesCount                    *prometheus.GaugeVec
 	BackupRestoreDurations             *prometheus.SummaryVec
@@ -101,6 +102,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help:    "Duration of queries in milliseconds",
 			Buckets: msBuckets,
 		}, []string{"class_name", "query_type"}),
+
+		QueriesFilteredVectorDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "queries_filtered_vector_durations_ms",
+			Help: "Duration of queries in milliseconds",
+		}, []string{"class_name", "shard_name", "operation"}),
 
 		GoroutinesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "concurrent_goroutines",

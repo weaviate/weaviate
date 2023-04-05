@@ -12,8 +12,9 @@
 package generate
 
 type Params struct {
-	Prompt *string
-	Task   *string
+	Prompt     *string
+	Task       *string
+	Properties []string
 }
 
 func (n Params) GetPrompt() string {
@@ -22,4 +23,8 @@ func (n Params) GetPrompt() string {
 
 func (n Params) GetTask() string {
 	return *n.Task
+}
+
+func (n Params) GetProperties() []string {
+	return n.Properties
 }

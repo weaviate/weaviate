@@ -128,6 +128,18 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.NewList(graphql.String), // String since no graphql date datatype exists
 		}
+	case schema.DataTypeUUIDArray:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.NewList(graphql.String), // Always return UUID as string representation to the user
+		}
+	case schema.DataTypeUUID:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.String, // Always return UUID as string representation to the user
+		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s; %s",
 			className, property.Name, propertyType.AsPrimitive()))
@@ -204,6 +216,10 @@ func buildGetClassField(classObject *graphql.Object,
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
+			"after": &graphql.ArgumentConfig{
+				Description: descriptions.AfterID,
+				Type:        graphql.String,
+			},
 			"limit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
 				Type:        graphql.Int,
@@ -223,6 +239,7 @@ func buildGetClassField(classObject *graphql.Object,
 	}
 
 	field.Args["bm25"] = bm25Argument(class.Class)
+	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
 
 	if modulesProvider != nil {
 		for name, argument := range modulesProvider.GetArguments(class) {
@@ -230,7 +247,9 @@ func buildGetClassField(classObject *graphql.Object,
 		}
 	}
 
-	field.Args["hybrid"] = hybridArgument(classObject, class, modulesProvider)
+	if replicationEnabled(class) {
+		field.Args["consistencyLevel"] = consistencyLevelArgument(class)
+	}
 
 	return field
 }
@@ -312,6 +331,11 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			return nil, err
 		}
 
+		cursor, err := filters.ExtractCursorFromArgs(p.Args)
+		if err != nil {
+			return nil, err
+		}
+
 		// There can only be exactly one ast.Field; it is the class name.
 		if len(p.Info.FieldASTs) != 1 {
 			panic("Only one Field expected here")
@@ -319,7 +343,8 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
 
-		properties, additional, err := extractProperties(className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
+		properties, addlProps, err := extractProperties(
+			className, selectionsOfClass, p.Info.Fragments, r.modulesProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -360,11 +385,10 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 			}
 		}
 
-		var keywordRankingParams *searchparams.KeywordRanking
-
 		// extracts bm25 (sparseSearch) from the query
+		var keywordRankingParams *searchparams.KeywordRanking
 		if bm25, ok := p.Args["bm25"]; ok {
-			p := common_filters.ExtractBM25(bm25.(map[string]interface{}))
+			p := common_filters.ExtractBM25(bm25.(map[string]interface{}), addlProps.ExplainScore)
 			keywordRankingParams = &p
 		}
 
@@ -373,28 +397,40 @@ func (r *resolver) makeResolveGetClass(className string) graphql.FieldResolveFn 
 		// refactored
 		var hybridParams *searchparams.HybridSearch
 		if hybrid, ok := p.Args["hybrid"]; ok {
-			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}))
+			p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
 			if err != nil {
 				return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 			}
 			hybridParams = p
+			if pagination != nil {
+				hybridParams.Limit = pagination.Limit
+			}
+		}
+
+		var replProps *additional.ReplicationProperties
+		if cl, ok := p.Args["consistencyLevel"]; ok {
+			replProps = &additional.ReplicationProperties{
+				ConsistencyLevel: cl.(string),
+			}
 		}
 
 		group := extractGroup(p.Args)
 
 		params := dto.GetParams{
-			Filters:              filters,
-			ClassName:            className,
-			Pagination:           pagination,
-			Properties:           properties,
-			Sort:                 sort,
-			NearVector:           nearVectorParams,
-			NearObject:           nearObjectParams,
-			Group:                group,
-			ModuleParams:         moduleParams,
-			AdditionalProperties: additional,
-			KeywordRanking:       keywordRankingParams,
-			HybridSearch:         hybridParams,
+			Filters:               filters,
+			ClassName:             className,
+			Pagination:            pagination,
+			Cursor:                cursor,
+			Properties:            properties,
+			Sort:                  sort,
+			NearVector:            nearVectorParams,
+			NearObject:            nearObjectParams,
+			Group:                 group,
+			ModuleParams:          moduleParams,
+			AdditionalProperties:  addlProps,
+			KeywordRanking:        keywordRankingParams,
+			HybridSearch:          hybridParams,
+			ReplicationProperties: replProps,
 		}
 
 		// need to perform vector search by distance

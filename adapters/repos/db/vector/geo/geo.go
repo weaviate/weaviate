@@ -14,13 +14,13 @@ package geo
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-    "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	 "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -42,7 +42,7 @@ type vectorIndex interface {
 	Add(id uint64, vector []float32) error
 	KnnSearchByVectorMaxDist(query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
-	Delete(id uint64) error
+	Delete(id ...uint64) error
 	Dump(...string)
 	Drop(ctx context.Context) error
 	PostStartup()
@@ -98,8 +98,8 @@ func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
 	makeCL := hnsw.MakeNoopCommitLogger
 	if !config.DisablePersistence {
 		makeCL = func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(config.RootPath, config.ID, 10*time.Second,
-				config.Logger)
+			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger,
+				hnsw.WithCommitlogCycleTicker(cyclemanager.GeoCommitLoggerCycleTicker))
 		}
 	}
 	return makeCL

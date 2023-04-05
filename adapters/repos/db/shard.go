@@ -14,10 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"path"
-	"runtime"
 	"sync"
 	"time"
 
@@ -37,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	geminient "github.com/weaviate/weaviate/entities/vectorindex/gemini"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -64,32 +61,20 @@ type Shard struct {
 	versioner         *shardVersioner
 	resourceScanState *resourceScanState
 
-	numActiveBatches    int
-	activeBatchesLock   sync.Mutex
-	jobQueueCh          chan job
-	shutDownWg          sync.WaitGroup
-	maxNumberGoroutines int
-
 	status              storagestate.Status
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
 	stopMetrics         chan struct{}
+
+	centralJobQueue chan job // reference to queue used by all shards
 
 	docIdLock []sync.Mutex
 	// replication
 	replicationMap pendingReplicaTasks
 }
 
-type job struct {
-	object  *storobj.Object
-	status  objectInsertStatus
-	index   int
-	ctx     context.Context
-	batcher *objectsBatcher
-}
-
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class,
+	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 ) (*Shard, error) {
 	before := time.Now()
 
@@ -105,19 +90,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics:      promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:       docid.NewInMemDeletedTracker(),
-		randomSource:        rand,
-		resourceScanState:   newResourceScanState(),
-		jobQueueCh:          make(chan job, 100000),
-		maxNumberGoroutines: int(math.Round(index.Config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		stopMetrics:         make(chan struct{}),
-		replicationMap:      pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		deletedDocIDs:     docid.NewInMemDeletedTracker(),
+		randomSource:      rand,
+		resourceScanState: newResourceScanState(),
+		stopMetrics:       make(chan struct{}),
+		replicationMap:    pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:   jobQueueCh,
 	}
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
-	if s.maxNumberGoroutines == 0 {
-		return s, errors.New("no workers to add batch-jobs configured.")
-	}
 
 	defer s.metrics.ShardStartup(before)
     
@@ -210,30 +191,16 @@ func (s *Shard) initVectorIndex(
                 ClassName:         s.index.Config.ClassName.String(),
                 PrometheusMetrics: s.promMetrics,
                 MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-                    // Previously we had an interval of 10s in here, which was changed to
-                    // 0.5s as part of gh-1867. There's really no way to wait so long in
-                    // between checks: If you are running on a low-powered machine, the
-                    // interval will simply find that there is no work and do nothing in
-                    // each iteration. However, if you are running on a very powerful
-                    // machine within 10s you could have potentially created two units of
-                    // work, but we'll only be handling one every 10s. This means
-                    // uncombined/uncondensed hnsw/gemini commit logs will keep piling up can only
-                    // be processes long after the initial insert is complete. This also
-                    // means that if there is a crash during importing a lot of work needs
-                    // to be done at startup, since the commit logs still contain too many
-                    // redundancies. So as of now it seems there are only advantages to
-                    // running the cleanup checks and work much more often.
-                    return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 500*time.Millisecond,
-                        s.index.logger)
+                    return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), s.index.logger)
                 },
                 VectorForIDThunk: s.vectorByIndexID,
                 DistanceProvider: distProv,
             }, hnswUserConfig)
-
             if err != nil {
                 return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
             }
             s.vectorIndex = vi
+
             return nil
 
         case geminient.UserConfig:
@@ -258,7 +225,7 @@ func (s *Shard) initVectorIndex(
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 
-	err := s.initDBFile(ctx)
+	err := s.initLSMStore(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -307,7 +274,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	return idBytes[15] % IdLockPoolSize
 }
 
-func (s *Shard) initDBFile(ctx context.Context) error {
+func (s *Shard) initLSMStore(ctx context.Context) error {
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -327,13 +294,8 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithMonitorCount(),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithDynamicMemtableSizing(
-			s.index.Config.MemtablesInitialSizeMB,
-			s.index.Config.MemtablesMaxSizeMB,
-			s.index.Config.MemtablesMinActiveSeconds,
-			s.index.Config.MemtablesMaxActiveSeconds,
-		),
+		s.dynamicMemtableSizing(),
+		s.memtableIdleConfig(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
@@ -344,10 +306,7 @@ func (s *Shard) initDBFile(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) drop(force bool) error {
-	if s.isReadOnly() && !force {
-		return storagestate.ErrStatusReadOnly
-	}
+func (s *Shard) drop() error {
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
@@ -479,7 +438,7 @@ func (s *Shard) addPropertyLength(ctx context.Context, prop *models.Property) er
 
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalPropertyLength),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -501,7 +460,7 @@ func (s *Shard) addNullState(ctx context.Context, prop *models.Property) error {
 
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(prop.Name+filters.InternalNullIndex),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -520,7 +479,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -539,7 +498,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	if err != nil {
 		return err
 	}
@@ -554,6 +513,20 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
+	return lsmkv.WithIdleThreshold(
+		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
+}
+
+func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
+	return lsmkv.WithDynamicMemtableSizing(
+		s.index.Config.MemtablesInitialSizeMB,
+		s.index.Config.MemtablesMaxSizeMB,
+		s.index.Config.MemtablesMinActiveSeconds,
+		s.index.Config.MemtablesMaxActiveSeconds,
+	)
+}
+
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -561,8 +534,9 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if schema.IsRefDataType(prop.DataType) {
 		err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
-			lsmkv.WithStrategy(lsmkv.StrategySetCollection), // ref props do not have frequencies -> Set
-			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet), // ref props do not have frequencies -> Set
+			s.memtableIdleConfig(),
+			s.dynamicMemtableSizing(),
 		)
 		if err != nil {
 			return err
@@ -571,7 +545,8 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		err = s.store.CreateOrLoadBucket(ctx,
 			helpers.HashBucketFromPropNameLSM(helpers.MetaCountProp(prop.Name)),
 			lsmkv.WithStrategy(lsmkv.StrategyReplace),
-			lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+			s.memtableIdleConfig(),
+			s.dynamicMemtableSizing(),
 		)
 		if err != nil {
 			return err
@@ -582,26 +557,29 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		return s.initGeoProp(prop)
 	}
 
-	var mapOpts []lsmkv.BucketOption
+	bucketOpts := []lsmkv.BucketOption{
+		s.memtableIdleConfig(),
+		s.dynamicMemtableSizing(),
+	}
 	if inverted.HasFrequency(schema.DataType(prop.DataType[0])) {
-		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
-		mapOpts = append(mapOpts, lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second))
+		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
-			mapOpts = append(mapOpts, lsmkv.WithLegacyMapSorting())
+			bucketOpts = append(bucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 	} else {
-		mapOpts = append(mapOpts, lsmkv.WithStrategy(lsmkv.StrategySetCollection))
+		bucketOpts = append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 	}
 
 	err := s.store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name),
-		mapOpts...)
+		bucketOpts...)
 	if err != nil {
 		return err
 	}
 
 	err = s.store.CreateOrLoadBucket(ctx, helpers.HashBucketFromPropNameLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+		s.memtableIdleConfig(),
+		s.dynamicMemtableSizing(),
 	)
 	if err != nil {
 		return err
@@ -617,7 +595,10 @@ func (s *Shard) updateVectorIndexConfig(ctx context.Context,
 		return storagestate.ErrStatusReadOnly
 	}
 
-	return s.vectorIndex.UpdateUserConfig(updated)
+	s.updateStatus(storagestate.StatusReadOnly.String())
+	return s.vectorIndex.UpdateUserConfig(updated, func() {
+		s.updateStatus(storagestate.StatusReady.String())
+	})
 }
 
 func (s *Shard) shutdown(ctx context.Context) error {

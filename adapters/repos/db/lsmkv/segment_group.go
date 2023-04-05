@@ -19,10 +19,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -56,8 +56,7 @@ type SegmentGroup struct {
 	monitorCount bool
 }
 
-func newSegmentGroup(dir string,
-	compactionInterval time.Duration, logger logrus.FieldLogger,
+func newSegmentGroup(dir string, logger logrus.FieldLogger,
 	mapRequiresSorting bool, metrics *Metrics, strategy string,
 	monitorCount bool,
 ) (*SegmentGroup, error) {
@@ -132,7 +131,9 @@ func newSegmentGroup(dir string,
 		out.metrics.ObjectCount(out.count())
 	}
 
-	out.compactionCycle = cyclemanager.New(compactionInterval, out.compactIfLevelsMatch)
+	out.compactionCycle = cyclemanager.New(
+		cyclemanager.CompactionCycleTicker(),
+		out.compactIfLevelsMatch)
 	out.compactionCycle.Start()
 
 	return out, nil
@@ -283,6 +284,29 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	}
 
 	return out[:i], nil
+}
+
+func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	var out roaringset.BitmapLayers
+
+	// start with first and do not exit
+	for _, segment := range sg.segments {
+		rs, err := segment.roaringSetGet(key)
+		if err != nil {
+			if err == lsmkv.NotFound {
+				continue
+			}
+
+			return nil, err
+		}
+
+		out = append(out, rs)
+	}
+
+	return out, nil
 }
 
 func (sg *SegmentGroup) count() int {

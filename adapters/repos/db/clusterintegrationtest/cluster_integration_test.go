@@ -155,7 +155,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 		for _, obj := range data {
 			node := nodes[rand.Intn(len(nodes))]
 
-			ok, err := node.repo.Exists(context.Background(), distributedClass, obj.ID)
+			ok, err := node.repo.Exists(context.Background(), distributedClass, obj.ID, nil)
 			require.Nil(t, err)
 			assert.True(t, ok)
 		}
@@ -614,7 +614,7 @@ func testDistributed(t *testing.T, dirName string, batch bool) {
 			}
 
 			node := nodes[rand.Intn(len(nodes))]
-			actual, err := node.repo.Exists(context.Background(), distributedClass, obj.ID)
+			actual, err := node.repo.Exists(context.Background(), distributedClass, obj.ID, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expected, actual)
 		}

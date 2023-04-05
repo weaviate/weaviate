@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -47,7 +48,7 @@ func New(apiKey string, logger logrus.FieldLogger) *openai {
 			Timeout: 60 * time.Second,
 		},
 		host:   "https://api.openai.com",
-		path:   "/v1/completions",
+		path:   "/v1/chat/completions",
 		logger: logger,
 	}
 }
@@ -71,22 +72,47 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*ent.GenerateResult, error) {
 	settings := config.NewClassSettings(cfg)
 
-	body, err := json.Marshal(generateInput{
-		Prompt:           prompt,
-		Model:            settings.Model(),
-		MaxTokens:        settings.MaxTokens(),
-		Temperature:      settings.Temperature(),
-		FrequencyPenalty: settings.FrequencyPenalty(),
-		PresencePenalty:  settings.PresencePenalty(),
-		TopP:             settings.TopP(),
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
+	var oaiUrl string
+	var err error
+	var input generateInput
+
+	if settings.IsLegacy() {
+		oaiUrl, err = url.JoinPath(v.host, "/v1/completions")
+		if err != nil {
+			return nil, errors.Wrap(err, "url join path")
+		}
+		input = generateInput{
+			Prompt:           prompt,
+			Model:            settings.Model(),
+			MaxTokens:        settings.MaxTokens(),
+			Temperature:      settings.Temperature(),
+			FrequencyPenalty: settings.FrequencyPenalty(),
+			PresencePenalty:  settings.PresencePenalty(),
+			TopP:             settings.TopP(),
+		}
+	} else {
+		oaiUrl, err = url.JoinPath(v.host, v.path)
+		if err != nil {
+			return nil, errors.Wrap(err, "url join path")
+		}
+		tokens := determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), prompt)
+		input = generateInput{
+			Messages: []message{{
+				Role:    "user",
+				Content: prompt,
+			}},
+			Model:            settings.Model(),
+			MaxTokens:        float64(tokens),
+			Temperature:      settings.Temperature(),
+			FrequencyPenalty: settings.FrequencyPenalty(),
+			PresencePenalty:  settings.PresencePenalty(),
+			TopP:             settings.TopP(),
+		}
 	}
 
-	oaiUrl, err := url.JoinPath(v.host, v.path)
+	body, err := json.Marshal(input)
 	if err != nil {
-		return nil, errors.Wrap(err, "join OpenAI API host and path")
+		return nil, errors.Wrap(err, "marshal body")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
@@ -117,22 +143,55 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode > 399 {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+	if res.StatusCode >= 500 {
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Error, "connection to OpenAI failed with status: %d error: %v")
+		return nil, errors.Errorf(errorMessage)
+	} else if res.StatusCode >= 400 {
+		errorMessage := ""
+		if settings.IsLegacy() {
+			errorMessage = getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d")
+		} else {
+			errorMessage = getErrorMessage(res.StatusCode, resBody.Error, "failed with status: %d and message: %v")
 		}
-		return nil, errors.Errorf("failed with status: %d", res.StatusCode)
+
+		return nil, errors.Errorf(errorMessage)
 	}
+
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
-		replaceAll := strings.ReplaceAll(textResponse, "\n", "")
+		trimmedResponse := strings.Trim(textResponse, "\n")
 		return &ent.GenerateResult{
-			Result: &replaceAll,
+			Result: &trimmedResponse,
 		}, nil
 	}
+
+	message := resBody.Choices[0].Message
+	if message != nil {
+		textResponse = message.Content
+		trimmedResponse := strings.Trim(textResponse, "\n")
+		return &ent.GenerateResult{
+			Result: &trimmedResponse,
+		}, nil
+	}
+
 	return &ent.GenerateResult{
 		Result: nil,
 	}, nil
+}
+
+func determineTokens(maxTokensSetting float64, classSetting float64, prompt string) int {
+	tokens := float64(countWhitespace(prompt)+1) * 3
+	if tokens+classSetting > maxTokensSetting {
+		return int(maxTokensSetting - tokens)
+	}
+	return int(tokens)
+}
+
+func getErrorMessage(statusCode int, resBodyError *openAIApiError, errorTemplate string) string {
+	if resBodyError != nil {
+		return fmt.Sprintf(errorTemplate, statusCode, resBodyError.Message)
+	}
+	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
 func (v *openai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
@@ -159,6 +218,19 @@ func (v *openai) generateForPrompt(textProperties map[string]string, prompt stri
 	return prompt, nil
 }
 
+func countWhitespace(s string) int {
+	count := 0
+	for {
+		idx := strings.IndexFunc(s, unicode.IsSpace)
+		if idx == -1 {
+			break
+		}
+		count++
+		s = s[idx+1:]
+	}
+	return count
+}
+
 func (v *openai) getApiKey(ctx context.Context) (string, error) {
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
@@ -174,14 +246,20 @@ func (v *openai) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Prompt           string   `json:"prompt"`
-	Model            string   `json:"model"`
-	MaxTokens        float64  `json:"max_tokens"`
-	Temperature      float64  `json:"temperature"`
-	Stop             []string `json:"stop"`
-	FrequencyPenalty float64  `json:"frequency_penalty"`
-	PresencePenalty  float64  `json:"presence_penalty"`
-	TopP             float64  `json:"top_p"`
+	Prompt           string    `json:"prompt,omitempty"`
+	Messages         []message `json:"messages,omitempty"`
+	Model            string    `json:"model"`
+	MaxTokens        float64   `json:"max_tokens"`
+	Temperature      float64   `json:"temperature"`
+	Stop             []string  `json:"stop"`
+	FrequencyPenalty float64   `json:"frequency_penalty"`
+	PresencePenalty  float64   `json:"presence_penalty"`
+	TopP             float64   `json:"top_p"`
+}
+
+type message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type generateResponse struct {
@@ -193,7 +271,8 @@ type choice struct {
 	FinishReason string
 	Index        float32
 	Logprobs     string
-	Text         string
+	Text         string   `json:"text,omitempty"`
+	Message      *message `json:"message,omitempty"`
 }
 
 type openAIApiError struct {

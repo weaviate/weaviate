@@ -61,7 +61,7 @@ func main() {
         //GW
 	parser := flags.NewParser(server, flags.Default)
 	parser.ShortDescription = "Weaviate"
-	parser.LongDescription = "Cloud-native, modular vector search engine"
+	parser.LongDescription = "Cloud-native, modular vector database"
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {
 		_, err := parser.AddGroup(optsGroup.ShortDescription, optsGroup.LongDescription, optsGroup.Options)

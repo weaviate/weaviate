@@ -35,7 +35,7 @@ import (
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.String() == "/v1/.well-known/openid-configuration" {
+			if r.URL.String() == "/v1/.well-known/openid-configuration" || r.URL.String() == "/v1" {
 				handler.ServeHTTP(w, r)
 				return
 			}
@@ -144,7 +144,8 @@ func addPreflight(next http.Handler) http.Handler {
 		if r.Method == "OPTIONS" {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "*")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Batch")
+			w.Header().Set("Access-Control-Allow-Headers",
+				"Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Cohere-Api-Key, X-Huggingface-Api-Key")
 			return
 		}
 

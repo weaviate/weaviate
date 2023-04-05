@@ -22,7 +22,7 @@ import (
 
 // GetSchema retrieves a locally cached copy of the schema
 func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := m.authorizer.Authorize(principal, "list", "schema/*")
+	err := m.Authorizer.Authorize(principal, "list", "schema/*")
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -69,7 +69,7 @@ func (m *Manager) IndexedInverted(className, propertyName string) bool {
 func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(principal, "list", "schema/*")
+	err := m.Authorizer.Authorize(principal, "list", "schema/*")
 	if err != nil {
 		return nil, err
 	}
@@ -105,14 +105,24 @@ func (m *Manager) ResolveParentNodes(class, shardName string,
 	if len(shard.BelongsToNodes) == 0 {
 		return nil, nil, nil
 	}
-
+	resolved = make([]string, 1, len(shard.BelongsToNodes))
+	thisNode := m.NodeName()
+	// Put this node first of the list
+	// So that the replicator can use this node as first active node
 	for _, node := range shard.BelongsToNodes {
 		host, ok := m.clusterState.NodeHostname(node)
 		if ok && host != "" {
+			if thisNode == node {
+				resolved[0] = host
+				continue
+			}
 			resolved = append(resolved, host)
 		} else {
 			unresolved = append(unresolved, node)
 		}
+	}
+	if resolved[0] == "" {
+		resolved = resolved[1:]
 	}
 	return
 }
@@ -132,7 +142,7 @@ func (m *Manager) ClusterHealthScore() int {
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
 	className string,
 ) (models.ShardStatusList, error) {
-	err := m.authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
+	err := m.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
 	if err != nil {
 		return nil, err
 	}

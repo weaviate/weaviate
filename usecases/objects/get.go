@@ -61,7 +61,8 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal, cl
 
 // GetObjects Class from the connected DB
 func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
-	offset, limit *int64, sort, order *string, additional additional.Properties,
+	offset, limit *int64, sort, order *string, after *string,
+	additional additional.Properties,
 ) ([]*models.Object, error) {
 	err := m.authorizer.Authorize(principal, "list", "objects")
 	if err != nil {
@@ -76,7 +77,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 
 	m.metrics.GetObjectInc()
 	defer m.metrics.GetObjectDec()
-	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, additional)
+	return m.getObjectsFromRepo(ctx, offset, limit, sort, order, after, additional)
 }
 
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
@@ -134,12 +135,16 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	return res, nil
 }
 
-func (m *Manager) getObjectsFromRepo(ctx context.Context, offset, limit *int64,
-	sort, order *string, additional additional.Properties,
+func (m *Manager) getObjectsFromRepo(ctx context.Context,
+	offset, limit *int64, sort, order *string, after *string,
+	additional additional.Properties,
 ) ([]*models.Object, error) {
 	smartOffset, smartLimit, err := m.localOffsetLimit(offset, limit)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
+	}
+	if after != nil {
+		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
 		nil, m.getSort(sort, order), additional)
@@ -234,4 +239,15 @@ func (m *Manager) trackUsageList(res search.Results) {
 		return
 	}
 	m.metrics.AddUsageDimensions(res[0].ClassName, "get_rest", "list_include_vector", res[0].Dims)
+}
+
+func (m *Manager) getCursor(after *string, limit *int64) *filters.Cursor {
+	if after != nil {
+		if limit == nil {
+			// limit -1 means that no limit param was set
+			return &filters.Cursor{After: *after, Limit: -1}
+		}
+		return &filters.Cursor{After: *after, Limit: int(*limit)}
+	}
+	return nil
 }

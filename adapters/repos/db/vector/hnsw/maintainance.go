@@ -43,7 +43,11 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 
 	defer h.metrics.GrowDuration(before)
 
-	h.cache.grow(uint64(len(newIndex)))
+	if h.compressed.Load() {
+		h.compressedVectorsCache.grow(uint64(len(newIndex)))
+	} else {
+		h.cache.grow(uint64(len(newIndex)))
+	}
 
 	h.pools.visitedListsLock.Lock()
 	h.pools.visitedLists.Destroy()

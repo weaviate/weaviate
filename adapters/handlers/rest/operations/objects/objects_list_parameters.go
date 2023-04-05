@@ -50,6 +50,10 @@ type ObjectsListParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*The starting ID of the result window.
+	  In: query
+	*/
+	After *string
 	/*Class parameter specifies the class from which to query objects
 	  In: query
 	*/
@@ -88,6 +92,11 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 
 	qs := runtime.Values(r.URL.Query())
 
+	qAfter, qhkAfter, _ := qs.GetOK("after")
+	if err := o.bindAfter(qAfter, qhkAfter, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	qClass, qhkClass, _ := qs.GetOK("class")
 	if err := o.bindClass(qClass, qhkClass, route.Formats); err != nil {
 		res = append(res, err)
@@ -120,6 +129,24 @@ func (o *ObjectsListParams) BindRequest(r *http.Request, route *middleware.Match
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindAfter binds and validates parameter After from query.
+func (o *ObjectsListParams) bindAfter(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.After = &raw
+
 	return nil
 }
 

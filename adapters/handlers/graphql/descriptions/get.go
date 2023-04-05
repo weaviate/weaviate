@@ -43,3 +43,6 @@ const (
 )
 
 const NetworkGetClassUUID = "The UUID of a Object, assigned by the Weaviate network" // TODO check this with @lauraham
+
+const ConsistencyLevel = "Determines how many replicas must acknowledge a request " +
+	"before it is considered successful. Can be 'ONE', 'QUORUM', or 'ALL'"

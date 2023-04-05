@@ -2,9 +2,7 @@
 Dockerfile.*
 Dockerfile
 docker-compose.yml
-data/
-data-node2/
-data_wiki/
+data*
 logs/
 snapshots/
 snapshots-fs/
@@ -34,3 +32,13 @@ weaviate-wikipedia-*
 # the local path when extracting the wiki dataset
 var/weaviate/
 
+# IDE files
+.idea
+.vscode/
+
+# ignore archives, they are most likely part of some debugging and never part of actual code
+*.tar.gz
+
+# IDE files
+.idea/
+.vscode/

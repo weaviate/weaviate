@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"testing"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -63,7 +66,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -90,6 +93,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("vector cache holds half the original vectors", func(t *testing.T) {
+		vectorIndex.CleanUpTombstonedNodes(neverStop)
 		assert.Equal(t, len(vectors)/2, int(vectorIndex.cache.countVectors()))
 	})
 
@@ -152,7 +156,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	var bfControl []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -267,7 +271,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	var control []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -495,6 +499,210 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 			require.Nil(t, index.Drop(context.Background()))
 		})
 	}
+}
+
+func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
+	// there is a single bulk clean event after all the deletes
+	vectors := vectorsForDeleteTest()
+	var vectorIndex *hnsw
+	userConfig := ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
+	}
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
+		defer func(path string) {
+			err := os.RemoveAll(path)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}(rootPath)
+		index, err := New(Config{
+			RootPath:              rootPath,
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+		},
+			userConfig,
+		)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		userConfig.PQ.Enabled = true
+		userConfig.PQ.Encoder.Type = "tile"
+		userConfig.PQ.Encoder.Distribution = "normal"
+		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+	})
+
+	var control []uint64
+	var bfControl []uint64
+
+	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
+		allowList := helpers.NewAllowList()
+		for i := range vectors {
+			if i%2 == 0 {
+				continue
+			}
+
+			allowList.Insert(uint64(i))
+		}
+
+		res, _, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+		require.Len(t, res, 20)
+		control = res
+	})
+
+	t.Run("brute force control", func(t *testing.T) {
+		bf := bruteForceCosine(vectors, []float32{0.1, 0.1, 0.1}, 100)
+		bfControl = make([]uint64, len(bf))
+		i := 0
+		for _, elem := range bf {
+			if elem%2 == 0 {
+				continue
+			}
+
+			bfControl[i] = elem
+			i++
+		}
+
+		if i > 20 {
+			i = 20
+		}
+
+		bfControl = bfControl[:i]
+		recall := float32(testinghelpers.MatchesInLists(bfControl, control)) / float32(len(bfControl))
+		assert.True(t, recall > 0.85, "control should match bf control")
+	})
+
+	fmt.Printf("entrypoint before %d\n", vectorIndex.entryPointID)
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("runnign the cleanup", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.Nil(t, err)
+	})
+
+	t.Run("start a search that should only contain the remaining elements", func(t *testing.T) {
+		res, _, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+
+		for _, elem := range res {
+			if elem%2 == 0 {
+				t.Errorf("search result contained an even element: %d", elem)
+			}
+		}
+
+		recall := float32(testinghelpers.MatchesInLists(res, control)) / float32(len(control))
+		assert.True(t, recall > 0.85)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
+func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
+	// there is a single bulk clean event after all the deletes
+	vectors := vectorsForDeleteTest()
+	var vectorIndex *hnsw
+	userConfig := ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
+	}
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
+		defer func(path string) {
+			err := os.RemoveAll(path)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}(rootPath)
+		index, err := New(Config{
+			RootPath:              rootPath,
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id%uint64(len(vectors)))], nil
+			},
+		},
+			userConfig,
+		)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		userConfig.PQ.Enabled = true
+		userConfig.PQ.Encoder.Type = "tile"
+		userConfig.PQ.Encoder.Distribution = "normal"
+		index.Compress(0, 256, false, int(ssdhelpers.UseTileEncoder), int(ssdhelpers.LogNormalEncoderDistribution))
+		for i := len(vectors); i < 1000; i++ {
+			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("runnign the cleanup", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.Nil(t, err)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
 }
 
 // we need a certain number of elements so that we can make sure that nodes
@@ -897,7 +1105,7 @@ func TestDelete_Flakyness_gh_1369(t *testing.T) {
 
 	var control []uint64
 	t.Run("control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := helpers.AllowList{}
+		allowList := helpers.NewAllowList()
 		for i := range vectors {
 			if i%2 == 0 {
 				continue

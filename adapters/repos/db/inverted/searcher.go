@@ -12,14 +12,16 @@
 package inverted
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -31,9 +33,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"golang.org/x/sync/errgroup"
 )
 
 type Searcher struct {
+	logger        logrus.FieldLogger
 	store         *lsmkv.Store
 	schema        schema.Schema
 	rowCache      cacher
@@ -53,12 +57,14 @@ type DeletedDocIDChecker interface {
 	Contains(id uint64) bool
 }
 
-func NewSearcher(store *lsmkv.Store, schema schema.Schema,
-	rowCache cacher, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	stopwords stopwords.StopwordDetector, shardVersion uint16,
+func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
+	schema schema.Schema, rowCache cacher,
+	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
+	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
+	shardVersion uint16,
 ) *Searcher {
 	return &Searcher{
+		logger:        logger,
 		store:         store,
 		schema:        schema,
 		rowCache:      rowCache,
@@ -80,51 +86,31 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		return nil, err
 	}
 
-	// we assume that when retrieving objects, we can not tolerate duplicates as
-	// they would have a direct impact on the user
-	if err := pv.fetchDocIDs(s, limit, false); err != nil {
+	if err := pv.fetchDocIDs(s, limit, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs(false)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
+	allowList := helpers.NewAllowListFromBitmap(dbm.docIDs)
+	var it docIDsIterator
 	if len(sort) > 0 {
-		return s.sortedObjectsByDocID(ctx, limit, sort, pointers.docIDs, additional, className)
+		docIDs, err := s.sort(ctx, limit, sort, allowList, additional, className)
+		if err != nil {
+			return nil, errors.Wrap(err, "sort doc ids")
+		}
+		it = newSliceDocIDsIterator(docIDs)
+	} else {
+		it = allowList.LimitedIterator(limit)
 	}
 
-	return s.allObjectsByDocID(pointers.IDs(), limit, additional)
+	return s.objectsByDocID(it, additional)
 }
 
-func (s *Searcher) allObjectsByDocID(ids []uint64, limit int,
-	additional additional.Properties,
-) ([]*storobj.Object, error) {
-	// cutoff if required, e.g. after merging unlimted filters
-	docIDs := ids
-	if len(docIDs) > limit {
-		docIDs = docIDs[:limit]
-	}
-
-	res, err := s.objectsByDocID(docIDs, additional)
-	if err != nil {
-		return nil, errors.Wrap(err, "resolve doc ids to objects")
-	}
-	return res, nil
-}
-
-func (s *Searcher) sortedObjectsByDocID(ctx context.Context, limit int, sort []filters.Sort, ids []uint64,
-	additional additional.Properties, className schema.ClassName,
-) ([]*storobj.Object, error) {
-	docIDs, err := s.sort(ctx, limit, sort, ids, additional, className)
-	if err != nil {
-		return nil, errors.Wrap(err, "sort doc ids")
-	}
-	return s.objectsByDocID(docIDs, additional)
-}
-
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs []uint64,
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,
 	additional additional.Properties, className schema.ClassName,
 ) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
@@ -134,22 +120,20 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(ids []uint64,
+func (s *Searcher) objectsByDocID(it docIDsIterator,
 	additional additional.Properties,
 ) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, len(ids))
-
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, errors.Errorf("objects bucket not found")
 	}
 
-	i := 0
+	out := make([]*storobj.Object, it.Len())
+	docIDBytes := make([]byte, 8)
 
-	for _, id := range ids {
-		keyBuf := bytes.NewBuffer(nil)
-		binary.Write(keyBuf, binary.LittleEndian, &id)
-		docIDBytes := keyBuf.Bytes()
+	i := 0
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
 		res, err := bucket.GetBySecondary(0, docIDBytes)
 		if err != nil {
 			return nil, err
@@ -159,7 +143,12 @@ func (s *Searcher) objectsByDocID(ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := storobj.FromBinaryOptional(res, additional)
+		var unmarshalled *storobj.Object
+		if additional.ReferenceQuery {
+			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
+		} else {
+			unmarshalled, err = storobj.FromBinaryOptional(res, additional)
+		}
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -213,33 +202,25 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 			return nil, errors.Wrap(err, "fetch row hashes to check for cach eligibility")
 		}
 
-		res, ok := s.rowCache.Load(pv.docIDs.checksum)
-		if ok && res.Type == CacheTypeAllowList {
+		if res, ok := s.rowCache.Load(pv.docIDs.checksum); ok {
 			return res.AllowList, nil
 		}
 	}
 
-	// when building an allow list (which is a set anyway) we can skip the costly
-	// deduplication, as it doesn't matter
-	if err := pv.fetchDocIDs(s, -1, true); err != nil {
+	if err := pv.fetchDocIDs(s, 0, !pv.cacheable()); err != nil {
 		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
 	}
 
-	pointers, err := pv.mergeDocIDs(true)
+	dbm, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	out := make(helpers.AllowList, len(pointers.docIDs))
-	for _, p := range pointers.docIDs {
-		out.Insert(p)
-	}
+	out := helpers.NewAllowListFromBitmap(dbm.docIDs)
 
 	if cacheable && allowCaching {
 		s.rowCache.Store(pv.docIDs.checksum, &CacheEntry{
-			Type:      CacheTypeAllowList,
 			AllowList: out,
-			Partial:   pv.docIDs,
 			Hash:      pv.docIDs.checksum,
 		})
 	}
@@ -250,17 +231,27 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
-	var out propValuePair
+	out := newPropValuePair()
 	if filter.Operands != nil {
 		// nested filter
 		out.children = make([]*propValuePair, len(filter.Operands))
 
+		eg := errgroup.Group{}
+
 		for i, clause := range filter.Operands {
-			child, err := s.extractPropValuePair(&clause, className)
-			if err != nil {
-				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
-			}
-			out.children[i] = child
+			i, clause := i, clause
+			eg.Go(func() error {
+				child, err := s.extractPropValuePair(&clause, className)
+				if err != nil {
+					return errors.Wrapf(err, "nested clause at pos %d", i)
+				}
+				out.children[i] = child
+
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return nil, fmt.Errorf("nested query: %w", err)
 		}
 		out.operator = filter.Operator
 		return &out, nil
@@ -288,6 +279,11 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 			filter.Operator)
 	}
 
+	if s.onUUIDProp(className, props[0]) {
+		return s.extractUUIDFilter(props[0], filter.Value.Value, filter.Value.Type,
+			filter.Operator)
+	}
+
 	if s.onTokenizablePropValue(filter.Value.Type) {
 		property, err := s.schema.GetProperty(className, schema.PropertyName(props[0]))
 		if err != nil {
@@ -306,7 +302,8 @@ func (s *Searcher) extractReferenceFilter(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
 	ctx := context.TODO()
-	return newRefFilterExtractor(s.classSearcher, filter, className, s.schema).Do(ctx)
+	return newRefFilterExtractor(s.logger, s.classSearcher, filter, className, s.schema).
+		Do(ctx)
 }
 
 func (s *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
@@ -379,6 +376,33 @@ func (s *Searcher) extractGeoFilter(propName string, value interface{},
 		hasFrequency:  false,
 		prop:          propName,
 		operator:      operator,
+	}, nil
+}
+
+func (s *Searcher) extractUUIDFilter(propName string, value interface{},
+	valueType schema.DataType, operator filters.Operator,
+) (*propValuePair, error) {
+	if valueType != schema.DataTypeString {
+		return nil, fmt.Errorf("prop %q is of type uuid, the uuid to filter"+
+			"on must be specified as a string (e.g. valueString:<uuid>)", propName)
+	}
+
+	asStr, ok := value.(string)
+	if !ok {
+		return nil,
+			fmt.Errorf("expected to see uuid as string in filter, got %T", value)
+	}
+
+	parsed, err := uuid.Parse(asStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid string: %w", err)
+	}
+
+	return &propValuePair{
+		value:        parsed[:],
+		hasFrequency: false,
+		prop:         propName,
+		operator:     operator,
 	}, nil
 }
 
@@ -531,6 +555,24 @@ func (s *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
 	return schema.DataType(property.DataType[0]) == schema.DataTypeGeoCoordinates
 }
 
+// Note: A UUID prop is a user-specified prop of type UUID. This has nothing to
+// do with the primary ID of an object which happens to always be a UUID in
+// Weaviate v1
+//
+// TODO: repeated calls to on... aren't too efficient because we iterate over
+// the schema each time, might be smarter to have a single method that
+// determines the type and then we switch based on the result. However, the
+// effect of that should be very small unless the schema is absolutely massive.
+func (s *Searcher) onUUIDProp(className schema.ClassName, propName string) bool {
+	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
+	if err != nil {
+		return false
+	}
+
+	dt := schema.DataType(property.DataType[0])
+	return dt == schema.DataTypeUUID || dt == schema.DataTypeUUIDArray
+}
+
 func (s *Searcher) onInternalProp(propName string) bool {
 	return filters.IsInternalProperty(schema.PropertyName(propName))
 }
@@ -544,38 +586,80 @@ func (s *Searcher) onTokenizablePropValue(valueType schema.DataType) bool {
 	}
 }
 
-type docPointers struct {
-	count    uint64
-	docIDs   []uint64
-	checksum []byte // helps us judge if a cached read is still fresh
+type docIDsIterator interface {
+	Next() (uint64, bool)
+	Len() int
+}
+
+type sliceDocIDsIterator struct {
+	docIDs []uint64
+	pos    int
+}
+
+func newSliceDocIDsIterator(docIDs []uint64) docIDsIterator {
+	return &sliceDocIDsIterator{docIDs: docIDs, pos: 0}
+}
+
+func (it *sliceDocIDsIterator) Next() (uint64, bool) {
+	if it.pos >= len(it.docIDs) {
+		return 0, false
+	}
+	pos := it.pos
+	it.pos++
+	return it.docIDs[pos], true
+}
+
+func (it *sliceDocIDsIterator) Len() int {
+	return len(it.docIDs)
+}
+
+type docBitmap struct {
+	docIDs   *sroar.Bitmap
+	checksum []byte
+}
+
+// newUnitializedDocBitmap can be used whenever we can be sure that the first
+// user of the docBitmap will set or replace the bitmap, such as a row reader
+func newUnitializedDocBitmap() docBitmap {
+	return docBitmap{docIDs: nil}
+}
+
+func newDocBitmap() docBitmap {
+	return docBitmap{docIDs: sroar.NewBitmap()}
+}
+
+func (dbm *docBitmap) count() int {
+	if dbm.docIDs == nil {
+		return 0
+	}
+	return dbm.docIDs.GetCardinality()
+}
+
+func (dbm *docBitmap) IDs() []uint64 {
+	if dbm.docIDs == nil {
+		return []uint64{}
+	}
+	return dbm.docIDs.ToArray()
+}
+
+func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
+	card := dbm.docIDs.GetCardinality()
+	if limit >= card {
+		return dbm.IDs()
+	}
+
+	out := make([]uint64, limit)
+	for i := range out {
+		// safe to ignore error, it can only error if the index is >= cardinality
+		// which we have already ruled out
+		out[i], _ = dbm.docIDs.Select(uint64(i))
+	}
+
+	return out
 }
 
 type docPointerWithScore struct {
 	id         uint64
 	frequency  float32
 	propLength float32
-}
-
-func (d docPointers) IDs() []uint64 {
-	return d.docIDs
-}
-
-func (d *docPointers) removeDuplicates() {
-	counts := make(map[uint64]uint16, len(d.docIDs))
-	for _, id := range d.docIDs {
-		counts[id]++
-	}
-
-	updated := make([]uint64, len(d.docIDs))
-	i := 0
-	for _, id := range d.docIDs {
-		if counts[id] == 1 {
-			updated[i] = id
-			i++
-		}
-
-		counts[id]--
-	}
-
-	d.docIDs = updated[:i]
 }

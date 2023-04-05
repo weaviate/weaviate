@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,6 +31,7 @@ const (
 )
 
 const (
+	// Set these defaults if the user leaves them blank
 	DefaultCleanupIntervalSeconds = 5 * 60
 	DefaultMaxConnections         = 64
 	DefaultEFConstruction         = 128
@@ -41,21 +43,26 @@ const (
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 	DefaultDistanceMetric         = DistanceCosine
+
+	// Fail validation if those criteria are not met
+	MinmumMaxConnections = 4
+	MinmumEFConstruction = 4
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
 type UserConfig struct {
-	Skip                   bool   `json:"skip"`
-	CleanupIntervalSeconds int    `json:"cleanupIntervalSeconds"`
-	MaxConnections         int    `json:"maxConnections"`
-	EFConstruction         int    `json:"efConstruction"`
-	EF                     int    `json:"ef"`
-	DynamicEFMin           int    `json:"dynamicEfMin"`
-	DynamicEFMax           int    `json:"dynamicEfMax"`
-	DynamicEFFactor        int    `json:"dynamicEfFactor"`
-	VectorCacheMaxObjects  int    `json:"vectorCacheMaxObjects"`
-	FlatSearchCutoff       int    `json:"flatSearchCutoff"`
-	Distance               string `json:"distance"`
+	Skip                   bool     `json:"skip"`
+	CleanupIntervalSeconds int      `json:"cleanupIntervalSeconds"`
+	MaxConnections         int      `json:"maxConnections"`
+	EFConstruction         int      `json:"efConstruction"`
+	EF                     int      `json:"ef"`
+	DynamicEFMin           int      `json:"dynamicEfMin"`
+	DynamicEFMax           int      `json:"dynamicEfMax"`
+	DynamicEFFactor        int      `json:"dynamicEfFactor"`
+	VectorCacheMaxObjects  int      `json:"vectorCacheMaxObjects"`
+	FlatSearchCutoff       int      `json:"flatSearchCutoff"`
+	Distance               string   `json:"distance"`
+	PQ                     PQConfig `json:"pq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -77,11 +84,21 @@ func (c *UserConfig) SetDefaults() {
 	c.Skip = DefaultSkip
 	c.FlatSearchCutoff = DefaultFlatSearchCutoff
 	c.Distance = DefaultDistanceMetric
+	c.PQ = PQConfig{
+		Enabled:        DefaultPQEnabled,
+		BitCompression: DefaultPQBitCompression,
+		Segments:       DefaultPQSegments,
+		Centroids:      DefaultPQCentroids,
+		Encoder: PQEncoder{
+			Type:         DefaultPQEncoderType,
+			Distribution: DefaultPQEncoderDistribution,
+		},
+	}
 }
 
-// ParseUserConfig from an unknown input value, as this is not further
+// ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 
@@ -160,7 +177,35 @@ func ParseUserConfig(input interface{}) (schema.VectorIndexConfig, error) {
 		return uc, err
 	}
 
-	return uc, nil
+	if err := parsePQMap(asMap, &uc.PQ); err != nil {
+		return uc, err
+	}
+
+	return uc, uc.validate()
+}
+
+func (uc *UserConfig) validate() error {
+	var errMsgs []string
+	if uc.MaxConnections < MinmumMaxConnections {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"maxConnections must be a positive integer with a minimum of %d",
+			MinmumMaxConnections,
+		))
+	}
+
+	if uc.EFConstruction < MinmumEFConstruction {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"efConstruction must be a positive integer with a minimum of %d",
+			MinmumMaxConnections,
+		))
+	}
+
+	if len(errMsgs) > 0 {
+		return fmt.Errorf("invalid hnsw config: %s",
+			strings.Join(errMsgs, ", "))
+	}
+
+	return nil
 }
 
 // Tries to parse the int value from the map, if it overflows math.MaxInt64, it

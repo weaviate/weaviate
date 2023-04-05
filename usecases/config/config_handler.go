@@ -93,6 +93,7 @@ type Config struct {
 	TrackVectorDimensions            bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
     DefaultVectorIndexType           string         `json:"default_vector_index_type" yaml:"default_vector_index_type"`
+	ReindexSetToRoaringsetAtStartup  bool           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 }
 
 type moduleProvider interface {
@@ -269,8 +270,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Set default if not given
 	if configFileName == "" {
 		configFileName = DefaultConfigFile
-		logger.WithField("action", "config_load").WithField("config_file_path", DefaultConfigFile).
-			Info("no config file specified, using default or environment based")
 	}
 
 	// Read config file
@@ -278,6 +277,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	_ = err // explicitly ignore
 
 	if len(file) > 0 {
+		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
+			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
 		config, err := f.parseConfigFile(file, configFileName)
 		if err != nil {
 			return configErr(err)

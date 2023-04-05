@@ -38,15 +38,13 @@ import (
 )
 
 type node struct {
-	name             string
-	shardingState    *sharding.State
-	repo             *db.DB
-	schemaManager    *fakeSchemaManager
-	backupManager    *ubak.Manager
-	scheduler        *ubak.Scheduler
-	clusterAPIServer *httptest.Server
-	migrator         *db.Migrator
-	hostname         string
+	name          string
+	repo          *db.DB
+	schemaManager *fakeSchemaManager
+	backupManager *ubak.Manager
+	scheduler     *ubak.Scheduler
+	migrator      *db.Migrator
+	hostname      string
 }
 
 func (n *node) init(dirName string, shardStateRaw []byte,
@@ -68,12 +66,15 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	n.repo = db.New(logger, db.Config{
+	n.repo, err = db.New(logger, db.Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 	}, client, nodeResolver, nodesClient, replicaClient, nil)
+	if err != nil {
+		panic(err)
+	}
 	n.schemaManager = &fakeSchemaManager{
 		shardState:   shardState,
 		schema:       schema.Schema{Objects: &models.Schema{}},
@@ -118,7 +119,7 @@ type fakeNodes struct {
 	nodes []string
 }
 
-func (f fakeNodes) AllNames() []string {
+func (f fakeNodes) Candidates() []string {
 	return f.nodes
 }
 
@@ -168,6 +169,10 @@ type nodeResolver struct {
 
 func (r nodeResolver) AllNames() []string {
 	panic("node resolving not implemented yet")
+}
+
+func (r nodeResolver) Candidates() []string {
+	return nil
 }
 
 func (r nodeResolver) LocalName() string {

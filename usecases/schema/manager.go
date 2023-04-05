@@ -36,7 +36,7 @@ type Manager struct {
 	state                   State
 	callbacks               []func(updatedSchema schema.Schema)
 	logger                  logrus.FieldLogger
-	authorizer              authorizer
+	Authorizer              authorizer
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -90,6 +90,7 @@ type clusterState interface {
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
+	Candidates() []string
 	LocalName() string
 	NodeCount() int
 	NodeHostname(nodeName string) (string, bool)
@@ -123,7 +124,7 @@ func NewManager(migrator migrate.Migrator, repo Repo,
 		repo:                    repo,
 		state:                   State{},
 		logger:                  logger,
-		authorizer:              authorizer,
+		Authorizer:              authorizer,
 		vectorConfigParser:      vectorConfigParser,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,

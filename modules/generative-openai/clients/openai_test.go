@@ -79,7 +79,7 @@ func TestGetAnswer(t *testing.T) {
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "some error from the server")
+		assert.Contains(t, err.Error(), "connection to OpenAI failed with status: 500 error: some error from the server")
 	})
 }
 
@@ -90,7 +90,7 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/completions", r.URL.String())
+	assert.Equal(f.t, "/v1/chat/completions", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.answer.Error != nil && f.answer.Error.Message != "" {
