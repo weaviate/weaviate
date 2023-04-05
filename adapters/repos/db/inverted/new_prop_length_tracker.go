@@ -59,7 +59,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 			// Loop over every page and bucket in the old tracker and add it to the new tracker
 			for _, name := range propertyNames {
 				t.data.BucketedData[name] = make(map[int]int, 64)
-				for i := 0; i < 64; i++ {
+				for i := 0; i <= 64; i++ {
 					count, err := plt.BucketCount(name, uint16(i))
 					if err != nil {
 						return nil, errors.Wrap(err, "convert old property length tracker")
@@ -100,19 +100,19 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	return nil
 }
 
-func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) uint16 {
+func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	if value <= 5.00 {
-		return uint16(value) - 1
+		return int(value) - 1
 	}
 
 	bucket := int(math.Log(float64(value)/4.0)/math.Log(1.25) + 4)
 	if bucket > 63 {
 		return 64
 	}
-	return uint16(bucket)
+	return int(bucket)
 }
 
-func (t *JsonPropertyLengthTracker) valueFromBucket(bucket uint16) float32 {
+func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
 	if bucket <= 5 {
 		return float32(bucket + 1)
 	}
@@ -132,9 +132,13 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	sum := float32(0)
 	totalCount := float32(0)
 
-	for i := 0; i < len(bucket); i++ {
-		sum = sum + t.valueFromBucket(uint16(i))*float32(bucket[i])
-		totalCount += float32(bucket[i])
+	for i := -1; i <= 64; i++ {
+		count ,ok:= bucket[i]
+		if !ok {
+			count = 0
+		}
+		sum = sum + t.valueFromBucket(int(i))*float32(count)
+		totalCount += float32(count)
 	}
 
 	if totalCount == 0 {
@@ -144,35 +148,33 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	return sum / totalCount, nil
 }
 
-func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (uint64, uint64, float64, uint64, uint64, error) {
+
+// returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
+func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64,  error) {
 	t.Lock()
 	defer t.Unlock()
 
 	bucket, ok := t.data.BucketedData[propName]
 	if !ok {
-		return 0, 0, 0, 0, 0, nil
+		return 0, 0, 0, nil
 	}
 
-	sum := uint64(0)
-	totalCount := uint64(0)
-	countTally := uint64(0)
-	proplenTally := uint64(0)
+	sum := int(0)
+	tally := int(0)
 
-	for i := 0; i < len(bucket); i++ {
+	for i := -1; i <= 64; i++ {
 		count := bucket[i]
 		value := t.valueFromBucket(uint16(i))
-		countTally += uint64(count)
-		proplenTally += uint64(value)
-		sum += uint64(value * float32(count))
-		totalCount += uint64(count)
-
+	
+		sum += int(value * float32(count))
+		tally += int(count)
 	}
 
-	if totalCount == 0 {
-		return 0, 0, 0, 0, 0, nil
+	if tally == 0 {
+		return 0, 0, 0,   nil
 	}
 
-	return sum, totalCount, float64(sum) / float64(totalCount), countTally, proplenTally, nil
+	return sum, tally, float64(sum) / float64(tally),   nil
 }
 
 func (t *JsonPropertyLengthTracker) Flush() error {

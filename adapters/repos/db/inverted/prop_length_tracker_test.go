@@ -265,6 +265,9 @@ func TestFormatConversion(t *testing.T) {
 
 	t.Run("importing multi-page data and verifying", func(t *testing.T) {
 		create20PropsAndVerify_old(t, tracker)
+		tracker.TrackProperty("prop_22", 0)
+		tracker.TrackProperty("prop_22", 0)
+		tracker.TrackProperty("prop_22", 0)
 	})
 
 	t.Run("commit the state to disk", func(t *testing.T) {
@@ -294,6 +297,15 @@ func TestFormatConversion(t *testing.T) {
 		res, err = newTracker.PropertyMean("prop_19")
 		require.Nil(t, err)
 		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
+
+		res, err = newTracker.PropertyMean("prop_22")
+		require.Nil(t, err)
+		assert.EqualValues(t, 0,0)
+		sum, count, average,_ := newTracker.PropertyTally("prop_22")
+		assert.EqualValues(t, 0, sum)
+		assert.EqualValues(t, 3, count)
+		assert.EqualValues(t, 0, average)
+
 	})
 }
 

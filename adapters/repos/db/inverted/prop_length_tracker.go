@@ -316,38 +316,6 @@ func (t *OldPropertyLengthTracker) PropertyMean(propName string) (float32, error
 	return sum / totalCount, nil
 }
 
-func (t *OldPropertyLengthTracker) PropertyTally(propName string) (uint64, uint64, float64, uint64, uint64, error) {
-	t.Lock()
-	defer t.Unlock()
-
-	page, offset, ok := t.propExists(propName)
-	if !ok {
-		return 0, 0, 0, 0, 0, nil
-	}
-
-	sum := uint64(0)
-	totalCount := uint64(0)
-	bucket := uint16(0)
-	countTally := uint64(0)
-	proplenTally := uint64(0)
-
-	offset = offset + page*PAGE_LENGTH
-	for o := offset; o < offset+256; o += 4 {
-		value, count := t.unpackBucketAt(bucket, int(o))
-		countTally += uint64(count)
-		proplenTally += uint64(value)
-		sum += uint64(value * count)
-		totalCount += uint64(count)
-		bucket++
-	}
-
-	if totalCount == 0 {
-		return 0, 0, 0, 0, 0, nil
-	}
-
-	return sum, totalCount, float64(sum) / float64(totalCount), countTally, proplenTally, nil
-}
-
 func (t *OldPropertyLengthTracker) BucketCount(propName string, bucket uint16) (uint16, error) {
 	t.Lock()
 	defer t.Unlock()
