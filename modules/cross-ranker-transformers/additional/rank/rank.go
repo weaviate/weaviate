@@ -25,7 +25,7 @@ import (
 //const maximumNumberOfGoroutines = 10
 
 type CrossRankerClient interface {
-	Rank(ctx context.Context, property string, query string) (*ent.RankResult, error)
+	Rank(ctx context.Context, rankpropertyValue string, query string) (*ent.RankResult, error)
 }
 
 type CrossRankerProvider struct {

@@ -17,9 +17,15 @@ type Params struct {
 }
 
 func (n Params) GetQuery() string {
-	return *n.Query
+	if n.Query != nil {
+		return *n.Query
+	}
+	return ""
 }
 
 func (n Params) GetProperty() string {
-	return *n.Property
+	if n.Property != nil {
+		return *n.Property
+	}
+	return ""
 }
