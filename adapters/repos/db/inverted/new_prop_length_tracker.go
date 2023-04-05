@@ -14,7 +14,6 @@ package inverted
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"sync"
@@ -39,7 +38,7 @@ func NewJsonPropertyLengthTracker(path string) (*JsonPropertyLengthTracker, erro
 	}
 
 	// read the file into memory
-	bytes, err := ioutil.ReadFile(path)
+	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return t, nil
