@@ -56,8 +56,9 @@ func TestSetClassDefaults(t *testing.T) {
 		class := &models.Class{
 			Class: "Foo",
 			Properties: []*models.Property{{
-				Name:     "Foo",
-				DataType: []string{"string"},
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			}},
 			Vectorizer: "my-module",
 		}
@@ -70,8 +71,9 @@ func TestSetClassDefaults(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{{
-				Name:     "Foo",
-				DataType: []string{"string"},
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"my-module": map[string]interface{}{
 						"per-prop-1": "prop default value",
@@ -103,8 +105,9 @@ func TestSetClassDefaults(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{{
-				Name:     "Foo",
-				DataType: []string{"string"},
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"my-module": map[string]interface{}{
 						"per-prop-1": "prop overwritten by user",
@@ -122,8 +125,9 @@ func TestSetClassDefaults(t *testing.T) {
 				},
 			},
 			Properties: []*models.Property{{
-				Name:     "Foo",
-				DataType: []string{"string"},
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
 					"my-module": map[string]interface{}{
 						"per-prop-1": "prop overwritten by user",
@@ -153,8 +157,9 @@ func TestValidateClass(t *testing.T) {
 		class := &models.Class{
 			Class: "Foo",
 			Properties: []*models.Property{{
-				Name:     "Foo",
-				DataType: []string{"string"},
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			}},
 			Vectorizer: "none",
 		}
@@ -176,8 +181,9 @@ func TestValidateClass(t *testing.T) {
 			class := &models.Class{
 				Class: "Foo",
 				Properties: []*models.Property{{
-					Name:     "Foo",
-					DataType: []string{"string"},
+					Name:         "Foo",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
 				}},
 				Vectorizer: "my-module",
 			}
@@ -195,8 +201,9 @@ func TestValidateClass(t *testing.T) {
 		class := &models.Class{
 			Class: "Foo",
 			Properties: []*models.Property{{
-				Name:     "Foo",
-				DataType: []string{"string"},
+				Name:         "Foo",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			}},
 			Vectorizer: "my-module",
 		}
@@ -225,8 +232,9 @@ func TestSetSinglePropertyDefaults(t *testing.T) {
 			},
 		},
 		Properties: []*models.Property{{
-			Name:     "Foo",
-			DataType: []string{"string"},
+			Name:         "Foo",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 			ModuleConfig: map[string]interface{}{
 				"my-module": map[string]interface{}{
 					"per-prop-1": "prop overwritten by user",

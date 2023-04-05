@@ -63,8 +63,9 @@ func Test_MergingObjects(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "name",
-							DataType: []string{"string"},
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -74,8 +75,9 @@ func Test_MergingObjects(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
 						{
-							Name:     "string",
-							DataType: []string{"string"},
+							Name:         "string",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name:     "text",
@@ -109,8 +111,9 @@ func Test_MergingObjects(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{
 						{
-							Name:     "foo",
-							DataType: []string{"string"},
+							Name:         "foo",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
 				},
@@ -427,20 +430,24 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 					InvertedIndexConfig: invertedConfig(),
 					Properties: []*models.Property{ // tries to have "one of each property type"
 						{
-							Name: "untouched_string", Tokenization: "word",
-							DataType: []string{"string"},
+							Name:         "untouched_string",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
-							Name: "touched_string", Tokenization: "word",
-							DataType: []string{"string"},
+							Name:         "touched_string",
+							DataType:     schema.DataTypeText.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
-							Name: "untouched_string_array", Tokenization: "word",
-							DataType: []string{"string[]"},
+							Name:         "untouched_string_array",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
-							Name: "touched_string_array", Tokenization: "word",
-							DataType: []string{"string[]"},
+							Name:         "touched_string_array",
+							DataType:     schema.DataTypeTextArray.PropString(),
+							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 						{
 							Name: "untouched_text", Tokenization: "word",

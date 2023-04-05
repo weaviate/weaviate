@@ -52,8 +52,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "name",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
@@ -84,8 +84,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	t.Run("Add additional property", func(t *testing.T) {
 		err := migrator.AddProperty(context.Background(), class.Class, &models.Property{
 			Name:         "OtherProp",
-			DataType:     []string{"string"},
-			Tokenization: "word",
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
 		})
 		require.Nil(t, err)
 	})
@@ -167,8 +167,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 			{
 				Name:     "number array",
@@ -289,8 +290,8 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		Properties: []*models.Property{
 			{
 				Name:         "name",
-				DataType:     []string{"string"},
-				Tokenization: "word",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
 			},
 		},
 	}
